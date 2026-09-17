@@ -1,0 +1,781 @@
+<title>Jarvis Status Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --ground: #F2F5F8;
+    --surface: #FFFFFF;
+    --ink: #15202B;
+    --muted: #55677A;
+    --rule: #D5DEE7;
+    --accent: #2F6690;
+    --accent-soft: #E3EDF5;
+    --good: #2E7D5B;
+    --good-soft: #E1F2E9;
+    --warn: #A96A12;
+    --warn-soft: #FBEEDB;
+    --bad: #B83A33;
+    --bad-soft: #F9E3E1;
+    --code-bg: #E9EEF3;
+    --empty: #E6ECF1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E141A;
+      --surface: #16202A;
+      --ink: #E7EDF3;
+      --muted: #9AABBB;
+      --rule: #2A3947;
+      --accent: #7FB2DB;
+      --accent-soft: #1C2E3D;
+      --good: #6CC49A;
+      --good-soft: #15302A;
+      --warn: #E6B25E;
+      --warn-soft: #362A16;
+      --bad: #F08A83;
+      --bad-soft: #3A1F1E;
+      --code-bg: #1F2B36;
+      --empty: #202C38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E141A;
+    --surface: #16202A;
+    --ink: #E7EDF3;
+    --muted: #9AABBB;
+    --rule: #2A3947;
+    --accent: #7FB2DB;
+    --accent-soft: #1C2E3D;
+    --good: #6CC49A;
+    --good-soft: #15302A;
+    --warn: #E6B25E;
+    --warn-soft: #362A16;
+    --bad: #F08A83;
+    --bad-soft: #3A1F1E;
+    --code-bg: #1F2B36;
+    --empty: #202C38;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+    font-size: 19px;
+    line-height: 1.55;
+  }
+  main {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 36px 20px 64px;
+    display: grid;
+    gap: 40px;
+  }
+  h1, h2 {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: 0.01em;
+  }
+  h1 { font-size: 40px; line-height: 1.1; }
+  h2, summary {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--rule);
+  }
+  .mast { display: grid; gap: 6px; }
+  .mast p { margin: 0; color: var(--muted); font-size: 17px; max-width: 64ch; }
+  .live {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 16px;
+    color: var(--muted);
+  }
+  .live span::before {
+    content: "";
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--good);
+    margin-right: 7px;
+    vertical-align: 1px;
+  }
+  .mono, code {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-weight: 500;
+    font-size: 0.82em;
+  }
+  pre.cmd {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+  section { display: grid; gap: 14px; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }
+  a:hover { text-decoration-thickness: 3px; }
+  a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  /* Version ladder */
+  .ladder { display: grid; gap: 0; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .rung {
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    gap: 4px 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rung:last-child { border-bottom: none; }
+  .tag {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+  }
+  .tag.dim { color: var(--muted); }
+  .rung-body { display: grid; gap: 8px; min-width: 0; }
+  .rung-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .rung-name { font-weight: 700; font-size: 20px; }
+  .rung-count {
+    margin-left: auto;
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 14px;
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .track { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 10px; }
+  .track-label {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .segs { display: flex; gap: 4px; flex-wrap: nowrap; min-width: 0; }
+  .seg {
+    flex: 1 1 0;
+    min-width: 10px;
+    height: 20px;
+    border-radius: 3px;
+    background: var(--empty);
+    border: 1.5px solid transparent;
+  }
+  .seg.done { background: var(--accent); }
+  .seg.live { background: var(--good); }
+  .seg.review {
+    background: repeating-linear-gradient(135deg, var(--accent) 0 3px, var(--accent-soft) 3px 7px);
+    border-color: var(--accent);
+  }
+  .seg.work { background: var(--warn-soft); border-color: var(--warn); border-style: dashed; }
+  .seg.yours { background: var(--surface); border-color: var(--muted); border-style: dotted; }
+  .legend .seg { flex: none; width: 22px; height: 14px; }
+  .rung-note { margin: 0; color: var(--muted); font-size: 16px; max-width: 64ch; }
+
+  .gate {
+    background: var(--warn-soft);
+    border: 2px solid var(--warn);
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: grid;
+    gap: 12px;
+  }
+  .gate strong { font-size: 19px; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 16px; }
+  .step {
+    background: var(--surface);
+    border: 1.5px solid var(--rule);
+    border-radius: 6px;
+    padding: 5px 11px;
+    white-space: nowrap;
+  }
+  .step.now { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .arrow { color: var(--muted); }
+
+  .needs {
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    padding: 22px 24px;
+    display: grid;
+    gap: 18px;
+  }
+  .needs h2 { color: var(--accent); border-color: var(--accent-soft); }
+  .task { display: grid; gap: 8px; }
+  .task strong { font-size: 21px; }
+  .task p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+  .ledger { display: grid; gap: 0; }
+  .row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 6px 16px;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .pr { font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 22px; }
+  .what { font-weight: 700; }
+  .detail { grid-column: 2 / 4; color: var(--muted); font-size: 17px; }
+  .pill {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.good { color: var(--good); background: var(--good-soft); }
+  .pill.ready { color: var(--accent); background: var(--accent-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.idle { color: var(--muted); background: var(--empty); }
+
+  .later { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .later li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 12px 0 12px 16px;
+    border-left: 4px solid var(--rule);
+  }
+  .later li p { grid-column: 1 / 3; margin: 0; color: var(--muted); font-size: 17px; max-width: 62ch; }
+  .who { font-size: 15px; color: var(--muted); white-space: nowrap; }
+  .note { margin: 0; color: var(--muted); font-size: 17px; }
+
+  details { display: grid; gap: 14px; }
+  summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "Show"; letter-spacing: 0.08em; }
+  details[open] summary::after { content: "Hide"; }
+  summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+  .parked { display: grid; gap: 14px; padding-top: 14px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 17px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--rule); }
+  th {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tfoot td { font-weight: 700; border-bottom: none; }
+  .checklist { margin: 0; padding-left: 22px; display: grid; gap: 6px; color: var(--ink); }
+
+  @media (max-width: 560px) {
+    body { font-size: 18px; }
+    h1 { font-size: 32px; }
+    .rung { grid-template-columns: 1fr; }
+    .tag { font-size: 22px; }
+    .rung-count { margin-left: 0; }
+    .track { grid-template-columns: 48px 1fr; }
+    .segs { gap: 3px; }
+    .row { grid-template-columns: 52px 1fr; }
+    .row .pill { grid-column: 2; justify-self: start; }
+    .detail { grid-column: 2; }
+  }
+</style>
+
+<main>
+  <header class="mast">
+    <h1>Jarvis status</h1>
+    <p>Updated Sep 17, 2:15 PM your time. <strong>Live now:</strong> memory lookup in under half a second, brain-tree filing, older chat history on Telegram. <strong>Just went live:</strong> nightly memory backup (first run tonight 7:30 PM). <strong>Left:</strong> meaning search needs another fix round first, so its setup step waits. Being built: the AI rebuild (one AI + tools).</p>
+    <div class="live">
+      <span>Gateway live: version <span class="mono">ebe38aa4</span></span>
+      <span>Health check OK</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="how-far">
+    <h2 id="how-far">How far along each version is</h2>
+    <div class="legend" aria-hidden="true">
+      <span><span class="seg live"></span>Live for you</span>
+      <span><span class="seg done"></span>Built and checked</span>
+      <span><span class="seg review"></span>In review with me</span>
+      <span><span class="seg work"></span>Builder working</span>
+      <span><span class="seg yours"></span>Your step</span>
+      <span><span class="seg"></span>Not started</span>
+    </div>
+
+    <div class="gate" role="note">
+      <strong>The path to switching everything on</strong>
+      <div class="path">
+        <span class="step">#70 database can be rebuilt · merged</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="step">#60 rehearsal checklist · merged</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="step">Rehearsal on throwaway database · passed</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="step">#71 checklist works on Windows · merged</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="step">Switched on for real · done Sep 16</span>
+      </div>
+    </div>
+
+    <div class="ladder">
+      <div class="rung">
+        <span class="tag">R0</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Foundations</span><span class="rung-count">7 of 7 live</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="7 of 7 pieces live"><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span></div>
+          </div>
+          <p class="rung-note">Telegram bot, morning digest, decision queue and watchdog. Live since Sep 11.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag">v1.0</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Phone Jarvis from the car</span><span class="rung-count">code 4 of 4 · your steps 0 of 4</span></div>
+          <div class="track"><span class="track-label">Code</span>
+            <div class="segs" role="img" aria-label="4 of 4 code pieces built"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span></div>
+          </div>
+          <div class="track"><span class="track-label">Go live</span>
+            <div class="segs" role="img" aria-label="4 go-live steps, all yours, none done"><span class="seg yours"></span><span class="seg yours"></span><span class="seg yours"></span><span class="seg yours"></span></div>
+          </div>
+          <p class="rung-note">All calling code is merged: secret phrase, guest PINs, adding your phone, the 7-call checklist. Your four steps: Twilio, security key swap, add your phone, the real test calls.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag">v1.1</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Memory with every PC off</span><span class="rung-count">6 of 11 built</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="11 pieces: 6 built, 1 with a builder, 4 not started"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg work"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+          </div>
+          <p class="rung-note">Built: memory storage, remember and forget, full recall of old chats, and learning on its own (<a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>). Sent back and with a builder: memory in your Telegram chats (<a href="https://github.com/ksid1229-ops/jarvis/pull/62">#62</a>). Not started: meaning search, nightly backup, calls, rollout.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag">v1.2</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">School and university</span><span class="rung-count">5 live · 2 not connected</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="7 pieces: 5 live, 2 not connected yet"><span class="seg live"></span><span class="seg yours"></span><span class="seg live"></span><span class="seg live"></span><span class="seg live"></span><span class="seg yours"></span><span class="seg live"></span></div>
+          </div>
+          <p class="rung-note">Live: catch-up plan per course, university tracker, application checklist, study coach weak spots, full application workflow (<a href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>). Being fixed: school updates failing to save. Not connected yet: D2L (through email on onesid.ca, after memory) and Google Classroom.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag">v1.2</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Proactive study coach</span><span class="rung-count">2 of 5 live</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="5 pieces: 2 live, 3 not started"><span class="seg live"></span><span class="seg live"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+          </div>
+          <p class="rung-note">Live: a daily study check-in, quizzes and flashcards from your courses. Waits for memory and grades: learning your weak spots, quizzing you in the car, finding free tools.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.3</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Hands: tasks on your PCs</span><span class="rung-count">0 of 6</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="6 pieces, none started"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+          </div>
+          <p class="rung-note">Starts after memory, with one question for you: how Jarvis should reach your Windows PCs.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.4</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">St. Remy</span><span class="rung-count">not started</span></div>
+          <p class="rung-note">Waits for v1.3.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.5</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Send on command, Siri, your calendar</span><span class="rung-count">0 of 5</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="5 pieces, none started"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+          </div>
+          <p class="rung-note">Now includes the one Jarvis-run calendar you asked for. Waits for v1.3 and school.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.6</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Manager: briefs, Gmail, habits</span><span class="rung-count">plan done</span></div>
+          <div class="track"><span class="track-label">Pieces</span>
+            <div class="segs" role="img" aria-label="Plan done, 5 build pieces not started"><span class="seg done"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+          </div>
+          <p class="rung-note">Step-by-step plan merged. Building waits for memory and school.</p>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.7</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Errands and Tesla</span><span class="rung-count">not started</span></div>
+        </div>
+      </div>
+
+      <div class="rung">
+        <span class="tag dim">v1.8</span>
+        <div class="rung-body">
+          <div class="rung-head"><span class="rung-name">Dashboard and voice notes</span><span class="rung-count">not started</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="needs">
+    <h2>Needs you</h2>
+
+    <div class="task">
+      <strong>1. Nothing right now</strong>
+      <p>Done today: backup bucket, database change, nightly backup (<a href="https://github.com/ksid1229-ops/jarvis/pull/80">#80</a>) live. The two meaning-search commands wait until <a href="https://github.com/ksid1229-ops/jarvis/pull/83">#83</a> passes its next check — I'll send them then.</p>
+    </div>
+
+    <div class="task">
+      <strong>2. D2L through email: nothing to do yet</strong>
+      <p>Jarvis will read D2L's notification emails at school@onesid.ca. I build it after memory, then you point D2L's email setting at that address.</p>
+    </div>
+
+    <div class="task">
+      <strong>3. Calling: after memory and the AI rebuild</strong>
+      <p>No code work left. Your steps later: Twilio, security key swap, add your phone, real test calls.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>Pull requests</h2>
+    <div class="ledger">
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/85">#85</a>
+        <span class="what">Memory lookup no longer times out</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged; goes live with your next deploy. Memory lookup goes from hitting the 0.8 s limit to under 0.1 s. A follow-up (queued) makes older chat history searchable on Telegram and keeps memory working once messages start being archived at 90 days.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/84">#84</a>
+        <span class="what">Never claim fake actions</span>
+        <span class="pill idle">Replaced</span>
+        <span class="detail">Not merging. On new wording it missed most false "I emailed / booked" claims and wrecked normal advice, because it matched phrases instead of letting the AI understand. Honesty is being rebuilt into the AI itself: the AI must say which actions its reply claims, and code checks them.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/86">#86</a>
+        <span class="what">One AI decides and uses tools</span>
+        <span class="pill warn">Fixing</span>
+        <span class="detail">Replaces the code routers with one AI that understands you and uses tools. Round 2 sent back: it could say "Done" when nothing was saved, and could save a guess as something you said. Round 3 builder started 1:12 PM.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/83">#83</a>
+        <span class="what">Meaning search</span>
+        <span class="pill warn">Fixing</span>
+        <span class="detail">Jarvis finds memories even when you ask in different words. The forgetting leak and the slowdown from last round are properly fixed, but the second check found five more: it would send Cloudflare more text than allowed, so the index would never fill; older archived chats would drop out of it; and a stray "ok" in the chat could delete a real answer from what Jarvis remembers. Round 3 started 2:10 PM.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/82">#82</a>
+        <span class="what">Brain-tree filing</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged; goes live with your next deploy. Jarvis files each new memory into areas like School &gt; Chemistry on its own, and an odd area name can no longer lose a memory. Small follow-ups (look-alike emoji area names, showing the AI your existing areas) come next.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/80">#80</a>
+        <span class="what">Nightly memory backup</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Live (<span class="mono">ebe38aa4</span>). Every night at 7:30 PM Jarvis backs up everything it stores and checks each copy. A restore survived 2,318 simulated crashes and comes back identical.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/79">#79</a>
+        <span class="what">Jarvis forgets the conversation</span>
+        <span class="pill ready">Merged</span>
+        <span class="detail">Merged; goes live with your next deploy. The recent conversation always loads now, and only the extra memory search has a time limit.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/78">#78</a>
+        <span class="what">"Couldn't update your school plan"</span>
+        <span class="pill ready">Merged</span>
+        <span class="detail">Merged together with #81, both live on your next deploy. Your chem-test note now saves even if the proposed study schedule is malformed, and any failure is logged with an exact reason.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/76">#76</a>
+        <span class="what">Automatic remembering (capped at $5/month)</span>
+        <span class="pill ready">Merged</span>
+        <span class="detail">Merged; goes live with your next deploy. Saves what matters from normal chat about once an hour, never pays twice, and warns you at 80% of the $5 cap or if DeepSeek credits run out.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/77">#77</a>
+        <span class="what">Remembers the conversation; typo-proof "remember"</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Deployed (<span class="mono">266fa0f8</span>). Your messages now carry the conversation, and "Remeber that…" works. The slow-lookup bug above still hides it; the fix is building.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>
+        <span class="what">Full university application workflow</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Deployed. Built by a Claude builder after three GPT rounds. It never claims to have sent, submitted or accepted anything, and tells you plainly when an update wasn't saved.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/73">#73</a>
+        <span class="what">Study coach learns your weak spots</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Deployed. Needs your grades and deadlines connected to be useful.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/74">#74</a>
+        <span class="what">Memory in your Telegram chats (was #62)</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Deployed. "Remember that…", "forget that" and "why do you think that?" work in plain words.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/75">#75</a>
+        <span class="what">Faster reply sending</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged; goes live with your next deploy. Database round trips per reply drop from 26 to 12, with no change to exactly-once delivery.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/72">#72</a>
+        <span class="what">Faster replies and "typing…"</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Merged and deployed (<span class="mono">3c802707</span>). The AI no longer runs its slow "thinking" step on everyday Telegram messages, "typing…" shows at once, and every reply's timing is logged. "hi" went from 7–8 s to 4–5 s.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/71">#71</a>
+        <span class="what">Switch-on checklist works on Windows</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">d6af660</span>). Fixes the six bugs the real rehearsal found. The fixed checklist then ran exactly as written on a throwaway database, twice, with every step passing and the database deleted afterwards.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/70">#70</a>
+        <span class="what">Database can be rebuilt from scratch</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">010f93b</span>). Rewrote the 7 old rules Cloudflare can't read into the form it can, with the same meaning and error messages, byte for byte the same as an independent rewrite. Round 2 added the two tests that were missing, so every rewritten rule is proven to still fire.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>
+        <span class="what">Memory learns on its own</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">4e21369</span>). Jarvis pulls what matters out of your chats automatically and keeps up with a busy day. A message you forward from someone else is never saved as your own words, a long message with many facts isn't dropped, and school checks always run first. All 3,868 tests pass.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>
+        <span class="what">Grades and missing work</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">2d098d0</span>). Reads your submissions and marks from Google Classroom into your morning update. Every way it could tell you something false was found, fixed and proven over three rounds: handed-in work shown as missing, work checked before its deadline, a teacher extending a deadline. Times show in Toronto time.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/67">#67</a>
+        <span class="what">Guest-PIN messages never get stuck</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">fd65944</span>). One message that kept failing used to block every newer one; now they take turns, and a failing message is never thrown away. All 14 safety checks proven by tests.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a>
+        <span class="what">Database rehearsal, real path</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">9ded693</span>). The step-by-step rehearsal for switching your database changes on, checked four rounds for whether every step can actually run. It handles change numbers still reserved by open work, and says exactly when to answer y at Cloudflare's prompt.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/69">#69</a>
+        <span class="what">Flaky test fixed</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">dee991f</span>). One test failed about once in 170 runs because a random word in your test phrase ("serve", "salt") matched database bookkeeping text. The first fix left a check that could never fail; the second one really checks nothing secret is stored.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/68">#68</a>
+        <span class="what">Memory safety check pinned</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">57a9ad0</span>). If your account were disabled, searching old conversations can no longer record results for it. I proved the gap was real on the old code and closed by this test.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/63">#63</a>
+        <span class="what">Roadmap: study coach and your calendar</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">5358b14</span>). The roadmap now has the proactive study coach and one Jarvis-run calendar for school, St. Remy and personal plans. Whether your calendar is iCloud or Google is written down as "ask Sid when we get there".</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>
+        <span class="what">Your database runbook</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">c23f0c9</span>). Step-by-step for rehearsing database changes on a throwaway copy. Its starting point turned out to be impossible, which is what <a href="https://github.com/ksid1229-ops/jarvis/pull/70">#70</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a> fix. Nothing in it applies anything.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a>
+        <span class="what">Voicemail test call</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">93e3d0d</span>). If Jarvis rings you and voicemail or someone else answers, the call ends having said nothing about you and given no access. All eleven checks held.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a>
+        <span class="what">Full history for old memories</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">282f066</span>). Jarvis can read back your exact past conversations, including ones moved to long-term storage, and "forget that" works on very old conversations too.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/55">#55</a>
+        <span class="what">v1.6 build plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">4262024</span>). Written plan only: habit profile, class briefs, Gmail and Drive, calendar, smarter model use, weekly cost line.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>
+        <span class="what">Calling release check</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">d33a5dc</span>). The checklist of real recorded test calls calling must pass before it goes live, including three wrong tries of your phrase ending the call.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>
+        <span class="what">Study coach</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">9b900fe</span>). One quiet study check-in in your morning update, and quizzes on your own course material graded fairly whether you reply in a word or a sentence.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>
+        <span class="what">University application checklist</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">a38a637</span>). For each program: supplements, essays, references, transcripts and scholarships, each with a status and a due date marked verified or unverified. It never submits, uploads or contacts anyone. If Jarvis ever refuses an ordinary reply, tell me; that list is meant to grow from real use.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>
+        <span class="what">D2L deadlines, finished</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">10d4cd7</span>). Upcoming deadlines first even in a busy semester, a warning if syncing stops, and "check D2L now" for a fresh read. Toronto time.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/50">#50</a>
+        <span class="what">Remember and forget, in plain words</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">1cae97b</span>). The piece behind "remember this", "forget that" and "why do you think that".</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>
+        <span class="what">D2L deadlines</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">deea39c</span>). Reads your private D2L calendar link every hour, with no D2L login.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/48">#48</a>
+        <span class="what">University tracker</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">1130694</span>). Programs, requirements and deadlines, marked verified only with an official link and admission year.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/47">#47</a>
+        <span class="what">Memory core</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">60ae90d</span>). Safely saving and reading memories and their filing tree.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/46">#46</a>
+        <span class="what">Secret phrase, step 3 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">ebb757b</span>). Switch the phrase off from Telegram, get told when someone gets guest access.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/45">#45</a>
+        <span class="what">School catch-up conversation</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">e0b5072</span>). What you missed, what's due, and a daily catch-up plan per course.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/44">#44</a>
+        <span class="what">Memory build plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">3e28bda</span>). The order for building memory. Notes only.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/43">#43</a>
+        <span class="what">Google Classroom deadlines</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">1fe35ee</span>). Hourly Classroom check into the morning update.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/42">#42</a>
+        <span class="what">Memory safety follow-up</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">f0bfbe9</span>). Only Jarvis's own memory controls can give memory commands.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/41">#41</a>
+        <span class="what">School and university plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">d42dce7</span>). Notes only.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>
+        <span class="what">Secret phrase, step 2 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">dfb8ca8</span>). Your phrase on every call before owner access: 3 tries, then a hang-up.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/39">#39</a>
+        <span class="what">Memory database</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">0d659bf</span>). The tables that will hold Jarvis's memory.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/37">#37</a>
+        <span class="what">Secret phrase, step 1 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">2619f02</span>). Stores only a scrambled check of your phrase, never the words.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/25">#25</a>
+        <span class="what">Real calling wiring + database change</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Live since Sep 13. Calling stays switched off until your Twilio setup. <span class="mono">fd39301</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/16">#16</a>
+        <span class="what">Memory search + database change</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Live since Sep 13.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Later, not now</h2>
+    <ul class="later">
+      <li>
+        <strong>Calendar for v1.6</strong><span class="who">You, later</span>
+        <p>Class briefs need a combined calendar, which the roadmap puts after PC control. I'll ask you which way round it when those parts get built.</p>
+      </li>
+      <li>
+        <strong>"Is Jarvis down" check</strong><span class="who">You, optional</span>
+        <p>A 5-minute outside monitor. Worth doing once calling is close to live.</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- personal section removed from the repo copy (CLAUDE.md) -->
+
+</main>
