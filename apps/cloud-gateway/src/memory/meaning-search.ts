@@ -619,7 +619,6 @@ export class MemoryMeaningService implements MeaningSearchReader {
             WHERE vector.principal_id = version.principal_id
               AND vector.item_kind = 'item' AND vector.item_id = version.version_id
               AND vector.embedding_model = ?3 AND vector.content_hash = version.text_hash
-              AND vector.deleted_at IS NULL
           )
         UNION ALL
         SELECT 'history_chunk',
@@ -670,7 +669,6 @@ export class MemoryMeaningService implements MeaningSearchReader {
               ORDER BY lift.created_at DESC, lift.lift_id DESC LIMIT 1
             ), '')
             AND vector.embedding_model = ?3 AND vector.content_hash = chunk.content_hash
-            AND vector.deleted_at IS NULL
         )
           AND COALESCE(live.event_id, archived.event_id) IS NOT NULL
           AND substr(rtrim(chunk.text), -1, 1) <> '?'
@@ -699,7 +697,6 @@ export class MemoryMeaningService implements MeaningSearchReader {
     candidate: ReturnType<typeof indexCandidate>,
   ): Promise<boolean> {
     if (candidate.itemKind !== "history_chunk") return true;
-    if (candidate.text.trim().endsWith("?")) return false;
     if (candidate.eventType === "conversation.user_committed") return true;
     if (candidate.eventType !== null || candidate.eventId === null || candidate.eventSequence === null
       || this.options.historyEvents === undefined) return false;

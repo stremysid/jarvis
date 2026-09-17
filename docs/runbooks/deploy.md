@@ -143,14 +143,16 @@ memory text. If a later query filters another metadata field, create its
 metadata index before deploying that query.
 
 The hourly step processes at most 128 total Vectorize mutations. It makes at
-most one Workers AI embedding request with 100 inputs and 4,194,304 UTF-8
-bytes, at most two Vectorize mutation requests (one delete and one upsert),
-and at most 264 D1 statements. A clean 5,000-event history backlog therefore
-takes 50 hourly runs, about 50 hours; stale deletions sharing those runs can
-extend that time. A failed mutation leaves the `embeddings` cursor unchanged
-and is retried on a later hourly run. Missing `AI` or `MEMORY_VECTORS`
-bindings log `memory_meaning_bindings_missing`; distillation, literal FTS,
-and replies continue without meaning search.
+most one Workers AI embedding request. The effective request bounds are 100
+inputs and 32,768 UTF-8 bytes per input, so they cap a full batch at 3,276,800
+bytes; the 4,194,304-byte aggregate check is defensive and cannot bind while
+those limits hold. The step makes at most two Vectorize mutation requests (one
+delete and one upsert) and at most 264 D1 statements. A clean 5,000-event
+history backlog therefore takes 50 hourly runs, about 50 hours; stale deletions
+sharing those runs can extend that time. A failed mutation leaves the
+`embeddings` cursor unchanged and is retried on a later hourly run. Missing
+`AI` or `MEMORY_VECTORS` bindings log `memory_meaning_bindings_missing`;
+distillation, literal FTS, and replies continue without meaning search.
 
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation

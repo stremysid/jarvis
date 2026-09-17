@@ -1206,6 +1206,38 @@ describe("memory meaning indexing", () => {
     });
     expect(embeddings.calls).toEqual([[statement]]);
     expect(vectors.upserts[0]?.metadata.itemKind).toBe("history_chunk");
+    expect(await readMemoryMeaningCoverage(env.DB, principalId)).toEqual({
+      eligible: 1,
+      indexed: 1,
+      missing: 0,
+    });
+  });
+
+  it("does not stall when SQL accepts a question mark followed by non-space whitespace", async () => {
+    const principalId = await seedPrincipal();
+    const texts = [
+      "My spare car key hangs on the hook by the garage door.",
+      "Where is my spare car key?\u00a0",
+      "The recycling goes out on Tuesday nights.",
+    ];
+    for (const text of texts) {
+      const event = await seedConversation(principalId, text, "conversation.user_committed");
+      await indexConversationAsHistory({ principalId, ...event, text });
+    }
+    const embeddings = new FakeEmbeddings();
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({ database: env.DB, embeddings, vectors });
+
+    await expect(service.runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 3,
+      remaining: false,
+    });
+    expect(await service.readCoverage(principalId)).toEqual({
+      eligible: 3,
+      indexed: 3,
+      missing: 0,
+    });
   });
 
   it("puts newest memory items before older pending history in one batched upsert", async () => {
@@ -1602,6 +1634,29 @@ describe("Telegram meaning recall", () => {
     });
 
     expect(contexts.some((context) => context.text.includes(text))).toBe(true);
+  });
+
+  it("keeps literal evidence contained by a recent turn shorter than 24 characters", async () => {
+    const principalId = await seedPrincipal();
+    const text = "Bike lock code 8421.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    await indexConversationAsHistory({ principalId, ...event, text });
+    const recentText = "Bike lock code 8421. ok";
+    const recent = await seedConversation(principalId, recentText, "conversation.user_committed");
+    const query = "What is my bike lock code today?";
+    const current = await seedConversation(principalId, query, "conversation.user_committed");
+    await markLiteralCoverageComplete(principalId);
+
+    const contexts = await retrieve(principalId, query, {
+      base: [
+        { sourceEventId: recent.eventId, text: recentText, sensitivity: "personal" },
+        { sourceEventId: current.eventId, text: query, sensitivity: "personal" },
+      ],
+    });
+    const history = contexts.filter((context) => context.text.startsWith("History evidence ["));
+
+    expect(recentText).toHaveLength(23);
+    expect(history.some((context) => context.text.endsWith(`: ${text}`))).toBe(true);
   });
 
   it("keeps declarative literal answers that begin with have, did, or will", async () => {
