@@ -1,0 +1,39 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure
+RESTORE-B {"error":"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts (9 tests | 1 failed) 85703ms
+     × RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure 1817ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure
+AssertionError: expected 'Error: D1_ERROR: memory_run_initial_s…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:421:19
+    419|     const error = await restoreRows(rows);
+    420|     console.log("RESTORE-B", JSON.stringify({ error }));
+    421|     expect(error).toBeNull();
+       |                   ^
+    422|   }, 300_000);
+    423| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 passed (9)
+   Start at  21:52:02
+   Duration  88.43s (transform 1.04s, setup 0ms, import 1.95s, tests 85.70s, environment 0ms)
+

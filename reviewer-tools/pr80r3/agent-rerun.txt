@@ -1,0 +1,239 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr80r2-adv
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1 production-shaped restore reproduces every backed-up table, derived state, FTS and triggers, and the hourly jobs do not re-pay
+R1 source {"counts":{"events":24,"runs":5,"items":5,"suppressions":2,"lifts":1,"chunks":17,"archived":4,"sealed":4,"actions":2,"uni":1,"deliveries":5},"archived":"sealed {\"manifestId\":\"89aea24570932f5ed8ef722dc346af14648d4c9367f11b1791fc72bbf7ba4c09\"","cursors":[["distillation",28],["fts_history",28]],"sourceGuard":"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)","sourceCursorGuard":"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1 production-shaped restore reproduces every backed-up table, derived state, FTS and triggers, and the hourly jobs do not re-pay
+R1 restore {"restoreError":"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)","totalRows":214,"statements":1285}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source
+R1 source {"counts":{"events":24,"runs":5,"items":5,"suppressions":2,"lifts":1,"chunks":17,"archived":4,"sealed":4,"actions":2,"uni":1,"deliveries":5},"archived":"sealed {\"manifestId\":\"486e2c6d6e1cfc15150d519a33c5b2d1b837257d43629bd8cef237e091337d17\"","cursors":[["distillation",28],["fts_history",28]],"sourceGuard":"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)","sourceCursorGuard":"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source
+R1b restore {"restoreError":null,"totalRows":214,"statements":1396}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source
+R1 diffs {"tableDiffs":[],"cursorDiffs":["export: source undefined restored 4","fts_items: source undefined restored 28"],"triggerDiffs":[],"triggerCounts":[380,380]}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source
+R1 poll {"result":{"ok":true,"detail":"nothing eligible for archival; Classroom not configured; Brightspace not configured; Memory nothing_new, 0 created, 0 events pending, 0 eligible events pending, 0 skips after 1 step; Memory history complete, 0 events examined, 0 chunks written after 1 steps, 5 D1 statements charged; project poll not configured"},"requests":0,"itemsBefore":{"count":5},"itemsAfter":{"count":5}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2a a set whose distillation took two ordinary successful hourly runs restores
+R2a {"runs":[{"start_event_sequence":1,"end_event_sequence":1,"outcome":"succeeded"},{"start_event_sequence":2,"end_event_sequence":2,"outcome":"succeeded"}],"sourceCursor":2,"restoredCursor":null,"error":"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2 a restored distillation cursor does not jump past events whose run failed (receipts exist, cursor did not advance)
+R2 restore {"restoreError":"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2 a restored distillation cursor does not jump past events whose run failed (receipts exist, cursor did not advance)
+R2 {"sourceCursor":1,"restoredCursor":null,"e2":2,"next":{"outcome":"succeeded","created":1},"requests":1,"items":2}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed
+R2b restore {"restoreError":null}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed
+R2b {"sourceCursor":1,"restoredCursor":2,"e2":2,"next":{"outcome":"nothing_new","created":0},"requests":0,"items":1}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R3 a set taken after Sid changed a migration-seeded row (autonomy live, outbound enabled) restores
+R3 {"error":"Error: memory_backup_restore_target_not_fresh:autonomy_mode"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R4 restore pointed at a live (non-fresh) database refuses before changing its schema
+R4 {"error":"Error: memory_backup_restore_target_not_fresh:autonomy_mode","drops":380,"creates":380,"triggersBefore":380,"triggersAfter":380}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R7 restoring an older set with the repository's later migration files in the list
+R7 {"error":"Error: D1_ERROR: no such table: main.zz_later_table: SQLITE_ERROR","eventsAfterFailure":1,"triggers":380}
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts (10 tests | 8 failed) 66915ms
+     × R1 production-shaped restore reproduces every backed-up table, derived state, FTS and triggers, and the hourly jobs do not re-pay 12954ms
+     × R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source 12550ms
+     × R2a a set whose distillation took two ordinary successful hourly runs restores 6769ms
+     × R2 a restored distillation cursor does not jump past events whose run failed (receipts exist, cursor did not advance) 5490ms
+     × R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed 6980ms
+     × R3 a set taken after Sid changed a migration-seeded row (autonomy live, outbound enabled) restores 6395ms
+     × R4 restore pointed at a live (non-fresh) database refuses before changing its schema 5531ms
+     × R7 restoring an older set with the repository's later migration files in the list 7006ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1 production-shaped restore reproduces every backed-up table, derived state, FTS and triggers, and the hourly jobs do not re-pay
+AssertionError: expected 'Error: D1_ERROR: memory_distillation_…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:443:26
+    441|     try { await restore(set, bypass ? bypassCursorInsertGuard(counting…
+    442|     console.log(bypass ? "R1b restore" : "R1 restore", JSON.stringify(…
+    443|     expect(restoreError).toBeNull();
+       |                          ^
+    444|     if (!bypass) return;
+    445|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R1b (diagnostic: distillation cursor insert guard bypassed only for the restore's cursor INSERT) restored tables, derived state, FTS, triggers and hourly jobs match the source
+AssertionError: memory_cursors: expected [ …(2) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "export: source undefined restored 4",
++   "fts_items: source undefined restored 28",
++ ]
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:461:48
+    459|     console.log("R1 diffs", JSON.stringify({ tableDiffs, cursorDiffs, …
+    460|     expect.soft(tableDiffs, "backed-up and state tables").toEqual([]);
+    461|     expect.soft(cursorDiffs, "memory_cursors").toEqual([]);
+       |                                                ^
+    462|     expect.soft(triggerDiffs, "triggers").toEqual([]);
+    463|     expect.soft(target.ftsItems, "memory_item_fts").toEqual(source.fts…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2a a set whose distillation took two ordinary successful hourly runs restores
+AssertionError: expected 'Error: D1_ERROR: memory_distillation_…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: memory_distillation_cursor_advance_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:502:19
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2 a restored distillation cursor does not jump past events whose run failed (receipts exist, cursor did not advance)
+AssertionError: restored distillation cursor: expected null to be 1 // Object.is equality
+
+- Expected:
+1
+
++ Received:
+null
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:529:65
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed
+AssertionError: restored distillation cursor: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:529:65
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed
+AssertionError: the failed event is retried after restore: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:530:85
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R2b (diagnostic: cursor insert guard bypassed) a restored distillation cursor does not jump past events whose run failed
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:531:24
+    529|     expect.soft(restoredCursor, "restored distillation cursor").toBe(s…
+    530|     expect.soft(retry.requests.length, "the failed event is retried af…
+    531|     expect.soft(items).toBe(2);
+       |                        ^
+    532|   }, 300_000);
+    533|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R3 a set taken after Sid changed a migration-seeded row (autonomy live, outbound enabled) restores
+AssertionError: expected 'Error: memory_backup_restore_target_n…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: memory_backup_restore_target_not_fresh:autonomy_mode"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:545:19
+    543|     try { await restore(set); } catch (caught) { error = String(caught…
+    544|     console.log("R3", JSON.stringify({ error }));
+    545|     expect(error).toBeNull();
+       |                   ^
+    546|     expect([await tableRows("autonomy_mode"), await tableRows("outboun…
+    547|   }, 300_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R4 restore pointed at a live (non-fresh) database refuses before changing its schema
+AssertionError: DROP TRIGGER statements run against the live database: expected 380 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 380
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:565:76
+    563|     console.log("R4", JSON.stringify({ error, drops, creates, triggers…
+    564|     expect(error).not.toBeNull();
+    565|     expect(drops, "DROP TRIGGER statements run against the live databa…
+       |                                                                            ^
+    566|   }, 300_000);
+    567|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts > PR 80 round 3 narrow > R7 restoring an older set with the repository's later migration files in the list
+AssertionError: expected 'Error: D1_ERROR: no such table: main.…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: no such table: main.zz_later_table: SQLITE_ERROR"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r3.test.ts:636:19
+    634|     const triggers = await env.DB.prepare("SELECT count(*) AS count FR…
+    635|     console.log("R7", JSON.stringify({ error, eventsAfterFailure: even…
+    636|     expect(error).toBeNull();
+       |                   ^
+    637|   }, 300_000);
+    638| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 2 passed (10)
+   Start at  22:04:24
+   Duration  69.05s (transform 747ms, setup 0ms, import 1.48s, tests 66.92s, environment 0ms)
+

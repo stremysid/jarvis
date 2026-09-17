@@ -1,0 +1,134 @@
+checked out 01292f2 at 01292f2
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  45 passed (45)
+
+== T-memory_backup_runs_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2264ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 386ms
+   × needs the whole run insert trigger to reject a non-running initial state 91ms
+
+== T-memory_backup_runs_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 3 failed) 2420ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  3 failed | 42 passed (45)
+   × installs only remote-D1-compatible whole triggers 405ms
+   × needs the whole run update trigger to keep the cut marks immutable 73ms
+   × needs the whole run update trigger to reject table completion when exported rows exceed the cut 94ms
+
+== T-memory_backup_runs_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2930ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 402ms
+   × needs the whole run delete trigger to preserve the durable checkpoint 83ms
+
+== T-memory_backup_row_ordinals_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2132ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 370ms
+   × needs the whole row-ordinal insert trigger to reject conflict-clause replacement 93ms
+
+== T-memory_backup_row_ordinals_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2730ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 395ms
+   × needs the whole row-ordinal update trigger to keep insertion cuts stable 91ms
+
+== T-memory_backup_row_ordinals_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2011ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 363ms
+   × needs the whole row-ordinal delete trigger to preserve insertion cuts 73ms
+
+== T-memory_backup_table_cuts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 3204ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 867ms
+   × needs the whole table-cut insert trigger to keep one ordered cut per table 82ms
+
+== T-memory_backup_table_cuts_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 3838ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 704ms
+   × needs the whole table-cut update trigger to keep expected row counts immutable 118ms
+
+== T-memory_backup_table_cuts_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2451ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 473ms
+   × needs the whole table-cut delete trigger to preserve the restore manifest cut 86ms
+
+== T-memory_backup_objects_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 4 failed) 1969ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  4 failed | 41 passed (45)
+   × installs only remote-D1-compatible whole triggers 374ms
+   × needs the whole object insert trigger to require a leased matching run step 76ms
+   × needs the whole object insert trigger to reject the removed no-cut eventsThrough branch 75ms
+   × needs the whole object insert trigger to stop replacement of another run's receipt 94ms
+
+== T-memory_backup_objects_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 1949ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 358ms
+   × needs the whole object update trigger to keep verified metadata immutable 82ms
+
+== T-memory_backup_objects_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 4324ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 662ms
+   × needs the whole object delete trigger to retain manifest evidence 91ms
+
+== T-memory_backup_alerts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2768ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 513ms
+   × needs the whole alert insert trigger to reject conflict-clause replacement 146ms
+
+== T-memory_backup_alerts_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2121ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 421ms
+   × needs the whole alert update trigger to keep the daily claim immutable 81ms
+
+== T-memory_backup_alerts_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts (19 tests | 2 failed) 2060ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 43 passed (45)
+   × installs only remote-D1-compatible whole triggers 396ms
+   × needs the whole alert delete trigger to preserve once-per-day deduplication 74ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_backup_runs_insert_guard
+KILLED    T-memory_backup_runs_update_guard
+KILLED    T-memory_backup_runs_delete_guard
+KILLED    T-memory_backup_row_ordinals_insert_guard
+KILLED    T-memory_backup_row_ordinals_update_guard
+KILLED    T-memory_backup_row_ordinals_delete_guard
+KILLED    T-memory_backup_table_cuts_insert_guard
+KILLED    T-memory_backup_table_cuts_update_guard
+KILLED    T-memory_backup_table_cuts_delete_guard
+KILLED    T-memory_backup_objects_insert_guard
+KILLED    T-memory_backup_objects_update_guard
+KILLED    T-memory_backup_objects_delete_guard
+KILLED    T-memory_backup_alerts_insert_guard
+KILLED    T-memory_backup_alerts_update_guard
+KILLED    T-memory_backup_alerts_delete_guard
+back on main, tree clean=true
+(node:31952) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

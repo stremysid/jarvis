@@ -1,0 +1,29 @@
+head 01292f2
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  190 passed (190)
+      Tests  4918 passed (4918)
+r2 narrow tests:
+     × RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure 1817ms
+      Tests  1 failed | 8 passed (9)
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_backup_runs_insert_guard
+KILLED    T-memory_backup_runs_update_guard
+KILLED    T-memory_backup_runs_delete_guard
+KILLED    T-memory_backup_row_ordinals_insert_guard
+KILLED    T-memory_backup_row_ordinals_update_guard
+KILLED    T-memory_backup_row_ordinals_delete_guard
+KILLED    T-memory_backup_table_cuts_insert_guard
+KILLED    T-memory_backup_table_cuts_update_guard
+KILLED    T-memory_backup_table_cuts_delete_guard
+KILLED    T-memory_backup_objects_insert_guard
+KILLED    T-memory_backup_objects_update_guard
+KILLED    T-memory_backup_objects_delete_guard
+KILLED    T-memory_backup_alerts_insert_guard
+KILLED    T-memory_backup_alerts_update_guard
+KILLED    T-memory_backup_alerts_delete_guard
+back on main, tree clean=true
+(node:31952) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
