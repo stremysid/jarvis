@@ -859,6 +859,41 @@ describe("MemoryRepository", () => {
     expect(batchedReads).toBe(1);
   });
 
+  it("skips only the archive-unavailable item while retaining a valid live retrieval candidate", async () => {
+    const prepared = await fixture();
+    await prepared.repository.commitInitialItem(prepared.input);
+    const archived = await seedArchivedReceipt(prepared.principalId);
+    const archiveRepository = new MemoryRepository(env.DB, {
+      archivedEventReader: archived.reader,
+    });
+    const topics = await archiveRepository.bootstrapTopics(prepared.principalId);
+    const archivedInput = await inputForArchived(
+      prepared.principalId,
+      archived,
+      topics.inbox.topicId,
+    );
+    await archiveRepository.commitInitialItem(archivedInput);
+    const unavailable = new MemoryRepository(env.DB, {
+      archivedEventReader: {
+        async readArchivedRange() {
+          throw new Error("archive_circuit_open");
+        },
+      },
+    });
+
+    try {
+      const selected = await unavailable.readCurrentItemsWithVisibility(
+        prepared.principalId,
+        [archivedInput.itemId, prepared.input.itemId],
+      );
+
+      expect(selected.map(({ item }) => item.itemId)).toEqual([prepared.input.itemId]);
+      expect(selected[0]?.item.version.text).toBe(prepared.input.version.text);
+    } finally {
+      await cleanupHandoffArchive(archived.segmentId);
+    }
+  });
+
   it("continues reading an immutable live source after its event moves to an archive segment", async () => {
     const prepared = await fixture();
     await prepared.repository.commitInitialItem(prepared.input);

@@ -21,13 +21,13 @@ const encoder = new TextEncoder();
 
 /**
  * One hourly step uses one embedding request and batches each kind of
- * Vectorize mutation. The byte ceiling holds 128 maximum-sized history
- * events, so the count ceiling, rather than text length, determines the
- * 5,000-event backfill duration.
+ * Vectorize mutation. Workers AI accepts at most 100 bge-m3 texts per call;
+ * Vectorize deletes remain independent so stale cleanup does not lower that
+ * provider limit unless it consumes the overall mutation allowance.
  */
 export const MEMORY_MEANING_INDEX_LIMITS = Object.freeze({
   mutations: 128,
-  embeddingInputs: 128,
+  embeddingInputs: 100,
   embeddingInputBytes: 4_194_304,
   workersAiCalls: 1,
   vectorizeMutations: 2,
@@ -99,6 +99,7 @@ export interface MemoryMeaningIndexOutcome {
 interface IndexCandidateRow {
   readonly item_kind: unknown;
   readonly item_id: unknown;
+  readonly metadata_item_id: unknown;
   readonly text: unknown;
   readonly content_hash: unknown;
   readonly event_id: unknown;
@@ -193,17 +194,56 @@ export async function readMemoryMeaningCoverage(
         AND (version.valid_from IS NULL OR version.valid_from <= ?2)
         AND (version.valid_to IS NULL OR version.valid_to > ?2)
       UNION ALL
-      SELECT 'history_chunk', COALESCE(live.event_id, archived.event_id), chunk.content_hash
+      SELECT 'history_chunk',
+        COALESCE(live.event_id, archived.event_id) || COALESCE(':' || (
+          SELECT lift.lift_id
+          FROM memory_event_suppressions suppression
+          JOIN memory_event_suppression_lifts lift
+            ON lift.principal_id = suppression.principal_id
+            AND lift.suppression_id = suppression.suppression_id
+          WHERE suppression.principal_id = chunk.principal_id
+            AND (suppression.target_event_id = COALESCE(live.event_id, archived.event_id)
+              OR chunk.start_event_sequence BETWEEN suppression.start_event_sequence
+                AND suppression.end_event_sequence)
+          ORDER BY lift.created_at DESC, lift.lift_id DESC LIMIT 1
+        ), ''), chunk.content_hash
       FROM memory_retrievable_history_chunks chunk
       LEFT JOIN events live ON live.subject_id = chunk.principal_id
         AND live.sequence = chunk.start_event_sequence
       LEFT JOIN archive_segment_events archived
-        ON archived.subject_id = chunk.principal_id
-        AND archived.event_sequence = chunk.start_event_sequence
+        ON archived.event_sequence = chunk.start_event_sequence
+        AND EXISTS (
+          SELECT 1 FROM memory_history_coverage coverage
+          WHERE coverage.principal_id = chunk.principal_id
+            AND coverage.start_event_sequence = chunk.start_event_sequence
+            AND coverage.end_event_sequence = chunk.end_event_sequence
+            AND coverage.source_location = 'archived'
+            AND coverage.r2_segment_id = archived.segment_id
+            AND coverage.indexing_outcome = 'indexed'
+            AND coverage.content_hash = archived.envelope_sha256
+        )
       WHERE chunk.principal_id = ?1
         AND COALESCE(live.event_id, archived.event_id) IS NOT NULL
+        AND substr(rtrim(chunk.text), -1, 1) <> '?'
         AND (live.event_type = 'conversation.user_committed'
-          OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
+          OR live.event_id IS NULL AND archived.event_id IS NOT NULL AND (
+            EXISTS (
+              SELECT 1 FROM memory_vectors classified
+              WHERE classified.principal_id = chunk.principal_id
+                AND classified.item_kind = 'history_chunk'
+                AND classified.embedding_model = ?3
+                AND classified.content_hash = chunk.content_hash
+                AND (classified.item_id = archived.event_id
+                  OR classified.item_id LIKE archived.event_id || ':%')
+            )
+            OR EXISTS (
+              SELECT 1 FROM memory_distillation_event_receipts receipt
+              WHERE receipt.principal_id = chunk.principal_id
+                AND receipt.event_sequence = chunk.start_event_sequence
+                AND receipt.event_id = archived.event_id
+                AND (receipt.skip_reason IS NULL OR receipt.skip_reason <> 'event_type_ineligible')
+            )
+          ))
     )
     SELECT count(*) AS eligible,
       count(vector.vector_ledger_id) AS indexed
@@ -238,6 +278,7 @@ function mutationId(value: unknown): string {
 function indexCandidate(row: IndexCandidateRow): Readonly<{
   itemKind: "item" | "history_chunk";
   itemId: string;
+  metadataItemId: string;
   text: string;
   contentHash: Sha256Hex;
   eventId: Ulid | null;
@@ -245,6 +286,8 @@ function indexCandidate(row: IndexCandidateRow): Readonly<{
   eventType: string | null;
 }> {
   const itemKind = safeKind(row.item_kind);
+  const itemId = safeString(row.item_id, 128, "memory_meaning_item_id_invalid");
+  const metadataItemId = safeString(row.metadata_item_id, 128, "memory_meaning_item_id_invalid");
   const eventId = row.event_id === null ? null : safeUlid(row.event_id);
   const eventSequence = row.event_sequence === null ? null : safeCount(row.event_sequence);
   const eventType = row.event_type === null
@@ -255,9 +298,13 @@ function indexCandidate(row: IndexCandidateRow): Readonly<{
     : eventId === null || eventSequence === null || eventSequence < 1) {
     throw new TypeError("memory_meaning_event_invalid");
   }
+  if (itemKind === "item" ? itemId !== metadataItemId : metadataItemId !== eventId) {
+    throw new TypeError("memory_meaning_item_id_invalid");
+  }
   return Object.freeze({
     itemKind,
-    itemId: safeString(row.item_id, 128, "memory_meaning_item_id_invalid"),
+    itemId,
+    metadataItemId,
     text: safeString(row.text, 32_768, "memory_meaning_text_invalid"),
     contentHash: safeHash(row.content_hash),
     eventId,
@@ -431,7 +478,7 @@ export class MemoryMeaningService implements MeaningSearchReader {
               metadata: {
                 principal: principalId,
                 itemKind: candidate.itemKind,
-                itemId: candidate.itemId,
+                itemId: candidate.metadataItemId,
                 contentHash: candidate.contentHash,
               },
             });
@@ -509,11 +556,32 @@ export class MemoryMeaningService implements MeaningSearchReader {
             LEFT JOIN events live ON live.subject_id = chunk.principal_id
               AND live.sequence = chunk.start_event_sequence
             LEFT JOIN archive_segment_events archived
-              ON archived.subject_id = chunk.principal_id
-              AND archived.event_sequence = chunk.start_event_sequence
+              ON archived.event_sequence = chunk.start_event_sequence
+              AND EXISTS (
+                SELECT 1 FROM memory_history_coverage coverage
+                WHERE coverage.principal_id = chunk.principal_id
+                  AND coverage.start_event_sequence = chunk.start_event_sequence
+                  AND coverage.end_event_sequence = chunk.end_event_sequence
+                  AND coverage.source_location = 'archived'
+                  AND coverage.r2_segment_id = archived.segment_id
+                  AND coverage.indexing_outcome = 'indexed'
+                  AND coverage.content_hash = archived.envelope_sha256
+              )
             WHERE chunk.principal_id = vector.principal_id
-              AND COALESCE(live.event_id, archived.event_id) = vector.item_id
+              AND COALESCE(live.event_id, archived.event_id) || COALESCE(':' || (
+                SELECT lift.lift_id
+                FROM memory_event_suppressions suppression
+                JOIN memory_event_suppression_lifts lift
+                  ON lift.principal_id = suppression.principal_id
+                  AND lift.suppression_id = suppression.suppression_id
+                WHERE suppression.principal_id = chunk.principal_id
+                  AND (suppression.target_event_id = COALESCE(live.event_id, archived.event_id)
+                    OR chunk.start_event_sequence BETWEEN suppression.start_event_sequence
+                      AND suppression.end_event_sequence)
+                ORDER BY lift.created_at DESC, lift.lift_id DESC LIMIT 1
+              ), '') = vector.item_id
               AND chunk.content_hash = vector.content_hash
+              AND substr(rtrim(chunk.text), -1, 1) <> '?'
               AND (live.event_type = 'conversation.user_committed'
                 OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
           )
@@ -533,10 +601,12 @@ export class MemoryMeaningService implements MeaningSearchReader {
     timestamp: string,
     limit: number,
   ): Promise<readonly ReturnType<typeof indexCandidate>[]> {
-    const result = await this.options.database.prepare(`SELECT item_kind, item_id, text, content_hash,
+    const result = await this.options.database.prepare(`SELECT item_kind, item_id, metadata_item_id,
+        text, content_hash,
         event_id, event_sequence, event_type
       FROM (
         SELECT 'item' AS item_kind, version.version_id AS item_id,
+          version.version_id AS metadata_item_id,
           version.text AS text, version.text_hash AS content_hash,
           NULL AS event_id, NULL AS event_sequence, NULL AS event_type,
           0 AS priority, version.created_at AS ordered_at
@@ -549,9 +619,22 @@ export class MemoryMeaningService implements MeaningSearchReader {
             WHERE vector.principal_id = version.principal_id
               AND vector.item_kind = 'item' AND vector.item_id = version.version_id
               AND vector.embedding_model = ?3 AND vector.content_hash = version.text_hash
+              AND vector.deleted_at IS NULL
           )
         UNION ALL
-        SELECT 'history_chunk', COALESCE(live.event_id, archived.event_id),
+        SELECT 'history_chunk',
+          COALESCE(live.event_id, archived.event_id) || COALESCE(':' || (
+            SELECT lift.lift_id
+            FROM memory_event_suppressions suppression
+            JOIN memory_event_suppression_lifts lift
+              ON lift.principal_id = suppression.principal_id
+              AND lift.suppression_id = suppression.suppression_id
+            WHERE suppression.principal_id = chunk.principal_id
+              AND (suppression.target_event_id = COALESCE(live.event_id, archived.event_id)
+                OR chunk.start_event_sequence BETWEEN suppression.start_event_sequence
+                  AND suppression.end_event_sequence)
+            ORDER BY lift.created_at DESC, lift.lift_id DESC LIMIT 1
+          ), ''), COALESCE(live.event_id, archived.event_id),
           chunk.text, chunk.content_hash,
           COALESCE(live.event_id, archived.event_id), chunk.start_event_sequence,
           live.event_type, 1, chunk.created_at
@@ -559,16 +642,38 @@ export class MemoryMeaningService implements MeaningSearchReader {
         LEFT JOIN events live ON live.subject_id = chunk.principal_id
           AND live.sequence = chunk.start_event_sequence
         LEFT JOIN archive_segment_events archived
-          ON archived.subject_id = chunk.principal_id
-          AND archived.event_sequence = chunk.start_event_sequence
+          ON archived.event_sequence = chunk.start_event_sequence
+          AND EXISTS (
+            SELECT 1 FROM memory_history_coverage coverage
+            WHERE coverage.principal_id = chunk.principal_id
+              AND coverage.start_event_sequence = chunk.start_event_sequence
+              AND coverage.end_event_sequence = chunk.end_event_sequence
+              AND coverage.source_location = 'archived'
+              AND coverage.r2_segment_id = archived.segment_id
+              AND coverage.indexing_outcome = 'indexed'
+              AND coverage.content_hash = archived.envelope_sha256
+          )
         WHERE chunk.principal_id = ?1 AND NOT EXISTS (
           SELECT 1 FROM memory_vectors vector
           WHERE vector.principal_id = chunk.principal_id
             AND vector.item_kind = 'history_chunk'
-            AND vector.item_id = COALESCE(live.event_id, archived.event_id)
+            AND vector.item_id = COALESCE(live.event_id, archived.event_id) || COALESCE(':' || (
+              SELECT lift.lift_id
+              FROM memory_event_suppressions suppression
+              JOIN memory_event_suppression_lifts lift
+                ON lift.principal_id = suppression.principal_id
+                AND lift.suppression_id = suppression.suppression_id
+              WHERE suppression.principal_id = chunk.principal_id
+                AND (suppression.target_event_id = COALESCE(live.event_id, archived.event_id)
+                  OR chunk.start_event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence)
+              ORDER BY lift.created_at DESC, lift.lift_id DESC LIMIT 1
+            ), '')
             AND vector.embedding_model = ?3 AND vector.content_hash = chunk.content_hash
+            AND vector.deleted_at IS NULL
         )
           AND COALESCE(live.event_id, archived.event_id) IS NOT NULL
+          AND substr(rtrim(chunk.text), -1, 1) <> '?'
           AND (live.event_type = 'conversation.user_committed'
             OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
       ) pending
@@ -594,6 +699,7 @@ export class MemoryMeaningService implements MeaningSearchReader {
     candidate: ReturnType<typeof indexCandidate>,
   ): Promise<boolean> {
     if (candidate.itemKind !== "history_chunk") return true;
+    if (candidate.text.trim().endsWith("?")) return false;
     if (candidate.eventType === "conversation.user_committed") return true;
     if (candidate.eventType !== null || candidate.eventId === null || candidate.eventSequence === null
       || this.options.historyEvents === undefined) return false;
@@ -603,9 +709,14 @@ export class MemoryMeaningService implements MeaningSearchReader {
       throw new TypeError("memory_meaning_event_invalid");
     }
     const envelope = await validateEnvelope(event.envelope);
-    if (envelope.eventId !== candidate.eventId || envelope.subjectId !== principalId
-      || envelope.eventType !== "conversation.user_committed"
-      || envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1"
+    if (envelope.eventId !== candidate.eventId || envelope.subjectId !== principalId) {
+      throw new TypeError("memory_meaning_event_invalid");
+    }
+    // Literal history also indexes assistant turns so exact search can validate
+    // and discard them. They are not owner evidence and must not stop the
+    // hourly meaning backfill when the live event has moved to R2.
+    if (envelope.eventType !== "conversation.user_committed") return false;
+    if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1"
       || envelope.payload === null || typeof envelope.payload !== "object"
       || Array.isArray(envelope.payload) || !("text" in envelope.payload)
       || envelope.payload.text !== candidate.text

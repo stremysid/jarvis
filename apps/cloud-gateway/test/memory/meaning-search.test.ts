@@ -10,7 +10,7 @@ import {
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
 import type { ContextRetriever, RetrievedContext } from "../../src/conversation/conversation-types.js";
-import { EventRepository } from "../../src/persistence/event-repository.js";
+import { EventRepository, type AppendedEvent } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
   MEMORY_EMBEDDING_DIMENSIONS,
@@ -168,6 +168,10 @@ async function seedConversation(
   principalId: string,
   text: string,
   eventType: "conversation.user_committed" | "conversation.assistant_delivered",
+  payloadOverrides: Readonly<{
+    sensitivityCode?: number;
+    historyEligible?: boolean;
+  }> = {},
 ): Promise<Readonly<{
   eventId: Ulid;
   eventSequence: number;
@@ -190,8 +194,8 @@ async function seedConversation(
     payload: redacted({
       schemaCode: 1,
       channelCode: 2,
-      sensitivityCode: 1,
-      historyEligible: true,
+      sensitivityCode: payloadOverrides.sensitivityCode ?? 1,
+      historyEligible: payloadOverrides.historyEligible ?? true,
       text,
     }),
     producerVersion: "conversation-v1",
@@ -417,6 +421,259 @@ function delayedDatabase(delayMs: number): D1Database {
   }) as D1Database;
 }
 
+function delayedMatchingDatabase(fragment: string, delayMs: number): D1Database {
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement, delayed: boolean): D1PreparedStatement => {
+    const wrapped = new Proxy(statement as object, {
+      get(target, property): unknown {
+        if (property === "bind") {
+          return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), delayed);
+        }
+        if (property === "first" || property === "all" || property === "run" || property === "raw") {
+          return async (...args: unknown[]) => {
+            if (delayed) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            const method = Reflect.get(target, property, target) as (...values: unknown[]) => Promise<unknown>;
+            return method.apply(target, args);
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1PreparedStatement;
+    originals.set(wrapped as object, statement);
+    return wrapped;
+  };
+  return new Proxy(env.DB as object, {
+    get(target, property): unknown {
+      if (property === "prepare") {
+        return (query: string) => wrap((target as D1Database).prepare(query), query.includes(fragment));
+      }
+      if (property === "batch") {
+        return <T>(statements: D1PreparedStatement[]) => (target as D1Database)
+          .batch<T>(statements.map((statement) => originals.get(statement as object) ?? statement));
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
+function partialLedgerDatabase(): D1Database {
+  const originals = new WeakMap<object, Readonly<{ statement: D1PreparedStatement; query: string }>>();
+  let failed = false;
+  const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement => {
+    const wrapped = new Proxy(statement as object, {
+      get(target, property): unknown {
+        if (property === "bind") {
+          return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), query);
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1PreparedStatement;
+    originals.set(wrapped as object, { statement, query });
+    return wrapped;
+  };
+  return new Proxy(env.DB as object, {
+    get(target, property): unknown {
+      if (property === "prepare") {
+        return (query: string) => wrap((target as D1Database).prepare(query), query);
+      }
+      if (property === "batch") {
+        return async <T>(statements: D1PreparedStatement[]) => {
+          const captured = statements.map((statement) => originals.get(statement as object));
+          if (!failed && captured.length > 0
+            && captured.every((entry) => entry?.query.includes("INSERT INTO memory_vectors"))) {
+            failed = true;
+            await (target as D1Database).batch([captured[0]!.statement]);
+            throw new Error("injected_partial_ledger_batch");
+          }
+          return (target as D1Database).batch<T>(statements.map(
+            (statement) => originals.get(statement as object)?.statement ?? statement,
+          ));
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
+function mutateMeaningCanonicalRows(
+  mutate: (rows: readonly Record<string, unknown>[]) => readonly Record<string, unknown>[],
+): D1Database {
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement => {
+    const wrapped = new Proxy(statement as object, {
+      get(target, property): unknown {
+        if (property === "bind") {
+          return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), query);
+        }
+        if (property === "all") {
+          return async <T>() => {
+            const result = await (target as D1PreparedStatement).all<T>();
+            if (!query.includes("WITH requested(")) return result;
+            return {
+              ...result,
+              results: mutate(result.results as readonly Record<string, unknown>[]),
+            } as D1Result<T>;
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1PreparedStatement;
+    originals.set(wrapped as object, statement);
+    return wrapped;
+  };
+  return new Proxy(env.DB as object, {
+    get(target, property): unknown {
+      if (property === "prepare") {
+        return (query: string) => wrap((target as D1Database).prepare(query), query);
+      }
+      if (property === "batch") {
+        return <T>(statements: D1PreparedStatement[]) => (target as D1Database)
+          .batch<T>(statements.map((statement) => originals.get(statement as object) ?? statement));
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
+async function seedArchivedMeaningHistory(input: Readonly<{
+  principalId: string;
+  chunkText: string;
+  envelopeText?: string;
+  eventType?: "conversation.user_committed" | "conversation.assistant_delivered";
+}>): Promise<Readonly<{
+  hit: MeaningSearchHit;
+  historyEvents: { readRange(afterSequence: number, limit: number): Promise<readonly AppendedEvent[]> };
+}>> {
+  const state = await env.DB.prepare(`SELECT sealed_through,
+      (SELECT COALESCE(MAX(sequence), 0) FROM events) AS live_through,
+      (SELECT COALESCE(MAX(event_sequence), 0) FROM archive_segment_events) AS archived_through
+    FROM archive_state WHERE singleton = 1`)
+    .first<{ sealed_through: number; live_through: number; archived_through: number }>();
+  if (state === null) throw new Error("meaning_search_archive_state_missing");
+  const eventSequence = Math.max(
+    state.sealed_through,
+    state.live_through,
+    state.archived_through,
+  ) + 1;
+  const occurredAt = new Date(Date.now() + eventSequence).toISOString();
+  const eventId = newUlid(new Date(occurredAt));
+  const eventType = input.eventType ?? "conversation.user_committed";
+  const envelope = await createEnvelope({
+    schemaVersion: "1.0",
+    eventId,
+    eventType,
+    source: "conversation",
+    subjectId: input.principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(new Date(Date.parse(occurredAt) + 1)),
+    contentType: "application/json",
+    payload: redacted({
+      schemaCode: 1,
+      channelCode: 2,
+      sensitivityCode: 1,
+      historyEligible: true,
+      text: input.envelopeText ?? input.chunkText,
+    }),
+    producerVersion: "conversation-v1",
+  });
+  const storedEnvelope = Object.freeze({ ...envelope, eventSequence });
+  const envelopeHash = await sha256Hex(canonicalJson(storedEnvelope));
+  const contentHash = await sha256Hex(input.chunkText);
+  const manifestId = await sha256Hex(`meaning-manifest:${eventId}`);
+  const segmentId = await sha256Hex(`meaning-segment:${eventId}`);
+  const chunkId = newUlid();
+  const rangeGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name = 'archive_manifests_require_next_range'`)
+    .first<{ sql: string }>();
+  if (rangeGuard === null) throw new Error("meaning_search_archive_range_guard_missing");
+  await env.DB.prepare("DROP TRIGGER archive_manifests_require_next_range").run();
+  try {
+    await env.DB.batch([
+    env.DB.prepare(`INSERT INTO archive_manifests (
+      manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at
+    ) VALUES (?, ?, ?, 1, 'sealed', ?, ?)`)
+      .bind(manifestId, eventSequence, eventSequence, occurredAt, occurredAt),
+    env.DB.prepare(`INSERT INTO archive_segments (
+      segment_id, manifest_id, object_key, compressed_sha256,
+      compressed_byte_length, uncompressed_byte_length, codec, created_at
+    ) VALUES (?, ?, ?, ?, 1, 1, 'jarvis-gzip-ndjson-v1', ?)`)
+      .bind(segmentId, manifestId, `meaning/${segmentId}.ndjson.gz`, segmentId, occurredAt),
+    env.DB.prepare(`INSERT INTO archive_segment_events (
+      event_sequence, event_id, segment_id, envelope_sha256, content_hash, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(eventSequence, eventId, segmentId, envelopeHash, envelope.contentHash, occurredAt),
+    env.DB.prepare(`UPDATE sqlite_sequence SET seq = ?
+      WHERE name = 'events' AND seq < ?`).bind(eventSequence, eventSequence),
+    env.DB.prepare(`INSERT INTO sqlite_sequence(name, seq)
+      SELECT 'events', ? WHERE NOT EXISTS (
+        SELECT 1 FROM sqlite_sequence WHERE name = 'events'
+      )`).bind(eventSequence),
+    env.DB.prepare(`INSERT INTO memory_history_coverage (
+      coverage_id, principal_id, source_location, start_event_sequence,
+      end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
+      failure_code, indexed_at
+    ) VALUES (?, ?, 'archived', ?, ?, ?, 'indexed', ?, NULL, ?)`)
+      .bind(
+        newUlid(), input.principalId, eventSequence, eventSequence,
+        segmentId, envelopeHash, occurredAt,
+      ),
+    env.DB.prepare(`INSERT INTO memory_history_chunks (
+      chunk_id, principal_id, start_event_sequence, end_event_sequence, text,
+      content_hash, source_location, r2_segment_id, source_receipt_hash,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'archived', ?, ?, ?, ?)`)
+      .bind(
+        chunkId, input.principalId, eventSequence, eventSequence,
+        input.chunkText, contentHash, segmentId, envelopeHash, occurredAt, occurredAt,
+      ),
+    ]);
+  } finally {
+    await env.DB.prepare(rangeGuard.sql).run();
+  }
+  const appended = Object.freeze({
+    eventSequence,
+    envelope: storedEnvelope,
+    replayed: true,
+  }) as AppendedEvent;
+  return Object.freeze({
+    hit: Object.freeze({
+      vectorId: await sha256Hex(`meaning-archived:${eventId}`),
+      score: 0.9,
+      itemKind: "history_chunk" as const,
+      itemId: eventId,
+      contentHash,
+    }),
+    historyEvents: {
+      async readRange(afterSequence, limit) {
+        return afterSequence === eventSequence - 1 && limit === 1
+          ? Object.freeze([appended])
+          : Object.freeze([]);
+      },
+    },
+  });
+}
+
+async function markLiteralCoverageComplete(principalId: string): Promise<void> {
+  const latest = await env.DB.prepare(`SELECT MAX(event_sequence) AS event_sequence FROM (
+    SELECT sequence AS event_sequence FROM events
+    UNION ALL
+    SELECT event_sequence FROM archive_segment_events
+  )`).first<{ event_sequence: number | null }>();
+  const sequence = latest?.event_sequence ?? 0;
+  const timestamp = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO memory_cursors (
+    principal_id, cursor_name, current_event_sequence, updated_at
+  ) VALUES (?, 'fts_history', ?, ?)`)
+    .bind(principalId, sequence, timestamp).run();
+}
+
 async function historyHit(principalId: string): Promise<MeaningSearchHit> {
   const row = await env.DB.prepare(`SELECT chunk_id, content_hash FROM memory_history_chunks
     WHERE principal_id = ? ORDER BY start_event_sequence ASC LIMIT 1`)
@@ -608,21 +865,124 @@ describe("memory meaning indexing", () => {
     expect(vectors.upserts).toHaveLength(2);
   });
 
-  it("enforces the per-run embedding and Vectorize mutation caps", { timeout: 30_000 }, async () => {
+  it("accepts a ledger batch error only when every Vectorize mutation receipt was durably recorded", async () => {
+    const fixture = await remember("Partial ledger retries stay idempotent.");
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: partialLedgerDatabase(),
+      embeddings: new FakeEmbeddings(),
+      vectors,
+    });
+
+    await expect(service.runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 1,
+      remaining: false,
+    });
+    await expect(service.runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 0,
+      deleted: 0,
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_vectors
+      WHERE principal_id = ?`).bind(fixture.principalId).first()).toEqual({ count: 1 });
+  });
+
+  it("rejects an embedding response whose row count does not match the selected candidates", async () => {
+    const fixture = await remember("Embedding row counts are exact.");
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: { embed: async () => Object.freeze([]) },
+      vectors,
+    });
+
+    await expect(service.runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "retryable_failure",
+      upserted: 0,
+      remaining: true,
+    });
+    expect(vectors.upserts).toEqual([]);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_vectors
+      WHERE principal_id = ?`).bind(fixture.principalId).first()).toEqual({ count: 0 });
+  });
+
+  it("keeps the 100-input bge-m3 request inside the byte ceiling and independent mutation cap", { timeout: 30_000 }, async () => {
     const fixture = await remember("cap item zero");
     for (let index = 1; index < MEMORY_MEANING_INDEX_LIMITS.mutations + 3; index += 1) {
       await rememberAnother(fixture.principalId, fixture.controls, `cap item ${index}`);
     }
-    const embeddings = new FakeEmbeddings();
+    const embeddingBatchSizes: number[] = [];
+    const embeddingBatchBytes: number[] = [];
+    const embeddings = new WorkersAiMemoryEmbeddingProvider({
+      run: async (_model: string, input: { text: string[] }) => {
+        embeddingBatchSizes.push(input.text.length);
+        const bytes = input.text.reduce(
+          (total, text) => total + new TextEncoder().encode(text).byteLength,
+          0,
+        );
+        embeddingBatchBytes.push(bytes);
+        if (input.text.length > 100) throw new Error("bge_m3_max_items_exceeded");
+        if (bytes > MEMORY_MEANING_INDEX_LIMITS.embeddingInputBytes) {
+          throw new Error("bge_m3_max_bytes_exceeded");
+        }
+        return { data: input.text.map(() => [...ZERO_VECTOR]) } as never;
+      },
+    } as never);
     const vectors = new FakeVectors();
     const result = await new MemoryMeaningService({ database: env.DB, embeddings, vectors })
       .runIndexStep(fixture.principalId);
 
-    expect(result).toMatchObject({ outcome: "indexed", upserted: MEMORY_MEANING_INDEX_LIMITS.mutations, remaining: true });
-    expect(embeddings.calls).toHaveLength(MEMORY_MEANING_INDEX_LIMITS.workersAiCalls);
-    expect(embeddings.calls[0]).toHaveLength(MEMORY_MEANING_INDEX_LIMITS.embeddingInputs);
+    expect(MEMORY_MEANING_INDEX_LIMITS.mutations).toBeGreaterThan(
+      MEMORY_MEANING_INDEX_LIMITS.embeddingInputs,
+    );
+    expect(MEMORY_MEANING_INDEX_LIMITS.embeddingInputs * 32_768).toBeLessThanOrEqual(
+      MEMORY_MEANING_INDEX_LIMITS.embeddingInputBytes,
+    );
+    expect(result).toMatchObject({
+      outcome: "indexed",
+      upserted: MEMORY_MEANING_INDEX_LIMITS.embeddingInputs,
+      remaining: true,
+    });
+    expect(embeddingBatchSizes).toEqual([MEMORY_MEANING_INDEX_LIMITS.embeddingInputs]);
+    expect(embeddingBatchBytes[0]).toBeLessThanOrEqual(
+      MEMORY_MEANING_INDEX_LIMITS.embeddingInputBytes,
+    );
     expect(vectors.upserts).toHaveLength(MEMORY_MEANING_INDEX_LIMITS.embeddingInputs);
     expect(vectors.upsertCalls).toHaveLength(1);
+  });
+
+  it("subtracts stale deletes from the independent mutation allowance before selecting upserts", { timeout: 30_000 }, async () => {
+    const fixture = await remember("capacity item zero");
+    for (let index = 1; index < 90; index += 1) {
+      await rememberAnother(fixture.principalId, fixture.controls, `capacity item ${index}`);
+    }
+    const timestamp = new Date().toISOString();
+    await env.DB.batch(await Promise.all(Array.from({ length: 40 }, async (_unused, index) =>
+      env.DB.prepare(`INSERT INTO memory_vectors (
+        vector_ledger_id, principal_id, item_kind, item_id, embedding_model,
+        dimensions, content_hash, mutation_id, upserted_at, deleted_at
+      ) VALUES (?, ?, 'item', ?, ?, ?, ?, ?, ?, NULL)`)
+        .bind(
+          newUlid(), fixture.principalId, newUlid(), MEMORY_EMBEDDING_MODEL,
+          MEMORY_EMBEDDING_DIMENSIONS, await sha256Hex(`stale-vector-${index}`),
+          newUlid(), timestamp,
+        ))));
+    const embeddings = new FakeEmbeddings();
+    const vectors = new FakeVectors();
+
+    await expect(new MemoryMeaningService({ database: env.DB, embeddings, vectors })
+      .runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      deleted: 40,
+      upserted: 88,
+      remaining: true,
+    });
+    expect(vectors.deletes).toHaveLength(40);
+    expect(vectors.upserts).toHaveLength(88);
+    expect(vectors.deletes.length + vectors.upserts.length).toBe(
+      MEMORY_MEANING_INDEX_LIMITS.mutations,
+    );
   });
 
   it("deletes a forgotten version and re-embeds the new version produced by lift", async () => {
@@ -645,6 +1005,35 @@ describe("memory meaning indexing", () => {
     expect(restored.version.versionId).not.toBe(fixture.item.version.versionId);
     expect(await service.runIndexStep(fixture.principalId)).toMatchObject({ upserted: 1, deleted: 0 });
     expect(vectors.upserts.at(-1)?.metadata.itemId).toBe(restored.version.versionId);
+  });
+
+  it("re-indexes a lifted history turn under a new ledger generation while keeping its event metadata id", async () => {
+    const fixture = await remember("The spare key is under the blue flowerpot.");
+    await indexLiteralHistory(fixture.principalId);
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new FakeEmbeddings(),
+      vectors,
+      historyEvents: new EventRepository(env.DB),
+    });
+    await service.runIndexStep(fixture.principalId);
+    await forget(fixture);
+    await service.runIndexStep(fixture.principalId);
+    await lift(fixture);
+
+    await expect(service.runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 2,
+      remaining: false,
+    });
+    const historyUpserts = vectors.upserts.filter(
+      ({ metadata }) => metadata.itemKind === "history_chunk"
+        && metadata.itemId === fixture.sourceEventId,
+    );
+    expect(historyUpserts).toHaveLength(2);
+    expect(new Set(historyUpserts.map(({ id }) => id)).size).toBe(2);
+    expect(await service.readCoverage(fixture.principalId)).toMatchObject({ missing: 0 });
   });
 
   it("reports eligible current targets against live current-model ledger rows", async () => {
@@ -720,6 +1109,103 @@ describe("memory meaning indexing", () => {
       .runIndexStep(principalId)).toMatchObject({ upserted: 0, deleted: 1, remaining: false });
     expect(embeddings.calls).toEqual([]);
     expect(vectors.deletes).toHaveLength(1);
+  });
+
+  it("keeps receipt-bound archived owner history indexed when archive subject_id is null", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedMeaningHistory({
+      principalId,
+      chunkText: "The archived violin recital is on Friday.",
+    });
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new FakeEmbeddings(),
+      vectors,
+      historyEvents: archived.historyEvents,
+    });
+
+    await expect(service.runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 1,
+      deleted: 0,
+      remaining: false,
+    });
+    await expect(service.runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 0,
+      deleted: 0,
+      remaining: false,
+    });
+    expect(vectors.upserts[0]?.metadata.itemId).toBe(archived.hit.itemId);
+    expect(await service.readCoverage(principalId)).toEqual({ eligible: 1, indexed: 1, missing: 0 });
+  });
+
+  it("skips an archived assistant chunk without stalling a newer canonical item or coverage", async () => {
+    const fixture = await remember("My new locker is number forty two.");
+    const archived = await seedArchivedMeaningHistory({
+      principalId: fixture.principalId,
+      chunkText: "Jarvis repeats the archived locker answer.",
+      eventType: "conversation.assistant_delivered",
+    });
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new FakeEmbeddings(),
+      vectors,
+      historyEvents: archived.historyEvents,
+    });
+
+    await expect(service.runIndexStep(fixture.principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 1,
+      remaining: false,
+    });
+    expect(vectors.upserts.map(({ metadata }) => metadata.itemKind)).toEqual(["item"]);
+    expect(await service.readCoverage(fixture.principalId)).toEqual({ eligible: 1, indexed: 1, missing: 0 });
+  });
+
+  it("fails an archived owner candidate whose verified payload text differs from the indexed chunk", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedMeaningHistory({
+      principalId,
+      chunkText: "The archived report is due Thursday.",
+      envelopeText: "The archived report is due Friday.",
+    });
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new FakeEmbeddings(),
+      vectors,
+      historyEvents: archived.historyEvents,
+    });
+
+    await expect(service.runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "retryable_failure",
+      upserted: 0,
+      remaining: true,
+    });
+    expect(vectors.upserts).toEqual([]);
+  });
+
+  it("does not index question-shaped owner turns that could crowd out their answer", async () => {
+    const principalId = await seedPrincipal();
+    const statement = "I put my passport in the top drawer of the hallway desk.";
+    for (const text of [statement, ...Array.from({ length: 4 }, () => "Where is my passport?")]) {
+      const event = await seedConversation(principalId, text, "conversation.user_committed");
+      await indexConversationAsHistory({ principalId, ...event, text });
+    }
+    const embeddings = new FakeEmbeddings();
+    const vectors = new FakeVectors();
+
+    await expect(new MemoryMeaningService({ database: env.DB, embeddings, vectors })
+      .runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 1,
+      remaining: false,
+    });
+    expect(embeddings.calls).toEqual([[statement]]);
+    expect(vectors.upserts[0]?.metadata.itemKind).toBe("history_chunk");
   });
 
   it("puts newest memory items before older pending history in one batched upsert", async () => {
@@ -837,6 +1323,93 @@ describe("Telegram meaning recall", () => {
     expect(observations[0]?.fallbackCode).toBe("memory_meaning_search_provider_error");
   });
 
+  it.each([
+    { sensitivityCode: 2, historyEligible: true },
+    { sensitivityCode: 1, historyEligible: false },
+  ])("rejects meaning history whose canonical payload is not eligible owner evidence: %o", async (payload) => {
+    const principalId = await seedPrincipal();
+    const text = "The private chemistry report is due Thursday.";
+    const event = await seedConversation(
+      principalId,
+      text,
+      "conversation.user_committed",
+      payload,
+    );
+    const hit = await indexConversationAsHistory({ principalId, ...event, text });
+    const observations: TelegramMeaningSearchObservation[] = [];
+
+    const contexts = await retrieve(principalId, "report deadline?", {
+      hits: [hit],
+      observations,
+    });
+
+    expect(contexts).toEqual([]);
+    expect(observations[0]?.fallbackCode).toBe("memory_meaning_search_provider_error");
+  });
+
+  it("binds a meaning-history row to the exact canonical event identity", async () => {
+    const principalId = await seedPrincipal();
+    const text = "The chemistry report is due Thursday.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    await indexConversationAsHistory({ principalId, ...event, text });
+    const chunk = await env.DB.prepare(`SELECT chunk_id, content_hash FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = ?`)
+      .bind(principalId, event.eventSequence)
+      .first<{ chunk_id: string; content_hash: Sha256Hex }>();
+    if (chunk === null) throw new Error("meaning_search_identity_chunk_missing");
+    const hit: MeaningSearchHit = Object.freeze({
+      vectorId: "8".repeat(64) as Sha256Hex,
+      score: 0.9,
+      itemKind: "history_chunk",
+      itemId: chunk.chunk_id,
+      contentHash: chunk.content_hash,
+    });
+    const observations: TelegramMeaningSearchObservation[] = [];
+
+    const contexts = await retrieve(principalId, "report deadline?", {
+      hits: [hit],
+      observations,
+      database: mutateMeaningCanonicalRows((rows) => rows.map((row) => ({
+        ...row,
+        event_id: newUlid(),
+      }))),
+    });
+
+    expect(contexts).toEqual([]);
+    expect(observations[0]?.fallbackCode).toBeNull();
+  });
+
+  it("rejects duplicate canonical rows returned for one meaning hit", async () => {
+    const fixture = await remember("My blue notebook is upstairs.");
+    const observations: TelegramMeaningSearchObservation[] = [];
+
+    const contexts = await retrieve(fixture.principalId, "stationery location?", {
+      hits: [meaningHit(fixture.item)],
+      observations,
+      database: mutateMeaningCanonicalRows((rows) => rows[0] === undefined
+        ? rows
+        : Object.freeze([rows[0], { ...rows[0] }])),
+    });
+
+    expect(contexts).toEqual([]);
+    expect(observations[0]?.fallbackCode).toBe("memory_meaning_search_provider_error");
+  });
+
+  it("drops stale item versions and hashes even when Vectorize still returns them", async () => {
+    const fixture = await remember("I really like math.");
+    await forget(fixture);
+    const restored = await lift(fixture);
+
+    const contexts = await retrieve(fixture.principalId, "favourite academic discipline?", {
+      hits: [meaningHit(fixture.item), {
+        ...meaningHit(restored, 1),
+        contentHash: "f".repeat(64) as Sha256Hex,
+      }],
+    });
+
+    expect(contexts).toEqual([]);
+  });
+
   it("skips a meaning row with no event id without losing valid hits", async () => {
     const fixture = await remember("My blue notebook is upstairs.");
     const eventSequence = 1_000_000_000 + serial;
@@ -919,6 +1492,197 @@ describe("Telegram meaning recall", () => {
     expect(contexts.filter((context) => context.sourceEventId === event.eventId)).toEqual([recent]);
   });
 
+  it("drops same-query, question-shaped, and normalized seen-text meaning history before fusion", async () => {
+    const principalId = await seedPrincipal();
+    const currentText = "notebook location";
+    const current = await seedConversation(principalId, currentText, "conversation.user_committed");
+    const currentHit = await indexConversationAsHistory({
+      principalId,
+      ...current,
+      text: currentText,
+    });
+    const questionText = "Where is the notebook?";
+    const question = await seedConversation(principalId, questionText, "conversation.user_committed");
+    const questionHit = await indexConversationAsHistory({
+      principalId,
+      ...question,
+      text: questionText,
+    });
+    const seenText = "Notebook is upstairs.";
+    const seen = await seedConversation(principalId, seenText, "conversation.user_committed");
+    const seenHit = await indexConversationAsHistory({ principalId, ...seen, text: seenText });
+    const recent = await seedConversation(
+      principalId,
+      "notebook is upstairs.",
+      "conversation.user_committed",
+    );
+    const base = Object.freeze({
+      sourceEventId: recent.eventId,
+      text: "notebook is upstairs.",
+      sensitivity: "personal" as const,
+    });
+
+    const contexts = await retrieve(principalId, currentText, {
+      base: [base],
+      hits: [currentHit, questionHit, seenHit],
+    });
+
+    expect(contexts).toEqual([base]);
+  });
+
+  it("does not repeat a remembered item as meaning history from its own source event", async () => {
+    const fixture = await remember("My favourite class is chemistry.");
+    await indexLiteralHistory(fixture.principalId);
+    const history = await historyHit(fixture.principalId);
+
+    const contexts = await retrieve(fixture.principalId, "Which subject do I like best?", {
+      hits: [meaningHit(fixture.item), history],
+    });
+
+    expect(contexts.filter((context) => /chemistry/iu.test(context.text))).toHaveLength(1);
+    expect(contexts[0]?.text).toContain("Memory evidence");
+  });
+
+  it("keeps ready meaning evidence when the canonical candidate query exceeds its own deadline", async () => {
+    const principalId = await seedPrincipal();
+    const text = "I put my passport in the top drawer of the hallway desk.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    const hit = await indexConversationAsHistory({ principalId, ...event, text });
+    const observations: TelegramMeaningSearchObservation[] = [];
+
+    const contexts = await retrieve(principalId, "Where is my passport?", {
+      hits: [hit],
+      observations,
+      database: delayedMatchingDatabase("memory_item_fts MATCH", 900),
+    });
+
+    expect(contexts.some((context) => context.text.includes("top drawer"))).toBe(true);
+    expect(observations).toEqual([expect.objectContaining({ fallbackCode: null })]);
+  }, 30_000);
+
+  it("reserves canonical re-read time after a 250 ms meaning provider response", async () => {
+    const principalId = await seedPrincipal();
+    const text = "I put my passport in the top drawer of the hallway desk.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    const hit = await indexConversationAsHistory({ principalId, ...event, text });
+    const observations: TelegramMeaningSearchObservation[] = [];
+
+    const contexts = await retrieve(principalId, "Where is my passport?", {
+      observations,
+      search: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+        return [hit];
+      },
+      meaningSearchTimeoutMs: 450,
+    });
+
+    expect(contexts.some((context) => context.text.includes("top drawer"))).toBe(true);
+    expect(observations).toEqual([expect.objectContaining({ fallbackCode: null })]);
+  }, 30_000);
+
+  it("keeps literal evidence when a short recent acknowledgement is only a substring of the answer", async () => {
+    const principalId = await seedPrincipal();
+    const text = "I put the library book on the kitchen shelf.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    await indexConversationAsHistory({ principalId, ...event, text });
+    const query = "Where did I put the library book?";
+    const acknowledgement = await seedConversation(
+      principalId,
+      "ok",
+      "conversation.user_committed",
+    );
+    const current = await seedConversation(principalId, query, "conversation.user_committed");
+    await markLiteralCoverageComplete(principalId);
+
+    const contexts = await retrieve(principalId, query, {
+      base: [
+        { sourceEventId: acknowledgement.eventId, text: "ok", sensitivity: "personal" },
+        { sourceEventId: current.eventId, text: query, sensitivity: "personal" },
+      ],
+    });
+
+    expect(contexts.some((context) => context.text.includes(text))).toBe(true);
+  });
+
+  it("keeps declarative literal answers that begin with have, did, or will", async () => {
+    const principalId = await seedPrincipal();
+    const cases = [
+      ["Have to return the library book to Ms Patel on Friday.", "When do I return the library book?"],
+      ["Did the chemistry lab write-up already, it is due Monday.", "When is the chemistry lab write-up due?"],
+      ["Will be at the orthodontist Thursday at four.", "When is the orthodontist visit Thursday?"],
+    ] as const;
+    const queryEvents: Array<Readonly<{ eventId: Ulid }>> = [];
+    for (const [text, query] of cases) {
+      const event = await seedConversation(principalId, text, "conversation.user_committed");
+      await indexConversationAsHistory({ principalId, ...event, text });
+      queryEvents.push(await seedConversation(principalId, query, "conversation.user_committed"));
+    }
+    await markLiteralCoverageComplete(principalId);
+
+    for (const [[text, query], queryEvent] of cases.map((entry, index) => [entry, queryEvents[index]] as const)) {
+      if (queryEvent === undefined) throw new Error("meaning_search_query_fixture_missing");
+      const contexts = await retrieve(principalId, query, {
+        base: [{ sourceEventId: queryEvent.eventId, text: query, sensitivity: "personal" }],
+      });
+      expect(contexts.some((context) => context.text.includes(text))).toBe(true);
+    }
+  });
+
+  it("does not let the previous identical question count as literal query coverage", async () => {
+    const principalId = await seedPrincipal();
+    const text = "I put the library book on the kitchen shelf.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    await indexConversationAsHistory({ principalId, ...event, text });
+    const query = "Where did I put the library book?";
+    const previous = await seedConversation(principalId, query, "conversation.user_committed");
+    const current = await seedConversation(principalId, query, "conversation.user_committed");
+    await markLiteralCoverageComplete(principalId);
+
+    const contexts = await retrieve(principalId, query, {
+      base: [
+        { sourceEventId: previous.eventId, text: query, sensitivity: "personal" },
+        { sourceEventId: current.eventId, text: query, sensitivity: "personal" },
+      ],
+    });
+
+    expect(contexts.some((context) => context.text.includes(text))).toBe(true);
+  });
+
+  it("drops same-text and normalized seen-text literal copies before the four-result trim", async () => {
+    const principalId = await seedPrincipal();
+    const query = "blue notebook upstairs cabinet evidence";
+    const texts = [
+      query,
+      "The BLUE notebook is upstairs.",
+      ...Array.from({ length: 5 }, (_unused, index) =>
+        `Blue notebook upstairs evidence ${index} is stored in cabinet ${index}.`),
+    ];
+    for (const text of texts) {
+      const event = await seedConversation(principalId, text, "conversation.user_committed");
+      await indexConversationAsHistory({ principalId, ...event, text });
+    }
+    const seen = await seedConversation(
+      principalId,
+      "the blue notebook is upstairs",
+      "conversation.user_committed",
+    );
+    await seedConversation(principalId, query, "conversation.user_committed");
+    await markLiteralCoverageComplete(principalId);
+
+    const contexts = await retrieve(principalId, query, {
+      base: [{
+        sourceEventId: seen.eventId,
+        text: "the blue notebook is upstairs",
+        sensitivity: "personal",
+      }],
+    });
+    const history = contexts.filter((context) => context.text.startsWith("History evidence ["));
+
+    expect(history).toHaveLength(4);
+    expect(history.every((context) => !context.text.endsWith(`: ${query}`)
+      && !context.text.endsWith(": The BLUE notebook is upstairs."))).toBe(true);
+  });
+
   it("returns the new eligible version after a lift", async () => {
     const fixture = await remember("I really like math.");
     await forget(fixture);
@@ -956,7 +1720,7 @@ describe("Telegram meaning recall", () => {
     expect(JSON.stringify(observations)).not.toContain("private provider response");
   });
 
-  it("cuts off meaning search at 450 ms while retaining keyword and recent context within 800 ms", async () => {
+  it("reserves 180 ms of the meaning window for canonical reads while retaining keyword and recent context", async () => {
     const fixture = await remember("My blue notebook is upstairs.");
     const recent = Object.freeze({
       sourceEventId: fixture.sourceEventId,
@@ -981,7 +1745,8 @@ describe("Telegram meaning recall", () => {
     expect(contexts).toContainEqual(recent);
     expect(observations).toHaveLength(1);
     expect(observations[0]?.fallbackCode).toBe("memory_meaning_search_timeout");
-    expect(observations[0]?.meaningSearchMs).toBeGreaterThanOrEqual(440);
+    expect(observations[0]?.meaningSearchMs).toBeGreaterThanOrEqual(260);
+    expect(observations[0]?.meaningSearchMs).toBeLessThan(450);
   });
 
   it("keeps keyword recall under 800 ms when every D1 round trip costs 25 ms and meaning is enabled", { timeout: 30_000 }, async () => {
@@ -1018,7 +1783,11 @@ describe("Telegram meaning recall", () => {
     expect(observations).toEqual([{ meaningSearchMs: 0, fallbackCode: null }]);
   });
 
-  it.each(["thanks!", "ok cool", "what's up", "lol", "good night", "yes"])(
+  it.each([
+    "thanks!", "thanks jarvis", "ok thanks", "cool thanks", "got it", "sounds good",
+    "nice", "yeah", "yep", "sure", "no", "ty", "thx", "good morning", "haha",
+    "perfect", "okay 👍", "thank you!", "what's up", "lol", "good night", "yes",
+  ])(
     "makes no meaning call for the short acknowledgement %s",
     async (message) => {
       const fixture = await remember("I really like math.");

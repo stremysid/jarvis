@@ -208,7 +208,19 @@ async function appendConversation(
     }),
     producerVersion: "conversation-v1",
   });
-  return appendEnvelope(events, envelope, `conversation:${eventId}`);
+  if (eventType === "conversation.user_committed") {
+    return appendEnvelope(events, envelope, `conversation:${eventId}`);
+  }
+  const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name = 'events_conversation_transition_guard'`)
+    .first<{ sql: string }>();
+  if (guard === null) throw new Error("literal_history_conversation_guard_missing");
+  await env.DB.prepare("DROP TRIGGER events_conversation_transition_guard").run();
+  try {
+    return await appendEnvelope(events, envelope, `conversation:${eventId}`);
+  } finally {
+    await env.DB.prepare(guard.sql).run();
+  }
 }
 
 async function appendOwnerCommand(
@@ -413,6 +425,50 @@ describe("LiteralHistoryService", () => {
     });
     expect(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements).toBe(62);
     expect(counted.queryCount()).toBeLessThanOrEqual(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements);
+  });
+
+  it("over-fetches past matching assistant replies and trims retained owner hits to the requested limit", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const ownerEvents: AppendedEvent[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      ownerEvents.push(await appendConversation(
+        events,
+        time,
+        `Owner science fair answer ${index} names the green display board.`,
+      ));
+    }
+    for (let index = 0; index < LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined; index += 1) {
+      await appendConversation(
+        events,
+        time,
+        `Assistant science fair reply ${index} repeats the green display board.`,
+        2,
+        "conversation.assistant_delivered",
+      );
+    }
+    const literal = service(events, time);
+    let complete = false;
+    for (let step = 0; step < 3 && !complete; step += 1) {
+      complete = (await literal.indexNext({
+        principalId: OWNER_ID,
+        maxEvents: 16,
+        maxTextBytes: 262_144,
+      })).complete;
+    }
+    expect(complete).toBe(true);
+
+    const result = await literal.searchLiteral({
+      principalId: OWNER_ID,
+      query: "science fair green display board",
+      maxResults: 2,
+    });
+
+    expect(result.status).toBe("hits");
+    expect(result.hits).toHaveLength(2);
+    expect(result.hits.every((hit) => ownerEvents.some(
+      (event) => event.envelope.eventId === hit.eventId,
+    ))).toBe(true);
   });
 
   it("keeps the hourly indexing shape inside its declared D1 statement budget", async () => {
