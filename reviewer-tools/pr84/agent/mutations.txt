@@ -1,0 +1,39 @@
+ Test Files  21 passed (21)
+      Tests  1368 passed (1368)
+BASELINE_DONE
+== M1 getOrCreateTurn replay re-read removed :: Test Files  1 failed (1) | Tests  2 failed | 24 passed (26)
+    × re-reads getOrCreateTurn when a racing admission wins before its batch 169ms
+    × re-reads getOrCreateTurn when its admission batch commits but loses the response 44ms
+    FAIL  |default| apps/cloud-gateway/test/persistence/conversation-repository.test.ts > ConversationRepository > re-reads getOrCreateTurn when a racing admission wins before its batch
+    FAIL  |default| apps/cloud-gateway/test/persistence/conversation-repository.test.ts > ConversationRepository > re-reads getOrCreateTurn when its admission batch commits but loses the response
+== M2 stageAssistantDelivery replay re-read removed :: Test Files  1 failed (1) | Tests  1 failed | 25 passed (26)
+    × re-reads stageAssistantDelivery when its staging batch commits but loses the response 77ms
+    FAIL  |default| apps/cloud-gateway/test/persistence/conversation-repository.test.ts > ConversationRepository > re-reads stageAssistantDelivery when its staging batch commits but loses the response
+== M3 recordDeliverySuccess readDeliveryRow fallback removed :: Test Files  1 failed (1) | Tests  1 failed | 25 passed (26)
+    × falls back to readDeliveryRow when delivery success commits but its returned row is lost 69ms
+    FAIL  |default| apps/cloud-gateway/test/persistence/conversation-repository.test.ts > ConversationRepository > falls back to readDeliveryRow when delivery success commits but its returned row is lost
+== M4 index.ts observeStaging unwired :: Test Files  1 failed (1) | Tests  1 failed | 2 passed (3)
+    × composes live staging and Telegram-send timings into telegram_turn_outcome 240ms
+    FAIL  |default| apps/cloud-gateway/test/http/worker-telegram-reply.test.ts > live Telegram reply composition > composes live staging and Telegram-send timings into telegram_turn_outcome
+== M5 index.ts observeTelegramSend unwired :: Test Files  1 failed (1) | Tests  1 failed | 2 passed (3)
+    × composes live staging and Telegram-send timings into telegram_turn_outcome 224ms
+    FAIL  |default| apps/cloud-gateway/test/http/worker-telegram-reply.test.ts > live Telegram reply composition > composes live staging and Telegram-send timings into telegram_turn_outcome
+== G1 index.ts final guard removed :: Test Files  1 failed | 19 passed (20) | Tests  1 failed | 1341 passed (1342)
+    × applies the final action-claim gate to an owner's ordinary Telegram reply 167ms
+    FAIL  |default| apps/cloud-gateway/test/http/worker-telegram-reply.test.ts > live Telegram reply composition > applies the final action-claim gate to an owner's ordinary Telegram reply
+== G2 index.ts delegated tracker not wrapped (every reply gets a memory receipt) :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+== G3 guard issues memory receipt unconditionally :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+== G4 receipt turn binding removed :: Test Files  1 failed | 19 passed (20) | Tests  1 failed | 1341 passed (1342)
+    × refuses an unreceipted in-app save and does not accept a forged or other-turn receipt 7ms
+    FAIL  |default| apps/cloud-gateway/test/channels/reply-action-claims.test.ts > owner Telegram reply action claims > refuses an unreceipted in-app save and does not accept a forged or other-turn receipt
+== G5 school-plan receipt never issued :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+== G6 university-tracker receipt never issued :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+== G7 study-coach receipt never issued :: Test Files  1 failed | 19 passed (20) | Tests  1 failed | 1341 passed (1342)
+    × removes later assistant replies that retrieved, cited, or restated a forgotten item 304ms
+    FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram forget recall safety > removes later assistant replies that retrieved, cited, or restated a forgotten item
+== G8 draft exemption removed :: Test Files  1 failed | 19 passed (20) | Tests  1 failed | 1341 passed (1342)
+    × keeps the b2r3 benign corpus within main's two-of-41 over-refusal ceiling 6ms
+    FAIL  |default| apps/cloud-gateway/test/channels/reply-action-claims.test.ts > owner Telegram reply action claims > keeps the b2r3 benign corpus within main's two-of-41 over-refusal ceiling
+== G9 denial exemption removed :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+== G10 brightspace-refresh receipt never issued :: Test Files  20 passed (20) | Tests  1342 passed (1342)
+DONE
