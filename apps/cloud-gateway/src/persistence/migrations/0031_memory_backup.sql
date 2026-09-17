@@ -1,6 +1,6 @@
 -- Durable progress and verification receipts for the custom memory backup.
--- Exported rows stay in R2. D1 records only immutable cut marks, resumable
--- progress, verified object metadata, retention state and alert claims.
+-- Exported rows stay in R2. D1 records immutable cuts, numeric cursors,
+-- verified object metadata, retention state and alert claims.
 
 CREATE TABLE memory_backup_runs (
   run_date TEXT PRIMARY KEY CHECK (
@@ -18,10 +18,12 @@ CREATE TABLE memory_backup_runs (
   marks_json TEXT NOT NULL CHECK (
     json_valid(marks_json)
     AND json_type(marks_json) = 'object'
+    AND json_type(marks_json, '$.eventsAfter') = 'integer'
+    AND json_extract(marks_json, '$.eventsAfter') >= 0
     AND length(CAST(marks_json AS BLOB)) <= 4096
   ),
-  current_table_index INTEGER NOT NULL CHECK (current_table_index BETWEEN 0 AND 7),
-  cursor_key TEXT CHECK (cursor_key IS NULL OR length(CAST(cursor_key AS BLOB)) BETWEEN 1 AND 128),
+  current_table_index INTEGER NOT NULL CHECK (current_table_index BETWEEN 0 AND 256),
+  cursor_key INTEGER CHECK (cursor_key IS NULL OR cursor_key > 0),
   next_object_number INTEGER NOT NULL CHECK (next_object_number >= 0),
   verified_object_count INTEGER NOT NULL CHECK (
     verified_object_count >= 0 AND verified_object_count <= next_object_number
@@ -49,6 +51,8 @@ CREATE TABLE memory_backup_runs (
     'memory_backup_object_readback_failed',
     'memory_backup_manifest_readback_failed',
     'memory_backup_advertise_failed',
+    'memory_backup_cut_mismatch',
+    'memory_backup_stale',
     'memory_backup_cleanup_failed',
     'memory_backup_operation_failed'
   )),
@@ -94,24 +98,49 @@ CREATE TABLE memory_backup_runs (
 CREATE INDEX memory_backup_runs_status_date_idx
 ON memory_backup_runs(status, run_date, started_at);
 
+-- WITHOUT ROWID source tables have no insertion sequence. The first cut that
+-- sees a primary key assigns it a D1 integer which future cuts keep forever.
+CREATE TABLE memory_backup_row_ordinals (
+  ordinal INTEGER PRIMARY KEY AUTOINCREMENT CHECK (ordinal > 0),
+  table_name TEXT NOT NULL CHECK (
+    length(table_name) BETWEEN 1 AND 128 AND table_name NOT GLOB '*[^a-z0-9_]*'
+  ),
+  row_key TEXT NOT NULL CHECK (
+    json_valid(row_key) AND json_type(row_key) = 'array' AND length(CAST(row_key AS BLOB)) <= 4096
+  ),
+  UNIQUE (table_name, row_key)
+) STRICT;
+
+CREATE TABLE memory_backup_table_cuts (
+  run_id TEXT NOT NULL REFERENCES memory_backup_runs(run_id) ON DELETE RESTRICT,
+  table_index INTEGER NOT NULL CHECK (table_index BETWEEN 0 AND 255),
+  table_name TEXT NOT NULL CHECK (
+    length(table_name) BETWEEN 1 AND 128 AND table_name NOT GLOB '*[^a-z0-9_]*'
+  ),
+  key_kind TEXT NOT NULL CHECK (key_kind IN ('sequence', 'rowid', 'ordinal')),
+  after_key INTEGER NOT NULL CHECK (after_key >= 0),
+  through_key INTEGER CHECK (through_key IS NULL OR through_key > after_key),
+  expected_row_count INTEGER NOT NULL CHECK (expected_row_count >= 0),
+  PRIMARY KEY (run_id, table_index),
+  UNIQUE (run_id, table_name),
+  CHECK (
+    (expected_row_count = 0 AND through_key IS NULL)
+    OR (expected_row_count > 0 AND through_key IS NOT NULL)
+  )
+) STRICT, WITHOUT ROWID;
+
 CREATE TABLE memory_backup_objects (
   run_id TEXT NOT NULL REFERENCES memory_backup_runs(run_id) ON DELETE RESTRICT,
   object_number INTEGER NOT NULL CHECK (object_number >= 0),
-  table_name TEXT NOT NULL CHECK (table_name IN (
-    'events',
-    'memory_item_transitions',
-    'memory_event_suppressions',
-    'memory_event_suppression_lifts',
-    'memory_topic_events',
-    'memory_item_placement_events',
-    'memory_cost_ledger'
-  )),
+  table_name TEXT NOT NULL CHECK (
+    length(table_name) BETWEEN 1 AND 128 AND table_name NOT GLOB '*[^a-z0-9_]*'
+  ),
   object_key TEXT NOT NULL UNIQUE CHECK (length(CAST(object_key AS BLOB)) BETWEEN 1 AND 1024),
   schema_version TEXT NOT NULL CHECK (length(schema_version) BETWEEN 1 AND 128),
   row_count INTEGER NOT NULL CHECK (row_count > 0 AND row_count <= 32),
   byte_count INTEGER NOT NULL CHECK (byte_count > 0 AND byte_count <= 1048576),
-  first_key TEXT NOT NULL CHECK (length(CAST(first_key AS BLOB)) BETWEEN 1 AND 128),
-  last_key TEXT NOT NULL CHECK (length(CAST(last_key AS BLOB)) BETWEEN 1 AND 128),
+  first_key INTEGER NOT NULL CHECK (first_key > 0),
+  last_key INTEGER NOT NULL CHECK (last_key > 0),
   sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
   verified_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', verified_at) IS verified_at),
   PRIMARY KEY (run_id, object_number),
@@ -130,6 +159,8 @@ CREATE TABLE memory_backup_alerts (
     'memory_backup_object_readback_failed',
     'memory_backup_manifest_readback_failed',
     'memory_backup_advertise_failed',
+    'memory_backup_cut_mismatch',
+    'memory_backup_stale',
     'memory_backup_cleanup_failed',
     'memory_backup_operation_failed'
   )),
@@ -188,7 +219,9 @@ BEGIN
         OR OLD.lease_id IS NOT NULL
           AND NEW.lease_id IS NULL
           AND (
-            OLD.current_table_index < 7
+            OLD.current_table_index < (
+              SELECT count(*) FROM memory_backup_table_cuts cut WHERE cut.run_id = OLD.run_id
+            )
               AND NEW.current_table_index = OLD.current_table_index
               AND NEW.cursor_key IS NOT NULL
               AND (OLD.cursor_key IS NULL OR NEW.cursor_key > OLD.cursor_key)
@@ -200,13 +233,28 @@ BEGIN
                   AND object.object_number = OLD.next_object_number
                   AND object.last_key = NEW.cursor_key
               )
-            OR OLD.current_table_index < 7
+            OR OLD.current_table_index < (
+              SELECT count(*) FROM memory_backup_table_cuts cut WHERE cut.run_id = OLD.run_id
+            )
               AND NEW.current_table_index = OLD.current_table_index + 1
               AND NEW.cursor_key IS NULL
               AND NEW.next_object_number = OLD.next_object_number
               AND NEW.verified_object_count = OLD.verified_object_count
-            OR OLD.current_table_index = 7
-              AND NEW.current_table_index = 7
+              AND COALESCE((
+                SELECT sum(object.row_count) FROM memory_backup_objects object
+                WHERE object.run_id = OLD.run_id
+                  AND object.table_name = (
+                    SELECT cut.table_name FROM memory_backup_table_cuts cut
+                    WHERE cut.run_id = OLD.run_id AND cut.table_index = OLD.current_table_index
+                  )
+              ), 0) = (
+                SELECT cut.expected_row_count FROM memory_backup_table_cuts cut
+                WHERE cut.run_id = OLD.run_id AND cut.table_index = OLD.current_table_index
+              )
+            OR OLD.current_table_index = (
+              SELECT count(*) FROM memory_backup_table_cuts cut WHERE cut.run_id = OLD.run_id
+            )
+              AND NEW.current_table_index = OLD.current_table_index
               AND NEW.cursor_key IS NULL
               AND NEW.next_object_number = OLD.next_object_number
               AND NEW.verified_object_count = OLD.verified_object_count + 1
@@ -225,8 +273,10 @@ BEGIN
         AND NEW.verified_object_count = OLD.verified_object_count
       OR OLD.status = 'running' AND OLD.lease_id IS NOT NULL AND NEW.status = 'verified'
         AND NEW.lease_id IS NULL
-        AND OLD.current_table_index = 7
-        AND NEW.current_table_index = 7
+        AND OLD.current_table_index = (
+          SELECT count(*) FROM memory_backup_table_cuts cut WHERE cut.run_id = OLD.run_id
+        )
+        AND NEW.current_table_index = OLD.current_table_index
         AND NEW.cursor_key IS NULL
         AND NEW.next_object_number = OLD.next_object_number
         AND NEW.verified_object_count = NEW.next_object_number
@@ -253,32 +303,103 @@ BEGIN
   SELECT RAISE(ABORT, 'memory_backup_run_delete_forbidden') WHERE 1 = 1;
 END;
 
+CREATE TRIGGER memory_backup_row_ordinals_insert_guard
+BEFORE INSERT ON memory_backup_row_ordinals
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_row_ordinal_insert_conflict') WHERE EXISTS (
+    SELECT 1 FROM memory_backup_row_ordinals ordinal
+    WHERE ordinal.table_name = NEW.table_name AND ordinal.row_key = NEW.row_key
+  );
+END;
+
+CREATE TRIGGER memory_backup_row_ordinals_update_guard
+BEFORE UPDATE ON memory_backup_row_ordinals
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_row_ordinal_update_forbidden') WHERE 1 = 1;
+END;
+
+CREATE TRIGGER memory_backup_row_ordinals_delete_guard
+BEFORE DELETE ON memory_backup_row_ordinals
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_row_ordinal_delete_forbidden') WHERE 1 = 1;
+END;
+
+CREATE TRIGGER memory_backup_table_cuts_insert_guard
+BEFORE INSERT ON memory_backup_table_cuts
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_table_cut_insert_invalid') WHERE
+    EXISTS (
+      SELECT 1 FROM memory_backup_table_cuts cut
+      WHERE cut.run_id = NEW.run_id
+        AND (cut.table_index = NEW.table_index OR cut.table_name = NEW.table_name)
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM memory_backup_runs run
+      WHERE run.run_id = NEW.run_id
+        AND run.status = 'running'
+        AND run.lease_id IS NULL
+        AND run.current_table_index = 0
+        AND run.next_object_number = 0
+        AND NEW.table_index = (
+          SELECT count(*) FROM memory_backup_table_cuts cut WHERE cut.run_id = NEW.run_id
+        )
+    );
+END;
+
+CREATE TRIGGER memory_backup_table_cuts_update_guard
+BEFORE UPDATE ON memory_backup_table_cuts
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_table_cut_update_forbidden') WHERE 1 = 1;
+END;
+
+CREATE TRIGGER memory_backup_table_cuts_delete_guard
+BEFORE DELETE ON memory_backup_table_cuts
+BEGIN
+  SELECT RAISE(ABORT, 'memory_backup_table_cut_delete_forbidden') WHERE 1 = 1;
+END;
+
 CREATE TRIGGER memory_backup_objects_insert_guard
 BEFORE INSERT ON memory_backup_objects
 BEGIN
   SELECT RAISE(ABORT, 'memory_backup_object_insert_invalid') WHERE
     EXISTS (
       SELECT 1 FROM memory_backup_objects object
-      WHERE object.run_id = NEW.run_id
-        AND (object.object_number = NEW.object_number OR object.object_key = NEW.object_key)
+      WHERE object.object_key = NEW.object_key
+        OR (object.run_id = NEW.run_id AND object.object_number = NEW.object_number)
     )
-    OR NOT EXISTS (
-      SELECT 1 FROM memory_backup_runs run
-      WHERE run.run_id = NEW.run_id
-        AND run.status = 'running'
-        AND run.lease_id IS NOT NULL
-        AND run.current_table_index < 7
-        AND run.next_object_number = NEW.object_number
-        AND run.schema_version = NEW.schema_version
-        AND NEW.table_name = CASE run.current_table_index
-          WHEN 0 THEN 'events'
-          WHEN 1 THEN 'memory_item_transitions'
-          WHEN 2 THEN 'memory_event_suppressions'
-          WHEN 3 THEN 'memory_event_suppression_lifts'
-          WHEN 4 THEN 'memory_topic_events'
-          WHEN 5 THEN 'memory_item_placement_events'
-          WHEN 6 THEN 'memory_cost_ledger'
-        END
+    OR NOT (
+      EXISTS (
+        SELECT 1 FROM memory_backup_runs run
+        JOIN memory_backup_table_cuts cut
+          ON cut.run_id = run.run_id AND cut.table_index = run.current_table_index
+        WHERE run.run_id = NEW.run_id
+          AND run.status = 'running'
+          AND run.lease_id IS NOT NULL
+          AND run.next_object_number = NEW.object_number
+          AND run.schema_version = NEW.schema_version
+          AND cut.table_name = NEW.table_name
+          AND NEW.first_key > COALESCE(run.cursor_key, cut.after_key)
+          AND NEW.last_key <= cut.through_key
+      )
+      OR EXISTS (
+        SELECT 1 FROM memory_backup_runs run
+        WHERE run.run_id = NEW.run_id
+          AND run.status = 'running'
+          AND run.lease_id IS NOT NULL
+          AND run.current_table_index = 0
+          AND run.next_object_number = NEW.object_number
+          AND run.schema_version = NEW.schema_version
+          AND NEW.table_name = 'events'
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_backup_table_cuts cut WHERE cut.run_id = run.run_id
+          )
+          AND json_type(run.marks_json, '$.eventsThrough') = 'integer'
+          AND NEW.first_key > COALESCE(
+            run.cursor_key,
+            json_extract(run.marks_json, '$.eventsAfter')
+          )
+          AND NEW.last_key <= json_extract(run.marks_json, '$.eventsThrough')
+      )
     );
 END;
 

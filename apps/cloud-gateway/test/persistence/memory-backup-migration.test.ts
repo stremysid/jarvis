@@ -8,19 +8,18 @@ const timestamp = "2026-09-16T23:30:00.000Z";
 const later = "2026-09-16T23:31:00.000Z";
 const marks = JSON.stringify({
   eventsAfter: 0,
-  eventsThrough: 1,
-  memoryCostLedgerThrough: null,
-  memoryEventSuppressionLiftsThrough: null,
-  memoryEventSuppressionsThrough: null,
-  memoryItemPlacementEventsThrough: null,
-  memoryItemTransitionsThrough: null,
-  memoryTopicEventsThrough: null,
 });
 
 const triggerNames = [
   "memory_backup_runs_insert_guard",
   "memory_backup_runs_update_guard",
   "memory_backup_runs_delete_guard",
+  "memory_backup_row_ordinals_insert_guard",
+  "memory_backup_row_ordinals_update_guard",
+  "memory_backup_row_ordinals_delete_guard",
+  "memory_backup_table_cuts_insert_guard",
+  "memory_backup_table_cuts_update_guard",
+  "memory_backup_table_cuts_delete_guard",
   "memory_backup_objects_insert_guard",
   "memory_backup_objects_update_guard",
   "memory_backup_objects_delete_guard",
@@ -41,6 +40,9 @@ async function insertRun(): Promise<void> {
 }
 
 async function insertObject(): Promise<void> {
+  await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+    run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+  ) VALUES (?, 0, 'events', 'sequence', 0, 1, 1)`).bind(runId).run();
   await env.DB.prepare(`UPDATE memory_backup_runs
     SET lease_id = '01k5nm00000000000000000002', lease_expires_at = '2026-09-16T23:32:00.000Z',
       updated_at = ? WHERE run_id = ?`).bind(timestamp, runId).run();
@@ -48,10 +50,10 @@ async function insertObject(): Promise<void> {
     run_id, object_number, table_name, object_key, schema_version,
     row_count, byte_count, first_key, last_key, sha256, verified_at
   ) VALUES (?, 0, 'events', 'memory-backup/test.ndjson', '0031_memory_backup.sql',
-    1, 2, '1', '1', ?, ?)`)
+    1, 2, 1, 1, ?, ?)`)
     .bind(runId, "a".repeat(64), timestamp).run();
   await env.DB.prepare(`UPDATE memory_backup_runs
-    SET cursor_key = '1', next_object_number = 1, lease_id = NULL, lease_expires_at = NULL,
+    SET cursor_key = 1, next_object_number = 1, lease_id = NULL, lease_expires_at = NULL,
       updated_at = ? WHERE run_id = ?`).bind(later, runId).run();
 }
 
@@ -108,7 +110,7 @@ describe("memory backup migration", () => {
 
   it("needs the whole run update trigger to keep the cut marks immutable", async () => {
     await insertRun();
-    const changed = marks.replace('"eventsThrough":1', '"eventsThrough":2');
+    const changed = JSON.stringify({ eventsAfter: 1 });
     await proveWholeTriggerIsRequired(
       "memory_backup_runs_update_guard",
       () => env.DB.prepare("UPDATE memory_backup_runs SET marks_json = ?, updated_at = ? WHERE run_id = ?")
@@ -126,14 +128,141 @@ describe("memory backup migration", () => {
     );
   });
 
+  it("needs the whole run update trigger to reject table completion when its row count misses the cut", async () => {
+    await insertRun();
+    await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 2, 2)`).bind(runId).run();
+    await env.DB.prepare(`UPDATE memory_backup_runs
+      SET lease_id = '01k5nm00000000000000000002', lease_expires_at = '2026-09-16T23:32:00.000Z',
+        updated_at = ? WHERE run_id = ?`).bind(timestamp, runId).run();
+    await env.DB.prepare(`INSERT INTO memory_backup_objects (
+      run_id, object_number, table_name, object_key, schema_version,
+      row_count, byte_count, first_key, last_key, sha256, verified_at
+    ) VALUES (?, 0, 'events', 'memory-backup/short.ndjson', '0031_memory_backup.sql',
+      1, 2, 1, 1, ?, ?)`)
+      .bind(runId, "a".repeat(64), timestamp).run();
+    await env.DB.prepare(`UPDATE memory_backup_runs
+      SET cursor_key = 1, next_object_number = 1, lease_id = NULL, lease_expires_at = NULL,
+        updated_at = ? WHERE run_id = ?`).bind(later, runId).run();
+    await env.DB.prepare(`UPDATE memory_backup_runs
+      SET lease_id = '01k5nm00000000000000000003', lease_expires_at = '2026-09-16T23:33:00.000Z',
+        updated_at = ? WHERE run_id = ?`).bind(later, runId).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_runs_update_guard",
+      () => env.DB.prepare(`UPDATE memory_backup_runs
+        SET current_table_index = 1, cursor_key = NULL, lease_id = NULL, lease_expires_at = NULL,
+          updated_at = ? WHERE run_id = ?`).bind(later, runId).run(),
+      "memory_backup_run_transition_invalid",
+    );
+  });
+
+  it("needs the whole row-ordinal insert trigger to reject conflict-clause replacement", async () => {
+    await env.DB.prepare(`INSERT INTO memory_backup_row_ordinals (table_name, row_key)
+      VALUES ('memory_items', '["first"]')`).run();
+    const mutation = () => env.DB.prepare(`INSERT OR REPLACE INTO memory_backup_row_ordinals
+      (table_name, row_key) VALUES ('memory_items', '["first"]')`).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_row_ordinals_insert_guard", mutation, "memory_backup_row_ordinal_insert_conflict",
+    );
+  });
+
+  it("needs the whole row-ordinal update trigger to keep insertion cuts stable", async () => {
+    await env.DB.prepare(`INSERT INTO memory_backup_row_ordinals (table_name, row_key)
+      VALUES ('memory_items', '["first"]')`).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_row_ordinals_update_guard",
+      () => env.DB.prepare(`UPDATE memory_backup_row_ordinals SET row_key = '["second"]'
+        WHERE table_name = 'memory_items'`).run(),
+      "memory_backup_row_ordinal_update_forbidden",
+    );
+  });
+
+  it("needs the whole row-ordinal delete trigger to preserve insertion cuts", async () => {
+    await env.DB.prepare(`INSERT INTO memory_backup_row_ordinals (table_name, row_key)
+      VALUES ('memory_items', '["first"]')`).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_row_ordinals_delete_guard",
+      () => env.DB.prepare("DELETE FROM memory_backup_row_ordinals WHERE table_name = 'memory_items'").run(),
+      "memory_backup_row_ordinal_delete_forbidden",
+    );
+  });
+
+  it("needs the whole table-cut insert trigger to keep one ordered cut per table", async () => {
+    await insertRun();
+    await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 1, 1)`).bind(runId).run();
+    const mutation = () => env.DB.prepare(`INSERT OR REPLACE INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 2, 2)`).bind(runId).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_table_cuts_insert_guard", mutation, "memory_backup_table_cut_insert_invalid",
+    );
+  });
+
+  it("needs the whole table-cut update trigger to keep expected row counts immutable", async () => {
+    await insertRun();
+    await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 1, 1)`).bind(runId).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_table_cuts_update_guard",
+      () => env.DB.prepare("UPDATE memory_backup_table_cuts SET expected_row_count = 2 WHERE run_id = ?")
+        .bind(runId).run(),
+      "memory_backup_table_cut_update_forbidden",
+    );
+  });
+
+  it("needs the whole table-cut delete trigger to preserve the restore manifest cut", async () => {
+    await insertRun();
+    await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 1, 1)`).bind(runId).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_table_cuts_delete_guard",
+      () => env.DB.prepare("DELETE FROM memory_backup_table_cuts WHERE run_id = ?").bind(runId).run(),
+      "memory_backup_table_cut_delete_forbidden",
+    );
+  });
+
   it("needs the whole object insert trigger to require a leased matching run step", async () => {
     await insertRun();
     const mutation = () => env.DB.prepare(`INSERT INTO memory_backup_objects (
       run_id, object_number, table_name, object_key, schema_version,
       row_count, byte_count, first_key, last_key, sha256, verified_at
     ) VALUES (?, 0, 'events', 'memory-backup/unleased.ndjson', '0031_memory_backup.sql',
-      1, 2, '1', '1', ?, ?)`)
+      1, 2, 1, 1, ?, ?)`)
       .bind(runId, "b".repeat(64), timestamp).run();
+    await proveWholeTriggerIsRequired(
+      "memory_backup_objects_insert_guard", mutation, "memory_backup_object_insert_invalid",
+    );
+  });
+
+  it("needs the whole object insert trigger to stop replacement of another run's receipt", async () => {
+    await insertRun();
+    await insertObject();
+    const otherRunId = "01k5nm00000000000000000009";
+    await env.DB.prepare(`INSERT INTO memory_backup_runs (
+      run_date, run_id, status, schema_version, marks_json, current_table_index,
+      cursor_key, next_object_number, verified_object_count, lease_id, lease_expires_at,
+      manifest_object_key, manifest_sha256, failure_code, started_at, updated_at,
+      verified_at, abandoned_at, pruned_at
+    ) VALUES ('2026-09-17', ?, 'running', '0031_memory_backup.sql', ?, 0,
+      NULL, 0, 0, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL)`)
+      .bind(otherRunId, marks, timestamp, timestamp).run();
+    await env.DB.prepare(`INSERT INTO memory_backup_table_cuts (
+      run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
+    ) VALUES (?, 0, 'events', 'sequence', 0, 1, 1)`).bind(otherRunId).run();
+    await env.DB.prepare(`UPDATE memory_backup_runs
+      SET lease_id = '01k5nm0000000000000000000a', lease_expires_at = '2026-09-16T23:32:00.000Z',
+        updated_at = ? WHERE run_id = ?`).bind(timestamp, otherRunId).run();
+    const mutation = () => env.DB.prepare(`INSERT OR REPLACE INTO memory_backup_objects (
+      run_id, object_number, table_name, object_key, schema_version,
+      row_count, byte_count, first_key, last_key, sha256, verified_at
+    ) VALUES (?, 0, 'events', 'memory-backup/test.ndjson', '0031_memory_backup.sql',
+      1, 2, 1, 1, ?, ?)`)
+      .bind(otherRunId, "d".repeat(64), timestamp).run();
     await proveWholeTriggerIsRequired(
       "memory_backup_objects_insert_guard", mutation, "memory_backup_object_insert_invalid",
     );

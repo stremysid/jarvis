@@ -246,10 +246,98 @@ export async function applyStudyCoachWeakSpotsMigration(): Promise<void> {
 /** Applies durable custom-backup cuts, progress, verification and alert claims. */
 export async function applyMemoryBackupMigration(): Promise<void> {
   await applyStudyCoachWeakSpotsMigration();
+  await applyUniversityApplicationDetailsMigration();
+  await applyMemoryDistillationMigration();
   memoryBackupMigrated ??= applyD1Migrations(env.DB, [
     { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
   ]);
   await memoryBackupMigrated;
+}
+
+const allCloudGatewayMigrations = Object.freeze([
+  ...voiceAccessBaseMigrations,
+  voiceAccessBoundariesMigration,
+  ...assistantMigrations,
+  { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
+  { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
+  { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
+  { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+  { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+  { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+  { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
+  { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
+  { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
+  { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
+  { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
+  { name: "0026_memory_distillation.sql", queries: splitMigration(memoryDistillationSql) },
+  { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
+  { name: "0028_guest_grant_notice_drain.sql", queries: splitMigration(guestGrantNoticeDrainSql) },
+  { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
+  { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
+  { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+]);
+
+/** Rebuilds this isolated test binding as a newly migrated restore target. */
+export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void> {
+  await applyMemoryBackupMigration();
+  const virtualTables = await env.DB.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`).all<{ name: string }>();
+  const views = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'view'")
+    .all<{ name: string }>();
+  const triggers = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
+    .all<{ name: string }>();
+  const tables = await env.DB.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_cf_METADATA'`)
+    .all<{ name: string }>();
+  const virtualNames = virtualTables.results.map(({ name }) => name);
+  const regularNames = tables.results.map(({ name }) => name).filter((name) =>
+    !virtualNames.includes(name) && !virtualNames.some((virtual) => name.startsWith(`${virtual}_`)));
+  const foreignKeys = await env.DB.batch(regularNames.map((name) => {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    return env.DB.prepare(`PRAGMA foreign_key_list(${name})`);
+  }));
+  const dependencies = new Map(regularNames.map((name) => [name, new Set<string>()]));
+  const incoming = new Map(regularNames.map((name) => [name, 0]));
+  for (let index = 0; index < regularNames.length; index += 1) {
+    const child = regularNames[index]!;
+    for (const row of ((foreignKeys[index]?.results as Array<{ table: string }> | undefined) ?? [])) {
+      if (row.table === child || !dependencies.has(row.table) || dependencies.get(child)?.has(row.table)) continue;
+      dependencies.get(child)?.add(row.table);
+      incoming.set(row.table, (incoming.get(row.table) ?? 0) + 1);
+    }
+  }
+  const ready = regularNames.filter((name) => incoming.get(name) === 0);
+  const dropOrder: string[] = [];
+  while (ready.length > 0) {
+    const child = ready.shift()!;
+    dropOrder.push(child);
+    for (const parent of dependencies.get(child) ?? []) {
+      const next = (incoming.get(parent) ?? 0) - 1;
+      incoming.set(parent, next);
+      if (next === 0) ready.push(parent);
+    }
+  }
+  dropOrder.push(...regularNames.filter((name) => !dropOrder.includes(name)).reverse());
+  const dropStatements: D1PreparedStatement[] = [env.DB.prepare("PRAGMA defer_foreign_keys = ON")];
+  for (const { name } of triggers.results) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TRIGGER ${name}`));
+  }
+  for (const { name } of views.results) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP VIEW ${name}`));
+  }
+  for (const name of virtualNames) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TABLE ${name}`));
+  }
+  for (const name of dropOrder) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TABLE ${name}`));
+  }
+  await env.DB.batch(dropStatements);
+  await applyD1Migrations(env.DB, [...allCloudGatewayMigrations]);
+  await env.DB.exec("PRAGMA foreign_keys = ON");
 }
 
 /** Test-only reset that preserves and restores every production backup guard. */
@@ -263,7 +351,9 @@ export async function clearMemoryBackupDataForTest(): Promise<void> {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM memory_backup_alerts"),
       env.DB.prepare("DELETE FROM memory_backup_objects"),
+      env.DB.prepare("DELETE FROM memory_backup_table_cuts"),
       env.DB.prepare("DELETE FROM memory_backup_runs"),
+      env.DB.prepare("DELETE FROM memory_backup_row_ordinals"),
     ]);
   } finally {
     for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
