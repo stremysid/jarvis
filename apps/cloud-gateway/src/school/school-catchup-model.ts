@@ -531,14 +531,14 @@ function matches(pattern: RegExp, value: string): readonly RegExpExecArray[] {
   return Object.freeze([...value.matchAll(new RegExp(pattern.source, flags))]);
 }
 
-function offendingSentenceRanges(value: string, patterns: readonly RegExp[]): readonly Readonly<{
+function offendingSentenceRanges(reply: string, scan: string, patterns: readonly RegExp[]): readonly Readonly<{
   start: number;
   end: number;
 }>[] {
   const ranges: Array<Readonly<{ start: number; end: number }>> = [];
   for (const pattern of patterns) {
-    for (const match of matches(pattern, value)) {
-      const sentence = sentenceAround(value, match.index, match.index + match[0].length);
+    for (const match of matches(pattern, scan)) {
+      const sentence = sentenceAround(reply, match.index, match.index + match[0].length);
       ranges.push(Object.freeze({ start: sentence.start, end: sentence.end }));
     }
   }
@@ -560,18 +560,18 @@ function withoutSentenceRanges(reply: string, ranges: readonly Readonly<{ start:
 export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions = {}): string {
   const receipted = new Set(options.receiptedInternalSentences ?? []);
   const secretScan = reply.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
-  const secretRanges = offendingSentenceRanges(secretScan, SECRET_REQUESTS);
+  const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);
   let scan = exemptDraftAndReportSpans(reply);
   scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   const externalRanges = [
-    ...offendingSentenceRanges(scan, FALSE_EXTERNAL_COMPLETIONS),
+    ...offendingSentenceRanges(reply, scan, FALSE_EXTERNAL_COMPLETIONS),
     ...unsafeFirstPersonRanges(reply, scan, receipted),
   ];
   if (hasPassiveExternalCompletion(scan)) {
-    externalRanges.push(...offendingSentenceRanges(scan, [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]));
+    externalRanges.push(...offendingSentenceRanges(reply, scan, [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]));
   }
   const brightspaceRanges = isFalseBrightspaceCheckCompletion(scan)
-    ? offendingSentenceRanges(scan, BRIGHTSPACE_CHECK_COMPLETIONS)
+    ? offendingSentenceRanges(reply, scan, BRIGHTSPACE_CHECK_COMPLETIONS)
     : [];
   const all = [...secretRanges, ...externalRanges, ...brightspaceRanges];
   if (all.length === 0) return reply;

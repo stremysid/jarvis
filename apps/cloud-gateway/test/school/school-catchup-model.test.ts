@@ -551,6 +551,18 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(guarded).toContain("I can't confirm that action");
   });
 
+  it.each([
+    ["guardReplyClaims", (reply: string) => guardReplyClaims(reply)],
+    ["guardSchoolReply", (reply: string) => guardSchoolReply(reply, new Redactor())],
+  ] as const)("keeps a leading quoted draft when %s removes the following false claim (C3)", (_name, guard) => {
+    const reply = 'Sample message: "See you Friday." I submitted your extension request for you this morning.';
+    const guarded = guard(reply);
+
+    expect(guarded).toContain('Sample message: "See you Friday."');
+    expect(guarded).not.toContain("I submitted your extension request");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
   it("does not treat a first-person action addressed to Sid as Sid's quoted draft", () => {
     const reply = 'Draft reply you could send: "I emailed Ms. Lee for you already."';
     const guarded = guardReplyClaims(reply);

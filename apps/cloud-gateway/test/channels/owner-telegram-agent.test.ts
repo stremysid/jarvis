@@ -164,6 +164,7 @@ async function runTurn(input: {
   readonly study?: ModelAdapter;
   readonly configuredOwnerPrincipalId?: string;
   readonly replyToBotMessageId?: number | null;
+  readonly controlTargetIds?: readonly Ulid[];
 }): Promise<string> {
   const directOwnerText = input.directOwnerText ?? true;
   const durableDirectOwnerText = input.durableDirectOwnerText ?? directOwnerText;
@@ -183,7 +184,7 @@ async function runTurn(input: {
     directPipelineText: input.directPipelineText,
     authorityText: input.text,
     replyToBotMessageId: input.replyToBotMessageId,
-    targets: { async findControlTargets() { return Object.freeze([]); } },
+    targets: { async findControlTargets() { return Object.freeze([...(input.controlTargetIds ?? [])]); } },
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
     schoolModel: input.school ?? fallback,
     universityModel: input.university ?? fallback,
@@ -892,13 +893,13 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
-  it("confirms a proposed model inference only after Jarvis quoted the stored fact", async () => {
+  it("confirms a staged model inference only after Jarvis asks about the exact quoted fact", async () => {
     const harness = await ownerHarness("confirm");
     const itemId = await proposedMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
-      provider: new FakeAgentProvider([stopped('I have an uncertain memory: "I like art". Is that correct?')]),
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
     });
     const provider = new FakeAgentProvider([
       called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
@@ -916,15 +917,145 @@ describe("owner Telegram agent", () => {
         lifecycle_state: "proposed",
         excerpt: "maybe I like art",
       })],
+      controlTargetIds: [itemId],
     });
 
     expect(reply).toContain("Confirmed 1 proposed memory");
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
       .resolves.toMatchObject({
         lifecycle: { state: "active" },
-        version: { basis: "confirmed", uncertain: false },
+        version: { basis: "confirmed", origin: "authenticated_first_person", uncertain: false },
         sources: expect.arrayContaining([expect.objectContaining({ excerpt: "yes, that's right" })]),
       });
+  });
+
+  it("does not confirm a staged model inference when yes answers an unrelated question", async () => {
+    const harness = await ownerHarness("confirm-unrelated-question");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([
+        stopped('I have this stored as "I like art". Separately, should we plan chemistry?'),
+      ]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-unrelated-question", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "yes",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+      controlTargetIds: [itemId],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("does not confirm an exact quoted fact when the item was not the staged target", async () => {
+    const harness = await ownerHarness("confirm-not-staged");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-not-staged", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "yes",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("does not confirm a staged model inference from an explicit rejection", async () => {
+    const harness = await ownerHarness("confirm-rejected");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-rejected", "memory_confirm", { itemId, supportingExcerpt: "correct it" })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "no, that's not right, correct it",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+      controlTargetIds: [itemId],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("does not confirm a shorter stored fact from a longer quoted fact", async () => {
+    const harness = await ownerHarness("confirm-exact-quote");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art history"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-exact-quote", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "yes",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+      controlTargetIds: [itemId],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
   });
 
   it.each([

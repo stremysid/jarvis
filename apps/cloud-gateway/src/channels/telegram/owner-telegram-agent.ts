@@ -524,6 +524,34 @@ function isMemoryOfferOrGroundedQuestion(question: string, fact: string): boolea
   return contentWords(question).some((word) => factWords.has(word));
 }
 
+function exactStoredFactQuestion(previous: string, fact: string): string | null {
+  const quotedFact = /"([^"\r\n]+)"|“([^”\r\n]+)”/gu;
+  for (const match of previous.matchAll(quotedFact)) {
+    if ((match[1] ?? match[2]) !== fact) continue;
+    const start = Math.max(
+      previous.lastIndexOf(".", match.index - 1),
+      previous.lastIndexOf("!", match.index - 1),
+      previous.lastIndexOf("?", match.index - 1),
+      previous.lastIndexOf("\n", match.index - 1),
+    ) + 1;
+    const afterQuote = match.index + match[0].length;
+    const endings = [
+      previous.indexOf(".", afterQuote),
+      previous.indexOf("!", afterQuote),
+      previous.indexOf("?", afterQuote),
+      previous.indexOf("\n", afterQuote),
+    ].filter((index) => index >= 0);
+    if (endings.length === 0) continue;
+    const end = Math.min(...endings);
+    if (previous[end] !== "?") continue;
+    const question = previous.slice(start, end + 1).trim();
+    if (isQuestionSentence(previous, question) && isMemoryOfferOrGroundedQuestion(question, fact)) {
+      return question;
+    }
+  }
+  return null;
+}
+
 function groundedControlExcerpt(
   input: Readonly<ModelAdapterStreamInput>,
   value: unknown,
@@ -976,16 +1004,26 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
     const itemId = safeUlid(args.itemId);
     const excerpt = groundedControlExcerpt(input, args.supportingExcerpt, "confirm");
+    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
-    await this.requireEligibleItem(input, "confirm", itemId);
+    const stagedTargets = await this.dependencies.targets.findControlTargets({
+      principalId: input.principalId,
+      operation: "confirm",
+      query: null,
+      turnId: input.correlationId,
+    });
+    if (!new Set([...contextItemIds(input), ...stagedTargets]).has(itemId)) {
+      throw new TypeError("owner_agent_item_not_eligible");
+    }
     const previous = await this.previousAssistant(input);
     if (!factVocabularyMatches(item.version.text, excerpt, previous?.text ?? "")) {
       throw new TypeError("owner_agent_memory_grounding_invalid");
     }
-    // A retrieved model inference is not its own confirmation ticket. Sid may
-    // confirm it only after Jarvis exposed the exact stored wording to him.
+    // A model inference needs the staged item plus an exact, visible question;
+    // otherwise an unrelated answer can promote wording Jarvis merely echoed.
     if (item.version.origin === "model" && item.version.basis === "inferred"
-      && (previous === null || !previous.text.includes(item.version.text))) {
+      && (!stagedTargets.includes(itemId) || previous === null
+        || exactStoredFactQuestion(previous.text, item.version.text) === null)) {
       throw new TypeError("owner_agent_item_not_eligible");
     }
     const result = await this.controls().confirm({
