@@ -344,6 +344,12 @@ interface SourceReceiptExpectation {
   readonly occurredAt: string;
 }
 
+interface ValidatedBatchedReceipt {
+  readonly envelope: Awaited<ReturnType<typeof validateEnvelope>>;
+  readonly sourceLocation: MemorySourceLocation;
+  readonly r2SegmentId: Sha256Hex | null;
+}
+
 interface CapturedInput {
   readonly principalId: string;
   readonly itemId: Ulid;
@@ -1205,10 +1211,12 @@ export class MemoryRepository {
       const statements = itemIds.flatMap((itemId) => this.retrievalItemStatements(principalId, itemId));
       const batch = await this.database.batch(statements);
       if (batch.length !== statements.length) corrupt();
-      const selected: RetrievalMemoryItem[] = [];
       const statementsPerItem = 8;
-      for (let index = 0; index < itemIds.length; index += 1) {
-        const itemId = itemIds[index]!;
+      const receiptCache = new Map<string, Promise<ValidatedBatchedReceipt>>();
+      const selected = await Promise.all(itemIds.map(async (
+        itemId,
+        index,
+      ): Promise<RetrievalMemoryItem | null> => {
         const offset = index * statementsPerItem;
         const resultAt = (statementOffset: number): readonly Record<string, unknown>[] => {
           const result = batch[offset + statementOffset];
@@ -1218,7 +1226,7 @@ export class MemoryRepository {
         const canonicalRows = resultAt(0) as unknown as readonly CanonicalRow[];
         const partialRows = resultAt(1) as unknown as readonly ItemRow[];
         if (canonicalRows.length === 0) {
-          if (partialRows.length === 0) continue;
+          if (partialRows.length === 0) return null;
           if (partialRows.length !== 1) corrupt();
           const partial = partialRows[0]!;
           exactRow(partial, itemFields);
@@ -1246,6 +1254,7 @@ export class MemoryRepository {
               eventId,
               eventSequence,
               null,
+              receiptCache,
             );
           } catch (error) {
             if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
@@ -1271,6 +1280,7 @@ export class MemoryRepository {
               eventId,
               eventSequence,
               source,
+              receiptCache,
             );
           },
         );
@@ -1294,7 +1304,7 @@ export class MemoryRepository {
             return rowUlid(row.source_id);
           });
         if (new Set(suppressedSourceIds).size !== suppressedSourceIds.length) corrupt();
-        selected.push(Object.freeze({
+        return Object.freeze({
           item: Object.freeze({
             ...canonical,
             sources: Object.freeze(sources),
@@ -1305,9 +1315,9 @@ export class MemoryRepository {
             creationEventSuppressed: rowInteger(visibility.creation_event_suppressed, 0, 1) === 1,
             suppressedSourceIds: Object.freeze(suppressedSourceIds),
           }),
-        }));
-      }
-      return Object.freeze(selected);
+        });
+      }));
+      return Object.freeze(selected.filter((entry): entry is RetrievalMemoryItem => entry !== null));
     });
   }
 
@@ -3039,7 +3049,7 @@ export class MemoryRepository {
         JOIN memory_topics topic
           ON topic.principal_id = ?1 AND topic.topic_id = topic_walk.topic_id
         ORDER BY topic.topic_id ASC`)
-        .bind(principalId, itemId, MEMORY_TOPIC_REDIRECT_LIMIT),
+        .bind(principalId, itemId, MEMORY_TOPIC_REDIRECT_LIMIT * 2),
       this.database.prepare(`SELECT item.item_id, state.current_version_id,
           EXISTS (
             SELECT 1 FROM memory_retrievable_item_versions retrievable
@@ -3100,35 +3110,67 @@ export class MemoryRepository {
     eventId: Ulid,
     eventSequence: number,
     source: SourceReceiptExpectation | null,
+    cache: Map<string, Promise<ValidatedBatchedReceipt>>,
   ): Promise<void> {
-    const sourceLocation = source?.sourceLocation ?? null;
-    const r2SegmentId = source?.r2SegmentId ?? null;
-    if (sourceLocation !== "archived") {
-      for (const row of liveRows) {
-        exactRow(row, eventReceiptFields);
-        if (rowUlid(row.event_id) !== eventId
-          || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
-        if (rowPrincipal(row.subject_id, principalId) !== principalId
-          || (source !== null && rowTimestamp(row.occurred_at) !== source.occurredAt)) refuse();
-        await this.validateLiveEventEvidence(row, principalId, eventId, source);
-        return;
-      }
+    const key = `${eventId}\u0000${eventSequence}`;
+    let pending = cache.get(key);
+    if (pending === undefined) {
+      pending = this.validateBatchedReceiptOnce(
+        liveRows,
+        archivedRows,
+        principalId,
+        eventId,
+        eventSequence,
+      );
+      cache.set(key, pending);
     }
+    const receipt = await pending;
+    if (source === null) return;
+    if (receipt.sourceLocation !== source.sourceLocation
+      || receipt.r2SegmentId !== source.r2SegmentId
+      || receipt.envelope.occurredAt !== source.occurredAt
+      || liveEventChannel(receipt.envelope.eventType, receipt.envelope.payload) !== source.channel
+      || !payloadContainsExactExcerpt(receipt.envelope.payload, source.excerpt)) refuse();
+  }
+
+  private async validateBatchedReceiptOnce(
+    liveRows: readonly EventReceiptRow[],
+    archivedRows: readonly ArchivedReceiptRow[],
+    principalId: string,
+    eventId: Ulid,
+    eventSequence: number,
+  ): Promise<ValidatedBatchedReceipt> {
     for (const row of archivedRows) {
       exactRow(row, new Set([
         "event_id", "event_sequence", "segment_id", "envelope_sha256", "content_hash",
       ]));
       if (rowUlid(row.event_id) !== eventId
         || rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
-      if (r2SegmentId !== null && rowHash(row.segment_id) !== r2SegmentId) continue;
-      await this.validateArchivedEventEvidence(
+      const r2SegmentId = rowHash(row.segment_id);
+      const envelope = await this.validateArchivedEventEvidence(
         row,
         principalId,
         eventId,
         eventSequence,
-        source,
+        null,
       );
-      return;
+      return Object.freeze({
+        envelope,
+        sourceLocation: "archived" as const,
+        r2SegmentId,
+      });
+    }
+    for (const row of liveRows) {
+      exactRow(row, eventReceiptFields);
+      if (rowUlid(row.event_id) !== eventId
+        || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
+      if (rowPrincipal(row.subject_id, principalId) !== principalId) refuse();
+      const envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
+      return Object.freeze({
+        envelope,
+        sourceLocation: "live" as const,
+        r2SegmentId: null,
+      });
     }
     refuse();
   }

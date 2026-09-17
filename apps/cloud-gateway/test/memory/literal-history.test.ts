@@ -83,6 +83,55 @@ function queryCountingDatabase(): {
   };
 }
 
+function interceptLiteralCandidates(options: Readonly<{
+  before?: () => void | Promise<void>;
+  mutate?: (rows: readonly Record<string, unknown>[]) => readonly Record<string, unknown>[];
+}>): D1Database {
+  const statements = new WeakMap<object, D1PreparedStatement>();
+  let intercepted = false;
+  const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement => {
+    const proxy = new Proxy(statement as object, {
+      get(target, property): unknown {
+        if (property === "bind") {
+          return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), query);
+        }
+        if (property === "all") {
+          return async <T>() => {
+            const candidateRead = query.includes("WITH candidates(");
+            if (candidateRead && !intercepted) {
+              intercepted = true;
+              await options.before?.();
+            }
+            const result = await (target as D1PreparedStatement).all<T>();
+            if (!candidateRead || options.mutate === undefined) return result;
+            return {
+              ...result,
+              results: options.mutate(result.results as readonly Record<string, unknown>[]),
+            } as D1Result<T>;
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1PreparedStatement;
+    statements.set(proxy as object, statement);
+    return proxy;
+  };
+  return new Proxy(env.DB as object, {
+    get(target, property): unknown {
+      if (property === "prepare") {
+        return (query: string) => wrap((target as D1Database).prepare(query), query);
+      }
+      if (property === "batch") {
+        return <T>(input: D1PreparedStatement[]) => (target as D1Database)
+          .batch<T>(input.map((statement) => statements.get(statement as object) ?? statement));
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
 function clock(): TestClock {
   let milliseconds = START;
   return {
@@ -500,6 +549,86 @@ describe("LiteralHistoryService", () => {
     await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
     await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "cobalt" }))
       .resolves.toMatchObject({ status: "hits", hits: [{ eventId: target.envelope.eventId }] });
+  });
+
+  it("skips a row suppressed between the FTS query and candidate validation", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const target = await appendConversation(events, time, "The racing cobalt phrase must stay hidden.");
+    await service(events, time).indexNext({
+      principalId: OWNER_ID,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
+    const database = interceptLiteralCandidates({
+      before: async () => { await suppressEvent(events, time, target); },
+    });
+    const literal = new LiteralHistoryService({
+      database,
+      events: new EventRepository(database),
+      archive: new ArchiveRepository(database),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "racing cobalt phrase" });
+
+    expect(result.hits).toEqual([]);
+  });
+
+  it("rejects an archived candidate whose receipt names a different event id", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "The archived quartz identity is exact.");
+    const { archive } = await archiveEvent(live, target);
+    const tiered = new TieredEventReader({ live, archive, state: new ArchiveRepository(env.DB) });
+    await service(tiered, time).indexNext({
+      principalId: OWNER_ID,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
+    const database = interceptLiteralCandidates({
+      mutate: (rows) => rows.map((row, index) => index === 0
+        ? { ...row, archived_event_id: newUlid(time.now()) }
+        : row),
+    });
+    const literal = new LiteralHistoryService({
+      database,
+      events: tiered,
+      archive: new ArchiveRepository(database),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "archived quartz identity" }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+  });
+
+  it("rejects candidate rows that disagree about the archive seal", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "First matched meteor phrase.");
+    await appendConversation(events, time, "Second matched meteor phrase.");
+    await service(events, time).indexNext({
+      principalId: OWNER_ID,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
+    const database = interceptLiteralCandidates({
+      mutate: (rows) => rows.map((row, index) => index === 1
+        ? { ...row, sealed_through: Number(row.sealed_through) + 1 }
+        : row),
+    });
+    const literal = new LiteralHistoryService({
+      database,
+      events: new EventRepository(database),
+      archive: new ArchiveRepository(database),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "matched meteor phrase" }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
   });
 
   it("keeps suppressed text out of exhaustive receipts and requires a new walk after a lift", async () => {
