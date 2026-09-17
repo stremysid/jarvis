@@ -3,6 +3,66 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-17 00:37 UTC — Codex, draft PR #83 memory meaning search ready for Claude max review
+
+Draft PR: https://github.com/ksid1229-ops/jarvis/pull/83
+
+Implementation commit `56263a7` adds the R2 meaning-search slice without a
+migration. The hourly poll now runs bounded `@cf/baai/bge-m3` indexing after
+distillation and literal-history indexing. It projects active current item
+versions and suppression-safe history chunks, deletes stale live vectors, and
+records accepted Vectorize mutations in the existing `memory_vectors` ledger.
+One run is capped at eight total vector mutations, eight embedding inputs,
+65,536 UTF-8 input bytes, one Workers AI call, and fewer than 32 D1 statements.
+Failures leave the `embeddings` cursor unchanged and return only fixed retryable
+codes.
+
+Telegram starts meaning lookup beside keyword lookup, caps embedding plus query
+at 450 ms inside the existing 800 ms memory bound, and combines the two rankings
+with reciprocal-rank fusion. Every semantic item is re-read through current D1
+state, while every history chunk is re-read through the active-suppression
+anti-join and hash checked before text enters context. Missing bindings,
+provider errors and timeouts fall back to keyword recall with fixed redacted
+codes in `telegram_turn_outcome`; a greeting with no content terms makes no AI
+or Vectorize call. Recent conversation context remains independently bounded
+and is retained. `/status` now reports eligible/current-model vector coverage.
+
+Sid must run these one-time commands before the first deploy containing the new
+bindings. The second command covers the only metadata field used as a filter:
+
+```powershell
+wrangler vectorize create jarvis-memory-bge-m3 --dimensions=1024 --metric=cosine
+wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=principal --type=string
+```
+
+Evidence:
+
+- Paraphrase-only recall, fusion order, stale forgotten item and suppressed
+  chunk rejection, lifted-item re-embedding, retry/duplicate idempotency, batch
+  caps, delete queue, absent/error fallback, 450 ms cutoff, zero-call greeting,
+  coverage, telemetry and named job wiring tests pass with fakes only.
+- Mutation: replacing the meaning step in the hourly poll made the named wiring
+  test fail (`cursorWhenMeaningRan` stayed null); restoration passed.
+- `pnpm lint` and `pnpm typecheck`: pass. Wrangler local dry-run accepts the
+  optional AI and Vectorize bindings. No real Workers AI, Vectorize or DeepSeek
+  call was made.
+- Cloud-gateway full suite: **185 files / 4,884 tests passed**.
+- Root full suite reached the unrelated Hermes package after the gateway pass:
+  **246/250 Hermes tests passed**. Three failures require the absent trusted
+  `C:\Program Files\PowerShell\7` host. One unrelated archive-hostility test
+  hit its 5-second timeout and reproduced at exactly 5 seconds in the permitted
+  isolated rerun.
+
+Review the D1 eligibility joins, delete/upsert ledger ordering, 450/800 ms
+interaction, RRF source preservation, binding-absent path, and stated D1 budget.
+No migration, production query, deploy, resource creation, secret operation,
+spend, sign-up, external contact or merge was performed. Do not merge from this
+handoff.
+
+— Codex GPT-5
+
+---
+
 ## 2026-09-16 23:21 UTC — Claude Opus 5, PR #81 review at 82adca3: cleared with follow-ups
 
 **Cleared.** A valid course or fact update now survives a malformed proposed schedule, and small schedule mistakes are repaired deterministically.
