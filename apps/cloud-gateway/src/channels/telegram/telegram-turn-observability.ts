@@ -16,6 +16,9 @@ export interface TelegramTurnTimings {
   readonly modelFirstResponseMs: number;
   readonly modelTotalMs: number;
   readonly deliveryMs: number;
+  readonly stagingMs: number;
+  readonly telegramSendMs: number;
+  readonly settlementMs: number;
   readonly providerCallCount: number;
   readonly modelFailureReason: DeepSeekFailureReason | null;
 }
@@ -33,6 +36,9 @@ export class TelegramTurnObserver {
   #modelFirstResponseMs = 0;
   #modelTotalMs = 0;
   #deliveryMs = 0;
+  #stagingMs = 0;
+  #telegramSendMs = 0;
+  #settlementMs = 0;
   #providerCallCount = 0;
   #modelFailureReason: DeepSeekFailureReason | null = null;
 
@@ -114,12 +120,42 @@ export class TelegramTurnObserver {
     });
   }
 
+  async observeStaging<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#stagingMs += this.#elapsed(startedAt);
+    }
+  }
+
+  async observeTelegramSend<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#telegramSendMs += this.#elapsed(startedAt);
+    }
+  }
+
+  async observeSettlement<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#settlementMs += this.#elapsed(startedAt);
+    }
+  }
+
   snapshot(): TelegramTurnTimings {
     return Object.freeze({
       contextRetrievalMs: this.#contextRetrievalMs,
       modelFirstResponseMs: this.#modelFirstResponseMs,
       modelTotalMs: this.#modelTotalMs,
       deliveryMs: this.#deliveryMs,
+      stagingMs: this.#stagingMs,
+      telegramSendMs: this.#telegramSendMs,
+      settlementMs: this.#settlementMs,
       providerCallCount: this.#providerCallCount,
       modelFailureReason: this.#modelFailureReason,
     });
@@ -139,6 +175,9 @@ export function telegramTurnOutcomeLog(
     modelFirstResponseMs: timings.modelFirstResponseMs,
     modelTotalMs: timings.modelTotalMs,
     deliveryMs: timings.deliveryMs,
+    stagingMs: timings.stagingMs,
+    telegramSendMs: timings.telegramSendMs,
+    settlementMs: timings.settlementMs,
     providerCallCount: timings.providerCallCount,
   };
   return Object.freeze(

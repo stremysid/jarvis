@@ -30,6 +30,7 @@ import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
 import { ConversationRepository } from "./conversation/conversation-repository.js";
 import { DefaultConversationService } from "./conversation/conversation-service.js";
+import type { ConversationDeliveryId } from "./conversation/conversation-types.js";
 import {
   D1TelegramIdentityResolver,
   DefaultOutboxDispatcher,
@@ -104,6 +105,43 @@ export function buildTelegramConversationRepository(
   });
 }
 
+export type TelegramReplyFailureReason = "identity_lookup" | "d1" | "dispatcher" | "other";
+
+export class TelegramReplyFailure extends Error {
+  constructor(readonly reason: Exclude<TelegramReplyFailureReason, "other">) {
+    super("telegram_reply_failed");
+    this.name = "TelegramReplyFailure";
+  }
+}
+
+export function telegramReplyFailureReason(error: unknown): TelegramReplyFailureReason {
+  return error instanceof TelegramReplyFailure ? error.reason : "other";
+}
+
+async function telegramReplyStage<T>(
+  reason: Exclude<TelegramReplyFailureReason, "other">,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof TelegramReplyFailure) throw error;
+    throw new TelegramReplyFailure(reason);
+  }
+}
+
+function telegramReplyStageSync<T>(
+  reason: Exclude<TelegramReplyFailureReason, "other">,
+  operation: () => T,
+): T {
+  try {
+    return operation();
+  } catch (error) {
+    if (error instanceof TelegramReplyFailure) throw error;
+    throw new TelegramReplyFailure(reason);
+  }
+}
+
 function isVoicePath(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
   return pathname === "/voice" || pathname.startsWith("/voice/");
@@ -128,15 +166,16 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
-  const telegram = new TelegramRestProvider({ botToken });
   try {
+    const telegram = new TelegramRestProvider({ botToken });
     await withTelegramTyping(telegram, accepted.chatId, async () => {
       const observer = new TelegramTurnObserver();
       // The delivery target is the channel identity, not the chat. Resolving it
       // here also re-confirms the identity is still active: authentication
       // happened when the message arrived, and this runs afterwards.
-      const identity = await new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(
-        accepted.telegramUserId,
+      const identity = await telegramReplyStage(
+        "identity_lookup",
+        () => new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(accepted.telegramUserId),
       );
       if (identity === null) return;
 
@@ -204,20 +243,29 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           targets: memory,
         });
 
+      const durableDispatcher = telegramReplyStageSync("dispatcher", () => new DefaultOutboxDispatcher({
+        repository,
+        identityResolver: new D1TelegramIdentityResolver(env.DB),
+        channels: new Map([["telegram", telegram]]),
+        circuitBreaker: providerCircuitBreaker,
+        observeTelegramSend: (operation) => observer.observeTelegramSend(operation),
+        observeSettlement: (operation) => observer.observeSettlement(operation),
+      }));
       const service = new DefaultConversationService({
         repository,
         model: observer.observeModel(model),
         context: observer.observeContext(memory),
-        dispatcher: observer.observeDelivery(new DefaultOutboxDispatcher({
-          repository,
-          identityResolver: new D1TelegramIdentityResolver(env.DB),
-          channels: new Map([["telegram", telegram]]),
-          circuitBreaker: providerCircuitBreaker,
+        dispatcher: observer.observeDelivery(Object.freeze({
+          dispatch: (deliveryId: ConversationDeliveryId) => telegramReplyStage(
+            "dispatcher",
+            () => durableDispatcher.dispatch(deliveryId),
+          ),
         })),
         redactor,
+        observeStaging: (operation) => observer.observeStaging(operation),
       });
 
-      const result = await service.handleTurn({
+      const result = await telegramReplyStage("d1", () => service.handleTurn({
         // One conversation per chat, so separate chats do not share a thread.
         sessionId: `telegram:${accepted.chatId}`,
         principalId: accepted.principalId,
@@ -228,7 +276,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         kind: "outbox",
         targetIdentityId: identity.identityId,
         replyToMessageId: accepted.messageId,
-      });
+      }));
 
       console.log("telegram_turn_outcome", telegramTurnOutcomeLog(
         accepted.eventId,
@@ -236,12 +284,12 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         observer.snapshot(),
       ));
     });
-  } catch {
+  } catch (error) {
     // Contained, not hidden: the inbound message is already archived, so this
     // is a delivery problem rather than data loss.
     console.error("telegram_reply_failed", {
       eventId: accepted.eventId,
-      reason: "unexpected",
+      reason: telegramReplyFailureReason(error),
     });
   }
 }

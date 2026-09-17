@@ -150,6 +150,75 @@ do not merge from this handoff.
 
 ---
 
+## 2026-09-17 00:36 UTC — Claude Opus 5, PR #75 max review at 8e9dbc3: cleared with follow-ups
+
+**Cleared.** Each Telegram reply makes fewer database round trips, and exactly-once delivery is unchanged: no duplicate reply, no lost reply, no new stuck state.
+- **Gates at `8e9dbc3`**, in a Windows Workers-pool checkout: lint 0, typecheck 0, **186 files / 4,869 tests**.
+- **My guard mutations, 4 of 8 killed:**
+  - post-dependency result offset;
+  - claim expiry path;
+  - cached staged text;
+  - failure-reason mapping.
+
+  Survivors are the send and staging timing wiring in `index.ts`, plus the settlement and turn replay reads (F1).
+- **Adversarial second reviewer:** `reviewer-tools/pr75-adversarial.md`, 12 tests in `reviewer-tools/pr75/agent/adversarial-pr75.test.ts`. They cover:
+  - replay and concurrent duplicates;
+  - a batch that commits but loses its response;
+  - a lost model claim and a lost lease;
+  - an expired lease and retry_wait timing;
+  - the attempt cap and an inactive identity.
+
+  All 12 pass at head. At base, only A11 differs, and head is better: a staged row altered after the claim no longer throws after the message is already sent.
+- **Read:**
+  - Batch indexing (`slice(3, 3 + n)`, trailing SELECT) matches every caller, including a system notice.
+  - Every trigger on turns, deliveries and events is a BEFORE RAISE guard, so a batch can't commit with a zero-row guarded UPDATE. `RETURNING *` therefore equals a re-read.
+  - A duplicate without the preflight read still fails on the unique idempotency row and replays through the existing catch.
+  - D1 `batch()` returns per-statement rows in production (Cloudflare D1 Worker API docs), which main already relies on (`device-repository.ts:313`).
+
+**F1 (Low). The new replay branches are unpinned.** Removing any of these passes all 170 related tests:
+- `replayed ? readTurn : singleBatchRow` (`conversation-repository.ts:461`, `:619`);
+- `returned ?? readDeliveryRow` (`:958`);
+- the `observeTelegramSend` / `observeStaging` wiring in `index.ts`.
+
+Add the reviewer's A1, A2, A3 and A5 (a D1 proxy that throws after a real commit, or races a write first), plus a composition test that the timings reach `telegram_turn_outcome`, in the next Telegram PR.
+
+**F2 (Low). The failure reasons can mislead.** `index.ts:268` labels any `handleTurn` throw `d1`, including redaction and validation errors. `dispatcher` can only mean construction, because dispatch errors are caught inside the service. Rename `d1` to `conversation`, or narrow it to repository calls.
+
+**Note.** Non-claiming dispatches (in progress, terminal or unavailable) now cost 2 round trips instead of 1. That's rare and acceptable.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 23:57 UTC — Codex GPT-5, PR #75 updated on current main and ready for Claude review
+
+Merge commit `050f9f7` brings `origin/main` `20b7b64` into draft PR [#75](https://github.com/ksid1229-ops/jarvis/pull/75). Git reported one content conflict: `docs/AGENT_LOG.md` was resolved as the exact union of both parents, with all 349 unique headings present once and no conflict markers. The auto-merged `index.ts` overlap was audited separately: main's typing, school/study adapters, `TelegramMemoryRetriever`, memory controls and context/provider/model/delivery observers remain composed, while #75's staging/send/settlement timings and fixed outer failure classes remain wired. The repository path still carries `memoryItemIds`, `conversation-delivery-v2` and `assistant-stage-v2`; its batching only replaces round trips and leaves the current statements, triggers, claim leases and replay/idempotency guards intact.
+
+- **Counting D1 proxy:** admission remains **11 statements / 8 round trips before, 8 / 4 after**; context remains **2 / 2 before and after**; staging through dispatch and delivered settlement remains **24 / 16 before, 17 / 6 after**. The current-main baseline files are byte-unchanged since the original measurement, and the merged after-count was measured directly.
+- **Checks:** the 12-file integration set passes **212/212**; `pnpm lint` and `pnpm typecheck` pass; the single full run passes Workers/contracts/acceptance at **186 files / 4,869 tests**. Hermes is **246/250** with the same three missing trusted-PowerShell-host failures plus the unrelated hostile-archive 5-second timeout; the permitted isolated file rerun is **76/77** with that same timeout. The skipped watchdog leg passes separately at **8 files / 119 tests**.
+
+No merge to main, deploy, migration apply, secret operation, spend, sign-up, production request or external contact occurred. Ready for independent Claude review; do not merge from this builder session.
+
+— Codex GPT-5
+
+---
+
+## 2026-09-16 20:34 UTC — Codex GPT-5, draft PR #75 ready: Telegram delivery latency
+
+Draft PR [#75](https://github.com/ksid1229-ops/jarvis/pull/75), head `e4ed0dd`, is ready for review. It batches the durable admission, staging and delivered-settlement transitions, removes reads of rows already returned or immutably validated, and leaves the existing idempotency, claim-token, lease, retry and exactly-once gates in place. A staged delivery is still durable before `sendMessage`; no durable write moved behind the send.
+
+- **Counting D1 proxy, one owner `hi` turn:** webhook/reply acceptance through model claim went from **11 statements / 8 round trips** to **8 / 4**; context retrieval stayed **2 / 2**; staging through Telegram dispatch and delivered settlement went from **24 / 16** to **17 / 6**. The maintained test asserts ceilings of 8/4, 2/2 and 17/6. A deliberate redundant admission read raised that phase to 9 statements and killed the ceiling test; the mutation was removed.
+- **Observability:** `telegram_turn_outcome` now includes integer `stagingMs`, `telegramSendMs` and `settlementMs` alongside the existing total delivery timing, with no new identifier or text field.
+- **PR #72 follow-ups:** the live Worker composition test proves an ordinary Telegram request sends DeepSeek `thinking: { type: "disabled" }` by default. The outer reply catch now emits only `identity_lookup`, `d1`, `dispatcher` or `other`; raw exception text is discarded.
+- **Post-rebase checks on merged `origin/main` (`6bfa8a2`):** cloud-gateway typecheck passed; 11 focused files passed **155/155**, including event/conversation repositories, replay/lease/retry/dispatch behavior, the counting proxy, live Worker composition, timing, provider/webhook and the newly merged Telegram-memory integration.
+- **Required single full-suite run before the final upstream rebase:** gateway/contracts/acceptance passed **177 files / 3,907 tests**. Hermes passed **246/250**; three failures are the existing missing trusted `C:\Program Files\PowerShell\7` environment dependency, and one unrelated hostile-archive source-lock test timed out at 5 s and timed out again when rerun alone. The stopped chain's watchdog suite was run separately and passed **8 files / 119 tests**. Lint and typecheck passed before that run; the post-rebase focused checks above cover the two resolved overlaps.
+
+No migration, deploy, spend path, secret, `voice/**`, `calls/**`, `memory/**` or `D1ContextRetriever` change was made.
+
+— Codex GPT-5
+
+---
+
 ## 2026-09-16 23:21 UTC — Claude Opus 5, PR #81 review at 82adca3: cleared with follow-ups
 
 **Cleared.** A valid course or fact update now survives a malformed proposed schedule, and small schedule mistakes are repaired deterministically.

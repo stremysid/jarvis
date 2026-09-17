@@ -43,6 +43,11 @@ interface StoredEvent {
   content_hash: string;
 }
 
+interface AtomicAppendAfterResult {
+  readonly appended: AppendedEvent;
+  readonly postResults: readonly D1Result<unknown>[];
+}
+
 export class IdempotencyConflict extends Error {
   constructor(scope: string, key: string) {
     super(`idempotency_conflict:${scope}:${key}`);
@@ -194,8 +199,9 @@ export class EventRepository implements EventRepositoryContract {
       if (dependency === undefined) throw new TypeError("event_append_dependency_invalid");
       dependencies.push(dependency);
     }
+    let results: readonly D1Result<unknown>[];
     try {
-      await this.transactions.batch([
+      results = await this.transactions.batch([
         ...dependencies,
         this.database.prepare(
           "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -216,6 +222,9 @@ export class EventRepository implements EventRepositoryContract {
         this.database.prepare(
           "INSERT INTO outbox (outbox_id, event_sequence, topic, status, available_at, created_at) SELECT ?, sequence, ?, 'pending', ?, ? FROM events WHERE event_id = ?",
         ).bind(`event:${envelope.eventId}`, envelope.eventType, createdAt, createdAt, envelope.eventId),
+        this.database.prepare(
+          "SELECT sequence, envelope_json, content_hash FROM events WHERE event_id = ?",
+        ).bind(envelope.eventId),
       ]);
     } catch (error) {
       const racedRecord = await this.readIdempotency(scope, key);
@@ -223,7 +232,7 @@ export class EventRepository implements EventRepositoryContract {
       throw error;
     }
 
-    const stored = await this.readEventById(envelope.eventId);
+    const stored = this.storedEventFromBatch(results);
     if (stored === null) throw new Error("event_append_missing_after_commit");
     return this.toAppended(stored.sequence, stored.envelope_json, stored.content_hash, false);
   }
@@ -233,6 +242,28 @@ export class EventRepository implements EventRepositoryContract {
     input: EventAppendInput,
     buildPostDependencies: EventAppendPostDependencyFactory,
   ): Promise<AppendedEvent> {
+    return (await this.appendAtomicAfterInternal(input, buildPostDependencies, true)).appended;
+  }
+
+  /**
+   * Appends after a caller has already proved its owning durable row is absent.
+   *
+   * The batch still owns idempotency and race recovery. Skipping only the
+   * duplicate preflight read lets capability-bound conversation transitions
+   * commit and return their guarded rows in one D1 round trip.
+   */
+  async appendAtomicAfterKnownAbsent(
+    input: EventAppendInput,
+    buildPostDependencies: EventAppendPostDependencyFactory,
+  ): Promise<AtomicAppendAfterResult> {
+    return this.appendAtomicAfterInternal(input, buildPostDependencies, false);
+  }
+
+  private async appendAtomicAfterInternal(
+    input: EventAppendInput,
+    buildPostDependencies: EventAppendPostDependencyFactory,
+    readExisting: boolean,
+  ): Promise<AtomicAppendAfterResult> {
     const captured = captureAppendInput(input);
     const envelope = captured.envelope;
     const scope = captured.scope;
@@ -253,13 +284,21 @@ export class EventRepository implements EventRepositoryContract {
     const envelopeJson = canonicalJson(envelope);
     requireUtf8Limit(envelopeJson, 262144, "envelope");
 
-    const existing = await this.readIdempotency(scope, key);
-    if (existing !== null) return this.resolveIdempotency(existing, scope, key, requestHash);
+    if (readExisting) {
+      const existing = await this.readIdempotency(scope, key);
+      if (existing !== null) {
+        return Object.freeze({
+          appended: await this.resolveIdempotency(existing, scope, key, requestHash),
+          postResults: Object.freeze([]),
+        });
+      }
+    }
 
     const createdAt = now();
     const postDependencies = capturePostDependencies(dependencyFactory(this.database, createdAt));
+    let results: readonly D1Result<unknown>[];
     try {
-      await this.transactions.batch([
+      results = await this.transactions.batch([
         this.database.prepare(
           "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).bind(
@@ -280,16 +319,27 @@ export class EventRepository implements EventRepositoryContract {
           "INSERT INTO outbox (outbox_id, event_sequence, topic, status, available_at, created_at) SELECT ?, sequence, ?, 'pending', ?, ? FROM events WHERE event_id = ?",
         ).bind(`event:${envelope.eventId}`, envelope.eventType, createdAt, createdAt, envelope.eventId),
         ...postDependencies,
+        this.database.prepare(
+          "SELECT sequence, envelope_json, content_hash FROM events WHERE event_id = ?",
+        ).bind(envelope.eventId),
       ]);
     } catch (error) {
       const racedRecord = await this.readIdempotency(scope, key);
-      if (racedRecord !== null) return this.resolveIdempotency(racedRecord, scope, key, requestHash);
+      if (racedRecord !== null) {
+        return Object.freeze({
+          appended: await this.resolveIdempotency(racedRecord, scope, key, requestHash),
+          postResults: Object.freeze([]),
+        });
+      }
       throw error;
     }
 
-    const stored = await this.readEventById(envelope.eventId);
+    const stored = this.storedEventFromBatch(results);
     if (stored === null) throw new Error("event_append_missing_after_commit");
-    return this.toAppended(stored.sequence, stored.envelope_json, stored.content_hash, false);
+    return Object.freeze({
+      appended: await this.toAppended(stored.sequence, stored.envelope_json, stored.content_hash, false),
+      postResults: Object.freeze(results.slice(3, 3 + postDependencies.length)),
+    });
   }
 
   async readRange(afterSequence: number, limit: number): Promise<readonly AppendedEvent[]> {
@@ -314,8 +364,10 @@ export class EventRepository implements EventRepositoryContract {
     ).bind(scope, key).first<StoredIdempotencyRecord>();
   }
 
-  private async readEventById(eventId: string): Promise<StoredEvent | null> {
-    return this.database.prepare("SELECT sequence, envelope_json, content_hash FROM events WHERE event_id = ?").bind(eventId).first<StoredEvent>();
+  private storedEventFromBatch(results: readonly D1Result<unknown>[]): StoredEvent | null {
+    const rows = results.at(-1)?.results;
+    if (rows === undefined || rows.length !== 1) return null;
+    return rows[0] as StoredEvent;
   }
 
   private async resolveIdempotency(record: StoredIdempotencyRecord, scope: string, key: string, requestHash: Sha256Hex): Promise<AppendedEvent> {

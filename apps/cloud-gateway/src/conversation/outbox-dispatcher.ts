@@ -78,6 +78,8 @@ interface CapturedMethod {
   readonly method: (...args: never[]) => unknown;
 }
 
+type ObserveAsyncOperation = <T>(operation: () => Promise<T>) => Promise<T>;
+
 type DeliveryRepositoryPort = Pick<ConversationRepository,
   | "claimDelivery"
   | "beginDelivery"
@@ -105,6 +107,8 @@ export interface OutboxDispatcherDependencies {
   readonly channels: ReadonlyMap<"telegram", TelegramProvider>;
   readonly circuitBreaker: ProviderCircuitBreaker;
   readonly now?: () => Date;
+  readonly observeTelegramSend?: ObserveAsyncOperation;
+  readonly observeSettlement?: ObserveAsyncOperation;
 }
 
 interface OwnDataRecord {
@@ -384,10 +388,14 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
   private readonly breakerRecordSuccess: CapturedMethod;
   private readonly breakerRecordFailure: CapturedMethod;
   private readonly clock: () => Date;
+  private readonly observeTelegramSend: ObserveAsyncOperation;
+  private readonly observeSettlement: ObserveAsyncOperation;
 
   constructor(dependencies: OutboxDispatcherDependencies) {
     const descriptors = Object.getOwnPropertyDescriptors(dependencies);
-    const allowed = new Set(["repository", "identityResolver", "channels", "circuitBreaker", "now"]);
+    const allowed = new Set([
+      "repository", "identityResolver", "channels", "circuitBreaker", "now", "observeTelegramSend", "observeSettlement",
+    ]);
     const required = ["repository", "identityResolver", "channels", "circuitBreaker"];
     const keys = Reflect.ownKeys(descriptors);
     if (dependencies === null || typeof dependencies !== "object" || Object.getPrototypeOf(dependencies) !== Object.prototype
@@ -428,6 +436,15 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
     const now = descriptors.now?.value ?? (() => new Date());
     if (typeof now !== "function") throw new TypeError("outbox_dependency_invalid");
     this.clock = now as () => Date;
+    const observeTelegramSend = descriptors.observeTelegramSend?.value
+      ?? (async <T>(operation: () => Promise<T>) => operation());
+    const observeSettlement = descriptors.observeSettlement?.value
+      ?? (async <T>(operation: () => Promise<T>) => operation());
+    if (typeof observeTelegramSend !== "function" || typeof observeSettlement !== "function") {
+      throw new TypeError("outbox_dependency_invalid");
+    }
+    this.observeTelegramSend = observeTelegramSend as ObserveAsyncOperation;
+    this.observeSettlement = observeSettlement as ObserveAsyncOperation;
   }
 
   async dispatch(deliveryIdValue: ConversationDeliveryId): Promise<OutboxDispatchResult> {
@@ -476,21 +493,16 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
       }
       return this.settleFailure(capability, error);
     }
-    let providerPromise: Promise<TelegramSendMessageResult>;
-    try {
-      providerPromise = call<Promise<TelegramSendMessageResult>>(this.providerSend, Object.freeze({
-        chatId: target.providerSubject,
-        text: item.text,
-        ...(item.replyToMessageId === null ? {} : { replyToMessageId: item.replyToMessageId }),
-        idempotencyKey: item.providerIdempotencyKey,
-      }));
-    } catch (error) {
-      call<void>(this.breakerRecordFailure, permit, error, snapshotDate(this.clock()));
-      return this.settleFailure(capability, error);
-    }
     let providerMessageId: string;
     try {
-      providerMessageId = snapshotProviderResult(await providerPromise);
+      providerMessageId = snapshotProviderResult(await this.observeTelegramSend(
+        async () => call<Promise<TelegramSendMessageResult>>(this.providerSend, Object.freeze({
+          chatId: target.providerSubject,
+          text: item.text,
+          ...(item.replyToMessageId === null ? {} : { replyToMessageId: item.replyToMessageId }),
+          idempotencyKey: item.providerIdempotencyKey,
+        })),
+      ));
       call<void>(this.breakerRecordSuccess, permit);
     } catch (error) {
       call<void>(this.breakerRecordFailure, permit, error, snapshotDate(this.clock()));
@@ -502,11 +514,13 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
     );
     let stored: StoredConversationDelivery;
     try {
-      stored = snapshotStoredDelivery(await call<ReturnType<DeliveryRepositoryPort["recordDeliverySuccess"]>>(this.recordDeliverySuccess, {
-        capability,
-        receipt,
-        now: snapshotDate(this.clock()),
-      }), "delivery_settlement_invalid") as StoredConversationDelivery;
+      stored = snapshotStoredDelivery(await this.observeSettlement(
+        () => call<ReturnType<DeliveryRepositoryPort["recordDeliverySuccess"]>>(this.recordDeliverySuccess, {
+          capability,
+          receipt,
+          now: snapshotDate(this.clock()),
+        }),
+      ), "delivery_settlement_invalid") as StoredConversationDelivery;
     } catch {
       return Object.freeze({ outcome: "unknown", deliveredAssistantEventId: null });
     }
@@ -520,11 +534,13 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
   private async settleFailure(capability: DeliveryLeaseCapability, failure: unknown): Promise<OutboxDispatchResult> {
     let stored: StoredConversationDelivery;
     try {
-      stored = snapshotStoredDelivery(await call<ReturnType<DeliveryRepositoryPort["recordDeliveryFailure"]>>(this.recordDeliveryFailure, {
-        capability,
-        failure,
-        now: snapshotDate(this.clock()),
-      }), "delivery_settlement_invalid") as StoredConversationDelivery;
+      stored = snapshotStoredDelivery(await this.observeSettlement(
+        () => call<ReturnType<DeliveryRepositoryPort["recordDeliveryFailure"]>>(this.recordDeliveryFailure, {
+          capability,
+          failure,
+          now: snapshotDate(this.clock()),
+        }),
+      ), "delivery_settlement_invalid") as StoredConversationDelivery;
     } catch {
       return Object.freeze({ outcome: "unknown", deliveredAssistantEventId: null });
     }

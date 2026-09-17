@@ -154,6 +154,7 @@ interface DeliveryLeaseBinding {
   materialHash: Sha256Hex;
   providerIdempotencyKey: string;
   leaseTokenHash: Sha256Hex;
+  text: string;
 }
 
 export interface ConversationRepositoryOptions {
@@ -169,6 +170,11 @@ export interface ConversationRepositoryOptions {
 
 function randomToken(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32));
+}
+
+function singleBatchRow<T>(result: D1Result<unknown> | undefined, error: string): T {
+  if (result === undefined || result.results.length !== 1) throw new Error(error);
+  return result.results[0] as T;
 }
 
 function exactDataRecord(value: unknown, fields: readonly string[], error: string): Record<string, unknown> {
@@ -438,7 +444,7 @@ export class ConversationRepository {
       payload: historyPayload(channel, userText, true, this.telegramDirectOwnerText),
       nowIso: observedAt.iso,
     });
-    const appended = await this.events.appendAtomicAfter({
+    const committed = await this.events.appendAtomicAfterKnownAbsent({
       envelope,
       scope: "conversation:user",
       key: turnId,
@@ -449,13 +455,16 @@ export class ConversationRepository {
       staged_delivery_id, sent_assistant_event_id, delivered_assistant_event_id,
       failure_code, failure_category, created_at, updated_at
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'user_committed',
-      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?7, ?8)`)
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?7, ?8)
+      RETURNING *`)
       .bind(turnId, sessionId, principalId, channel, requestHash, envelope.eventId, observedAt.iso, observedAt.iso)]);
-    const row = await this.readTurn(turnId);
+    const row = committed.appended.replayed
+      ? await this.readTurn(turnId)
+      : singleBatchRow<ConversationTurnRow>(committed.postResults[0], "conversation_turn_missing_after_commit");
     if (row === null) throw new Error("conversation_turn_missing_after_commit");
     return Object.freeze({
       turn: this.requireTurnLineage(row, { sessionId, principalId, channel, requestHash }),
-      replayed: appended.replayed,
+      replayed: committed.appended.replayed,
     });
   }
 
@@ -489,33 +498,28 @@ export class ConversationRepository {
     const turnId = requireUlid(captured.turnId, "conversation_turn_id");
     const requestHash = requireHash(captured.requestHash, "conversation_request_hash");
     const observedAt = snapshotDate(captured.now, "model_claim_now");
-    const initial = await this.readTurn(turnId);
-    if (initial === null || initial.request_hash !== requestHash) throw new Error("conversation_turn_conflict");
-
-    if (initial.state === "user_committed") {
-      const tokenHash = await sha256Hex(snapshotToken(this.claimTokenFactory, "model_claim_token"));
-      const expiresAt = new Date(observedAt.epochMs + this.claimTtlMs).toISOString();
-      const claimed = await this.database.prepare(`UPDATE conversation_turns
-        SET state = 'model_claimed', model_claim_token_hash = ?1, model_claimed_at = ?2,
-            model_claim_expires_at = ?3, updated_at = ?4
-        WHERE turn_id = ?5 AND request_hash = ?6 AND state = 'user_committed'
-        RETURNING *`)
-        .bind(tokenHash, observedAt.iso, expiresAt, observedAt.iso, turnId, requestHash)
-        .first<ConversationTurnRow>();
-      if (claimed !== null) {
-        const turn = this.toStoredTurn(claimed);
-        const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
-        this.modelClaimBindings.set(capability, Object.freeze({
-          turnId,
-          sessionId: turn.sessionId,
-          principalId: turn.principalId,
-          channel: turn.channel,
-          requestHash,
-          userEventId: turn.userEventId,
-          claimTokenHash: tokenHash,
-        }));
-        return Object.freeze({ kind: "claimed", capability, turn });
-      }
+    const tokenHash = await sha256Hex(snapshotToken(this.claimTokenFactory, "model_claim_token"));
+    const expiresAt = new Date(observedAt.epochMs + this.claimTtlMs).toISOString();
+    const claimed = await this.database.prepare(`UPDATE conversation_turns
+      SET state = 'model_claimed', model_claim_token_hash = ?1, model_claimed_at = ?2,
+          model_claim_expires_at = ?3, updated_at = ?4
+      WHERE turn_id = ?5 AND request_hash = ?6 AND state = 'user_committed'
+      RETURNING *`)
+      .bind(tokenHash, observedAt.iso, expiresAt, observedAt.iso, turnId, requestHash)
+      .first<ConversationTurnRow>();
+    if (claimed !== null) {
+      const turn = this.toStoredTurn(claimed);
+      const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
+      this.modelClaimBindings.set(capability, Object.freeze({
+        turnId,
+        sessionId: turn.sessionId,
+        principalId: turn.principalId,
+        channel: turn.channel,
+        requestHash,
+        userEventId: turn.userEventId,
+        claimTokenHash: tokenHash,
+      }));
+      return Object.freeze({ kind: "claimed", capability, turn });
     }
 
     let current = await this.readTurn(turnId);
@@ -587,7 +591,7 @@ export class ConversationRepository {
       nowIso: observedAt.iso,
     });
     const requestHash = await sha256Hex(canonicalJson(["assistant-stage-v2", binding.turnId, deliveryId, materialHash]));
-    await this.events.appendAtomicAfter({
+    const committed = await this.events.appendAtomicAfterKnownAbsent({
       envelope,
       scope: "conversation:assistant_stage",
       key: binding.turnId,
@@ -599,7 +603,8 @@ export class ConversationRepository {
         attempt_count, available_at, lease_token_hash, claimed_at, lease_expires_at, resolved_at,
         provider_message_id, delivered_assistant_event_id, failure_code, failure_category, created_at, updated_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'assistant', ?8, ?9, 'pending',
-        0, ?10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?11, ?12)`)
+        0, ?10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?11, ?12)
+        RETURNING *`)
         .bind(
           deliveryId, binding.turnId, binding.turnId, envelope.eventId, binding.principalId,
           targetIdentityId, replyToMessageId, materialHash, providerIdempotencyKey,
@@ -607,10 +612,16 @@ export class ConversationRepository {
         ),
       database.prepare(`UPDATE conversation_turns
         SET state = 'assistant_staged', resolved_at = ?1, staged_delivery_id = ?2, updated_at = ?3
-        WHERE turn_id = ?4 AND state = 'model_claimed' AND model_claim_token_hash = ?5`)
+        WHERE turn_id = ?4 AND state = 'model_claimed' AND model_claim_token_hash = ?5
+        RETURNING *`)
         .bind(observedAt.iso, deliveryId, observedAt.iso, binding.turnId, binding.claimTokenHash),
     ]);
-    const [storedTurnRow, storedDeliveryRow] = await Promise.all([this.readTurn(binding.turnId), this.readDeliveryRow(deliveryId)]);
+    const [storedTurnRow, storedDeliveryRow] = committed.appended.replayed
+      ? await Promise.all([this.readTurn(binding.turnId), this.readDeliveryRow(deliveryId)])
+      : [
+          singleBatchRow<ConversationTurnRow>(committed.postResults[1], "assistant_stage_missing_after_commit"),
+          singleBatchRow<ConversationDeliveryRow>(committed.postResults[0], "assistant_stage_missing_after_commit"),
+        ];
     if (storedTurnRow === null || storedDeliveryRow === null) throw new Error("assistant_stage_missing_after_commit");
     return Object.freeze({ turn: this.toStoredTurn(storedTurnRow), delivery: this.toStoredDelivery(storedDeliveryRow) });
   }
@@ -758,41 +769,33 @@ export class ConversationRepository {
     const captured = exactDataRecord(input, ["deliveryId", "now"], "delivery_claim_input_invalid");
     const deliveryId = requireDeliveryId(captured.deliveryId);
     const observedAt = snapshotDate(captured.now, "delivery_claim_now");
-    let current = await this.readDeliveryRow(deliveryId);
-    if (current === null) throw new Error("conversation_delivery_missing");
-    if (current.state === "claimed" && current.lease_expires_at !== null && current.lease_expires_at <= observedAt.iso) {
-      current = await this.expireClaimedDelivery(current, observedAt.iso);
-    }
-    if (TERMINAL_DELIVERY_STATES.has(current.state as ConversationDeliveryState)) {
-      return Object.freeze({ kind: "terminal", item: this.toStoredDelivery(current) });
-    }
-    if (current.state === "claimed" || current.state === "retry_wait" && current.available_at > observedAt.iso) {
-      return Object.freeze({ kind: "in_progress", item: this.toStoredDelivery(current) });
-    }
-    if (current.state !== "pending" && current.state !== "retry_wait") {
-      return Object.freeze({ kind: "in_progress", item: this.toStoredDelivery(current) });
-    }
-
     const tokenHash = await sha256Hex(snapshotToken(this.leaseTokenFactory, "delivery_lease_token"));
     const expiresAt = new Date(observedAt.epochMs + this.leaseTtlMs).toISOString();
-    const claimed = await this.database.prepare(`UPDATE conversation_deliveries
-      SET state = 'claimed', attempt_count = attempt_count + 1,
-          lease_token_hash = ?1, claimed_at = ?2, lease_expires_at = ?3,
-          resolved_at = NULL, failure_code = NULL, failure_category = NULL, updated_at = ?4
-      WHERE delivery_id = ?5 AND state IN ('pending', 'retry_wait') AND available_at <= ?6 AND attempt_count < 3
-        AND EXISTS (
-          SELECT 1 FROM channel_identities i JOIN principals p ON p.principal_id = i.principal_id
-          WHERE i.identity_id = conversation_deliveries.target_identity_id
-            AND i.principal_id = conversation_deliveries.principal_id
-            AND i.channel = 'telegram' AND i.status = 'active' AND i.verified_at IS NOT NULL
-            AND p.status = 'active'
-        )
-      RETURNING *`)
-      .bind(tokenHash, observedAt.iso, expiresAt, observedAt.iso, deliveryId, observedAt.iso)
-      .first<ConversationDeliveryRow>();
-    if (claimed !== null) {
+    const results = await this.database.batch([
+      this.database.prepare(`UPDATE conversation_deliveries
+        SET state = 'claimed', attempt_count = attempt_count + 1,
+            lease_token_hash = ?1, claimed_at = ?2, lease_expires_at = ?3,
+            resolved_at = NULL, failure_code = NULL, failure_category = NULL, updated_at = ?4
+        WHERE delivery_id = ?5 AND state IN ('pending', 'retry_wait') AND available_at <= ?6 AND attempt_count < 3
+          AND EXISTS (
+            SELECT 1 FROM channel_identities i JOIN principals p ON p.principal_id = i.principal_id
+            WHERE i.identity_id = conversation_deliveries.target_identity_id
+              AND i.principal_id = conversation_deliveries.principal_id
+              AND i.channel = 'telegram' AND i.status = 'active' AND i.verified_at IS NOT NULL
+              AND p.status = 'active'
+          )
+        RETURNING *`)
+        .bind(tokenHash, observedAt.iso, expiresAt, observedAt.iso, deliveryId, observedAt.iso),
+      this.database.prepare(`SELECT e.event_type, e.subject_id, e.content_hash, e.envelope_json
+        FROM events e
+        JOIN conversation_deliveries d ON d.staged_event_id = e.event_id
+        WHERE d.delivery_id = ?1`).bind(deliveryId),
+    ]);
+    const claimed = results[0]?.results[0] as ConversationDeliveryRow | undefined;
+    if (claimed !== undefined) {
       const stored = this.toStoredDelivery(claimed);
-      const text = await this.readValidatedStagedText(claimed);
+      const event = singleBatchRow<StoredEventRow>(results[1], "conversation_staged_event_missing");
+      const text = await this.validateStagedText(claimed, event);
       const item = Object.freeze({ ...stored, state: "claimed" as const, text }) as ClaimedConversationDelivery;
       const capability = Object.freeze({ deliveryId, materialHash: stored.materialHash }) as DeliveryLeaseCapability;
       this.deliveryLeaseBindings.set(capability, Object.freeze({
@@ -806,15 +809,24 @@ export class ConversationRepository {
         materialHash: stored.materialHash,
         providerIdempotencyKey: stored.providerIdempotencyKey,
         leaseTokenHash: tokenHash,
+        text,
       }));
       return Object.freeze({ kind: "claimed", capability, item });
     }
 
-    current = await this.readDeliveryRow(deliveryId);
+    let current = await this.readDeliveryRow(deliveryId);
     if (current === null) throw new Error("conversation_delivery_missing");
-    if (current.state === "claimed") return Object.freeze({ kind: "in_progress", item: this.toStoredDelivery(current) });
+    if (current.state === "claimed" && current.lease_expires_at !== null && current.lease_expires_at <= observedAt.iso) {
+      current = await this.expireClaimedDelivery(current, observedAt.iso);
+    }
     if (TERMINAL_DELIVERY_STATES.has(current.state as ConversationDeliveryState)) {
       return Object.freeze({ kind: "terminal", item: this.toStoredDelivery(current) });
+    }
+    if (current.state === "claimed" || current.state === "retry_wait" && current.available_at > observedAt.iso) {
+      return Object.freeze({ kind: "in_progress", item: this.toStoredDelivery(current) });
+    }
+    if (current.state !== "pending" && current.state !== "retry_wait") {
+      return Object.freeze({ kind: "in_progress", item: this.toStoredDelivery(current) });
     }
     return Object.freeze({ kind: "unavailable", item: this.toStoredDelivery(current) });
   }
@@ -893,8 +905,7 @@ export class ConversationRepository {
     if (row === null || row.state !== "claimed" || row.lease_token_hash !== binding.leaseTokenHash) {
       throw new Error("delivery_lease_invalid");
     }
-    const text = await this.readValidatedStagedText(row);
-    const issuedText = sanitizeRedaction(text);
+    const issuedText = sanitizeRedaction(binding.text);
     if (!issuedText.ok) throw new Error("delivery_staged_text_invalid");
     const eventId = requireUlid(this.eventIdFactory(), "conversation_event_id");
     const eventType = binding.historyMode === "assistant"
@@ -917,7 +928,8 @@ export class ConversationRepository {
       const deliveryUpdate = database.prepare(`UPDATE conversation_deliveries
         SET state = 'delivered', resolved_at = ?1, provider_message_id = ?2,
             delivered_assistant_event_id = ?3, updated_at = ?4
-        WHERE delivery_id = ?5 AND state = 'claimed' AND lease_token_hash = ?6`)
+        WHERE delivery_id = ?5 AND state = 'claimed' AND lease_token_hash = ?6
+        RETURNING *`)
         .bind(
           observedAt.iso,
           receipt.providerMessageId,
@@ -931,17 +943,19 @@ export class ConversationRepository {
         deliveryUpdate,
         database.prepare(`UPDATE conversation_turns
           SET state = 'delivered', delivered_assistant_event_id = ?1, resolved_at = ?2, updated_at = ?3
-          WHERE turn_id = ?4 AND state = 'assistant_staged' AND staged_delivery_id = ?5`)
+          WHERE turn_id = ?4 AND state = 'assistant_staged' AND staged_delivery_id = ?5
+          RETURNING turn_id`)
           .bind(envelope.eventId, observedAt.iso, observedAt.iso, binding.turnId, binding.deliveryId),
       ];
     };
-    await this.events.appendAtomicAfter({
+    const committed = await this.events.appendAtomicAfterKnownAbsent({
       envelope,
       scope: "conversation:delivery_success",
       key: binding.deliveryId,
       requestHash,
     }, dependencies);
-    const stored = await this.readDeliveryRow(binding.deliveryId);
+    const returned = committed.postResults[0]?.results[0] as ConversationDeliveryRow | undefined;
+    const stored = returned ?? await this.readDeliveryRow(binding.deliveryId);
     if (stored === null || stored.state !== "delivered" || stored.provider_message_id !== receipt.providerMessageId) {
       throw new Error("delivery_settlement_unknown");
     }
@@ -1238,11 +1252,7 @@ export class ConversationRepository {
     });
   }
 
-  private async readValidatedStagedText(row: ConversationDeliveryRow): Promise<string> {
-    const event = await this.database.prepare(
-      "SELECT event_type, subject_id, content_hash, envelope_json FROM events WHERE event_id = ?1",
-    ).bind(row.staged_event_id).first<StoredEventRow>();
-    if (event === null) throw new Error("conversation_staged_event_missing");
+  private async validateStagedText(row: ConversationDeliveryRow, event: StoredEventRow): Promise<string> {
     let raw: unknown;
     try { raw = JSON.parse(event.envelope_json); }
     catch { throw new Error("conversation_staged_event_invalid"); }

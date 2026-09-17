@@ -56,7 +56,9 @@ describe("Telegram turn observability", () => {
     });
     const delivery = observer.observeDelivery({
       async dispatch() {
-        now += 13;
+        now += 1;
+        await observer.observeTelegramSend(async () => { now += 5; });
+        await observer.observeSettlement(async () => { now += 7; });
         return Object.freeze({ outcome: "delivered", deliveredAssistantEventId: input.correlationId });
       },
     });
@@ -65,6 +67,7 @@ describe("Telegram turn observability", () => {
       principalId: "principal-a", channel: "telegram", purpose: "conversation", query: "hello", maxTokens: 100,
     });
     await drain(structured.stream(input));
+    await observer.observeStaging(async () => { now += 3; });
     await delivery.dispatch(input.correlationId as unknown as ConversationDeliveryId);
 
     expect(observer.snapshot()).toEqual({
@@ -72,6 +75,9 @@ describe("Telegram turn observability", () => {
       modelFirstResponseMs: 54,
       modelTotalMs: 61,
       deliveryMs: 13,
+      stagingMs: 3,
+      telegramSendMs: 5,
+      settlementMs: 7,
       providerCallCount: 2,
       modelFailureReason: null,
     });
@@ -98,6 +104,9 @@ describe("Telegram turn observability", () => {
       modelFirstResponseMs: 0,
       modelTotalMs: 0,
       deliveryMs: 0,
+      stagingMs: 0,
+      telegramSendMs: 0,
+      settlementMs: 0,
       providerCallCount: 1,
       failureReason: reason,
     });
@@ -111,6 +120,9 @@ describe("Telegram turn observability", () => {
       modelFirstResponseMs: 2,
       modelTotalMs: 3,
       deliveryMs: 4,
+      stagingMs: 5,
+      telegramSendMs: 6,
+      settlementMs: 7,
       providerCallCount: 1,
       modelFailureReason: "timeout",
     };
