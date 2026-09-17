@@ -66,17 +66,10 @@ import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
+export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
-const OWNER_AGENT_WEBHOOK_BUDGET_MS = 20_000;
-
-export function ownerAgentTurnTimeoutMs(receivedAt: string, now = new Date()): number {
-  const arrival = Date.parse(receivedAt);
-  const current = now.getTime();
-  if (!Number.isFinite(arrival) || !Number.isFinite(current)) throw new TypeError("telegram_received_at_invalid");
-  return Math.max(1, Math.min(OWNER_AGENT_WEBHOOK_BUDGET_MS, arrival + OWNER_AGENT_WEBHOOK_BUDGET_MS - current));
-}
 
 export function ownerTelegramToolAuthority(accepted: Pick<
   AcceptedTelegramUpdate,
@@ -290,7 +283,9 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           schoolModel,
           universityModel,
           studyCoachModel: studyModel,
-          turnTimeoutMs: ownerAgentTurnTimeoutMs(accepted.receivedAt),
+          // Retrieval happens after construction. The adapter resolves the
+          // remaining arrival-anchored budget when its stream actually starts.
+          turnReceivedAt: accepted.receivedAt,
         });
       }
 

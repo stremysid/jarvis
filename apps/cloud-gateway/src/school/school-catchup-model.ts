@@ -399,7 +399,14 @@ function sentenceAround(value: string, start: number, end: number): {
     after = candidate;
     break;
   }
-  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1, end: after + 1 });
+  let sentenceStart = before + 1;
+  while (sentenceStart < start && /["'’”\])}]/u.test(value[sentenceStart]!)) sentenceStart += 1;
+  while (sentenceStart < start && /[ \t]/u.test(value[sentenceStart]!)) sentenceStart += 1;
+  return Object.freeze({
+    text: value.slice(sentenceStart, after + 1),
+    start: sentenceStart,
+    end: after + 1,
+  });
 }
 
 function hasPassiveExternalCompletion(reply: string): boolean {
@@ -486,9 +493,30 @@ function exemptDraftAndReportSpans(reply: string): string {
   const markers = /\b(?:draft(?:\s+(?:reply|message))?|sample(?:\s+message)?|opening\s+line|practice\s+question)\b[^:\n]{0,96}:/giu;
   for (const match of reply.matchAll(markers)) {
     const afterMarker = match.index + match[0].length;
-    const searchFrom = reply.startsWith("\n\n", afterMarker) ? afterMarker + 2 : afterMarker;
-    const paragraphEnd = reply.indexOf("\n\n", searchFrom);
-    scan = blankRange(scan, match.index + match[0].length, paragraphEnd < 0 ? reply.length : paragraphEnd);
+    const leading = /^\s*/u.exec(reply.slice(afterMarker))?.[0] ?? "";
+    const start = afterMarker + leading.length;
+    const opener = reply[start];
+    const closer = opener === '"' ? '"' : opener === "“" ? "”" : null;
+    if (closer !== null) {
+      const close = reply.indexOf(closer, start + 1);
+      if (close < 0) continue;
+      const draft = reply.slice(start + 1, close);
+      const addressedToSid = matches(FIRST_PERSON_ACTION_CLAIM, draft).length > 0
+        && /\b(?:for\s+you|your)\b/iu.test(draft);
+      if (!addressedToSid) scan = blankRange(scan, start, close + 1);
+      continue;
+    }
+    // A salutation plus terminal punctuation is an explicit one-sentence
+    // outgoing block. It never exempts a following sentence or paragraph.
+    const salutation = /^(?:dear|hi|hello)\s+(?:(?:m(?:s|r|rs|x)|dr|prof(?:essor)?)\.?\s+)?[\p{L}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*)?\s*[,!:]/iu
+      .exec(reply.slice(start));
+    if (salutation === null) continue;
+    const sentence = sentenceAround(reply, start, start + salutation[0].length);
+    const draft = reply.slice(start, sentence.end);
+    if (!/[.!?]$/u.test(draft)) continue;
+    const addressedToSid = matches(FIRST_PERSON_ACTION_CLAIM, draft).length > 0
+      && /\b(?:for\s+you|your)\b/iu.test(draft);
+    if (!addressedToSid) scan = blankRange(scan, start, sentence.end);
   }
   const report = /\b(?:great\s+job|nice|sounds\s+like)\b.{0,160}\b(?:your\s+(?:application|aif|supplement|essay|form)\s+(?:is|was)\s+(?:already\s+)?submitted|since\s+you\s+(?:already\s+)?submitted|you\s+called)\b/giu;
   for (const match of reply.matchAll(report)) {
@@ -531,9 +559,10 @@ function withoutSentenceRanges(reply: string, ranges: readonly Readonly<{ start:
 
 export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions = {}): string {
   const receipted = new Set(options.receiptedInternalSentences ?? []);
+  const secretScan = reply.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  const secretRanges = offendingSentenceRanges(secretScan, SECRET_REQUESTS);
   let scan = exemptDraftAndReportSpans(reply);
   scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
-  const secretRanges = offendingSentenceRanges(scan, SECRET_REQUESTS);
   const externalRanges = [
     ...offendingSentenceRanges(scan, FALSE_EXTERNAL_COMPLETIONS),
     ...unsafeFirstPersonRanges(reply, scan, receipted),

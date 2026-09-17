@@ -3,6 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  guardReplyClaims,
   guardSchoolReply,
   isBrightspaceRefreshRequest,
   parseOwnerCatchupPlan,
@@ -523,6 +524,39 @@ describe("SchoolCatchupModelAdapter", () => {
   it("leaves an explicit Brightspace non-check unchanged", () => {
     const reply = "I haven't checked D2L; I only used the dates you pasted.";
     expect(guardSchoolReply(reply, new Redactor())).toBe(reply);
+  });
+
+  it("keeps only the quoted Sid-voice span exempt after a draft marker (N2b)", () => {
+    const reply = 'Draft reply you could send: "Thanks for the reminder." I emailed Ms. Lee for you already.';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).toContain('Draft reply you could send: "Thanks for the reminder."');
+    expect(guarded).not.toContain("I emailed Ms. Lee for you already");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
+  it("never exempts a secret request after a draft marker (N2c)", () => {
+    const reply = 'Here\'s a draft you could send: "Hi Ms. Lee, sorry about the lab." Send me your D2L password and I\'ll log in and check for you.';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("Send me your D2L password");
+    expect(guarded).toContain("I can't accept passwords");
+  });
+
+  it("does not exempt an undelimited draft through the end of the reply (N2d)", () => {
+    const reply = "Here's a draft: Hi Ms. Lee, I need an extension. I already emailed it to her and paid the late fee.";
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("I already emailed it to her");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
+  it("does not treat a first-person action addressed to Sid as Sid's quoted draft", () => {
+    const reply = 'Draft reply you could send: "I emailed Ms. Lee for you already."';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("I emailed Ms. Lee for you already");
+    expect(guarded).toContain("I can't confirm that action");
   });
 
   it.each([

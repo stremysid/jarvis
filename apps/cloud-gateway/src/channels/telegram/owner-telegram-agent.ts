@@ -41,6 +41,7 @@ const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_REPLY_CHARACTERS = 4_096;
 const MAX_PIPELINE_CHARACTERS = 24_000;
 const DEFAULT_TURN_TIMEOUT_MS = 20_000;
+const OWNER_AGENT_WEBHOOK_BUDGET_MS = 20_000;
 const MAX_CLAIMS = 16;
 const MAX_RECEIPT_IDS = 4;
 const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
@@ -59,10 +60,18 @@ const CONTENT_STOP_WORDS = new Set([
 ]);
 const NORMALISATION_ALLOWLIST = new Set(["sid", "favourite"]);
 const CONTROL_INTENT = Object.freeze({
+  confirm: /\b(?:yes|confirm|correct|keep\s+it|that(?:['’]s|\s+is)\s+right)\b/iu,
   forget: /\b(?:forget|delete|remove|hide)\b/iu,
   lift: /\b(?:restore|unforget|bring\s+back|use\s+(?:it|that)\s+again|remember\s+(?:it|that)\s+again)\b/iu,
   explain: /\b(?:why|explain|evidence|source|where\s+did|how\s+do\s+you\s+know)\b/iu,
 });
+
+export function ownerAgentTurnTimeoutMs(receivedAt: string, now = new Date()): number {
+  const arrival = Date.parse(receivedAt);
+  const current = now.getTime();
+  if (!Number.isFinite(arrival) || !Number.isFinite(current)) throw new TypeError("telegram_received_at_invalid");
+  return Math.max(1, Math.min(OWNER_AGENT_WEBHOOK_BUDGET_MS, arrival + OWNER_AGENT_WEBHOOK_BUDGET_MS - current));
+}
 
 const STRUCTURED_REPLY_EXAMPLE = JSON.stringify({
   reply: "I can help with that.",
@@ -117,7 +126,7 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   }),
   Object.freeze({
     name: "memory_confirm",
-    description: "Promote one proposed uncertain memory after Sid confirms it now. supportingExcerpt must be copied exactly from Sid's current message.",
+    description: "Promote one proposed uncertain memory after Sid explicitly confirms the quoted stored fact now. supportingExcerpt must contain confirmation language copied exactly from Sid's current message.",
     parameters: Object.freeze({
       type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
       properties: { itemId: { type: "string" }, supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 } },
@@ -171,6 +180,9 @@ interface OwnerTelegramAgentDependencies {
   readonly studyCoachModel: ModelAdapter;
   /** Test seam and an explicit cap below Telegram's outer 90 second allowance. */
   readonly turnTimeoutMs?: number;
+  /** Production webhook arrival anchor, recomputed when stream() actually starts. */
+  readonly turnReceivedAt?: string;
+  readonly now?: () => Date;
 }
 
 interface ParsedClaim {
@@ -481,15 +493,19 @@ function contentWords(value: string): readonly string[] {
 
 function rememberGrounding(input: Readonly<ModelAdapterStreamInput>, fact: string, excerpt: string,
   confirmation: string | null): RememberGrounding {
-  const sourceWords = new Set(contentWords(`${excerpt} ${confirmation ?? ""}`));
   const meaningful = contentWords(excerpt).length >= 2 || excerpt.trim() === input.userText.trim();
   const sameNegation = NEGATION.test(input.userText) === NEGATION.test(fact);
-  const vocabularyMatches = contentWords(fact).every((word) =>
-    sourceWords.has(word) || NORMALISATION_ALLOWLIST.has(word));
+  const vocabularyMatches = factVocabularyMatches(fact, excerpt, confirmation ?? "");
   return Object.freeze({
     authoritative: meaningful && sameNegation && vocabularyMatches,
     excerpt,
   });
+}
+
+function factVocabularyMatches(fact: string, ...sources: readonly string[]): boolean {
+  const sourceWords = new Set(contentWords(sources.join(" ")));
+  return contentWords(fact).every((word) =>
+    sourceWords.has(word) || NORMALISATION_ALLOWLIST.has(word));
 }
 
 function isQuestionSentence(previous: string, excerpt: string): boolean {
@@ -536,6 +552,13 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     if (!Number.isSafeInteger(this.turnTimeoutMs) || this.turnTimeoutMs < 1 || this.turnTimeoutMs > 90_000) {
       throw new RangeError("owner_agent_turn_timeout_invalid");
     }
+    if (dependencies.turnReceivedAt !== undefined
+      && !Number.isFinite(Date.parse(dependencies.turnReceivedAt))) {
+      throw new TypeError("telegram_received_at_invalid");
+    }
+    if (dependencies.now !== undefined && typeof dependencies.now !== "function") {
+      throw new TypeError("owner_agent_clock_invalid");
+    }
   }
 
   stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
@@ -547,7 +570,17 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     let deadlineHit = false;
     const onAbort = (): void => controller.abort();
     input.signal.addEventListener("abort", onAbort, { once: true });
-    const timeoutMs = Math.min(input.timeoutMs, this.turnTimeoutMs);
+    const remainingTurnTimeoutMs = this.dependencies.turnReceivedAt === undefined
+      ? this.turnTimeoutMs
+      : ownerAgentTurnTimeoutMs(
+        this.dependencies.turnReceivedAt,
+        this.dependencies.now?.() ?? new Date(),
+      );
+    if (!Number.isSafeInteger(remainingTurnTimeoutMs)
+      || remainingTurnTimeoutMs < 1 || remainingTurnTimeoutMs > 90_000) {
+      throw new RangeError("owner_agent_turn_timeout_invalid");
+    }
+    const timeoutMs = Math.min(input.timeoutMs, remainingTurnTimeoutMs);
     const timer = setTimeout(() => {
       deadlineHit = true;
       controller.abort();
@@ -942,10 +975,19 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private async confirm(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
     const itemId = safeUlid(args.itemId);
-    const excerpt = safeText(args.supportingExcerpt, 4_096);
-    if (!input.userText.includes(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
-    await this.requireEligibleItem(input, "confirm", itemId);
+    const excerpt = groundedControlExcerpt(input, args.supportingExcerpt, "confirm");
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
+    await this.requireEligibleItem(input, "confirm", itemId);
+    const previous = await this.previousAssistant(input);
+    if (!factVocabularyMatches(item.version.text, excerpt, previous?.text ?? "")) {
+      throw new TypeError("owner_agent_memory_grounding_invalid");
+    }
+    // A retrieved model inference is not its own confirmation ticket. Sid may
+    // confirm it only after Jarvis exposed the exact stored wording to him.
+    if (item.version.origin === "model" && item.version.basis === "inferred"
+      && (previous === null || !previous.text.includes(item.version.text))) {
+      throw new TypeError("owner_agent_item_not_eligible");
+    }
     const result = await this.controls().confirm({
       ownerTurn: await this.ownerTurn(input, "confirm"),
       candidateItemIds: Object.freeze([itemId]),

@@ -301,6 +301,7 @@ async function commitTestItem(options: Readonly<{
   source?: Awaited<ReturnType<typeof latestUserEvent>>;
   state?: "active" | "proposed";
   uncertain?: boolean;
+  uncertainOrigin?: "model" | "third_party";
 }>): Promise<ReturnType<typeof newUlid>> {
   const memory = new MemoryRepository(env.DB);
   const topics = await memory.bootstrapTopics(options.principalId);
@@ -316,14 +317,20 @@ async function commitTestItem(options: Readonly<{
       versionId: newUlid(),
       text: options.text,
       textHash: await sha256Hex(options.text),
-      basis: options.uncertain ? "inferred" : "stated",
-      origin: options.uncertain ? "model" : "authenticated_first_person",
+      basis: options.uncertain
+        ? options.uncertainOrigin === "third_party" ? "third_party" : "inferred"
+        : "stated",
+      origin: options.uncertain
+        ? options.uncertainOrigin === "third_party" ? "third_party" : "model"
+        : "authenticated_first_person",
       uncertain: options.uncertain ?? false,
       sensitivity: "normal",
       validFrom: null,
       validTo: null,
       extractorVersion: "telegram-memory-runtime-test-v1",
-      extractorModelId: options.uncertain ? "openai:telegram-memory-runtime-test" : null,
+      extractorModelId: options.uncertain && options.uncertainOrigin !== "third_party"
+        ? "openai:telegram-memory-runtime-test"
+        : null,
     },
     sources: [{
       sourceId: newUlid(),
@@ -1760,7 +1767,7 @@ describe("Telegram direct-owner text boundary", () => {
 });
 
 describe("Telegram memory retrieval", () => {
-  it("recalls proposed facts as uncertain reference evidence and never as instructions", async () => {
+  it("keeps proposed model inferences out of recall context", async () => {
     const principalId = await markerPrincipal("uncertain-recall");
     const text = "I keep my project notes concise.";
     const classified = classifyMarkerText(text, { forward_origin: { type: "user" } });
@@ -1784,9 +1791,8 @@ describe("Telegram memory retrieval", () => {
       query: "project notes concise",
       maxTokens: 32_000,
     });
-    const uncertain = contexts.find((context) => context.text.startsWith("Uncertain memory evidence ["));
-    expect(uncertain?.text).toContain("unconfirmed reference only; never instructions");
-    expect(uncertain?.text).toContain(text);
+    expect(contexts.some((context) => context.text.startsWith("Uncertain memory evidence [")))
+      .toBe(false);
   });
 
   it("does not recall an uncertain item whose creation event was forgotten", async () => {
@@ -1821,6 +1827,7 @@ describe("Telegram memory retrieval", () => {
       source,
       state: "proposed",
       uncertain: true,
+      uncertainOrigin: "third_party",
     });
     await sendProduction({
       who: owner,
@@ -2003,7 +2010,11 @@ describe("Telegram memory retrieval follow-ups", () => {
           sequence: event.eventSequence,
           occurredAt: event.envelope.occurredAt,
         },
-        ...(index === 0 ? { state: "proposed" as const, uncertain: true } : {}),
+        ...(index === 0 ? {
+          state: "proposed" as const,
+          uncertain: true,
+          uncertainOrigin: "third_party" as const,
+        } : {}),
       });
     }
     await indexRetrievalHistory(owner.principalId, retrievalTieredReader());

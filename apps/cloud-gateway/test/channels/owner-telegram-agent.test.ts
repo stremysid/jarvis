@@ -155,6 +155,9 @@ async function runTurn(input: {
   readonly durableDirectOwnerText?: boolean;
   readonly directPipelineText?: boolean;
   readonly turnTimeoutMs?: number;
+  readonly turnReceivedAt?: string;
+  readonly now?: () => Date;
+  readonly beforeModel?: () => void;
   readonly context?: readonly RetrievedContext[];
   readonly school?: ModelAdapter;
   readonly university?: ModelAdapter;
@@ -186,11 +189,16 @@ async function runTurn(input: {
     universityModel: input.university ?? fallback,
     studyCoachModel: input.study ?? fallback,
     turnTimeoutMs: input.turnTimeoutMs,
+    turnReceivedAt: input.turnReceivedAt,
+    now: input.now,
   });
   const service = new DefaultConversationService({
     repository,
     model,
-    context: { async retrieve() { return input.context ?? Object.freeze([]); } },
+    context: { async retrieve() {
+      input.beforeModel?.();
+      return input.context ?? Object.freeze([]);
+    } },
     dispatcher: new DefaultOutboxDispatcher({
       repository,
       identityResolver: new D1TelegramIdentityResolver(env.DB),
@@ -434,6 +442,26 @@ describe("owner Telegram agent", () => {
       .toBe(16_750);
     expect(ownerAgentTurnTimeoutMs("2026-09-17T14:00:00.000Z", new Date("2026-09-17T14:00:30.000Z")))
       .toBe(1);
+  });
+
+  it("recomputes the arrival-anchored budget when the agent stream starts", async () => {
+    const harness = await ownerHarness("late-bound-budget");
+    const arrival = "2026-09-17T14:00:00.000Z";
+    let now = new Date(arrival);
+    const clock = vi.fn(() => now);
+    const provider = new FakeAgentProvider([stopped("Still inside the deadline.")]);
+
+    await runTurn({
+      harness,
+      text: "budget check",
+      provider,
+      turnReceivedAt: arrival,
+      now: clock,
+      beforeModel: () => { now = new Date("2026-09-17T14:00:03.300Z"); },
+    });
+
+    expect(clock).toHaveBeenCalledOnce();
+    expect(provider.requests[0]?.timeoutMs).toBe(16_700);
   });
 
   it("answers an ordinary turn with exactly one model call", async () => {
@@ -792,7 +820,10 @@ describe("owner Telegram agent", () => {
     await runTurn({ harness, text: "remember my code is 12", provider, directOwnerText: false });
 
     await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: "I refused that memory tool call because this is not Sid's direct current Telegram text. Nothing changed.",
+    });
   });
 
   it.each([
@@ -861,17 +892,22 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
-  it("confirms a proposed memory only from Sid's grounded current excerpt", async () => {
+  it("confirms a proposed model inference only after Jarvis quoted the stored fact", async () => {
     const harness = await ownerHarness("confirm");
     const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('I have an uncertain memory: "I like art". Is that correct?')]),
+    });
     const provider = new FakeAgentProvider([
-      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
       stopped("Confirmed.", [{ sentence: "Confirmed.", receiptIds: ["receipt:confirm-1"] }]),
     ]);
 
     const reply = await runTurn({
       harness,
-      text: "yes",
+      text: "yes, that's right",
       provider,
       context: [memoryContext({
         item_id: itemId,
@@ -887,8 +923,114 @@ describe("owner Telegram agent", () => {
       .resolves.toMatchObject({
         lifecycle: { state: "active" },
         version: { basis: "confirmed", uncertain: false },
-        sources: expect.arrayContaining([expect.objectContaining({ excerpt: "yes" })]),
+        sources: expect.arrayContaining([expect.objectContaining({ excerpt: "yes, that's right" })]),
       });
+  });
+
+  it.each([
+    ["a bare acknowledgement", "ok", "ok"],
+    ["a substring without word boundaries", "yesterday was fine", "yes"],
+  ] as const)("does not confirm a quoted proposal from %s", async (_label, text, excerpt) => {
+    const harness = await ownerHarness(`confirm-negative-${excerpt}`);
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('I have an uncertain memory: "I like art". Is that correct?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool(`confirm-negative-${excerpt}`, "memory_confirm", {
+        itemId,
+        supportingExcerpt: excerpt,
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text,
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+  });
+
+  it("does not let retrieved context alone make a model inference confirmable", async () => {
+    const harness = await ownerHarness("confirm-context-only");
+    const itemId = await proposedMemory(harness);
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-context-only", "memory_confirm", {
+        itemId,
+        supportingExcerpt: "confirm I like art",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "confirm I like art",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+  });
+
+  it("requires control intent before forget, restore, or explain reaches owner controls", async () => {
+    const harness = await ownerHarness("control-intent");
+    await runTurn({
+      harness,
+      text: "remember I like calculus",
+      provider: new FakeAgentProvider([
+        called(tool("control-intent-seed", "memory_remember", {
+          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:control-intent-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    const forget = vi.spyOn(MemoryOwnerControlsService.prototype, "forget");
+    const lift = vi.spyOn(MemoryOwnerControlsService.prototype, "lift");
+    const explain = vi.spyOn(MemoryOwnerControlsService.prototype, "explain");
+    try {
+      for (const call of [
+        tool("control-intent-forget", "memory_forget", { itemIds: [row.item_id], supportingExcerpt: "hi" }),
+        tool("control-intent-restore", "memory_restore", { itemId: row.item_id, supportingExcerpt: "hi" }),
+        tool("control-intent-explain", "memory_explain", { itemId: row.item_id, supportingExcerpt: "hi" }),
+      ]) {
+        await runTurn({
+          harness,
+          text: "hi",
+          context: [memoryContext(row)],
+          provider: new FakeAgentProvider([called(call), stopped("Hi Sid.")]),
+        });
+      }
+      expect(forget).not.toHaveBeenCalled();
+      expect(lift).not.toHaveBeenCalled();
+      expect(explain).not.toHaveBeenCalled();
+    } finally {
+      forget.mockRestore();
+      lift.mockRestore();
+      explain.mockRestore();
+    }
   });
 
   it("refuses agent-level memory confirmation when its excerpt is absent from Sid's current text", async () => {
@@ -1204,6 +1346,22 @@ describe("owner Telegram agent", () => {
     expect(reply.endsWith("Short follow-up.")).toBe(true);
   });
 
+  it("truncates a Telegram reply without leaving a lone UTF-16 surrogate", async () => {
+    const harness = await ownerHarness("surrogate-bound");
+    const reply = `${"a".repeat(4_095)}${"\u{1f4da}".repeat(10)}`;
+
+    const delivered = await runTurn({
+      harness,
+      text: "long reply",
+      provider: new FakeAgentProvider([stopped(reply)]),
+    });
+
+    const last = delivered.charCodeAt(delivered.length - 1);
+    expect(delivered.length).toBeLessThanOrEqual(4_096);
+    expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+    expect(delivered).not.toContain("�");
+  });
+
   it("applies the deterministic action guard after a completed tool (R26)", async () => {
     const harness = await ownerHarness("tool-path-guard");
     const school = new ReceiptModel("Saved your school plan update.");
@@ -1225,45 +1383,40 @@ describe("owner Telegram agent", () => {
     expect(reply).toContain("can't confirm that action");
   });
 
-  it("uses the post-execute deadline branch and still returns a committed receipt (R21)", async () => {
+  it("uses the post-execute deadline branch before a second provider call starts (R21)", async () => {
     const harness = await ownerHarness("whole-turn-deadline");
     let calls = 0;
     let secondCallStarted = false;
-    let secondCallAborted = false;
     const provider: ModelAgentProvider = {
-      async completeAgent(input) {
+      async completeAgent() {
         calls += 1;
         if (calls === 1) {
-          return called(tool("deadline-memory", "memory_remember", {
-            fact: "I like biology", supportingExcerpt: "I like biology", evidenceClass: "stated",
-            previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
-          }));
+          return called(tool("deadline-school", "school_update", {}));
         }
         secondCallStarted = true;
-        await new Promise<void>((_resolve, reject) => {
-          const abort = (): void => {
-            secondCallAborted = true;
-            reject(new Error("aborted"));
-          };
-          if (input.signal.aborted) abort();
-          else input.signal.addEventListener("abort", abort, { once: true });
+        return stopped("This call must not start.");
+      },
+    };
+    const school: ModelAdapter = {
+      async *stream(input) {
+        yield Object.freeze({ index: 0, text: "Saved your school plan.", toolOutcome: "saved" as const });
+        await new Promise<void>((resolve) => {
+          if (input.signal.aborted) resolve();
+          else input.signal.addEventListener("abort", () => resolve(), { once: true });
         });
-        throw new Error("unreachable");
       },
     };
 
     const reply = await runTurn({
       harness,
-      text: "remember I like biology",
+      text: "plan biology",
       provider,
+      school,
       turnTimeoutMs: 40,
     });
 
-    expect({ secondCallStarted, secondCallAborted }).toEqual({
-      secondCallStarted: true,
-      secondCallAborted: true,
-    });
-    expect(reply).toContain("Remembered 1 memory");
+    expect(secondCallStarted).toBe(false);
+    expect(reply).toContain("Saved your school plan");
     expect(reply).toContain("couldn't write a longer reply");
   });
 

@@ -514,7 +514,8 @@ async function historyEvidence(hit: LiteralHistoryHit): Promise<string> {
 
 function recallableAt(item: CanonicalMemoryItem, now: string): boolean {
   return (item.lifecycle.state === "active"
-      || item.lifecycle.state === "proposed" && item.version.uncertain)
+      || item.lifecycle.state === "proposed" && item.version.uncertain
+        && !(item.version.origin === "model" && item.version.basis === "inferred"))
     && (item.version.validFrom === null || item.version.validFrom <= now)
     && (item.version.validTo === null || item.version.validTo > now);
 }
@@ -1258,6 +1259,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
           WHERE state.lifecycle_state IN ('active', 'proposed')
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
+            AND NOT (state.lifecycle_state = 'proposed'
+              AND version.origin = 'model' AND version.basis = 'inferred')
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
             AND NOT EXISTS (
@@ -1299,6 +1302,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       WHERE memory_item_fts MATCH ? AND version.principal_id = ?
         AND state.lifecycle_state IN ('active', 'proposed')
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
+        AND NOT (state.lifecycle_state = 'proposed'
+          AND version.origin = 'model' AND version.basis = 'inferred')
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
         AND NOT EXISTS (
