@@ -105,7 +105,7 @@ export function buildTelegramConversationRepository(
   });
 }
 
-export type TelegramReplyFailureReason = "identity_lookup" | "d1" | "dispatcher" | "other";
+export type TelegramReplyFailureReason = "identity_lookup" | "conversation" | "dispatcher" | "other";
 
 export class TelegramReplyFailure extends Error {
   constructor(readonly reason: Exclude<TelegramReplyFailureReason, "other">) {
@@ -265,7 +265,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         observeStaging: (operation) => observer.observeStaging(operation),
       });
 
-      const result = await telegramReplyStage("d1", () => service.handleTurn({
+      const result = await telegramReplyStage("conversation", () => service.handleTurn({
         // One conversation per chat, so separate chats do not share a thread.
         sessionId: `telegram:${accepted.chatId}`,
         principalId: accepted.principalId,
