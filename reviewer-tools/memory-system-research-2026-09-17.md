@@ -131,3 +131,35 @@ These are estimates. DeepSeek is 1–2 orders of magnitude cheaper, and model qu
 8. **CHANGE later (optional): move the agent loop onto the Cloudflare Agents SDK** instead of hand-built adapters.
 9. **KEEP:** raw history plus R2 archive, evidence classes and receipts, forget/restore, topic tree, nightly backup (#80), $5 extraction cap.
 10. **DROP:** regex intent routers and phrase guards (#84 superseded); any knowledge-graph plans; pre-injecting everything each turn.
+
+---
+
+## Cross-check with Sid's external deep research (2026-09-17 ~02:30 UTC)
+
+Sources: Gemini 3.6 thinking, Gemini 3.1 Pro extended thinking, and Claude Opus 5 max (claude.ai Research). All three were given the same self-contained prompt.
+
+**Agreement across all three plus this synthesis (adopted):**
+- An always-in-prompt profile, rebuilt only in the background.
+- Living topic notes as the primary recall layer; the strongest choice per Opus. It cites Letta's filesystem agent at 74.0 on LoCoMo vs Mem0-graph 68.5, Anthropic's file-based memory tool, and Mastra.
+- Raw history kept forever. Atomic facts demoted to a cheap index and audit trail, not the answer engine (arXiv 2603.04814, 2511.17208).
+- Fix the timeout by batching and parallelising reads (PR #85).
+- A stable cacheable prefix, with small per-turn retrieval: FTS + vector with RRF and no cross-encoder on the hot path. The reranker is used only in deep search.
+- A deep-search tool plus "checking…" follow-up. On voice, no pre-retrieval before the first token: answer from cached context and follow up.
+- Nightly consolidation (profile, notes, supersede, expire), with deadlines handled event-driven.
+- No knowledge graph, no bought memory framework.
+- Add origin trust tiers (typed / forwarded / pasted / web), per OWASP ASI06 memory poisoning.
+
+**Brain: all three recommend Claude Haiku 4.5 for live chat and tool calls, with DeepSeek V4.1 Flash for background jobs.** Sonnet 5 only if Haiku measurably fails. This supersedes the Sonnet 5 recommendation above.
+
+**Corrections to the external reports:**
+- **Gemini thinking and Gemini Pro:** Sonnet 5 listed at $3/$15. The official price is $2/$10; the planned rise was cancelled.
+- **Gemini thinking:** DeepSeek Flash listed at $0.30 input / $0.03 cached. Official prices: cache miss $0.15 off-peak / $0.30 peak; cache hit $0.003 / $0.006.
+- **Gemini Pro:**
+  - The Managed Agents "24/7 runtime destroys budget" claim is wrong: $0.08 per session-hour is billed only while running, and idle is free.
+  - "Move all retrieval to a tool" is rejected: it breaks automatic recall.
+  - "PrecisionMemBench" is unverified.
+- **Gemini thinking:** "OMEGA" is unverified.
+- **Opus:** a D2L Brightspace iCal feed doesn't exist for Sid's board. Use the planned notification-email route.
+- **Opus:** a ~2,000-token cached prefix won't cache on Haiku 4.5, whose minimum cacheable prefix is 4,096 tokens. Either keep tools + rules + profile + active notes at ≥4,096 tokens, or don't count on caching. Sonnet 5's minimum is 1,024.
+
+**Worth adopting later:** Durable Object embedded SQLite for hot profile and notes state, which gives near-zero-latency reads (Opus).
