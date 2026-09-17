@@ -39,12 +39,12 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "archive_purge_receipts",
   "outbound_call_attempts",
   "provider_events",
-  "call_sessions",
-  "conversation_turns",
-  "conversation_deliveries",
   "voice_owner_identity",
   "voice_access_grants",
   "voice_access_grant_events",
+  "call_sessions",
+  "conversation_turns",
+  "conversation_deliveries",
   "call_session_authorities",
   "capability_tiers",
   "autonomy_mode",
@@ -121,6 +121,28 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "school_study_signal_controls",
 ] as const);
 
+/**
+ * Nullable self references need dependency ordering inside their own table.
+ * The schema-derived restore test keeps this inventory complete.
+ */
+export const MEMORY_BACKUP_SELF_REFERENCES = Object.freeze([
+  Object.freeze({
+    table: "memory_topics",
+    keyColumn: "topic_id",
+    referenceColumns: Object.freeze(["parent_topic_id", "redirect_to_topic_id"]),
+  }),
+  Object.freeze({
+    table: "memory_episodes",
+    keyColumn: "episode_id",
+    referenceColumns: Object.freeze(["supersedes_episode_id"]),
+  }),
+  Object.freeze({
+    table: "memory_cost_ledger",
+    keyColumn: "cost_entry_id",
+    referenceColumns: Object.freeze(["reservation_entry_id"]),
+  }),
+] as const);
+
 /** Projections rebuilt during restore from authoritative rows and job receipts. */
 export const MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES = Object.freeze([
   "memory_fact_projection_fts",
@@ -154,6 +176,13 @@ export const MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES = Object.freeze([
   "memory_backup_table_cuts",
   "memory_backup_objects",
   "memory_backup_alerts",
+] as const);
+
+/** Restore-only tables appear after migration and remain outside later backup sets. */
+export const MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES = Object.freeze([
+  "memory_backup_restore_cache_progress",
+  "memory_backup_restore_cache_objects",
+  "memory_backup_restore_progress",
 ] as const);
 
 export type MemoryBackupTableName = typeof MEMORY_BACKUP_TABLES[number];
@@ -486,6 +515,7 @@ class MemoryBackupRepository {
       ...MEMORY_BACKUP_TABLES,
       ...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
       ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
+      ...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES,
     ]);
     const unclassified = schema.results.map((row) => row.name).filter((name) =>
       !name.startsWith("sqlite_") && name !== "d1_migrations" && name !== "_cf_METADATA"

@@ -18,6 +18,11 @@ refuses a target whose authoritative tables contain anything except the four
 migration-seeded sets (`archive_state`, `capability_tiers`, `autonomy_mode`, and
 `outbound_runtime_controls`) before its first DDL.
 
+The pinned manifest and each row object are verified and copied once into a
+scratch-only D1 cache before row insertion begins. Later `/step` calls read that
+durable cache, including after a Wrangler restart. They do not download or hash
+the full R2 set again. Early progress can therefore report the `cache_set` phase.
+
 ## 1. Read the verified set metadata
 
 Run from the repository root. These commands download only the latest pointer
@@ -126,8 +131,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Restore target safety check failed.' }
 
 The checker requires the name twice, requires `scratch`, requires the external
 config to target the bounded operator entry, and refuses the production
-database id read from the repository's `wrangler.toml`. It does not print either
-database id.
+database id read from the repository's `wrangler.toml`. It parses TOML escapes
+before comparing ids and refuses any `preview_database_id`, because Wrangler
+dev would bind that preview target. It does not print either database id.
 
 ## 4. Apply only the set's migrations to scratch
 
@@ -184,6 +190,11 @@ try {
       $Response = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/step" -Headers $Headers
       $Ready = $true
     } catch {
+      if ($null -ne $_.Exception.Response) {
+        $OperatorError = $_.ErrorDetails.Message
+        if ([string]::IsNullOrWhiteSpace($OperatorError)) { $OperatorError = $_.Exception.Message }
+        throw "Restore operator returned an HTTP error: $OperatorError"
+      }
       if ($DevProcess.HasExited) { throw "Restore operator stopped early. Read $DevErr without copying private data into the recovery record." }
       Start-Sleep -Seconds 1
     }
@@ -229,6 +240,11 @@ If the terminal, network, or Wrangler process dies at any point before
 same scratch config, and repeat `/step`. Do not recreate the database and do
 not manually recreate triggers. The D1 progress row resumes the exact set and
 rejects a different manifest.
+
+`/finalize` leaves an idempotent finalized marker. If its response is lost,
+repeat the same authenticated `/finalize` request with the same restore id. A
+later `/step` still reports the completed restore instead of treating the
+restored database as a fresh target.
 
 The repository still has no Vectorize writer. The response therefore records
 `vectorRebuild: "unavailable"`. Scratch rehearsal may complete with an empty

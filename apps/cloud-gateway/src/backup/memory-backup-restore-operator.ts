@@ -5,9 +5,9 @@ import { TieredEventReader } from "../archive/tiered-event-reader.js";
 import { LiteralHistoryService } from "../memory/literal-history.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import {
+  cacheVerifiedMemoryBackupSet,
   continueVerifiedMemoryBackupRestore,
   finalizeVerifiedMemoryBackupRestore,
-  readVerifiedMemoryBackupByPointer,
 } from "./memory-backup-restore.js";
 import { MEMORY_BACKUP_RESTORE_MIGRATIONS } from "./memory-backup-restore-migrations.js";
 
@@ -74,19 +74,35 @@ function historyStep(env: RestoreOperatorEnvironment): () => Promise<boolean> {
 }
 
 async function step(env: RestoreOperatorEnvironment): Promise<Response> {
-  const set = await readVerifiedMemoryBackupByPointer(env.BACKUP, {
+  const pointer = Object.freeze({
     schemaVersion: "1.0",
     runDate: env.RESTORE_RUN_DATE,
     runId: env.RESTORE_RUN_ID,
     manifestObjectKey: env.RESTORE_MANIFEST_OBJECT_KEY,
     manifestSha256: env.RESTORE_MANIFEST_SHA256,
   });
+  const cached = await cacheVerifiedMemoryBackupSet({
+    database: env.DB,
+    bucket: env.BACKUP,
+    pointer,
+    migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
+    maxObjectsPerStep: 32,
+  });
+  if (cached.outcome === "pending") {
+    return json({
+      ...cached,
+      restoreId: pointer.runId,
+      vectorRebuild: "unavailable",
+    });
+  }
+  const set = cached.set;
   const outcome = await continueVerifiedMemoryBackupRestore({
     database: env.DB,
     databaseSchemaVersion: set.manifest.databaseSchemaVersion,
     rowsByTable: set.rowsByTable,
     migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
     restoreId: set.manifest.runId,
+    verifiedSetHash: cached.setHash,
     maxStatementsPerStep: 64,
     jobs: {
       rebuildHistory: historyStep(env),

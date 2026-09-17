@@ -14,17 +14,22 @@ const productionConfig = readFileSync(new URL('../../apps/cloud-gateway/wrangler
 const productionId = productionConfig.split(/^\[env\.test\]$/mu)[0]
   .match(/^\s*database_id\s*=\s*"([^"]+)"\s*$/imu)?.[1];
 
-function withConfig(databaseId, run) {
-  const root = mkdtempSync(join(tmpdir(), 'jarvis backup restore target '));
-  try {
-    const config = join(root, 'restore.toml');
-    writeFileSync(config, `main = "${operatorEntry}"
+function configText(databaseId, previewDatabaseId) {
+  return `main = "${operatorEntry}"
 compatibility_date = "2026-09-16"
 [[d1_databases]]
 binding = "DB"
 database_name = "jarvis-memory-restore-scratch"
 database_id = "${databaseId}"
-`);
+${previewDatabaseId === undefined ? '' : `preview_database_id = "${previewDatabaseId}"`}
+`;
+}
+
+function withConfig(databaseId, run, previewDatabaseId) {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis backup restore target '));
+  try {
+    const config = join(root, 'restore.toml');
+    writeFileSync(config, configText(databaseId, previewDatabaseId));
     run(config);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -52,6 +57,28 @@ test('the restore target checker refuses the production database id from wrangle
   });
 });
 
+test('the restore target checker refuses a TOML-escaped production database id', () => {
+  assert.ok(productionId);
+  const escapedProductionId = `\\u${productionId.charCodeAt(0).toString(16).padStart(4, '0')}${productionId.slice(1)}`;
+  withConfig(escapedProductionId, (config) => {
+    assert.throws(() => checkRestoreTarget({
+      database: 'jarvis-memory-restore-scratch',
+      confirmation: 'jarvis-memory-restore-scratch',
+      config,
+    }), /refuses the production database id/u);
+  });
+});
+
+test('the restore target checker refuses every preview database id', () => {
+  withConfig('00000000-0000-4000-8000-000000000001', (config) => {
+    assert.throws(() => checkRestoreTarget({
+      database: 'jarvis-memory-restore-scratch',
+      confirmation: 'jarvis-memory-restore-scratch',
+      config,
+    }), /refuses every preview_database_id/u);
+  }, productionId);
+});
+
 test('the restore target checker refuses a target name that was not typed twice', () => {
   withConfig('00000000-0000-4000-8000-000000000001', (config) => {
     assert.throws(() => checkRestoreTarget({
@@ -59,5 +86,29 @@ test('the restore target checker refuses a target name that was not typed twice'
       confirmation: 'jarvis-memory-restore-scratch-typo',
       config,
     }), /separately typed restore target name did not match/u);
+  });
+});
+
+test('the restore target checker refuses a config kept inside the repository', () => {
+  const config = fileURLToPath(new URL('restore-inside-repository.test.toml', import.meta.url));
+  try {
+    writeFileSync(config, configText('00000000-0000-4000-8000-000000000001'));
+    assert.throws(() => checkRestoreTarget({
+      database: 'jarvis-memory-restore-scratch',
+      confirmation: 'jarvis-memory-restore-scratch',
+      config,
+    }), /must remain outside the repository/u);
+  } finally {
+    rmSync(config, { force: true });
+  }
+});
+
+test('the restore target checker refuses a target name without scratch', () => {
+  withConfig('00000000-0000-4000-8000-000000000001', (config) => {
+    assert.throws(() => checkRestoreTarget({
+      database: 'jarvis-memory-restore',
+      confirmation: 'jarvis-memory-restore',
+      config,
+    }), /must visibly say scratch/u);
   });
 });

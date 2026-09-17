@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import TOML from '@iarna/toml';
 
 const repoRoot = realpathSync.native(fileURLToPath(new URL('../', import.meta.url)));
 const productionConfig = resolve(repoRoot, 'apps/cloud-gateway/wrangler.toml');
@@ -15,17 +16,43 @@ function isWithin(parent, candidate) {
     || (!pathFromParent.startsWith(`..${sep}`) && pathFromParent !== '..' && !isAbsolute(pathFromParent));
 }
 
-function one(text, pattern, description) {
-  const values = [...text.matchAll(pattern)].map((match) => match[1]);
-  if (values.length !== 1 || values[0].length === 0) {
+function parseToml(text, description) {
+  try {
+    return TOML.parse(text);
+  } catch {
+    throw new Error(`The ${description} is not valid TOML.`);
+  }
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function oneDatabase(config, description) {
+  const databases = config.d1_databases;
+  if (!Array.isArray(databases) || databases.length !== 1 || !isRecord(databases[0])) {
     throw new Error(`The restore config must declare exactly one ${description}.`);
   }
-  return values[0];
+  return databases[0];
+}
+
+function containsKey(value, key) {
+  if (Array.isArray(value)) return value.some((child) => containsKey(child, key));
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([childKey, child]) => childKey === key || containsKey(child, key));
+}
+
+function requireString(value, description) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`The restore config must declare exactly one ${description}.`);
+  }
+  return value;
 }
 
 function productionDatabaseId() {
-  const text = readFileSync(productionConfig, 'utf8').split(/^\[env\.test\]$/mu)[0];
-  return one(text, /^\s*database_id\s*=\s*"([^"]+)"\s*$/gimu, 'production database id');
+  const config = parseToml(readFileSync(productionConfig, 'utf8'), 'production Wrangler config');
+  const database = oneDatabase(config, 'production database binding');
+  return requireString(database.database_id, 'production database id');
 }
 
 function parseArguments(argv) {
@@ -58,11 +85,16 @@ export function checkRestoreTarget({ database, confirmation, config }) {
     throw new Error('The scratch-only restore Wrangler config must remain outside the repository.');
   }
   const text = readFileSync(resolvedConfig, 'utf8');
-  const configuredName = one(text, /^\s*database_name\s*=\s*"([^"]+)"\s*$/gimu, 'target database name');
-  const configuredId = one(text, /^\s*database_id\s*=\s*"([^"]+)"\s*$/gimu, 'target database id');
+  const parsed = parseToml(text, 'scratch-only restore Wrangler config');
+  if (containsKey(parsed, 'preview_database_id')) {
+    throw new Error('The restore entry point refuses every preview_database_id.');
+  }
+  const configuredDatabase = oneDatabase(parsed, 'target database binding');
+  const configuredName = requireString(configuredDatabase.database_name, 'target database name');
+  const configuredId = requireString(configuredDatabase.database_id, 'target database id');
   const configuredMain = realpathSync.native(resolve(
     dirname(resolvedConfig),
-    one(text, /^\s*main\s*=\s*"([^"]+)"\s*$/gimu, 'operator main entry').replaceAll('/', sep),
+    requireString(parsed.main, 'operator main entry').replaceAll('/', sep),
   ));
   if (configuredName !== database) {
     throw new Error('The restore config database name does not match the separately typed target.');

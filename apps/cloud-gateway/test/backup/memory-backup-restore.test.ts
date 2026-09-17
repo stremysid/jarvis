@@ -12,14 +12,18 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import {
+  cacheVerifiedMemoryBackupSet,
   continueVerifiedMemoryBackupRestore,
   finalizeVerifiedMemoryBackupRestore,
   readLatestVerifiedMemoryBackup,
   restoreVerifiedMemoryBackupRows,
   type MemoryBackupRestoreManifest,
+  type MemoryBackupRestorePointer,
 } from "../../src/backup/memory-backup-restore.js";
+import memoryBackupRestoreOperator from "../../src/backup/memory-backup-restore-operator.js";
 import {
   MEMORY_BACKUP_LATEST_KEY,
+  MEMORY_BACKUP_SELF_REFERENCES,
   MEMORY_BACKUP_TABLES,
   MemoryBackupService,
 } from "../../src/backup/memory-backup.js";
@@ -44,8 +48,10 @@ const migrationSql = import.meta.glob("../../src/persistence/migrations/*.sql", 
   import: "default",
   query: "?raw",
 }) as Record<string, string>;
-const migrationSources = Object.entries(migrationSql).sort(([left], [right]) => left.localeCompare(right))
-  .map(([, sql]) => sql);
+const namedMigrationSources = Object.entries(migrationSql)
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([path, sql]) => Object.freeze({ name: path.split("/").at(-1)!, sql }));
+const migrationSources = namedMigrationSources.map(({ sql }) => sql);
 
 const ids = Object.freeze({
   event: "01k5nm00000000000000000001",
@@ -506,6 +512,103 @@ function countingDatabase(counter: { statements: number; sql: string[] }): D1Dat
   }) as D1Database;
 }
 
+function countingBucket(bucket: R2Bucket, gets: Map<string, number>): R2Bucket {
+  return new Proxy(bucket, {
+    get(target, property) {
+      if (property === "get") return async (key: string, options?: R2GetOptions) => {
+        gets.set(key, (gets.get(key) ?? 0) + 1);
+        return target.get(key, options);
+      };
+      const value = Reflect.get(target, property) as unknown;
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as R2Bucket;
+}
+
+async function seedGuestCallBeyondOneRestorePage(): Promise<string> {
+  const hash = "a".repeat(64);
+  const sessionId = newUlid(new Date("2026-09-15T13:00:00.000Z"));
+  await withAllTriggersDropped(async () => {
+    const grantEvents = Array.from({ length: 80 }, (_, index) => {
+      const at = new Date(Date.parse("2026-09-15T12:10:00.000Z") + index).toISOString();
+      return env.DB.prepare(`INSERT INTO voice_access_grant_events (
+        event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
+        capability_ids_json, access_document_hash, created_at
+      ) VALUES (?, ?, ?, 'permissions_replaced', 'identity:restore-voice', ?, '[]', ?, ?)`)
+        .bind(newUlid(new Date(at)), ids.grant, index + 2, hash, hash, at);
+    });
+    await env.DB.batch([
+      ...grantEvents,
+      env.DB.prepare(`INSERT INTO call_sessions (
+        session_id, call_sid, expected_attempt_id, principal_id, identity_id,
+        destination_identity_id, direction, activation_only, activation_challenge_id,
+        activation_hmac_key_version, relay_nonce, nonce_expires_at,
+        relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+        access_kind, guest_grant_id, guest_grant_version, access_document_hash,
+        provider_connected_at
+      ) VALUES (?, ?, NULL, 'principal:owner', 'identity:restore-voice',
+        'identity:restore-voice', 'inbound', 0, NULL, NULL, ?, ?, ?, NULL,
+        'completed', ?, ?, 'guest', ?, 1, ?, NULL)`)
+        .bind(
+          sessionId,
+          `CA${"1".repeat(32)}`,
+          "A".repeat(43),
+          "2026-09-15T13:01:00.000Z",
+          "2026-09-15T13:01:00.000Z",
+          "2026-09-15T13:00:00.000Z",
+          "2026-09-15T13:01:00.000Z",
+          ids.grant,
+          hash,
+        ),
+    ]);
+  });
+  return sessionId;
+}
+
+async function seedMergedTopicBeyondOneRestorePage(): Promise<Readonly<{
+  older: string;
+  newer: string;
+}>> {
+  const base = Date.parse("2026-09-15T14:00:00.000Z");
+  const older = newUlid(new Date(base));
+  const between = Array.from({ length: 80 }, (_, index) => newUlid(new Date(base + index + 1)));
+  const newer = newUlid(new Date(base + 1_000));
+  const insert = (
+    topicId: string,
+    name: string,
+    status: "active" | "merged",
+    redirect: string | null,
+    offset: number,
+  ) => env.DB.prepare(`INSERT INTO memory_topics (
+      topic_id, principal_id, parent_topic_id, display_name, normalized_name,
+      status, redirect_to_topic_id, last_topic_event_id, created_at, updated_at
+    ) VALUES (?, 'principal:owner', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      topicId,
+      ids.topic,
+      name,
+      name.toLowerCase(),
+      status,
+      redirect,
+      newUlid(new Date(base + 2_000 + offset)),
+      new Date(base + offset).toISOString(),
+      new Date(base + 3_000 + offset).toISOString(),
+  );
+  await withAllTriggersDropped(async () => {
+    await env.DB.batch([
+      insert(older, "Older topic", "active", null, 0),
+      ...between.map((topicId, index) => insert(
+        topicId, `Between topic ${index}`, "active", null, index + 1,
+      )),
+      insert(newer, "Newer topic", "active", null, 1_000),
+      env.DB.prepare(`UPDATE memory_topics SET status = 'merged',
+        redirect_to_topic_id = ?, updated_at = ? WHERE topic_id = ?`)
+        .bind(newer, new Date(base + 4_000).toISOString(), older),
+    ]);
+  });
+  return Object.freeze({ older, newer });
+}
+
 describe("verified memory backup restore", () => {
   beforeEach(async () => {
     await recreateFreshDatabaseForBackupRestoreTest();
@@ -513,6 +616,198 @@ describe("verified memory backup restore", () => {
     await clearBucket(backupBucket);
     await clearBucket(archiveBucket);
   });
+
+  it("orders every authoritative table after its foreign-key targets and inventories every nullable self-reference", async () => {
+    const order = new Map<string, number>(MEMORY_BACKUP_TABLES.map((table, index) => [table, index]));
+    const nullableSelfReferences = new Set<string>();
+    for (const table of MEMORY_BACKUP_TABLES) {
+      const foreignKeys = await env.DB.prepare(`PRAGMA foreign_key_list("${table}")`)
+        .all<{ table: string; from: string; to: string }>();
+      const columns = await env.DB.prepare(`PRAGMA table_info("${table}")`)
+        .all<{ name: string; notnull: number }>();
+      const nullable = new Set(columns.results.filter(({ notnull }) => notnull === 0)
+        .map(({ name }) => name));
+      for (const foreignKey of foreignKeys.results) {
+        if (foreignKey.table === table) {
+          if (nullable.has(foreignKey.from)) {
+            nullableSelfReferences.add(`${table}.${foreignKey.from}->${foreignKey.to}`);
+          }
+          continue;
+        }
+        expect(order.has(foreignKey.table), `${table}.${foreignKey.from} target`).toBe(true);
+        expect(order.get(foreignKey.table), `${table}.${foreignKey.from}->${foreignKey.table}`)
+          .toBeLessThan(order.get(table)!);
+      }
+    }
+    const declared = MEMORY_BACKUP_SELF_REFERENCES.flatMap(({ table, keyColumn, referenceColumns }) =>
+      referenceColumns.map((column) => `${table}.${column}->${keyColumn}`));
+    expect([...nullableSelfReferences].sort()).toEqual([...declared].sort());
+  });
+
+  it("downloads and hashes each verified object once before later restore steps use the durable cache", async () => {
+    await seedBaseMemory();
+    const manifest = await finishBackup();
+    const latestBody = await backupBucket.get(MEMORY_BACKUP_LATEST_KEY);
+    if (latestBody === null) throw new Error("restore fixture latest pointer missing");
+    const pointer = JSON.parse(await latestBody.text()) as MemoryBackupRestorePointer;
+    await recreateFreshDatabaseForBackupRestoreTest();
+    const gets = new Map<string, number>();
+    const bucket = countingBucket(backupBucket, gets);
+    let cached = await cacheVerifiedMemoryBackupSet({
+      database: env.DB,
+      bucket,
+      pointer,
+      migrationSql: namedMigrationSources,
+      maxObjectsPerStep: 2,
+    });
+    for (let step = 0; step < 500 && cached.outcome === "pending"; step += 1) {
+      cached = await cacheVerifiedMemoryBackupSet({
+        database: env.DB,
+        bucket,
+        pointer,
+        migrationSql: namedMigrationSources,
+        maxObjectsPerStep: 2,
+      });
+    }
+    expect(cached.outcome).toBe("ready");
+    const repeated = await cacheVerifiedMemoryBackupSet({
+      database: env.DB,
+      bucket,
+      pointer,
+      migrationSql: namedMigrationSources,
+      maxObjectsPerStep: 2,
+    });
+    expect(repeated.outcome).toBe("ready");
+    expect(gets.get(pointer.manifestObjectKey)).toBe(1);
+    for (const object of manifest.objects) {
+      expect(gets.get(object.objectKey), object.objectKey).toBe(1);
+    }
+    expect([...gets.values()].reduce((sum, count) => sum + count, 0))
+      .toBe(manifest.objects.length + 1);
+    expect(await env.DB.prepare(`SELECT state, next_object_index, set_hash
+      FROM memory_backup_restore_cache_progress WHERE singleton = 1`).first())
+      .toMatchObject({ state: "ready", next_object_index: manifest.objects.length });
+  }, 300_000);
+
+  it("restores 5,000 rows through bounded operator steps without reading an R2 object twice", async () => {
+    const rows = Array.from({ length: 5_000 }, (_, index) => env.DB.prepare(`INSERT INTO consumer_cursors (
+      consumer_name, current_sequence, updated_at
+    ) VALUES (?, ?, ?)`)
+      .bind(`restore-measure-${index.toString().padStart(4, "0")}`, index, timestamp));
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      await env.DB.batch(rows.slice(offset, offset + 100));
+    }
+    const manifest = await finishBackup();
+    const latestBody = await backupBucket.get(MEMORY_BACKUP_LATEST_KEY);
+    if (latestBody === null) throw new Error("restore fixture latest pointer missing");
+    const pointer = JSON.parse(await latestBody.text()) as MemoryBackupRestorePointer;
+    await recreateFreshDatabaseForBackupRestoreTest();
+    const gets = new Map<string, number>();
+    const token = `${newUlid()}${newUlid()}`;
+    const operatorEnvironment = {
+      DB: env.DB,
+      ARCHIVE: archiveBucket,
+      BACKUP: countingBucket(backupBucket, gets),
+      RESTORE_TARGET_DATABASE_NAME: "jarvis-memory-restore-scratch",
+      RESTORE_CONFIRMED_DATABASE_NAME: "jarvis-memory-restore-scratch",
+      RESTORE_OPERATOR_TOKEN: token,
+      RESTORE_RUN_DATE: pointer.runDate,
+      RESTORE_RUN_ID: pointer.runId,
+      RESTORE_MANIFEST_OBJECT_KEY: pointer.manifestObjectKey,
+      RESTORE_MANIFEST_SHA256: pointer.manifestSha256,
+    };
+    const headers = { authorization: `Bearer ${token}` };
+    const startedAt = performance.now();
+    let steps = 0;
+    let result: Record<string, unknown> = {};
+    for (; steps < 500; steps += 1) {
+      const response = await memoryBackupRestoreOperator.fetch(
+        new Request("https://restore.invalid/step", { method: "POST", headers }),
+        operatorEnvironment,
+      );
+      result = await response.json() as Record<string, unknown>;
+      expect(response.status, JSON.stringify(result)).toBe(200);
+      if (result.outcome === "complete") {
+        steps += 1;
+        break;
+      }
+      expect(result.outcome).toBe("pending");
+    }
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    expect(result.outcome).toBe("complete");
+    expect((result.report as { restoredRows: Record<string, number> }).restoredRows.consumer_cursors)
+      .toBe(5_000);
+    expect(steps).toBeLessThan(200);
+    expect(gets.get(pointer.manifestObjectKey)).toBe(1);
+    for (const object of manifest.objects) expect(gets.get(object.objectKey), object.objectKey).toBe(1);
+    console.log("5,000-row restore", JSON.stringify({ steps, elapsedMs, objects: manifest.objects.length }));
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const finalized = await memoryBackupRestoreOperator.fetch(
+        new Request("https://restore.invalid/finalize", {
+          method: "POST",
+          headers: { ...headers, "x-restore-id": pointer.runId },
+        }),
+        operatorEnvironment,
+      );
+      expect(finalized.status).toBe(200);
+      await expect(finalized.json()).resolves.toMatchObject({
+        outcome: "finalized",
+        restoreId: pointer.runId,
+      });
+    }
+  }, 300_000);
+
+  it("restores a guest call whose voice grant is more than one page earlier", async () => {
+    await seedBaseMemory();
+    await seedPostInitialRows();
+    const sessionId = await seedGuestCallBeyondOneRestorePage();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    const rows = MEMORY_BACKUP_TABLES.flatMap((table) =>
+      (set.rowsByTable.get(table) ?? []).map((row) => ({ table, row })));
+    const grantIndex = rows.findIndex(({ table, row }) =>
+      table === "voice_access_grants" && row.grant_id === ids.grant);
+    const callIndex = rows.findIndex(({ table, row }) =>
+      table === "call_sessions" && row.session_id === sessionId);
+    expect(callIndex - grantIndex).toBeGreaterThan(64);
+    await recreateFreshDatabaseForBackupRestoreTest();
+    await restoreVerifiedMemoryBackupRows({
+      database: env.DB,
+      databaseSchemaVersion: manifest.databaseSchemaVersion,
+      rowsByTable: set.rowsByTable,
+      migrationSql: namedMigrationSources,
+      restoreId: manifest.runId,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    });
+    expect(await env.DB.prepare(`SELECT guest_grant_id FROM call_sessions WHERE session_id = ?`)
+      .bind(sessionId).first()).toEqual({ guest_grant_id: ids.grant });
+  }, 300_000);
+
+  it("restores a merged topic whose redirect target is more than one page later", async () => {
+    await seedBaseMemory();
+    await seedPostInitialRows();
+    const { older, newer } = await seedMergedTopicBeyondOneRestorePage();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    const topics = set.rowsByTable.get("memory_topics") ?? [];
+    expect(topics.findIndex((row) => row.topic_id === newer)
+      - topics.findIndex((row) => row.topic_id === older)).toBeGreaterThan(64);
+    await recreateFreshDatabaseForBackupRestoreTest();
+    await restoreVerifiedMemoryBackupRows({
+      database: env.DB,
+      databaseSchemaVersion: manifest.databaseSchemaVersion,
+      rowsByTable: set.rowsByTable,
+      migrationSql: namedMigrationSources,
+      restoreId: manifest.runId,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    });
+    expect(await env.DB.prepare(`SELECT status, redirect_to_topic_id FROM memory_topics
+      WHERE topic_id = ?`).bind(older).first()).toEqual({
+      status: "merged",
+      redirect_to_topic_id: newer,
+    });
+  }, 300_000);
 
   it("restores post-initial rows and rebuilds every excluded memory projection", async () => {
     await seedBaseMemory();
@@ -674,8 +969,8 @@ END;
     expect(await env.DB.prepare(`SELECT count(*) AS count FROM sqlite_schema
       WHERE type = 'trigger'`).first()).not.toEqual({ count: 0 });
     await finalizeVerifiedMemoryBackupRestore(env.DB, manifest.runId);
-    expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
-      WHERE type = 'table' AND name = 'memory_backup_restore_progress'`).first()).toBeNull();
+    expect(await env.DB.prepare(`SELECT finalized FROM memory_backup_restore_progress
+      WHERE singleton = 1`).first()).toEqual({ finalized: 1 });
   }, 300_000);
 
   it("refuses a non-fresh target before its first DDL", async () => {
@@ -693,6 +988,92 @@ END;
     })).rejects.toThrow(/memory_backup_restore_target_not_fresh/u);
     expect(counter.sql.some((sql) => /^DROP TRIGGER/u.test(sql))).toBe(false);
     expect(counter.sql.some((sql) => /^CREATE TABLE memory_backup_restore_progress/u.test(sql))).toBe(false);
+    expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
+      WHERE type = 'table' AND name = 'memory_backup_restore_progress'`).first()).toBeNull();
+  }, 300_000);
+
+  it("refuses incompatible or changed sets before any new DDL at every resumable boundary", async () => {
+    await seedBaseMemory();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    const differentRestoreId = newUlid(new Date("2026-09-17T00:00:00.000Z"));
+    const makeOptions = (
+      database: D1Database,
+      overrides: Readonly<{
+        databaseSchemaVersion?: string;
+        rowsByTable?: typeof set.rowsByTable;
+        restoreId?: string;
+      }> = {},
+    ) => ({
+      database,
+      databaseSchemaVersion: overrides.databaseSchemaVersion ?? manifest.databaseSchemaVersion,
+      rowsByTable: overrides.rowsByTable ?? set.rowsByTable,
+      migrationSql: namedMigrationSources,
+      restoreId: overrides.restoreId ?? manifest.runId,
+      maxStatementsPerStep: 8,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    });
+    const attempt = async (
+      options: ReturnType<typeof makeOptions>,
+      expected: RegExp,
+    ) => {
+      const counter = { statements: 0, sql: [] as string[] };
+      await expect(continueVerifiedMemoryBackupRestore({
+        ...options,
+        database: countingDatabase(counter),
+      })).rejects.toThrow(expected);
+      expect(counter.sql.filter((sql) => /^(?:ALTER|CREATE|DROP)\s/iu.test(sql))).toEqual([]);
+    };
+
+    await recreateFreshDatabaseForBackupRestoreTest();
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0032_future.sql" }), /schema_mismatch/u);
+
+    await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES ('0032_future.sql')").run();
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0032_future.sql" }), /migrations_missing/u);
+    await attempt(makeOptions(env.DB), /schema_mismatch/u);
+
+    await recreateFreshDatabaseForBackupRestoreTest();
+    for (let invocation = 0; invocation < 500; invocation += 1) {
+      const outcome = await continueVerifiedMemoryBackupRestore(makeOptions(env.DB));
+      if (outcome.outcome === "pending" && outcome.phase === "insert_rows" && outcome.itemIndex > 0) break;
+    }
+    expect(await env.DB.prepare(`SELECT phase FROM memory_backup_restore_progress
+      WHERE singleton = 1`).first()).toEqual({ phase: "insert_rows" });
+    await attempt(makeOptions(env.DB, { restoreId: differentRestoreId }), /progress_mismatch/u);
+
+    const tamperedRows = new Map(set.rowsByTable);
+    tamperedRows.set("principals", (set.rowsByTable.get("principals") ?? []).map((row) => ({
+      ...row,
+      display_name: "Changed after verification",
+    })));
+    await attempt(makeOptions(env.DB, { rowsByTable: tamperedRows }), /progress_mismatch/u);
+
+    for (let invocation = 0; invocation < 2_000; invocation += 1) {
+      const outcome = await continueVerifiedMemoryBackupRestore(makeOptions(env.DB));
+      if (outcome.outcome === "complete") break;
+    }
+    expect(await env.DB.prepare(`SELECT phase FROM memory_backup_restore_progress
+      WHERE singleton = 1`).first()).toEqual({ phase: "complete" });
+    await attempt(makeOptions(env.DB, { restoreId: differentRestoreId }), /progress_mismatch/u);
+  }, 300_000);
+
+  it("refuses an unclassified live trigger before the restore creates or drops anything", async () => {
+    await seedBaseMemory();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    await recreateFreshDatabaseForBackupRestoreTest();
+    await env.DB.prepare(`CREATE TRIGGER restore_unclassified_trigger
+      BEFORE INSERT ON principals BEGIN SELECT 1; END`).run();
+    const counter = { statements: 0, sql: [] as string[] };
+    await expect(continueVerifiedMemoryBackupRestore({
+      database: countingDatabase(counter),
+      databaseSchemaVersion: manifest.databaseSchemaVersion,
+      rowsByTable: set.rowsByTable,
+      migrationSql: namedMigrationSources,
+      restoreId: manifest.runId,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    })).rejects.toThrow(/trigger_classification_invalid/u);
+    expect(counter.sql.filter((sql) => /^(?:ALTER|CREATE|DROP)\s/iu.test(sql))).toEqual([]);
     expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
       WHERE type = 'table' AND name = 'memory_backup_restore_progress'`).first()).toBeNull();
   }, 300_000);

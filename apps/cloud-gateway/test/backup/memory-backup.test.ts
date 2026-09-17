@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import {
   MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
   MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
+  MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES,
   MEMORY_BACKUP_LATEST_KEY,
   MEMORY_BACKUP_NOTICE,
   MEMORY_BACKUP_TABLES,
@@ -207,14 +208,30 @@ describe("nightly verified memory backup", () => {
       ...MEMORY_BACKUP_TABLES,
       ...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
       ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
+      ...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES,
     ]);
     expect(migrated.filter((table) => !classified.has(table)).sort()).toEqual([]);
     expect(MEMORY_BACKUP_TABLES.filter((table) => !migrated.includes(table))).toEqual([]);
     expect([...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES, ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES]
       .filter((table) => !migrated.includes(table))).toEqual([]);
+    expect(MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES.filter((table) => migrated.includes(table))).toEqual([]);
     expect(classified.size).toBe(MEMORY_BACKUP_TABLES.length
       + MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.length
-      + MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES.length);
+      + MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES.length
+      + MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES.length);
+  });
+
+  it("allows only the exact restore runtime tables in a later backup", async () => {
+    for (const table of MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES) {
+      await env.DB.prepare(`CREATE TABLE "${table}" (id INTEGER PRIMARY KEY)`).run();
+    }
+    try {
+      expect((await service().runNightly(runDate)).outcome).toBe("pending");
+    } finally {
+      for (const table of [...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES].reverse()) {
+        await env.DB.prepare(`DROP TABLE "${table}"`).run();
+      }
+    }
   });
 
   it("fails closed and alerts the owner when the live schema contains an unclassified table", async () => {

@@ -1,6 +1,7 @@
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import {
   MEMORY_BACKUP_LATEST_KEY,
+  MEMORY_BACKUP_SELF_REFERENCES,
   MEMORY_BACKUP_TABLES,
   type MemoryBackupBucket,
   type MemoryBackupTableName,
@@ -179,6 +180,18 @@ export async function readVerifiedMemoryBackupByPointer(
   bucket: MemoryBackupBucket,
   pointer: unknown,
 ): Promise<VerifiedMemoryBackupSet> {
+  const manifest = await readVerifiedMemoryBackupManifestByPointer(bucket, pointer);
+  return Object.freeze({
+    manifest,
+    rowsByTable: await readVerifiedMemoryBackupRows(bucket, manifest),
+  });
+}
+
+/** Verifies the pinned manifest without downloading its row objects. */
+export async function readVerifiedMemoryBackupManifestByPointer(
+  bucket: MemoryBackupBucket,
+  pointer: unknown,
+): Promise<MemoryBackupRestoreManifest> {
   if (!isRecord(pointer) || pointer.schemaVersion !== "1.0"
     || typeof pointer.runDate !== "string" || typeof pointer.runId !== "string"
     || typeof pointer.manifestObjectKey !== "string"
@@ -201,10 +214,7 @@ export async function readVerifiedMemoryBackupByPointer(
   if (manifest.runDate !== pointer.runDate || manifest.runId !== pointer.runId) {
     throw new Error("memory_backup_restore_manifest_invalid");
   }
-  return Object.freeze({
-    manifest,
-    rowsByTable: await readVerifiedMemoryBackupRows(bucket, manifest),
-  });
+  return manifest;
 }
 
 function quoteIdentifier(value: string): string {
@@ -278,6 +288,20 @@ async function assertFreshRestoreTarget(database: D1Database): Promise<void> {
     if (canonicalJson(rows.results.map(({ seed_key }) => seed_key)) !== canonicalJson(expected)) {
       throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
     }
+  }
+}
+
+async function assertRestoreTargetPreflight(
+  database: D1Database,
+  triggers: ReadonlyMap<string, string>,
+): Promise<void> {
+  await assertFreshRestoreTarget(database);
+  const live = await database.prepare(
+    "SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
+  ).all<{ name: string }>();
+  const liveNames = new Set(live.results.map(({ name }) => name));
+  if (liveNames.size !== triggers.size || [...triggers.keys()].some((name) => !liveNames.has(name))) {
+    throw new Error("memory_backup_restore_trigger_classification_invalid");
   }
 }
 
@@ -446,9 +470,8 @@ async function rebuildCursors(database: D1Database): Promise<number> {
       max(end_event_sequence) AS current_event_sequence, max(indexed_at) AS updated_at
       FROM memory_history_coverage GROUP BY principal_id`,
   ] as const;
-  let changes = 0;
   for (const source of sources) {
-    const result = await database.prepare(`INSERT INTO memory_cursors (
+    await database.prepare(`INSERT INTO memory_cursors (
         principal_id, cursor_name, current_event_sequence, updated_at
       )
       SELECT derived.principal_id, derived.cursor_name,
@@ -459,7 +482,6 @@ async function rebuildCursors(database: D1Database): Promise<number> {
         WHERE cursor_row.principal_id = derived.principal_id
           AND cursor_row.cursor_name = derived.cursor_name
       )`).run();
-    changes += result.meta.changes ?? 0;
     const mismatch = await database.prepare(`SELECT count(*) AS count FROM (${source}) derived
       JOIN memory_cursors cursor_row
         ON cursor_row.principal_id = derived.principal_id
@@ -472,7 +494,9 @@ async function rebuildCursors(database: D1Database): Promise<number> {
   const unexpected = await database.prepare(`SELECT count(*) AS count FROM memory_cursors
     WHERE cursor_name NOT IN ('distillation', 'fts_history')`).first<{ count: number }>();
   if ((unexpected?.count ?? 0) > 0) throw new Error("memory_backup_restore_cursor_name_invalid");
-  return changes;
+  const rebuilt = await database.prepare(`SELECT count(*) AS count FROM memory_cursors
+    WHERE cursor_name IN ('distillation', 'fts_history')`).first<{ count: number }>();
+  return rebuilt?.count ?? 0;
 }
 
 async function assertAuthoritativeCounts(database: D1Database, rowsByTable: RestoreRows): Promise<void> {
@@ -481,6 +505,42 @@ async function assertAuthoritativeCounts(database: D1Database, rowsByTable: Rest
       .first<{ count: number }>();
     const expected = table === "archive_state" ? 1 : (rowsByTable.get(table)?.length ?? 0);
     if (count?.count !== expected) throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
+  }
+}
+
+function appendDecodedObject(
+  object: MemoryBackupRestoreObject,
+  text: string,
+  rows: Map<string, Record<string, unknown>[]>,
+  objectTotals: Map<string, number>,
+): void {
+  let decoded: Record<string, unknown>[];
+  try {
+    decoded = text.length === 0 ? [] : text.trimEnd().split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  } catch {
+    throw new Error(`memory_backup_restore_object_invalid:${object.objectKey}`);
+  }
+  if (decoded.length !== object.rowCount || decoded.some((row) => !isRecord(row))) {
+    throw new Error(`memory_backup_restore_object_row_count_invalid:${object.objectKey}`);
+  }
+  const tableRows = rows.get(object.table) ?? [];
+  tableRows.push(...decoded);
+  rows.set(object.table, tableRows);
+  objectTotals.set(object.table, (objectTotals.get(object.table) ?? 0) + decoded.length);
+}
+
+function assertObjectTotals(
+  manifest: MemoryBackupRestoreManifest,
+  objectTotals: ReadonlyMap<string, number>,
+): void {
+  for (const cut of manifest.tableCuts) {
+    const exported = objectTotals.get(cut.table) ?? 0;
+    if (cut.exportedRowCount !== exported
+      || cut.shortfallRowCount !== cut.expectedRowCount - exported
+      || cut.shortfallRowCount < 0) {
+      throw new Error(`memory_backup_restore_manifest_count_invalid:${cut.table}`);
+    }
   }
 }
 
@@ -501,26 +561,215 @@ export async function readVerifiedMemoryBackupRows(
     if (bytes.byteLength !== object.byteCount || await sha256Hex(bytes) !== object.sha256) {
       throw new Error(`memory_backup_restore_object_invalid:${object.objectKey}`);
     }
-    const text = new TextDecoder().decode(bytes);
-    const decoded = text.length === 0 ? [] : text.trimEnd().split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    if (decoded.length !== object.rowCount) {
-      throw new Error(`memory_backup_restore_object_row_count_invalid:${object.objectKey}`);
-    }
-    const tableRows = rows.get(object.table) ?? [];
-    tableRows.push(...decoded);
-    rows.set(object.table, tableRows);
-    objectTotals.set(object.table, (objectTotals.get(object.table) ?? 0) + decoded.length);
+    appendDecodedObject(object, new TextDecoder().decode(bytes), rows, objectTotals);
   }
-  for (const cut of manifest.tableCuts) {
-    const exported = objectTotals.get(cut.table) ?? 0;
-    if (cut.exportedRowCount !== exported
-      || cut.shortfallRowCount !== cut.expectedRowCount - exported
-      || cut.shortfallRowCount < 0) {
-      throw new Error(`memory_backup_restore_manifest_count_invalid:${cut.table}`);
-    }
-  }
+  assertObjectTotals(manifest, objectTotals);
   return rows;
+}
+
+const RESTORE_CACHE_PROGRESS_TABLE = "memory_backup_restore_cache_progress";
+const RESTORE_CACHE_OBJECT_TABLE = "memory_backup_restore_cache_objects";
+
+interface RestoreCacheProgressRow {
+  restore_id: string;
+  pointer_hash: string;
+  schema_version: string;
+  manifest_json: string;
+  state: "caching" | "verifying" | "ready";
+  next_object_index: number;
+  set_hash: string | null;
+}
+
+interface RestoreCacheObjectRow {
+  object_index: number;
+  object_key: string;
+  table_name: string;
+  row_count: number;
+  byte_count: number;
+  sha256: string;
+  object_text: string;
+}
+
+export interface MemoryBackupRestoreCacheOptions {
+  readonly database: D1Database;
+  readonly bucket: MemoryBackupBucket;
+  readonly pointer: MemoryBackupRestorePointer;
+  readonly migrationSql: readonly RestoreMigration[];
+  readonly maxObjectsPerStep?: number;
+}
+
+export type MemoryBackupRestoreCacheStep =
+  | Readonly<{ outcome: "pending"; phase: "cache_set"; itemIndex: number }>
+  | Readonly<{
+    outcome: "ready";
+    set: VerifiedMemoryBackupSet;
+    setHash: string;
+  }>;
+
+async function readRestoreCacheProgress(database: D1Database): Promise<RestoreCacheProgressRow | null> {
+  const exists = await database.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name = ?`).bind(RESTORE_CACHE_PROGRESS_TABLE).first<{ name: string }>();
+  if (exists === null) return null;
+  const progress = await database.prepare(`SELECT restore_id, pointer_hash, schema_version,
+    manifest_json, state, next_object_index, set_hash
+    FROM ${RESTORE_CACHE_PROGRESS_TABLE} WHERE singleton = 1`).first<RestoreCacheProgressRow>();
+  if (progress === null) throw new Error("memory_backup_restore_cache_progress_invalid");
+  return progress;
+}
+
+async function readCachedSet(
+  database: D1Database,
+  manifest: MemoryBackupRestoreManifest,
+): Promise<VerifiedMemoryBackupSet> {
+  const cached = await database.prepare(`SELECT object_index, object_key, table_name,
+    row_count, byte_count, sha256, object_text
+    FROM ${RESTORE_CACHE_OBJECT_TABLE} ORDER BY object_index`).all<RestoreCacheObjectRow>();
+  if (cached.results.length !== manifest.objects.length) {
+    throw new Error("memory_backup_restore_cache_progress_invalid");
+  }
+  const rows = new Map<string, Record<string, unknown>[]>();
+  const totals = new Map<string, number>();
+  for (let index = 0; index < manifest.objects.length; index += 1) {
+    const object = manifest.objects[index]!;
+    const stored = cached.results[index]!;
+    if (stored.object_index !== index || stored.object_key !== object.objectKey
+      || stored.table_name !== object.table || stored.row_count !== object.rowCount
+      || stored.byte_count !== object.byteCount || stored.sha256 !== object.sha256) {
+      throw new Error("memory_backup_restore_cache_progress_invalid");
+    }
+    appendDecodedObject(object, stored.object_text, rows, totals);
+  }
+  assertObjectTotals(manifest, totals);
+  return Object.freeze({ manifest, rowsByTable: rows });
+}
+
+/**
+ * Verifies each pinned R2 object once, then serves every restore continuation
+ * from a durable D1 cache. A killed cache page resumes at its committed object.
+ */
+export async function cacheVerifiedMemoryBackupSet(
+  options: Readonly<MemoryBackupRestoreCacheOptions>,
+): Promise<MemoryBackupRestoreCacheStep> {
+  const limit = options.maxObjectsPerStep ?? 32;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 63) {
+    throw new RangeError("memory_backup_restore_cache_step_limit_invalid");
+  }
+  const pointerHash = await sha256Hex(canonicalJson(options.pointer));
+  let progress = await readRestoreCacheProgress(options.database);
+  if (progress === null) {
+    const manifest = await readVerifiedMemoryBackupManifestByPointer(options.bucket, options.pointer);
+    const selectedMigrations = await migrationSqlThrough(
+      options.database, manifest.databaseSchemaVersion, options.migrationSql,
+    );
+    await assertRestoreTargetPreflight(options.database, finalTriggerSql(selectedMigrations));
+    await options.database.batch([
+      options.database.prepare(`CREATE TABLE ${RESTORE_CACHE_PROGRESS_TABLE} (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        restore_id TEXT NOT NULL,
+        pointer_hash TEXT NOT NULL CHECK (
+          length(pointer_hash) = 64 AND pointer_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version TEXT NOT NULL,
+        manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
+        state TEXT NOT NULL CHECK (state IN ('caching', 'verifying', 'ready')),
+        next_object_index INTEGER NOT NULL CHECK (next_object_index >= 0),
+        set_hash TEXT CHECK (set_hash IS NULL OR (
+          length(set_hash) = 64 AND set_hash NOT GLOB '*[^0-9a-f]*'
+        ))
+      ) STRICT`),
+      options.database.prepare(`CREATE TABLE ${RESTORE_CACHE_OBJECT_TABLE} (
+        object_index INTEGER PRIMARY KEY CHECK (object_index >= 0),
+        object_key TEXT NOT NULL UNIQUE,
+        table_name TEXT NOT NULL,
+        row_count INTEGER NOT NULL CHECK (row_count > 0),
+        byte_count INTEGER NOT NULL CHECK (byte_count > 0),
+        sha256 TEXT NOT NULL CHECK (
+          length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'
+        ),
+        object_text TEXT NOT NULL
+      ) STRICT`),
+      options.database.prepare(`INSERT INTO ${RESTORE_CACHE_PROGRESS_TABLE} (
+        singleton, restore_id, pointer_hash, schema_version, manifest_json,
+        state, next_object_index, set_hash
+      ) VALUES (1, ?, ?, ?, ?, 'caching', 0, NULL)`)
+        .bind(manifest.runId, pointerHash, manifest.databaseSchemaVersion, canonicalJson(manifest)),
+    ]);
+    return Object.freeze({ outcome: "pending", phase: "cache_set", itemIndex: 0 });
+  }
+  if (progress.restore_id !== options.pointer.runId || progress.pointer_hash !== pointerHash) {
+    throw new Error("memory_backup_restore_progress_mismatch");
+  }
+  let manifest: MemoryBackupRestoreManifest;
+  try {
+    manifest = JSON.parse(progress.manifest_json) as MemoryBackupRestoreManifest;
+    requireManifestShape(manifest);
+  } catch {
+    throw new Error("memory_backup_restore_cache_progress_invalid");
+  }
+  if (manifest.runId !== progress.restore_id
+    || manifest.databaseSchemaVersion !== progress.schema_version) {
+    throw new Error("memory_backup_restore_cache_progress_invalid");
+  }
+  if (progress.state === "caching") {
+    const page = manifest.objects.slice(
+      progress.next_object_index,
+      progress.next_object_index + limit,
+    );
+    const inserts: D1PreparedStatement[] = [];
+    for (let offset = 0; offset < page.length; offset += 1) {
+      const object = page[offset]!;
+      const body = await options.bucket.get(object.objectKey);
+      if (body === null || body.size !== object.byteCount) {
+        throw new Error(`memory_backup_restore_object_missing:${object.objectKey}`);
+      }
+      const bytes = new Uint8Array(await body.arrayBuffer());
+      if (bytes.byteLength !== object.byteCount || await sha256Hex(bytes) !== object.sha256) {
+        throw new Error(`memory_backup_restore_object_invalid:${object.objectKey}`);
+      }
+      const text = new TextDecoder().decode(bytes);
+      const decodedRows = new Map<string, Record<string, unknown>[]>();
+      const decodedTotals = new Map<string, number>();
+      appendDecodedObject(object, text, decodedRows, decodedTotals);
+      inserts.push(options.database.prepare(`INSERT INTO ${RESTORE_CACHE_OBJECT_TABLE} (
+        object_index, object_key, table_name, row_count, byte_count, sha256, object_text
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(
+        progress.next_object_index + offset,
+        object.objectKey,
+        object.table,
+        object.rowCount,
+        object.byteCount,
+        object.sha256,
+        text,
+      ));
+    }
+    const nextIndex = progress.next_object_index + page.length;
+    const nextState = nextIndex === manifest.objects.length ? "verifying" : "caching";
+    await options.database.batch([
+      ...inserts,
+      options.database.prepare(`UPDATE ${RESTORE_CACHE_PROGRESS_TABLE}
+        SET state = ?, next_object_index = ? WHERE singleton = 1`)
+        .bind(nextState, nextIndex),
+    ]);
+    if (nextState === "caching") {
+      return Object.freeze({ outcome: "pending", phase: "cache_set", itemIndex: nextIndex });
+    }
+    progress = { ...progress, state: "verifying", next_object_index: nextIndex };
+  }
+  const set = await readCachedSet(options.database, manifest);
+  if (progress.state === "verifying") {
+    const setHash = await restoreSetHashFor(
+      manifest.databaseSchemaVersion,
+      set.rowsByTable,
+      Object.fromEntries(manifest.tableCuts.map((cut) => [cut.table, cut.shortfallRowCount])),
+    );
+    await options.database.prepare(`UPDATE ${RESTORE_CACHE_PROGRESS_TABLE}
+      SET state = 'ready', set_hash = ? WHERE singleton = 1`).bind(setHash).run();
+    return Object.freeze({ outcome: "ready", set, setHash });
+  }
+  if (progress.set_hash === null || !/^[0-9a-f]{64}$/u.test(progress.set_hash)) {
+    throw new Error("memory_backup_restore_cache_progress_invalid");
+  }
+  return Object.freeze({ outcome: "ready", set, setHash: progress.set_hash });
 }
 
 export interface MemoryBackupRestoreOptions {
@@ -534,6 +783,8 @@ export interface MemoryBackupRestoreOptions {
   restoreId?: string;
   /** Mutation statements per continuation. The preflight is read-only and bounded separately. */
   maxStatementsPerStep?: number;
+  /** A hash computed while the operator durably cached and verified the pinned set. */
+  verifiedSetHash?: string;
 }
 
 interface RestoreProgressRow {
@@ -546,6 +797,7 @@ interface RestoreProgressRow {
   rebuilt_item_states: number;
   rebuilt_placement_states: number;
   rebuilt_cursors: number;
+  finalized: number;
 }
 
 const RESTORE_PROGRESS_TABLE = "memory_backup_restore_progress";
@@ -556,12 +808,24 @@ function requireStepLimit(value: number): void {
   }
 }
 
-async function restoreSetHash(options: MemoryBackupRestoreOptions): Promise<string> {
+async function restoreSetHashFor(
+  databaseSchemaVersion: string,
+  rowsByTable: RestoreRows,
+  shortfalls: Readonly<Record<string, number>>,
+): Promise<string> {
   return sha256Hex(canonicalJson({
-    databaseSchemaVersion: options.databaseSchemaVersion,
-    rows: MEMORY_BACKUP_TABLES.map((table) => [table, options.rowsByTable.get(table) ?? []]),
-    shortfalls: options.shortfalls ?? {},
+    databaseSchemaVersion,
+    rows: MEMORY_BACKUP_TABLES.map((table) => [table, rowsByTable.get(table) ?? []]),
+    shortfalls,
   }));
+}
+
+async function restoreSetHash(options: MemoryBackupRestoreOptions): Promise<string> {
+  return restoreSetHashFor(
+    options.databaseSchemaVersion,
+    options.rowsByTable,
+    options.shortfalls ?? {},
+  );
 }
 
 async function readRestoreProgress(database: D1Database): Promise<RestoreProgressRow | null> {
@@ -569,7 +833,8 @@ async function readRestoreProgress(database: D1Database): Promise<RestoreProgres
     WHERE type = 'table' AND name = ?`).bind(RESTORE_PROGRESS_TABLE).first<{ name: string }>();
   if (exists === null) return null;
   const progress = await database.prepare(`SELECT restore_id, set_hash, schema_version, phase,
-    item_index, sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors
+    item_index, sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors,
+    finalized
     FROM ${RESTORE_PROGRESS_TABLE} WHERE singleton = 1`).first<RestoreProgressRow>();
   if (progress === null) throw new Error("memory_backup_restore_progress_invalid");
   return progress;
@@ -581,14 +846,7 @@ async function initializeRestoreProgress(
   setHash: string,
   triggers: ReadonlyMap<string, string>,
 ): Promise<RestoreProgressRow> {
-  await assertFreshRestoreTarget(options.database);
-  const live = await options.database.prepare(
-    "SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
-  ).all<{ name: string }>();
-  const liveNames = new Set(live.results.map(({ name }) => name));
-  if (liveNames.size !== triggers.size || [...triggers.keys()].some((name) => !liveNames.has(name))) {
-    throw new Error("memory_backup_restore_trigger_classification_invalid");
-  }
+  await assertRestoreTargetPreflight(options.database, triggers);
   await options.database.batch([
     options.database.prepare(`CREATE TABLE ${RESTORE_PROGRESS_TABLE} (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -605,12 +863,13 @@ async function initializeRestoreProgress(
       sealed_through INTEGER NOT NULL CHECK (sealed_through >= 0),
       rebuilt_item_states INTEGER NOT NULL CHECK (rebuilt_item_states >= 0),
       rebuilt_placement_states INTEGER NOT NULL CHECK (rebuilt_placement_states >= 0),
-      rebuilt_cursors INTEGER NOT NULL CHECK (rebuilt_cursors >= 0)
+      rebuilt_cursors INTEGER NOT NULL CHECK (rebuilt_cursors >= 0),
+      finalized INTEGER NOT NULL CHECK (finalized IN (0, 1))
     ) STRICT`),
     options.database.prepare(`INSERT INTO ${RESTORE_PROGRESS_TABLE} (
       singleton, restore_id, set_hash, schema_version, phase, item_index,
-      sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors
-    ) VALUES (1, ?, ?, ?, 'drop_triggers', 0, 0, 0, 0, 0)`)
+      sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors, finalized
+    ) VALUES (1, ?, ?, ?, 'drop_triggers', 0, 0, 0, 0, 0, 0)`)
       .bind(restoreId, setHash, options.databaseSchemaVersion),
   ]);
   const progress = await readRestoreProgress(options.database);
@@ -650,12 +909,54 @@ async function advanceProgress(
     .bind(phase, itemIndex, ...bindings).run();
 }
 
+function dependencyOrderedRows(
+  table: MemoryBackupTableName,
+  rows: readonly Record<string, unknown>[],
+): readonly Record<string, unknown>[] {
+  const descriptor = MEMORY_BACKUP_SELF_REFERENCES.find((candidate) => candidate.table === table);
+  if (descriptor === undefined) return rows;
+  const byKey = new Map<unknown, number>();
+  rows.forEach((row, index) => {
+    const key = row[descriptor.keyColumn];
+    if (key === null || key === undefined || byKey.has(key)) {
+      throw new Error(`memory_backup_restore_self_reference_key_invalid:${table}`);
+    }
+    byKey.set(key, index);
+  });
+  const indegree = rows.map(() => 0);
+  const dependents = rows.map(() => [] as number[]);
+  rows.forEach((row, index) => {
+    const dependencies = new Set<number>();
+    for (const column of descriptor.referenceColumns) {
+      const target = byKey.get(row[column]);
+      if (target !== undefined) dependencies.add(target);
+    }
+    indegree[index] = dependencies.size;
+    for (const dependency of dependencies) dependents[dependency]!.push(index);
+  });
+  const ready = indegree.flatMap((count, index) => count === 0 ? [index] : []);
+  const ordered: Record<string, unknown>[] = [];
+  for (let cursor = 0; cursor < ready.length; cursor += 1) {
+    const index = ready[cursor]!;
+    ordered.push(rows[index]!);
+    for (const dependent of dependents[index]!) {
+      indegree[dependent] = indegree[dependent]! - 1;
+      if (indegree[dependent] === 0) ready.push(dependent);
+    }
+  }
+  if (ordered.length !== rows.length) {
+    throw new Error(`memory_backup_restore_self_reference_cycle:${table}`);
+  }
+  return ordered;
+}
+
 function authoritativeRows(options: MemoryBackupRestoreOptions): readonly Readonly<{
   table: MemoryBackupTableName;
   row: Record<string, unknown>;
 }>[] {
   return MEMORY_BACKUP_TABLES.flatMap((table) =>
-    (options.rowsByTable.get(table) ?? []).map((row) => Object.freeze({ table, row })));
+    dependencyOrderedRows(table, options.rowsByTable.get(table) ?? [])
+      .map((row) => Object.freeze({ table, row })));
 }
 
 /**
@@ -671,7 +972,10 @@ export async function continueVerifiedMemoryBackupRestore(
     options.database, options.databaseSchemaVersion, options.migrationSql,
   );
   const triggers = finalTriggerSql(selectedMigrations);
-  const setHash = await restoreSetHash(options);
+  const setHash = options.verifiedSetHash ?? await restoreSetHash(options);
+  if (!/^[0-9a-f]{64}$/u.test(setHash)) {
+    throw new Error("memory_backup_restore_set_hash_invalid");
+  }
   const restoreId = options.restoreId ?? setHash;
   let progress = await readRestoreProgress(options.database)
     ?? await initializeRestoreProgress(options, restoreId, setHash, triggers);
@@ -770,7 +1074,7 @@ export async function continueVerifiedMemoryBackupRestore(
     : Object.freeze({ outcome: "pending", phase: progress.phase, itemIndex: progress.item_index });
 }
 
-/** Removes the operator receipt only after its completed report has been saved. */
+/** Marks the saved completion receipt. Repeating this after a lost response is safe. */
 export async function finalizeVerifiedMemoryBackupRestore(
   database: D1Database,
   restoreId: string,
@@ -779,7 +1083,8 @@ export async function finalizeVerifiedMemoryBackupRestore(
   if (progress === null || progress.phase !== "complete" || progress.restore_id !== restoreId) {
     throw new Error("memory_backup_restore_not_complete");
   }
-  await database.prepare(`DROP TABLE ${RESTORE_PROGRESS_TABLE}`).run();
+  await database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE} SET finalized = 1
+    WHERE singleton = 1 AND restore_id = ?`).bind(restoreId).run();
 }
 
 /**
