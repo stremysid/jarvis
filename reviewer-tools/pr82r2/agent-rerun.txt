@@ -1,0 +1,135 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr82-adv
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts (20 tests | 6 failed) 41756ms
+     × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 326ms
+     × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 429ms
+     × N5 applies the same NFKC folding to a renamed area's alias 290ms
+     × C2 is not starved by one hundred older Inbox items whose areas never appear 4576ms
+     × D5 the same worst step with every first commit attempt failing stays under the charged budget 8065ms
+     × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 7725ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: NFKC matching without a migration > N1 does not create an area whose full-width '＞' or '／' reads like a path separator
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:609:70
+    607|       }), repository).runNext({ runKey: `n1:${newUlid()}` });
+    608|
+    609|       expect(await activeChildren(principalId, topics.root.topicId)).t…
+       |                                                                      ^
+    610|     }
+    611|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: NFKC matching without a migration > N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler)
+AssertionError: expected { variant: '"Music ❤️"', children: 3 } to deeply equal { variant: '"Music ❤️"', children: 2 }
+
+- Expected
++ Received
+
+  {
+-   "children": 2,
++   "children": 3,
+    "variant": "\"Music ❤️\"",
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:632:10
+    630|
+    631|       expect({ variant: JSON.stringify(variant), children: await activ…
+    632|         .toEqual({ variant: JSON.stringify(variant), children: 2 });
+       |          ^
+    633|     }
+    634|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: NFKC matching without a migration > N5 applies the same NFKC folding to a renamed area's alias
+AssertionError: expected '01m2pfp953rppkhm33vc0z6gk1' to be '01m2pfp92gzf5yq2c8bbnkr5cj' // Object.is equality
+
+Expected: "01m2pfp92gzf5yq2c8bbnkr5cj"
+Received: "01m2pfp953rppkhm33vc0z6gk1"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:692:71
+    690|     }), repository).runNext({ runKey: `n5:${newUlid()}` });
+    691|
+    692|     expect((await placementsByText(principalId)).get(text)?.topic_id).…
+       |                                                                       ^
+    693|     expect(await activeChildren(principalId, topics.root.topicId)).toB…
+    694|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: Inbox re-file > C2 is not starved by one hundred older Inbox items whose areas never appear
+AssertionError: expected 'Inbox / Needs filing' to be 'School' // Object.is equality
+
+Expected: "School"
+Received: "Inbox / Needs filing"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:769:69
+    767|     for (let hour = 0; hour < 3; hour += 1) await repository.refileAut…
+    768|
+    769|     expect((await placementOf(principalId, fileable)).display_name).to…
+       |                                                                     ^
+    770|   }, 120_000);
+    771|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: D1 budget honesty > D5 the same worst step with every first commit attempt failing stays under the charged budget
+AssertionError: expected 'D5 measured=3521 charged=3125' to be 'recorded' // Object.is equality
+
+Expected: "recorded"
+Received: "D5 measured=3521 charged=3125"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:900:94
+    898|
+    899|     expect(result).toMatchObject({ outcome: "succeeded", createdItemCo…
+    900|     expect.soft(`D5 measured=${counted.queryCount()} charged=${result.…
+       |                                                                                              ^
+    901|     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1S…
+    902|   }, 120_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: D1 budget honesty > D5 the same worst step with every first commit attempt failing stays under the charged budget
+AssertionError: expected 3521 to be less than or equal to 3125
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:901:34
+    899|     expect(result).toMatchObject({ outcome: "succeeded", createdItemCo…
+    900|     expect.soft(`D5 measured=${counted.queryCount()} charged=${result.…
+    901|     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1S…
+       |                                  ^
+    902|   }, 120_000);
+    903|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: D1 budget honesty > D4 a re-file pass whose inserts fail still stays within the 424-statement reservation
+AssertionError: expected 604 to be less than or equal to 424
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:984:34
+    982|
+    983|     // Measured at e4fb760: 604 statements (100 × resolve 4 + insert 1…
+    984|     expect(counted.queryCount()).toBeLessThanOrEqual(AUTOMATIC_INBOX_R…
+       |                                  ^
+    985|   }, 180_000);
+    986| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 14 passed (20)
+   Start at  21:28:47
+   Duration  44.12s (transform 864ms, setup 0ms, import 1.54s, tests 41.76s, environment 0ms)
+

@@ -1,0 +1,75 @@
+
+== G15-replay-equivalent-reason: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  7 failed | 33 passed (40)
+   × R1 replays an identical automatic-filing commit exactly after it created the path, even after a rename 262ms
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 257ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 290ms
+   × N5 applies the same NFKC folding to a renamed area's alias 287ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 11040ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 8957ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 10958ms
+
+== G16-single-batch: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  9 failed | 31 passed (40)
+   × R2 counts the four areas of a commit whose D1 batch committed but whose response was lost 354ms
+   × R5 a real in-batch failure on both attempts fails the step and leaves no model areas 284ms
+   × R6 a failed first batch attempt then a committed retry counts only the committed areas 719ms
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 255ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 495ms
+   × N5 applies the same NFKC folding to a renamed area's alias 293ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 8094ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 7736ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 5145ms
+
+== G17-refile-sql-decision-filter: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  6 failed | 34 passed (40)
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 765ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 272ms
+   × N5 applies the same NFKC folding to a renamed area's alias 270ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 5198ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 7138ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 5309ms
+
+== G23-exact-before-fold: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  6 failed | 34 passed (40)
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 760ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 286ms
+   × N5 applies the same NFKC folding to a renamed area's alias 277ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 7326ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 9652ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 7953ms
+
+== G24-fold-oldest-order: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  7 failed | 33 passed (40)
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 311ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 531ms
+   × N3 always picks the oldest of two pre-existing NFKC-equal siblings and creates no third 430ms
+   × N5 applies the same NFKC folding to a renamed area's alias 612ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 7338ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 10393ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 8302ms
+
+== G28-inbox-name-reject: KILLED (exit 1)
+   Test Files  1 failed | 1 passed (2)
+   Tests  6 failed | 34 passed (40)
+   × N1 does not create an area whose full-width '＞' or '／' reads like a path separator 300ms
+   × N2 does not create an invisible twin of an existing area (variation selector, grapheme joiner, Hangul filler) 377ms
+   × N5 applies the same NFKC folding to a renamed area's alias 287ms
+   × C2 is not starved by one hundred older Inbox items whose areas never appear 8775ms
+   × D5 the same worst step with every first commit attempt failing stays under the charged budget 8071ms
+   × D4 a re-file pass whose inserts fail still stays within the 424-statement reservation 6947ms
+
+=== summary
+KILLED    G15-replay-equivalent-reason
+KILLED    G16-single-batch
+KILLED    G17-refile-sql-decision-filter
+KILLED    G23-exact-before-fold
+KILLED    G24-fold-oldest-order
+KILLED    G28-inbox-name-reject
+(node:34204) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

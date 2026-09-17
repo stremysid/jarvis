@@ -1,0 +1,194 @@
+
+== G01-path-redaction: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid 587ms
+
+== G02-path-json-320: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 147 passed (149)
+   × bounds the encoded topic path so quote-heavy names cannot throw while building the filing reason 258ms
+   × examines at most ten eligible inbox items in one refile step 5502ms
+
+== G03-infallible-reason-workflow: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G04-filingConfidence-range: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × treats a missing or out-of-range filingConfidence as zero without rejecting the fact 276ms
+
+== G05-required-fields: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G06-created-count-accumulate: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × routes whole paths to the inbox when the six-topic hourly creation cap would be exceeded 292ms
+
+== G07-null-path-skips-filing: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid 236ms
+
+== G08-capture-automatic-authority: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G09-prepare-inbox-id-match: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G10-prepare-corrupt-rethrow: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G11-prepare-inbox-target: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G12-prepare-six-cap: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × routes whole paths to the inbox when the six-topic hourly creation cap would be exceeded 328ms
+
+== G13-prepare-child-cap: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  2 failed | 147 passed (149)
+   × routes a new area to the inbox after its parent reaches forty active children 1650ms
+   × keeps the conditional child-cap insert effective when a sibling wins the commit race 1234ms
+
+== G14-reprepare-on-retry: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the conditional child-cap insert effective when a sibling wins the commit race 2459ms
+
+== G15-replay-equivalent-reason: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G16-single-batch: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G17-refile-sql-decision-filter: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G18-refile-filing-failure-decision: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × re-file matches current names exactly and never follows an alias 188ms
+
+== G19-refile-ten-move-stop: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × examines at most ten eligible inbox items in one refile step 547ms
+
+== G20-refile-candidates-100: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × re-files a later resolvable candidate past ten older unmovable Inbox rows 535ms
+
+== G21-refile-invalid-path-skip: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × re-file skips proposed uncertain, low-confidence, and Inbox-target items in SQL and policy 253ms
+
+== G22-nfkc-fold: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × drops a leading Memory root and NFKC-folds a full-width sibling name 274ms
+
+== G23-exact-before-fold: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G24-fold-oldest-order: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G25-component-64-bytes: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid 354ms
+
+== G26-separator-reject: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid 1675ms
+
+== G27-cf-reject: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid 739ms
+
+== G28-inbox-name-reject: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G29-root-drop: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × drops a leading Memory root and NFKC-folds a full-width sibling name 275ms
+
+== G30-depth-after-root-drop: KILLED (exit 1)
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 148 passed (149)
+   × refuses automatic creation deeper than four areas without creating a partial path 57ms
+
+== G31-safe-reason-repository: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G32-job-admission-reserves-refile: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G33-job-canRefile: SURVIVED (exit 0)
+   Test Files  4 passed (4)
+   Tests  149 passed (149)
+
+== G34-job-charge-refile: KILLED (exit 1)
+   Test Files  3 failed | 1 passed (4)
+   Tests  63 passed (63)
+
+=== summary
+KILLED    G01-path-redaction
+KILLED    G02-path-json-320
+SURVIVED  G03-infallible-reason-workflow
+KILLED    G04-filingConfidence-range
+SURVIVED  G05-required-fields
+KILLED    G06-created-count-accumulate
+KILLED    G07-null-path-skips-filing
+SURVIVED  G08-capture-automatic-authority
+SURVIVED  G09-prepare-inbox-id-match
+SURVIVED  G10-prepare-corrupt-rethrow
+SURVIVED  G11-prepare-inbox-target
+KILLED    G12-prepare-six-cap
+KILLED    G13-prepare-child-cap
+KILLED    G14-reprepare-on-retry
+SURVIVED  G15-replay-equivalent-reason
+SURVIVED  G16-single-batch
+SURVIVED  G17-refile-sql-decision-filter
+KILLED    G18-refile-filing-failure-decision
+KILLED    G19-refile-ten-move-stop
+KILLED    G20-refile-candidates-100
+KILLED    G21-refile-invalid-path-skip
+KILLED    G22-nfkc-fold
+SURVIVED  G23-exact-before-fold
+SURVIVED  G24-fold-oldest-order
+KILLED    G25-component-64-bytes
+KILLED    G26-separator-reject
+KILLED    G27-cf-reject
+SURVIVED  G28-inbox-name-reject
+KILLED    G29-root-drop
+KILLED    G30-depth-after-root-drop
+SURVIVED  G31-safe-reason-repository
+SURVIVED  G32-job-admission-reserves-refile
+SURVIVED  G33-job-canRefile
+KILLED    G34-job-charge-refile
+(node:27728) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

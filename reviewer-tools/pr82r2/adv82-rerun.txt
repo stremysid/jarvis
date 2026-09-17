@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr82.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+   Start at  20:48:50
+   Duration  10.97s (transform 799ms, setup 0ms, import 1.36s, tests 8.99s, environment 0ms)
+
