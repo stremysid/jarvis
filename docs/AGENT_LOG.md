@@ -47,6 +47,10 @@ Evidence:
   optional AI and Vectorize bindings. No real Workers AI, Vectorize or DeepSeek
   call was made.
 - Cloud-gateway full suite: **185 files / 4,884 tests passed**.
+- Hosted CI run `35167357827` started no steps: all seven jobs were refused in
+  1–3 seconds because account payments failed or the spending limit must be
+  increased. This is an infrastructure/billing refusal, not a product-test
+  result.
 - Root full suite reached the unrelated Hermes package after the gateway pass:
   **246/250 Hermes tests passed**. Three failures require the absent trusted
   `C:\Program Files\PowerShell\7` host. One unrelated archive-hostility test
