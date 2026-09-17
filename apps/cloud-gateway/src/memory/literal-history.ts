@@ -574,8 +574,18 @@ export class LiteralHistoryService {
             ON chunk.chunk_rowid = memory_history_fts.rowid
           WHERE memory_history_fts MATCH ? AND chunk.principal_id = ?
             AND chunk.start_event_sequence = chunk.end_event_sequence
+            AND NOT EXISTS (
+              SELECT 1 FROM events assistant
+              WHERE assistant.subject_id = chunk.principal_id
+                AND assistant.sequence = chunk.start_event_sequence
+                AND assistant.event_type = 'conversation.assistant_delivered'
+            )
           ORDER BY memory_history_fts.rank ASC, chunk.start_event_sequence DESC
-          LIMIT ?`).bind(terms.ftsQuery, principalId, maxResults),
+          LIMIT ?`).bind(
+          terms.ftsQuery,
+          principalId,
+          LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined,
+        ),
       ]);
       if (initial.length !== 2) corrupt();
       const principalRows = initial[0]?.results;
@@ -585,22 +595,23 @@ export class LiteralHistoryService {
       const principal = principalRows[0] as { count: unknown };
       exactRow(principal, new Set(["count"]));
       if (rowInteger(principal.count, 1, 1) !== 1) corrupt();
-      if (candidateValues.length > maxResults) corrupt();
+      if (candidateValues.length > LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined) corrupt();
       const candidates = candidateValues as unknown as readonly ChunkCandidateRow[];
       for (const row of candidates) exactRow(row, CHUNK_FIELDS);
       const [hits, coverage] = await Promise.all([
         this.searchCandidateHits(principalId, candidates, terms),
         this.coverageStatus(principalId),
       ]);
+      const retainedHits = Object.freeze(hits.slice(0, maxResults));
       if (coverage.missingRange !== null) {
         return Object.freeze({
           status: "incomplete",
-          hits: Object.freeze(hits),
+          hits: retainedHits,
           searchedThroughEventSequence: coverage.searchedThrough,
           missingRange: coverage.missingRange,
         });
       }
-      if (hits.length === 0) {
+      if (retainedHits.length === 0) {
         return Object.freeze({
           status: "no_hit",
           hits: Object.freeze([]),
@@ -609,7 +620,7 @@ export class LiteralHistoryService {
       }
       return Object.freeze({
         status: "hits",
-        hits: Object.freeze(hits),
+        hits: retainedHits,
         searchedThroughEventSequence: coverage.searchedThrough,
       });
     });

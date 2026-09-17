@@ -2504,6 +2504,84 @@ describe("automatic memory distillation", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
+  it("runs the named meaning indexer step after literal-history indexing in the hourly poll", async () => {
+    const principalId = await principal();
+    const event = await appendConversation(
+      new EventRepository(env.DB),
+      principalId,
+      "I recorded a meaning-index wiring preference.",
+    );
+    let cursorWhenMeaningRan: number | null = null;
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryMeaningFactory: () => ({
+        runIndexStep: async () => {
+          cursorWhenMeaningRan = await env.DB.prepare(`SELECT current_event_sequence
+            FROM memory_cursors WHERE principal_id = ? AND cursor_name = 'fts_history'`)
+            .bind(principalId).first<number>("current_event_sequence");
+          return Object.freeze({
+            outcome: "indexed" as const,
+            upserted: 1,
+            deleted: 0,
+            remaining: false,
+            code: null,
+          });
+        },
+      }),
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("memory_meaning_poll_missing");
+
+    const result = await poll();
+
+    expect(cursorWhenMeaningRan).toBe(event.eventSequence);
+    expect(result).toMatchObject({
+      ok: true,
+      detail: expect.stringMatching(/Memory history complete.*Memory meaning complete, 1 upserted/u),
+    });
+  });
+
+  it.each([
+    [undefined, {} as Vectorize],
+    [{} as Ai, undefined],
+  ] as const)("keeps the hourly poll working when either meaning binding is absent", async (AI, MEMORY_VECTORS) => {
+    const principalId = await principal();
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        AI,
+        MEMORY_VECTORS,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("memory_meaning_poll_missing");
+
+    await expect(poll()).resolves.toMatchObject({
+      ok: true,
+      detail: expect.stringContaining("Memory meaning disabled (memory_meaning_bindings_missing)"),
+    });
+  });
+
   it("starts no new distillation step after four minutes of wall-clock work", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);

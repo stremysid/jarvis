@@ -185,6 +185,16 @@ describe("status", () => {
     );
     expect(reported).toContain("digest: started 11:30, never finished");
   });
+
+  it("shows stale meaning-index coverage in status", async () => {
+    const reported = await text("status", "", context({
+      memoryMeaningCoverage: {
+        read: async () => ({ eligible: 12, indexed: 9, missing: 3 }),
+      },
+    }));
+
+    expect(reported).toContain("Memory meaning: 9/12 indexed (3 missing)");
+  });
 });
 
 describe("shadow mode", () => {

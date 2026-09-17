@@ -72,6 +72,13 @@ migrations_dir = "src/persistence/migrations"
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive"
 
+[ai]
+binding = "AI"
+
+[[vectorize]]
+binding = "MEMORY_VECTORS"
+index_name = "jarvis-memory-bge-m3"
+
 [[r2_buckets]]
 binding = "BACKUP"
 bucket_name = "jarvis-memory-backup"

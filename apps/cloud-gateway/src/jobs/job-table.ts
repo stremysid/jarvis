@@ -37,6 +37,13 @@ import {
 } from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
 import {
+  MEMORY_MEANING_BINDING_MISSING_CODE,
+  MemoryMeaningService,
+  VectorizeMemoryVectorStore,
+  WorkersAiMemoryEmbeddingProvider,
+  type MemoryMeaningIndexOutcome,
+} from "../memory/meaning-search.js";
+import {
   LITERAL_HISTORY_INDEX_STEP_LIMITS,
   LiteralHistoryService,
 } from "../memory/literal-history.js";
@@ -77,6 +84,9 @@ export interface JobEnvironment {
     prepare?: (principalId: string) => Promise<PreparedMemoryExtractionPrice>;
   }>;
   readonly memoryDistillationFactory?: () => NonNullable<JobEnvironment["memoryDistillation"]>;
+  readonly memoryMeaningFactory?: () => Readonly<{
+    runIndexStep(principalId: string): Promise<MemoryMeaningIndexOutcome>;
+  }>;
 }
 
 function describe(error: unknown): string {
@@ -667,6 +677,38 @@ async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
     + `${chargedD1Statements} D1 statements charged${stopReason}`;
 }
 
+async function indexMeaningMemory(context: JobEnvironment): Promise<string> {
+  const principalId = context.env.OWNER_PRINCIPAL_ID;
+  if (principalId === undefined) return "Memory meaning indexing not configured";
+  const configured = context.memoryMeaningFactory?.()
+    ?? (context.env.AI === undefined || context.env.MEMORY_VECTORS === undefined
+      ? null
+      : new MemoryMeaningService({
+        database: context.env.DB,
+        embeddings: new WorkersAiMemoryEmbeddingProvider(context.env.AI),
+        vectors: new VectorizeMemoryVectorStore(context.env.MEMORY_VECTORS),
+        historyEvents: new TieredEventReader({
+          archive: new ArchivalService({
+            database: context.env.DB,
+            bucket: context.env.ARCHIVE,
+            cacheVerifiedSegments: true,
+          }),
+          live: new EventRepository(context.env.DB),
+          state: new ArchiveRepository(context.env.DB),
+        }),
+        now: () => (context.liveClock ?? context.clock).now(),
+        nextId: () => newUlid((context.liveClock ?? context.clock).now()),
+      }));
+  if (configured === null) {
+    return `Memory meaning disabled (${MEMORY_MEANING_BINDING_MISSING_CODE})`;
+  }
+  const result = await configured.runIndexStep(principalId);
+  if (result.outcome === "retryable_failure") {
+    return `Memory meaning retryable (${result.code}) after ${result.upserted} upserts and ${result.deleted} deletes`;
+  }
+  return `Memory meaning ${result.remaining ? "pending" : "complete"}, ${result.upserted} upserted, ${result.deleted} deleted`;
+}
+
 /**
  * The hourly reach-out.
  *
@@ -702,7 +744,12 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
     "memory_history_index_failed",
     () => indexLiteralHistory(context),
   );
-  const sourceDetail = `${classroom}; ${brightspace}; ${memory}; ${history}`;
+  const meaning = await safeSourcePoll(
+    "Memory meaning indexing",
+    "memory_meaning_index_failed",
+    () => indexMeaningMemory(context),
+  );
+  const sourceDetail = `${classroom}; ${brightspace}; ${memory}; ${history}; ${meaning}`;
   const token = context.env.GITHUB_TOKEN;
   if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
 
