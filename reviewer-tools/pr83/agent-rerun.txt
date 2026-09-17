@@ -1,0 +1,178 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr83.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr83-adv
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mProcessing apps\cloud-gateway\wrangler.toml configuration:[0m
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: forgetting > never returns a forgotten memory through Jarvis's own indexed reply that restated it
+{"upserts":4,"deletes":2,"live":["history_chunk","history_chunk"],"leaked":["History evidence [live D1; event 01m2pdwjjp71gwx2bcfv310gct]: Got it. Your bike lock word is marigold."]}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":0,"searchMs":300,"keywordOnlyMs":21,"keywordStatements":10,"withMeaningMs":469,"meaningStatements":90,"contexts":8,"kept":true}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":5,"searchMs":150,"keywordOnlyMs":124,"keywordStatements":10,"withMeaningMs":808,"meaningStatements":65,"contexts":0,"kept":false}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":5,"searchMs":300,"keywordOnlyMs":120,"keywordStatements":10,"withMeaningMs":810,"meaningStatements":51,"contexts":0,"kept":false}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":8,"searchMs":150,"keywordOnlyMs":124,"keywordStatements":10,"withMeaningMs":1353,"meaningStatements":29,"contexts":0,"kept":false}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":8,"searchMs":300,"keywordOnlyMs":121,"keywordStatements":10,"withMeaningMs":808,"meaningStatements":50,"contexts":0,"kept":false}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+{"d1Ms":12,"searchMs":100,"keywordOnlyMs":126,"keywordStatements":10,"withMeaningMs":804,"meaningStatements":64,"contexts":0,"kept":false}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"hey","searched":false,"elapsedMs":1}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"thanks!","searched":true,"elapsedMs":308}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"ok cool","searched":true,"elapsedMs":311}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"what's up","searched":true,"elapsedMs":310}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"lol","searched":true,"elapsedMs":314}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"good night","searched":true,"elapsedMs":310}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+{"message":"yes","searched":true,"elapsedMs":305}
+
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts (5 tests | 5 failed) 10155ms
+     × never returns a forgotten memory through Jarvis's own indexed reply that restated it 450ms
+     × does not repeat recent-window turns as meaning history evidence 118ms
+     × keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms 7114ms
+     × makes no AI or Vectorize call for short no-content replies 1864ms
+     × indexes a newly remembered memory in the next run even when older history is still pending 451ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: forgetting > never returns a forgotten memory through Jarvis's own indexed reply that restated it
+AssertionError: expected 'History evidence [live D1; event 01m2…' not to contain 'marigold'
+
+- Expected
++ Received
+
+- marigold
++ History evidence [live D1; event 01m2pdwjjp71gwx2bcfv310gct]: Got it. Your bike lock word is marigold.
++ History evidence [live D1; event 01m2pdwjws8e3n055an8a8rb8v]: Forget that memory.
++ Forget that memory.
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr83.test.ts:345:67
+    343|       leaked: meaning.filter((context) => context.text.includes("marig…
+    344|     }));
+    345|     expect(meaning.map((context) => context.text).join("\n")).not.toCo…
+       |                                                                   ^
+    346|   });
+    347|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: forgetting > does not repeat recent-window turns as meaning history evidence
+AssertionError: expected [ { …(3) }, { …(3) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr83.test.ts:361:89
+    359|       search: async () => hits,
+    360|     });
+    361|     expect(contexts.filter((context) => context.text.includes("chemist…
+       |                                                                                         ^
+    362|   });
+    363| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > keeps keyword memory when meaning search answers inside 450 ms but D1 re-reads push past 800 ms
+AssertionError: expected [ 'd1 5 ms, search 150 ms', …(4) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "d1 5 ms, search 150 ms",
++   "d1 5 ms, search 300 ms",
++   "d1 8 ms, search 150 ms",
++   "d1 8 ms, search 300 ms",
++   "d1 12 ms, search 100 ms",
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr83.test.ts:402:18
+    400|       if (!kept) lost.push(`d1 ${d1Ms} ms, search ${searchMs} ms`);
+    401|     }
+    402|     expect(lost).toEqual([]);
+       |                  ^
+    403|   }, 60_000);
+    404|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: latency > makes no AI or Vectorize call for short no-content replies
+AssertionError: expected [ 'thanks!', 'ok cool', …(4) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "thanks!",
++   "ok cool",
++   "what's up",
++   "lol",
++   "good night",
++   "yes",
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr83.test.ts:419:20
+    417|       if (search.mock.calls.length > 0) called.push(message);
+    418|     }
+    419|     expect(called).toEqual([]);
+       |                    ^
+    420|   }, 30_000);
+    421| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83.test.ts > PR #83 adversarial: throughput > indexes a newly remembered memory in the next run even when older history is still pending
+AssertionError: expected [ '01m2pdwy6azfendkbx9csfyvp4', …(7) ] to include '01m2pdwyjrfngp71ab65exk3z7'
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr83.test.ts:435:69
+    433|     await new MemoryMeaningService({ database: env.DB, embeddings: new…
+    434|       .runIndexStep(principalId);
+    435|     expect(vectors.upserts.map((vector) => vector.metadata.itemId)).to…
+       |                                                                     ^
+    436|   });
+    437| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  20:57:21
+   Duration  12.28s (transform 718ms, setup 0ms, import 1.45s, tests 10.15s, environment 0ms)
+
