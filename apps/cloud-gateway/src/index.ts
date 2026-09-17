@@ -222,6 +222,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       const memory = new TelegramMemoryRetriever({
         database: env.DB,
         archive: env.ARCHIVE,
+        observeRetrieval: (metrics) => observer.observeMemoryRetrieval(metrics),
         controlAuthority: ownerPrincipalId !== undefined
           && accepted.principalId === ownerPrincipalId
           && accepted.isMemoryControlAuthoritative

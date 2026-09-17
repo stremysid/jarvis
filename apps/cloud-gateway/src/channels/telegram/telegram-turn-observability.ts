@@ -13,6 +13,10 @@ import {
 
 export interface TelegramTurnTimings {
   readonly contextRetrievalMs: number;
+  readonly memoryCandidatesMs: number;
+  readonly memoryHistoryMs: number;
+  readonly memoryMergeMs: number;
+  readonly retrievalD1RoundTrips: number;
   readonly modelFirstResponseMs: number;
   readonly modelTotalMs: number;
   readonly deliveryMs: number;
@@ -33,6 +37,10 @@ function defaultClock(): number {
 export class TelegramTurnObserver {
   readonly #now: MillisecondClock;
   #contextRetrievalMs = 0;
+  #memoryCandidatesMs = 0;
+  #memoryHistoryMs = 0;
+  #memoryMergeMs = 0;
+  #retrievalD1RoundTrips = 0;
   #modelFirstResponseMs = 0;
   #modelTotalMs = 0;
   #deliveryMs = 0;
@@ -63,6 +71,18 @@ export class TelegramTurnObserver {
         }
       },
     });
+  }
+
+  observeMemoryRetrieval(metrics: Readonly<{
+    candidatesMs: number;
+    historyMs: number;
+    mergeMs: number;
+    d1RoundTrips: number;
+  }>): void {
+    this.#memoryCandidatesMs += metrics.candidatesMs;
+    this.#memoryHistoryMs += metrics.historyMs;
+    this.#memoryMergeMs += metrics.mergeMs;
+    this.#retrievalD1RoundTrips += metrics.d1RoundTrips;
   }
 
   observeProvider(model: ModelAdapter): ModelAdapter {
@@ -150,6 +170,10 @@ export class TelegramTurnObserver {
   snapshot(): TelegramTurnTimings {
     return Object.freeze({
       contextRetrievalMs: this.#contextRetrievalMs,
+      memoryCandidatesMs: this.#memoryCandidatesMs,
+      memoryHistoryMs: this.#memoryHistoryMs,
+      memoryMergeMs: this.#memoryMergeMs,
+      retrievalD1RoundTrips: this.#retrievalD1RoundTrips,
       modelFirstResponseMs: this.#modelFirstResponseMs,
       modelTotalMs: this.#modelTotalMs,
       deliveryMs: this.#deliveryMs,
@@ -172,6 +196,10 @@ export function telegramTurnOutcomeLog(
     eventId,
     outcome,
     contextRetrievalMs: timings.contextRetrievalMs,
+    memoryCandidatesMs: timings.memoryCandidatesMs,
+    memoryHistoryMs: timings.memoryHistoryMs,
+    memoryMergeMs: timings.memoryMergeMs,
+    retrievalD1RoundTrips: timings.retrievalD1RoundTrips,
     modelFirstResponseMs: timings.modelFirstResponseMs,
     modelTotalMs: timings.modelTotalMs,
     deliveryMs: timings.deliveryMs,

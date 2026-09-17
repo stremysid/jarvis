@@ -286,11 +286,24 @@ interface SuppressedSourceRow {
   readonly source_id: unknown;
 }
 
+interface BulkSuppressedSourceRow extends SuppressedSourceRow {
+  readonly item_id: unknown;
+}
+
 interface VisibilityRow {
   readonly item_id: unknown;
   readonly current_version_id: unknown;
   readonly retrievable: unknown;
   readonly creation_event_suppressed: unknown;
+}
+
+export interface RetrievalMemoryItem {
+  readonly item: CanonicalMemoryItem;
+  readonly visibility: Readonly<{
+    retrievable: boolean;
+    creationEventSuppressed: boolean;
+    suppressedSourceIds: readonly Ulid[];
+  }>;
 }
 
 interface AcceptedOwnerTurn {
@@ -1146,6 +1159,126 @@ export class MemoryRepository {
         creationEventSuppressed,
         suppressedSourceIds: Object.freeze(suppressedSourceIds),
       });
+    });
+  }
+
+  /** Revalidates bounded retrieval candidates from one D1 snapshot. */
+  async readCurrentItemsWithVisibility(
+    principalIdInput: string,
+    itemIdInputs: readonly Ulid[],
+  ): Promise<readonly RetrievalMemoryItem[]> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      if (!Array.isArray(itemIdInputs) || itemIdInputs.length > 32) refuse();
+      const itemIds = itemIdInputs.map((itemId) => inputUlid(itemId));
+      if (new Set(itemIds).size !== itemIds.length) refuse();
+      if (itemIds.length === 0) return Object.freeze([]);
+      const statements = itemIds.flatMap((itemId) => this.retrievalItemStatements(principalId, itemId));
+      const batch = await this.database.batch(statements);
+      if (batch.length !== statements.length) corrupt();
+      const selected: RetrievalMemoryItem[] = [];
+      const statementsPerItem = 8;
+      for (let index = 0; index < itemIds.length; index += 1) {
+        const itemId = itemIds[index]!;
+        const offset = index * statementsPerItem;
+        const resultAt = (statementOffset: number): readonly Record<string, unknown>[] => {
+          const result = batch[offset + statementOffset];
+          if (result === undefined || !Array.isArray(result.results)) corrupt();
+          return result.results as readonly Record<string, unknown>[];
+        };
+        const canonicalRows = resultAt(0) as unknown as readonly CanonicalRow[];
+        const partialRows = resultAt(1) as unknown as readonly ItemRow[];
+        if (canonicalRows.length === 0) {
+          if (partialRows.length === 0) continue;
+          if (partialRows.length !== 1) corrupt();
+          const partial = partialRows[0]!;
+          exactRow(partial, itemFields);
+          if (rowUlid(partial.item_id) !== itemId) corrupt();
+          rowPrincipal(partial.principal_id, principalId);
+          rowEnum(partial.kind, new Set([
+            "fact", "preference", "plan", "decision", "relationship",
+          ] as const));
+          rowUlid(partial.creation_event_id);
+          rowInteger(partial.creation_event_sequence, 1, Number.MAX_SAFE_INTEGER);
+          rowTimestamp(partial.created_at);
+          corrupt();
+        }
+        if (canonicalRows.length !== 1 || partialRows.length !== 1) corrupt();
+        const canonicalRow = canonicalRows[0]!;
+        exactRow(canonicalRow, canonicalFields);
+        const liveReceipts = resultAt(6) as unknown as readonly EventReceiptRow[];
+        const archivedReceipts = resultAt(7) as unknown as readonly ArchivedReceiptRow[];
+        const validateCreation = async (eventId: Ulid, eventSequence: number): Promise<void> => {
+          try {
+            await this.validateBatchedReceipt(
+              liveReceipts,
+              archivedReceipts,
+              principalId,
+              eventId,
+              eventSequence,
+              null,
+            );
+          } catch (error) {
+            if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
+            throw error;
+          }
+        };
+        const canonical = await this.validateCanonicalRow(
+          canonicalRow,
+          principalId,
+          itemId,
+          validateCreation,
+        );
+        const sources = await this.validateSourceRows(
+          resultAt(2) as unknown as readonly SourceRow[],
+          principalId,
+          itemId,
+          canonical.version.versionId,
+          async (eventId, eventSequence, source) => {
+            await this.validateBatchedReceipt(
+              liveReceipts,
+              archivedReceipts,
+              principalId,
+              eventId,
+              eventSequence,
+              source,
+            );
+          },
+        );
+        const topicPath = this.topicPathFromRows(
+          resultAt(3) as unknown as readonly TopicRow[],
+          principalId,
+          canonical.primaryPlacement.topicId,
+        );
+        const visibilityRows = resultAt(4) as unknown as readonly VisibilityRow[];
+        if (visibilityRows.length !== 1) corrupt();
+        const visibility = visibilityRows[0]!;
+        exactRow(visibility, new Set([
+          "item_id", "current_version_id", "retrievable", "creation_event_suppressed",
+        ]));
+        if (rowUlid(visibility.item_id) !== itemId) corrupt();
+        rowUlid(visibility.current_version_id);
+        const suppressedSourceIds = (resultAt(5) as unknown as readonly BulkSuppressedSourceRow[])
+          .map((row) => {
+            exactRow(row, new Set(["item_id", "source_id"]));
+            if (rowUlid(row.item_id) !== itemId) corrupt();
+            return rowUlid(row.source_id);
+          });
+        if (new Set(suppressedSourceIds).size !== suppressedSourceIds.length) corrupt();
+        selected.push(Object.freeze({
+          item: Object.freeze({
+            ...canonical,
+            sources: Object.freeze(sources),
+            topicPath,
+          }),
+          visibility: Object.freeze({
+            retrievable: rowInteger(visibility.retrievable, 0, 1) === 1,
+            creationEventSuppressed: rowInteger(visibility.creation_event_suppressed, 0, 1) === 1,
+            suppressedSourceIds: Object.freeze(suppressedSourceIds),
+          }),
+        }));
+      }
+      return Object.freeze(selected);
     });
   }
 
@@ -2686,6 +2819,306 @@ export class MemoryRepository {
     return "exact";
   }
 
+  private retrievalItemStatements(principalId: string, itemId: Ulid): readonly D1PreparedStatement[] {
+    const receiptCte = `WITH receipts(event_id, event_sequence) AS (
+      SELECT item.creation_event_id, item.creation_event_sequence
+      FROM memory_items item WHERE item.principal_id = ?1 AND item.item_id = ?2
+      UNION
+      SELECT source.event_id, source.event_sequence
+      FROM memory_item_sources source
+      JOIN memory_item_state state
+        ON state.principal_id = source.principal_id AND state.item_id = source.item_id
+        AND state.current_version_id = source.version_id
+      WHERE source.principal_id = ?1 AND source.item_id = ?2
+    )`;
+    return Object.freeze([
+      this.database.prepare(`SELECT
+        item.item_id, item.principal_id, item.kind, item.creation_event_id,
+        item.creation_event_sequence, item.created_at AS item_created_at,
+        version.version_id, version.item_id AS version_item_id, version.version_number, version.text,
+        version.text_hash, version.basis, version.origin, version.uncertain,
+        version.sensitivity, version.valid_from, version.valid_to,
+        version.extractor_version, version.extractor_model_id,
+        version.created_at AS version_created_at,
+        transition.transition_id, transition.item_id AS transition_item_id,
+        transition.transition_number, transition.version_id AS transition_version_id,
+        transition.lifecycle_state, transition.reason, transition.actor,
+        transition.policy_version, transition.owner_authorizing_event_id,
+        transition.occurred_at,
+        state.current_version_id AS state_current_version_id,
+        state.lifecycle_state AS state_lifecycle_state,
+        state.last_transition_id AS state_last_transition_id,
+        state.last_transition_number AS state_last_transition_number,
+        state.updated_at AS state_updated_at,
+        placement.placement_id, placement.item_id AS placement_item_id,
+        placement.topic_id AS placement_topic_id,
+        placement.relation AS placement_relation, placement.status AS placement_status,
+        placement.last_event_kind AS placement_last_event_kind,
+        placement.last_event_id AS placement_last_event_id,
+        placement.last_placement_event_number AS placement_last_event_number,
+        placement.updated_at AS placement_updated_at,
+        placement_event.placement_event_id AS placement_event_id,
+        placement_event.item_id AS placement_event_item_id,
+        placement_event.placement_event_number AS placement_event_number,
+        placement_event.operation AS placement_event_operation,
+        placement_event.new_topic_id AS placement_event_new_topic_id,
+        placement_event.filing_source, placement_event.confidence,
+        placement_event.reason AS placement_reason
+        FROM memory_items item
+        JOIN memory_item_state state
+          ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+        JOIN memory_item_versions version
+          ON version.principal_id = state.principal_id
+          AND version.version_id = state.current_version_id
+        JOIN memory_item_transitions transition
+          ON transition.principal_id = state.principal_id
+          AND transition.transition_id = state.last_transition_id
+        JOIN memory_item_placement_state placement
+          ON placement.principal_id = item.principal_id AND placement.item_id = item.item_id
+          AND placement.relation = 'primary' AND placement.status = 'active'
+        JOIN memory_item_placement_events placement_event
+          ON placement_event.principal_id = placement.principal_id
+          AND placement_event.placement_id = placement.placement_id
+          AND placement_event.placement_event_number = placement.last_placement_event_number
+        WHERE item.principal_id = ? AND item.item_id = ?`)
+        .bind(principalId, itemId),
+      this.database.prepare(`SELECT item_id, principal_id, kind,
+        creation_event_id, creation_event_sequence, created_at FROM memory_items
+        WHERE principal_id = ? AND item_id = ?`).bind(principalId, itemId),
+      this.database.prepare(`SELECT source.source_id, source.principal_id,
+        source.item_id, source.version_id, source.source_position, source.event_id,
+        source.event_sequence, source.source_location, source.r2_segment_id,
+        archived.segment_id AS current_r2_segment_id, source.excerpt, source.excerpt_hash,
+        source.channel, source.occurred_at, source.created_at
+        FROM memory_item_sources source
+        JOIN memory_item_state state
+          ON state.principal_id = source.principal_id AND state.item_id = source.item_id
+          AND state.current_version_id = source.version_id
+        LEFT JOIN archive_segment_events archived
+          ON archived.event_id = source.event_id
+          AND archived.event_sequence = source.event_sequence
+        WHERE source.principal_id = ? AND source.item_id = ?
+        ORDER BY source.source_position ASC`).bind(principalId, itemId),
+      this.database.prepare(`WITH RECURSIVE topic_walk(topic_id, depth) AS (
+          SELECT placement.topic_id, 0
+          FROM memory_item_placement_state placement
+          WHERE placement.principal_id = ?1 AND placement.item_id = ?2
+            AND placement.relation = 'primary' AND placement.status = 'active'
+          UNION ALL
+          SELECT CASE WHEN topic.status = 'merged'
+              THEN topic.redirect_to_topic_id ELSE topic.parent_topic_id END,
+            topic_walk.depth + 1
+          FROM topic_walk
+          JOIN memory_topics topic
+            ON topic.principal_id = ?1 AND topic.topic_id = topic_walk.topic_id
+          WHERE topic_walk.depth < ?3
+            AND CASE WHEN topic.status = 'merged'
+              THEN topic.redirect_to_topic_id ELSE topic.parent_topic_id END IS NOT NULL
+        )
+        SELECT DISTINCT topic.topic_id, topic.principal_id, topic.parent_topic_id,
+          topic.display_name, topic.normalized_name, topic.status,
+          topic.redirect_to_topic_id, topic.last_topic_event_id,
+          topic.created_at, topic.updated_at
+        FROM topic_walk
+        JOIN memory_topics topic
+          ON topic.principal_id = ?1 AND topic.topic_id = topic_walk.topic_id
+        ORDER BY topic.topic_id ASC`)
+        .bind(principalId, itemId, MEMORY_TOPIC_REDIRECT_LIMIT),
+      this.database.prepare(`SELECT item.item_id, state.current_version_id,
+          EXISTS (
+            SELECT 1 FROM memory_retrievable_item_versions retrievable
+            WHERE retrievable.principal_id = item.principal_id
+              AND retrievable.item_id = item.item_id
+              AND retrievable.version_id = state.current_version_id
+          ) AS retrievable,
+          EXISTS (
+            SELECT 1 FROM memory_active_event_suppressions suppression
+            WHERE suppression.principal_id = item.principal_id
+              AND (suppression.target_event_id = item.creation_event_id
+                OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                  AND suppression.end_event_sequence)
+          ) AS creation_event_suppressed
+        FROM memory_items item
+        LEFT JOIN memory_item_state state
+          ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+        WHERE item.principal_id = ? AND item.item_id = ?`).bind(principalId, itemId),
+      this.database.prepare(`SELECT source.item_id, source.source_id
+        FROM memory_item_sources source
+        JOIN memory_item_state state
+          ON state.principal_id = source.principal_id AND state.item_id = source.item_id
+          AND state.current_version_id = source.version_id
+        WHERE source.principal_id = ? AND source.item_id = ?
+          AND EXISTS (
+            SELECT 1 FROM memory_active_event_suppressions suppression
+            WHERE suppression.principal_id = source.principal_id
+              AND (
+                suppression.target_event_id = source.event_id
+                OR source.event_sequence BETWEEN suppression.start_event_sequence
+                  AND suppression.end_event_sequence
+              )
+          )
+        ORDER BY source.source_position`).bind(principalId, itemId),
+      this.database.prepare(`${receiptCte}
+        SELECT event.event_id, event.sequence, event.subject_id, event.occurred_at,
+          event.event_type, event.content_hash, event.envelope_json
+        FROM receipts
+        JOIN events event
+          ON event.event_id = receipts.event_id AND event.sequence = receipts.event_sequence
+          AND event.subject_id = ?1
+        ORDER BY event.sequence ASC, event.event_id ASC`).bind(principalId, itemId),
+      this.database.prepare(`${receiptCte}
+        SELECT archived.event_id, archived.event_sequence, archived.segment_id,
+          archived.envelope_sha256, archived.content_hash
+        FROM receipts
+        JOIN archive_segment_events archived
+          ON archived.event_id = receipts.event_id
+          AND archived.event_sequence = receipts.event_sequence
+        ORDER BY archived.event_sequence ASC, archived.event_id ASC`).bind(principalId, itemId),
+    ]);
+  }
+
+  private async validateBatchedReceipt(
+    liveRows: readonly EventReceiptRow[],
+    archivedRows: readonly ArchivedReceiptRow[],
+    principalId: string,
+    eventId: Ulid,
+    eventSequence: number,
+    source: SourceReceiptExpectation | null,
+  ): Promise<void> {
+    const sourceLocation = source?.sourceLocation ?? null;
+    const r2SegmentId = source?.r2SegmentId ?? null;
+    if (sourceLocation !== "archived") {
+      for (const row of liveRows) {
+        exactRow(row, eventReceiptFields);
+        if (rowUlid(row.event_id) !== eventId
+          || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
+        if (rowPrincipal(row.subject_id, principalId) !== principalId
+          || (source !== null && rowTimestamp(row.occurred_at) !== source.occurredAt)) refuse();
+        await this.validateLiveEventEvidence(row, principalId, eventId, source);
+        return;
+      }
+    }
+    for (const row of archivedRows) {
+      exactRow(row, new Set([
+        "event_id", "event_sequence", "segment_id", "envelope_sha256", "content_hash",
+      ]));
+      if (rowUlid(row.event_id) !== eventId
+        || rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
+      if (r2SegmentId !== null && rowHash(row.segment_id) !== r2SegmentId) continue;
+      await this.validateArchivedEventEvidence(
+        row,
+        principalId,
+        eventId,
+        eventSequence,
+        source,
+      );
+      return;
+    }
+    refuse();
+  }
+
+  private topicPathFromRows(
+    rows: readonly TopicRow[],
+    principalId: string,
+    topicId: Ulid,
+  ): readonly CanonicalTopicPathEntry[] {
+    const topics = new Map<Ulid, ValidatedTopic>();
+    for (const row of rows) {
+      exactRow(row, topicFields);
+      const topic = validateTopicRow(row, principalId);
+      if (topics.has(topic.topicId)) corrupt();
+      topics.set(topic.topicId, topic);
+    }
+    const redirects = new Set<Ulid>();
+    let canonicalId = topicId;
+    for (let depth = 0; depth < MEMORY_TOPIC_REDIRECT_LIMIT; depth += 1) {
+      if (redirects.has(canonicalId)) corrupt();
+      redirects.add(canonicalId);
+      const topic = topics.get(canonicalId);
+      if (topic === undefined) corrupt();
+      if (topic.status === "active") break;
+      if (topic.redirectToTopicId === null) corrupt();
+      canonicalId = topic.redirectToTopicId;
+      if (depth === MEMORY_TOPIC_REDIRECT_LIMIT - 1) corrupt();
+    }
+    const path: CanonicalTopicPathEntry[] = [];
+    const visited = new Set<Ulid>();
+    let currentId: Ulid | null = canonicalId;
+    while (currentId !== null && path.length < MEMORY_TOPIC_REDIRECT_LIMIT) {
+      if (visited.has(currentId)) corrupt();
+      visited.add(currentId);
+      const topic = topics.get(currentId);
+      if (topic === undefined || topic.status !== "active") corrupt();
+      path.unshift(topicEntry(topic));
+      currentId = topic.parentTopicId;
+    }
+    if (currentId !== null || path.length === 0) corrupt();
+    return freezePath(path);
+  }
+
+  private async validateSourceRows(
+    rows: readonly SourceRow[],
+    principalId: string,
+    itemId: Ulid,
+    versionId: Ulid,
+    validateReceipt: (
+      eventId: Ulid,
+      eventSequence: number,
+      source: SourceReceiptExpectation,
+    ) => Promise<void>,
+  ): Promise<readonly CanonicalMemorySource[]> {
+    if (rows.length < 1 || rows.length > 8) corrupt();
+    const sources: CanonicalMemorySource[] = [];
+    for (let position = 0; position < rows.length; position += 1) {
+      const row = rows[position];
+      if (row === undefined) corrupt();
+      exactRow(row, sourceFields);
+      const sourceId = rowUlid(row.source_id);
+      rowPrincipal(row.principal_id, principalId);
+      if (rowUlid(row.item_id) !== itemId || rowUlid(row.version_id) !== versionId
+        || rowInteger(row.source_position, 0, 7) !== position) corrupt();
+      const eventId = rowUlid(row.event_id);
+      const eventSequence = rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER);
+      const storedSourceLocation = rowEnum(row.source_location, new Set(["live", "archived"] as const));
+      const storedR2SegmentId = optionalRowHash(row.r2_segment_id);
+      const currentR2SegmentId = optionalRowHash(row.current_r2_segment_id);
+      if ((storedSourceLocation === "live" && storedR2SegmentId !== null)
+        || (storedSourceLocation === "archived" && storedR2SegmentId === null)
+        || (storedSourceLocation === "archived" && currentR2SegmentId !== storedR2SegmentId)) corrupt();
+      const sourceLocation = currentR2SegmentId === null ? storedSourceLocation : "archived";
+      const r2SegmentId = currentR2SegmentId ?? storedR2SegmentId;
+      const excerpt = safeRowText(row.excerpt, 8192);
+      const excerptHash = rowHash(row.excerpt_hash);
+      if (await sha256Hex(excerpt) !== excerptHash) corrupt();
+      const occurredAt = rowTimestamp(row.occurred_at);
+      const channel = rowEnum(row.channel, new Set(["telegram", "voice", "system"] as const));
+      try {
+        await validateReceipt(
+          eventId,
+          eventSequence,
+          { sourceLocation, r2SegmentId, excerpt, channel, occurredAt },
+        );
+      } catch (error) {
+        if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
+        throw error;
+      }
+      sources.push(Object.freeze({
+        sourceId,
+        position,
+        eventId,
+        eventSequence,
+        sourceLocation,
+        r2SegmentId,
+        excerpt,
+        excerptHash,
+        channel,
+        occurredAt,
+        createdAt: rowTimestamp(row.created_at),
+      }));
+    }
+    return sources;
+  }
+
   private async readCurrentItemInternal(principalId: string, itemId: Ulid): Promise<CanonicalMemoryItem> {
     const row = await this.database.prepare(`SELECT
       item.item_id, item.principal_id, item.kind, item.creation_event_id,
@@ -2775,6 +3208,7 @@ export class MemoryRepository {
     row: CanonicalRow,
     principalId: string,
     itemId: Ulid,
+    validateCreationReceipt?: (eventId: Ulid, eventSequence: number) => Promise<void>,
   ): Promise<Omit<CanonicalMemoryItem, "sources" | "topicPath">> {
     const storedItemId = rowUlid(row.item_id);
     if (storedItemId !== itemId) corrupt();
@@ -2785,7 +3219,11 @@ export class MemoryRepository {
     const creationEventId = rowUlid(row.creation_event_id);
     const creationEventSequence = rowInteger(row.creation_event_sequence, 1, Number.MAX_SAFE_INTEGER);
     const createdAt = rowTimestamp(row.item_created_at);
-    await this.validateStoredCreationReceipt(principalId, creationEventId, creationEventSequence);
+    if (validateCreationReceipt === undefined) {
+      await this.validateStoredCreationReceipt(principalId, creationEventId, creationEventSequence);
+    } else {
+      await validateCreationReceipt(creationEventId, creationEventSequence);
+    }
     const versionId = rowUlid(row.version_id);
     const text = safeRowText(row.text, 4096);
     const textHash = rowHash(row.text_hash);

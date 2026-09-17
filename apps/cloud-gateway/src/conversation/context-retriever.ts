@@ -337,6 +337,16 @@ function snapshotResultRows(value: unknown): unknown {
   return descriptor.value;
 }
 
+async function executeStatements(
+  database: D1Database,
+  statements: D1PreparedStatement[],
+): Promise<readonly D1Result<unknown>[]> {
+  if (typeof database.batch === "function") return database.batch(statements);
+  // Some existing callers provide the pre-batch D1 surface. Keep their
+  // validation behaviour while production D1 takes the single-trip path.
+  return Promise.all(statements.map(async (statement) => statement.all()));
+}
+
 function historyText(payload: unknown, eventType: string): string {
   const value = historyPayload(payload);
   if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
@@ -360,8 +370,7 @@ export class D1ContextRetriever implements ContextRetriever {
     const deferredFacts: FactCandidate[] = [];
     let returnedBytes = 0;
     const ftsQuery = literalFtsQuery(captured.query);
-    if (ftsQuery !== null) {
-      const factResult = await this.database.prepare(`WITH eligible AS (
+    const factStatement = ftsQuery === null ? null : this.database.prepare(`WITH eligible AS (
         SELECT f.principal_id, f.device_id, f.projection_version, f.fact_id, f.text,
                f.origin, f.sensitivity, f.confidence, f.distiller_version, f.distilled_at,
                f.content_hash, f.primary_event_id, f.primary_event_sequence,
@@ -399,8 +408,22 @@ export class D1ContextRetriever implements ContextRetriever {
       FROM ranked WHERE candidate_rank = 1
       ORDER BY relevance ASC, distilled_at DESC, fact_id ASC, device_id ASC
       LIMIT ?3`)
-        .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES)
-        .all<StoredFactRow>();
+      .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES);
+    const historyStatement = this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
+      FROM events INDEXED BY events_subject_sequence_idx
+      WHERE subject_id = ?1
+        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+      ORDER BY sequence DESC
+      LIMIT ?2`)
+      .bind(captured.principalId, MAX_CANDIDATES);
+    const statements = factStatement === null
+      ? [historyStatement]
+      : [factStatement, historyStatement];
+    const batch = await executeStatements(this.database, statements);
+    if (batch.length !== statements.length) throw new TypeError("context_result_invalid");
+    if (factStatement !== null) {
+      const factResult = batch[0];
+      if (factResult === undefined) throw new TypeError("context_result_invalid");
       const factRows = snapshotFactRows(snapshotResultRows(factResult));
       let decodedFactBytes = 0;
       const candidates: FactCandidate[] = [];
@@ -423,15 +446,8 @@ export class D1ContextRetriever implements ContextRetriever {
         selectedFacts.push(candidate.item);
       }
     }
-
-    const historyResult = await this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
-      FROM events INDEXED BY events_subject_sequence_idx
-      WHERE subject_id = ?1
-        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
-      ORDER BY sequence DESC
-      LIMIT ?2`)
-      .bind(captured.principalId, MAX_CANDIDATES)
-      .all<StoredHistoryRow>();
+    const historyResult = batch.at(-1);
+    if (historyResult === undefined) throw new TypeError("context_result_invalid");
     const rows = snapshotRows(snapshotResultRows(historyResult));
     let decodedBytes = 0;
     const selectedNewestFirst: RetrievedContext[] = [];

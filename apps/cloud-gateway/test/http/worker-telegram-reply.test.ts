@@ -126,10 +126,18 @@ describe("live Telegram reply composition", () => {
       | Record<string, unknown>
       | undefined;
     expect(outcome).toMatchObject({
+      memoryCandidatesMs: expect.any(Number),
+      memoryHistoryMs: expect.any(Number),
+      memoryMergeMs: expect.any(Number),
+      retrievalD1RoundTrips: expect.any(Number),
       stagingMs: expect.any(Number),
       telegramSendMs: expect.any(Number),
       settlementMs: expect.any(Number),
     });
+    expect(Number.isInteger(outcome?.memoryCandidatesMs)).toBe(true);
+    expect(Number.isInteger(outcome?.memoryHistoryMs)).toBe(true);
+    expect(Number.isInteger(outcome?.memoryMergeMs)).toBe(true);
+    expect(Number.isInteger(outcome?.retrievalD1RoundTrips)).toBe(true);
     expect(Number.isInteger(outcome?.stagingMs)).toBe(true);
     expect(Number.isInteger(outcome?.telegramSendMs)).toBe(true);
     expect(Number.isInteger(outcome?.settlementMs)).toBe(true);
