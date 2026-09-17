@@ -1,0 +1,36 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/channels/adversarial-pr86.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/channels/adversarial-pr86.test.ts (15 tests | 1 failed) 2515ms
+     × D1b re-sending after a silent failed tool turn does not duplicate the memory 112ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86.test.ts > PR86 adversarial: robustness > D1b re-sending after a silent failed tool turn does not duplicate the memory
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86.test.ts:356:24
+    354|     const first = await turn({ h, text: "remember I like chemistry",
+    355|       provider: new FakeAgentProvider([called(tool("d1b_1", "memory_re…
+    356|     expect(first.sent).toBe(0);
+       |                        ^
+    357|     await turn({ h, text: "remember I like chemistry",
+    358|       provider: new FakeAgentProvider([called(tool("d1b_2", "memory_re…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 14 passed (15)
+   Start at  00:26:14
+   Duration  5.04s (transform 967ms, setup 0ms, import 1.85s, tests 2.52s, environment 0ms)
+

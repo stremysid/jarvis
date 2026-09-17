@@ -1,0 +1,10 @@
+head 3c25b32
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  189 passed (189)
+      Tests  4956 passed (4956)
+pr86 adversarial:
+     × D1b re-sending after a silent failed tool turn does not duplicate the memory 112ms
+      Tests  1 failed | 14 passed (15)
+clean: 0

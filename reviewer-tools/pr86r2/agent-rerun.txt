@@ -1,0 +1,303 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr86-adv
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G1 delivers honest agent replies unchanged (measures over-refusal against main's school guard)
+G1 {"total":16,"agentReplaced":[0,1,2,3,4,5],"mainReplaced":[0,1,2,3,4,5]}
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G2 an honest receipted claim after a real school save is not replaced by the refusal line
+G2 "Saved your school plan. Today: Chemistry: lab write-up (40 min).\n\nI can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap."
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G5 a delivered reply never exceeds Telegram's 4,096 UTF-16 limit (TelegramRestProvider rejects longer)
+G5 utf16 4916 codepoints 4096
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M1 refuses a fact that contradicts Sid's words ('I don't like math' -> 'Sid likes math')
+M1 [["Sid likes math","like math","stated"]]
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M1b refuses an arbitrary fact grounded by a one-word excerpt ('ok')
+M1b [["Sid's locker combination is 12-34-56","ok","stated"]]
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M4 refuses 'confirmed' when the previous question was not an offer to note anything ('what's up?')
+M4 [["Sid's favourite subject is math","Math","confirmed"]]
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 3: authority split > A1 a swipe-reply to an OLD Jarvis message is not treated like a reply to the last delivered message
+A1 {"updateId":11,"telegramUserId":"42","chatId":"42","messageId":500,"text":"yes","isDirectText":true,"isPrivateHumanText":true,"isMemoryControlAuthoritative":true}
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F1 a refused memory tool followed by a failed follow-up does not tell Sid 'Done'
+F1 {"outcome":"telegram_delivered","text":"Done — I couldn't write a longer reply.","sent":1}
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F2 a not-saved school result followed by a failed follow-up does not also say 'Done'
+F2 "I couldn't update your school plan.\n\nDone — I couldn't write a longer reply."
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F3 the whole-turn deadline hitting inside a pipeline that saves nothing does not say 'Done'
+F3 "Done — I couldn't write a longer reply."
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F4 an unsignalled production school path (ordinary reply starting 'Updated') gets no receipt id
+F4 {"calls":2,"status":{"status":"completed","receiptId":"receipt:f4","receipt":"Updated deadlines usually show up in D2L within a day."},"text":"Updated deadlines usually show up in D2L within a day.\n\nI've added the essay to your school tracker."}
+
+stdout | apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F5 a resend where the model words the same fact differently does not create a duplicate
+F5 ["Sid likes chemistry","Sid likes chemistry."]
+
+ ❯ |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts (19 tests | 13 failed) 4558ms
+     × G1 delivers honest agent replies unchanged (measures over-refusal against main's school guard) 427ms
+     × G2 an honest receipted claim after a real school save is not replaced by the refusal line 32ms
+     × G5 a delivered reply never exceeds Telegram's 4,096 UTF-16 limit (TelegramRestProvider rejects longer) 39ms
+     × M1 refuses a fact that contradicts Sid's words ('I don't like math' -> 'Sid likes math') 108ms
+     × M1b refuses an arbitrary fact grounded by a one-word excerpt ('ok') 111ms
+     × M4 refuses 'confirmed' when the previous question was not an offer to note anything ('what's up?') 131ms
+     × A1 a swipe-reply to an OLD Jarvis message is not treated like a reply to the last delivered message 1ms
+     × F1 a refused memory tool followed by a failed follow-up does not tell Sid 'Done' 27ms
+     × F2 a not-saved school result followed by a failed follow-up does not also say 'Done' 29ms
+     × F3 the whole-turn deadline hitting inside a pipeline that saves nothing does not say 'Done' 86ms
+     × F4 an unsignalled production school path (ordinary reply starting 'Updated') gets no receipt id 39ms
+     × F5 a resend where the model words the same fact differently does not create a duplicate 146ms
+     × F7 single forget grounding: 'hi' as the excerpt does not let an injected context note forget a memory 231ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G1 delivers honest agent replies unchanged (measures over-refusal against main's school guard)
+AssertionError: expected [ +0, 1, 2, 3, 4, 5 ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   0,
++   1,
++   2,
++   3,
++   4,
++   5,
++ ]
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:276:27
+    274|     }
+    275|     console.log("G1", JSON.stringify({ total: HONEST.length, agentRepl…
+    276|     expect(agentReplaced).toEqual([]);
+       |                           ^
+    277|   });
+    278|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G2 an honest receipted claim after a real school save is not replaced by the refusal line
+AssertionError: expected 'Saved your school plan. Today: Chemis…' not to contain 'I can\'t confirm that action'
+
+- Expected
++ Received
+
+- I can't confirm that action
++ Saved your school plan. Today: Chemistry: lab write-up (40 min).
++
++ I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:291:29
+    289|     });
+    290|     console.log("G2", JSON.stringify(result.text));
+    291|     expect(result.text).not.toContain("I can't confirm that action");
+       |                             ^
+    292|   });
+    293|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 1: reinstated reply guard > G5 a delivered reply never exceeds Telegram's 4,096 UTF-16 limit (TelegramRestProvider rejects longer)
+AssertionError: expected 4916 to be less than or equal to 4096
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:324:32
+    322|     const result = await turn({ h, text: "give me a long study list", …
+    323|     console.log("G5 utf16", result.text.length, "codepoints", Array.fr…
+    324|     expect(result.text.length).toBeLessThanOrEqual(4_096);
+       |                                ^
+    325|   });
+    326| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M1 refuses a fact that contradicts Sid's words ('I don't like math' -> 'Sid likes math')
+AssertionError: expected [ { …(5) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:339:20
+    337|     const stored = await rows(h.principalId);
+    338|     console.log("M1", JSON.stringify(stored.map((r) => [r.text, r.exce…
+    339|     expect(stored).toHaveLength(0);
+       |                    ^
+    340|   });
+    341|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M1b refuses an arbitrary fact grounded by a one-word excerpt ('ok')
+AssertionError: expected [ { …(5) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:351:20
+    349|     const stored = await rows(h.principalId);
+    350|     console.log("M1b", JSON.stringify(stored.map((r) => [r.text, r.exc…
+    351|     expect(stored).toHaveLength(0);
+       |                    ^
+    352|   });
+    353|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 2: grounding > M4 refuses 'confirmed' when the previous question was not an offer to note anything ('what's up?')
+AssertionError: expected [ { …(5) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:400:59
+    398|     const stored = await rows(h.principalId);
+    399|     console.log("M4", JSON.stringify(stored.map((r) => [r.text, r.exce…
+    400|     expect(stored.filter((r) => r.basis === "confirmed")).toHaveLength…
+       |                                                           ^
+    401|   });
+    402| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 3: authority split > A1 a swipe-reply to an OLD Jarvis message is not treated like a reply to the last delivered message
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:417:77
+    415|     const carriesTarget = Object.keys(classified.value).some((key) => …
+    416|     console.log("A1", JSON.stringify(classified.value));
+    417|     expect(!classified.value.isMemoryControlAuthoritative || carriesTa…
+       |                                                                             ^
+    418|   });
+    419|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F1 a refused memory tool followed by a failed follow-up does not tell Sid 'Done'
+AssertionError: expected 'Done — I couldn\'t write a longer rep…' not to match /^Done\b/u
+
+- Expected:
+/^Done\b/u
+
++ Received:
+"Done — I couldn't write a longer reply."
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:448:29
+    446|     console.log("F1", JSON.stringify(result));
+    447|     expect(await rows(h.principalId)).toHaveLength(0);
+    448|     expect(result.text).not.toMatch(/^Done\b/u);
+       |                             ^
+    449|   });
+    450|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F2 a not-saved school result followed by a failed follow-up does not also say 'Done'
+AssertionError: expected 'I couldn\'t update your school plan.\…' not to contain 'Done'
+
+- Expected
++ Received
+
+- Done
++ I couldn't update your school plan.
++
++ Done — I couldn't write a longer reply.
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:459:29
+    457|     ]) });
+    458|     console.log("F2", JSON.stringify(result.text));
+    459|     expect(result.text).not.toContain("Done");
+       |                             ^
+    460|   });
+    461|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F3 the whole-turn deadline hitting inside a pipeline that saves nothing does not say 'Done'
+AssertionError: expected 'Done — I couldn\'t write a longer rep…' not to contain 'Done'
+
+Expected: "Done"
+Received: "Done — I couldn't write a longer reply."
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:475:29
+    473|       provider: new FakeAgentProvider([called(tool("f3", "school_updat…
+    474|     console.log("F3", JSON.stringify(result.text));
+    475|     expect(result.text).not.toContain("Done");
+       |                             ^
+    476|   });
+    477|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F4 an unsignalled production school path (ordinary reply starting 'Updated') gets no receipt id
+AssertionError: expected 'completed' not to be 'completed' // Object.is equality
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:495:31
+    493|     const status = JSON.parse(provider.requests[1]?.toolResults?.[0]?.…
+    494|     console.log("F4", JSON.stringify({ calls: base.requests.length, st…
+    495|     expect(status.status).not.toBe("completed");
+       |                               ^
+    496|     expect(result.text).not.toContain(claim);
+    497|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F5 a resend where the model words the same fact differently does not create a duplicate
+AssertionError: expected [ { …(5) }, { …(5) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:511:66
+    509|     const stored = await rows(h.principalId);
+    510|     console.log("F5", JSON.stringify(stored.map((r) => r.text)));
+    511|     expect(stored.filter((r) => r.lifecycle_state === "active")).toHav…
+       |                                                                  ^
+    512|   });
+    513|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts > R2 check 4: failure paths > F7 single forget grounding: 'hi' as the excerpt does not let an injected context note forget a memory
+AssertionError: expected 'forgotten' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "forgotten"
+
+ ❯ apps/cloud-gateway/test/channels/adversarial-pr86r2.test.ts:527:61
+    525|       stopped("Hi Sid."),
+    526|     ]) });
+    527|     expect((await rows(h.principalId))[0]?.lifecycle_state).toBe("acti…
+       |                                                             ^
+    528|   });
+    529|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  13 failed | 6 passed (19)
+   Start at  01:06:34
+   Duration  6.49s (transform 740ms, setup 0ms, import 1.30s, tests 4.56s, environment 0ms)
+
