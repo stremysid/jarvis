@@ -26,6 +26,7 @@ import {
 } from "./extraction-policy.js";
 import {
   automaticFilingReason,
+  normalizeAutomaticTopicPath,
   type AutomaticFilingDecision,
   type MemoryRepository,
 } from "./memory-repository.js";
@@ -46,6 +47,9 @@ const PAYLOAD_WITH_DIRECT_OWNER_FIELDS = new Set([...PAYLOAD_FIELDS, "directOwne
 const PROPOSAL_FIELDS = new Set([
   "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
   "topicPath", "filingConfidence",
+]);
+const REQUIRED_PROPOSAL_FIELDS = new Set([
+  "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
 ]);
 const SOURCE_EXCERPT_FIELDS = new Set(["sourceEventId", "excerpt"]);
 const STORED_EVENT_FIELDS = new Set(["eventSequence", "envelope", "replayed"]);
@@ -84,7 +88,7 @@ const TIERED_READ_D1_STATEMENT_CEILING = 6;
 const ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING = MAX_SCANNED_EVENTS + 1;
 const TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING = 20;
 const CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING = 64;
-const AUTOMATIC_TOPIC_RESOLUTION_D1_STATEMENT_CEILING = 48;
+const AUTOMATIC_TOPIC_RESOLUTION_D1_STATEMENT_CEILING = 30;
 const FINALIZATION_D1_STATEMENT_CEILING = MAX_SCANNED_EVENTS + MAX_PROPOSALS + 4;
 const FULL_ITEM_BATCH_D1_STATEMENT_CEILING = MAX_PROPOSALS * CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING;
 const FULL_TOPIC_FILING_D1_STATEMENT_CEILING = MAX_PROPOSALS
@@ -113,6 +117,10 @@ export const AUTOMATIC_DISTILLATION_STEP_LIMITS = Object.freeze({
   textBytesExamined: MAX_ELIGIBLE_EVENTS * MAX_STORED_EVENT_TEXT_BYTES,
   proposalsAccepted: MAX_PROPOSALS,
 });
+
+// Principal/bootstrap/candidate reads, 100 four-component exact resolutions,
+// and ten insert-plus-race checks. The hourly runner reserves this before the tail.
+export const AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING = 424;
 
 export type AutomaticDistillationOutcome =
   | "succeeded"
@@ -196,7 +204,7 @@ interface ScannedEvent {
 
 interface ValidatedProviderProposal extends ValidatedExtractionProposal {
   readonly sourceExcerpts: ReadonlyMap<Ulid, string>;
-  readonly topicPath: readonly string[];
+  readonly topicPath: readonly string[] | null;
   readonly filingConfidence: number;
   readonly proposalHash: Sha256Hex;
 }
@@ -475,8 +483,8 @@ function providerPrompt(events: readonly ScannedEvent[]): string {
       "Extract only durable facts about the owner.",
       MEMORY_EXTRACTION_JSON_CONTRACT,
       "sourceExcerpts contains one exact verbatim supporting excerpt for each cited source id.",
-      "topicPath contains 1 to 4 short area names from general to specific, without the Memory root.",
-      "filingConfidence rates only the proposed topic path, not whether the fact is true.",
+      "topicPath, when present, contains 1 to 4 area names from general to specific, without the Memory root; each name is at most 64 UTF-8 bytes.",
+      "filingConfidence, when present, rates only the proposed topic path, not whether the fact is true.",
       "sensitivity is normal or sensitive. Return an empty proposals array when nothing is durable.",
     ],
     untrustedExcerpts: events.filter((event) => event.disposition === "eligible").map((event) => ({
@@ -487,19 +495,25 @@ function providerPrompt(events: readonly ScannedEvent[]): string {
 }
 
 function validatedTopicPath(value: unknown): readonly string[] | null {
-  const raw = exactArray(value, MAX_TOPIC_PATH_DEPTH);
-  if (raw === null || raw.length < 1) return null;
-  const path: string[] = [];
-  for (const part of raw) {
-    if (typeof part !== "string" || !part.isWellFormed()) return null;
-    const display = part.normalize("NFC").trim();
-    if (display.length === 0 || encoder.encode(display).byteLength > 64) return null;
+  const path = normalizeAutomaticTopicPath(value);
+  if (path === null || path.length > MAX_TOPIC_PATH_DEPTH) return null;
+  for (const display of path) {
     const checked = redactor.redactText(display);
     if (!checked.ok || checked.text !== display) return null;
-    path.push(display);
   }
   if (encoder.encode(JSON.stringify(path)).byteLength > MAX_TOPIC_PATH_JSON_BYTES) return null;
-  return Object.freeze(path);
+  return path;
+}
+
+function infallibleAutomaticFilingReason(
+  decision: AutomaticFilingDecision,
+  topicPath: readonly string[] | null,
+): string {
+  try {
+    return automaticFilingReason(decision, topicPath ?? undefined);
+  } catch {
+    return automaticFilingReason("inbox_invalid_path");
+  }
 }
 
 async function validateProviderProposal(
@@ -509,15 +523,17 @@ async function validateProviderProposal(
   if (value === null || typeof value !== "object" || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype) return null;
   const keys = Object.keys(value);
-  if (keys.length !== PROPOSAL_FIELDS.size || keys.some((key) => !PROPOSAL_FIELDS.has(key))) return null;
+  if (keys.some((key) => !PROPOSAL_FIELDS.has(key))
+    || [...REQUIRED_PROPOSAL_FIELDS].some((key) => !Object.hasOwn(value, key))) return null;
   const record = value as Record<string, unknown>;
   if (record.sensitivity !== "normal" && record.sensitivity !== "sensitive") return null;
-  if (typeof record.confidence !== "number"
-    || typeof record.filingConfidence !== "number"
-    || !Number.isFinite(record.filingConfidence)
-    || record.filingConfidence < 0 || record.filingConfidence > 1) return null;
+  if (typeof record.confidence !== "number") return null;
+  const filingConfidence = typeof record.filingConfidence === "number"
+    && Number.isFinite(record.filingConfidence)
+    && record.filingConfidence >= 0 && record.filingConfidence <= 1
+    ? record.filingConfidence
+    : 0;
   const topicPath = validatedTopicPath(record.topicPath);
-  if (topicPath === null) return null;
   const rawSourceIds = exactArray(record.sourceEventIds, 8);
   const rawExcerpts = exactArray(record.sourceExcerpts, 8);
   if (rawSourceIds === null || rawExcerpts === null) return null;
@@ -554,7 +570,7 @@ async function validateProviderProposal(
     text: normalizedText,
     sourceExcerpts: excerpts,
     topicPath,
-    filingConfidence: record.filingConfidence,
+    filingConfidence,
     proposalHash,
   });
 }
@@ -802,6 +818,7 @@ export class AutomaticMemoryDistillationWorkflow {
           );
           budget.d1Statements += CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING;
           const result = await this.options.repository.commitInitialItem(commitInput);
+          this.automaticallyCreatedTopicCount += result.automaticFilingCreatedTopicCount ?? 0;
           committed.push(Object.freeze({
             itemId: result.item.itemId,
             proposalHash: proposal.proposalHash,
@@ -1089,20 +1106,23 @@ export class AutomaticMemoryDistillationWorkflow {
       : "proposed";
     let topicId = inboxTopicId;
     let filingSource: "rule" | "model" = "rule";
-    let filingDecision: AutomaticFilingDecision = lifecycleState === "proposed"
-      ? "inbox_proposed"
-      : proposal.filingConfidence < FILING_CONFIDENCE_THRESHOLD
-        ? "inbox_low_confidence"
-        : "inbox_filing_failure";
-    if (lifecycleState === "active" && proposal.filingConfidence >= FILING_CONFIDENCE_THRESHOLD) {
+    let filingDecision: AutomaticFilingDecision = proposal.topicPath === null
+      ? "inbox_invalid_path"
+      : lifecycleState === "proposed"
+        ? "inbox_proposed"
+        : proposal.filingConfidence < FILING_CONFIDENCE_THRESHOLD
+          ? "inbox_low_confidence"
+          : "inbox_filing_failure";
+    let automaticFiling: CommitInitialMemoryInput["automaticFiling"];
+    if (proposal.topicPath !== null
+      && lifecycleState === "active" && proposal.filingConfidence >= FILING_CONFIDENCE_THRESHOLD) {
       budget.d1Statements += AUTOMATIC_TOPIC_RESOLUTION_D1_STATEMENT_CEILING;
       try {
         const resolved = await this.options.repository.resolveOrCreateAutomaticTopicPath(
           this.options.principalId,
           proposal.topicPath,
-          AUTOMATIC_TOPIC_CREATION_LIMIT - this.automaticallyCreatedTopicCount,
+          0,
         );
-        this.automaticallyCreatedTopicCount += resolved.createdTopicCount;
         if (resolved.topic !== null && resolved.topic.topicId !== inboxTopicId) {
           topicId = resolved.topic.topicId;
           filingSource = "model";
@@ -1112,7 +1132,16 @@ export class AutomaticMemoryDistillationWorkflow {
               ? "filed_alias"
               : "filed_current";
         } else if (resolved.cappedBy !== null) {
-          filingDecision = "inbox_cap";
+          const remaining = AUTOMATIC_TOPIC_CREATION_LIMIT - this.automaticallyCreatedTopicCount;
+          if (remaining > 0) {
+            automaticFiling = Object.freeze({
+              topicPath: proposal.topicPath,
+              maximumNewTopics: remaining,
+              inboxTopicId,
+            });
+          } else {
+            filingDecision = "inbox_cap";
+          }
         }
       } catch (error) {
         if (error instanceof MemoryRepositoryError && error.code === "memory_corrupt") throw error;
@@ -1179,8 +1208,9 @@ export class AutomaticMemoryDistillationWorkflow {
         topicId,
         filingSource,
         confidence: proposal.filingConfidence,
-        reason: automaticFilingReason(filingDecision, proposal.topicPath),
+        reason: infallibleAutomaticFilingReason(filingDecision, proposal.topicPath),
       }),
+      ...(automaticFiling === undefined ? {} : { automaticFiling }),
     });
   }
 

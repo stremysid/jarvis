@@ -29,6 +29,7 @@ import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
 import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
+  AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING,
   AutomaticMemoryDistillationWorkflow,
 } from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
@@ -509,6 +510,7 @@ async function distilMemory(
     }
     if (step > 0
       && chargedD1Statements + AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements + providerD1Ceiling
+        + AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING
         > MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE) {
       stoppedByD1Allowance = true;
       break;
@@ -531,7 +533,13 @@ async function distilMemory(
     }
   }
   if (lastResult === null) throw new Error("memory_distillation_step_missing");
-  const inboxRefiling = await workflow.refileInboxItems();
+  const canRefile = chargedD1Statements + AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING
+    <= MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE;
+  const inboxRefiling = canRefile
+    ? await workflow.refileInboxItems()
+    : Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
+  if (canRefile) chargedD1Statements += AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING;
+  else stoppedByD1Allowance = true;
   const backlogUnit = lastResult.backlogEventCount === 1 ? "event" : "events";
   const eligibleUnit = lastResult.eligibleBacklogEventCount === 1 ? "eligible event" : "eligible events";
   const eligibleQualifier = lastResult.eligibleBacklogIsLowerBound ? "at least " : "";

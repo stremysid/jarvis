@@ -87,6 +87,16 @@ export interface CommitInitialMemoryInput {
     confidence: number;
     reason: string;
   }>;
+  /**
+   * A high-confidence model path that is still missing from the topic tree.
+   * The repository resolves or creates it in the item's own D1 batch so a
+   * failed item commit cannot leave empty model-created areas behind.
+   */
+  readonly automaticFiling?: Readonly<{
+    topicPath: readonly string[];
+    maximumNewTopics: number;
+    inboxTopicId: Ulid;
+  }>;
 }
 
 export interface CanonicalMemorySource {
@@ -155,6 +165,7 @@ export interface CanonicalMemoryItem {
 export interface CommitInitialMemoryResult {
   readonly item: CanonicalMemoryItem;
   readonly replayed: boolean;
+  readonly automaticFilingCreatedTopicCount?: number;
 }
 
 export interface BootstrapMemoryTopicsResult {

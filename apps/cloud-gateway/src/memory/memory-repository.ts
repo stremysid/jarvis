@@ -353,6 +353,11 @@ interface CapturedInput {
     confidence: number;
     reason: string;
   }>;
+  readonly automaticFiling: Readonly<{
+    topicPath: readonly string[];
+    maximumNewTopics: number;
+    inboxTopicId: Ulid;
+  }> | null;
 }
 
 interface ValidatedTopic {
@@ -377,6 +382,8 @@ const INBOX_BOOTSTRAP_REASON = "bootstrap explicit low-confidence inbox";
 const AUTOMATIC_TOPIC_DEPTH_LIMIT = 4;
 const AUTOMATIC_TOPIC_CHILD_LIMIT = 40;
 const AUTOMATIC_INBOX_REFILE_LIMIT = 10;
+const AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT = 100;
+const AUTOMATIC_TOPIC_COMPONENT_BYTES = 64;
 const AUTOMATIC_FILING_REASON_PREFIX = "automatic filing v1 ";
 const AUTOMATIC_FILING_EVIDENCE = "verified item sources";
 const repositoryTestSeams = new WeakMap<MemoryRepository, Readonly<{
@@ -550,6 +557,16 @@ function normalizedTopicName(displayName: string): string {
   return displayName.normalize("NFC").toLocaleLowerCase("en-US");
 }
 
+interface AutomaticCommitPlan {
+  readonly input: CapturedInput;
+  readonly topicStatements: readonly D1PreparedStatement[];
+  readonly createdTopicCount: number;
+}
+
+function foldedTopicName(displayName: string): string {
+  return displayName.normalize("NFKC").toLocaleLowerCase("en-US");
+}
+
 function payloadContainsExactExcerpt(payload: JsonValue, excerpt: string): boolean {
   const pending: Array<{ readonly value: JsonValue; readonly depth: number }> = [{ value: payload, depth: 0 }];
   let visited = 0;
@@ -588,34 +605,85 @@ function topicComponent(value: unknown): { readonly display: string; readonly no
   return { display, normalized: normalizedTopicName(display) };
 }
 
+/** The stricter boundary shared by model-proposed automatic filing paths. */
+export function normalizeAutomaticTopicPath(
+  value: unknown,
+  rootDisplayName = MEMORY_ROOT_DISPLAY_NAME,
+  inboxDisplayName = MEMORY_INBOX_DISPLAY_NAME,
+): readonly string[] | null {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length < 1 || value.length > AUTOMATIC_TOPIC_DEPTH_LIMIT + 1) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) return null;
+  let components: Array<{ readonly display: string; readonly normalized: string }>;
+  try {
+    components = value.map(topicComponent);
+  } catch {
+    return null;
+  }
+  const rootNames = new Set([
+    foldedTopicName(MEMORY_ROOT_DISPLAY_NAME),
+    foldedTopicName(rootDisplayName),
+  ]);
+  if (components[0] !== undefined && rootNames.has(foldedTopicName(components[0].display))) {
+    components = components.slice(1);
+  }
+  if (components.length < 1 || components.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) return null;
+  const inboxNames = new Set([
+    foldedTopicName(MEMORY_INBOX_DISPLAY_NAME),
+    foldedTopicName(inboxDisplayName),
+  ]);
+  for (const component of components) {
+    if (utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
+      || /[>/]/u.test(component.display)
+      || /\p{Cf}/u.test(component.display)
+      || /[\u2028\u2029]/u.test(component.display)
+      || inboxNames.has(foldedTopicName(component.display))) return null;
+  }
+  return Object.freeze(components.map((component) => component.display));
+}
+
 export type AutomaticFilingDecision =
   | "filed_current"
   | "filed_alias"
   | "filed_created"
   | "inbox_cap"
   | "inbox_filing_failure"
+  | "inbox_invalid_path"
   | "inbox_low_confidence"
   | "inbox_proposed"
   | "refiled_exact";
 
 export function automaticFilingReason(
   decision: AutomaticFilingDecision,
-  pathInput: readonly string[],
+  pathInput?: readonly string[],
 ): string {
-  if (!Array.isArray(pathInput) || pathInput.length < 1
-    || pathInput.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) refuse();
-  const topicPath = pathInput.map((part) => topicComponent(part).display);
-  const reason = `${AUTOMATIC_FILING_REASON_PREFIX}${JSON.stringify({
-    decision,
-    topicPath,
-    evidence: AUTOMATIC_FILING_EVIDENCE,
-  })}`;
+  let topicPath: readonly string[] | undefined;
+  if (pathInput !== undefined) {
+    if (!Array.isArray(pathInput) || pathInput.length < 1
+      || pathInput.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) refuse();
+    topicPath = pathInput.map((part) => topicComponent(part).display);
+  }
+  const reason = `${AUTOMATIC_FILING_REASON_PREFIX}${JSON.stringify(topicPath === undefined
+    ? { decision, evidence: AUTOMATIC_FILING_EVIDENCE }
+    : { decision, topicPath, evidence: AUTOMATIC_FILING_EVIDENCE })}`;
   return safeInputText(reason, 512);
 }
 
-function parseAutomaticFilingReason(value: unknown): Readonly<{
+function safeAutomaticFilingReason(
+  decision: AutomaticFilingDecision,
+  topicPath?: readonly string[],
+): string {
+  try {
+    return automaticFilingReason(decision, topicPath);
+  } catch {
+    return automaticFilingReason("inbox_invalid_path");
+  }
+}
+
+function parseAutomaticFilingEnvelope(value: unknown): Readonly<{
   decision: AutomaticFilingDecision;
-  topicPath: readonly string[];
+  topicPath: readonly string[] | null;
 }> | null {
   if (typeof value !== "string" || !value.startsWith(AUTOMATIC_FILING_REASON_PREFIX)) return null;
   let decoded: unknown;
@@ -627,23 +695,52 @@ function parseAutomaticFilingReason(value: unknown): Readonly<{
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)
     || Object.getPrototypeOf(decoded) !== Object.prototype) return null;
   const fields = Object.keys(decoded);
-  if (fields.length !== 3
+  if ((fields.length !== 2 && fields.length !== 3)
     || fields.some((field) => !new Set(["decision", "topicPath", "evidence"]).has(field))) return null;
   const record = decoded as Record<string, unknown>;
-  if (record.decision !== "inbox_cap" && record.decision !== "inbox_filing_failure"
-    || record.evidence !== AUTOMATIC_FILING_EVIDENCE
-    || !Array.isArray(record.topicPath)
-    || record.topicPath.length < 1 || record.topicPath.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) return null;
-  let topicPath: string[];
-  try {
-    topicPath = record.topicPath.map((part) => topicComponent(part).display);
-  } catch {
-    return null;
+  const decisions = new Set<AutomaticFilingDecision>([
+    "filed_current", "filed_alias", "filed_created", "inbox_cap",
+    "inbox_filing_failure", "inbox_invalid_path", "inbox_low_confidence",
+    "inbox_proposed", "refiled_exact",
+  ]);
+  if (typeof record.decision !== "string"
+    || !decisions.has(record.decision as AutomaticFilingDecision)
+    || record.evidence !== AUTOMATIC_FILING_EVIDENCE) return null;
+  let topicPath: string[] | null = null;
+  if (Object.hasOwn(record, "topicPath")) {
+    if (!Array.isArray(record.topicPath)
+      || record.topicPath.length < 1 || record.topicPath.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) return null;
+    try {
+      topicPath = record.topicPath.map((part) => topicComponent(part).display);
+    } catch {
+      return null;
+    }
   }
   return Object.freeze({
-    decision: record.decision,
-    topicPath: Object.freeze(topicPath),
+    decision: record.decision as AutomaticFilingDecision,
+    topicPath: topicPath === null ? null : Object.freeze(topicPath),
   });
+}
+
+function parseAutomaticFilingReason(value: unknown): Readonly<{
+  decision: "inbox_cap" | "inbox_filing_failure";
+  topicPath: readonly string[];
+}> | null {
+  const parsed = parseAutomaticFilingEnvelope(value);
+  if (parsed === null || parsed.topicPath === null
+    || parsed.decision !== "inbox_cap" && parsed.decision !== "inbox_filing_failure") return null;
+  return Object.freeze({ decision: parsed.decision, topicPath: parsed.topicPath });
+}
+
+function equivalentAutomaticFilingReason(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  const parsedLeft = parseAutomaticFilingEnvelope(left);
+  const parsedRight = parseAutomaticFilingEnvelope(right);
+  if (parsedLeft === null || parsedRight === null
+    || parsedLeft.topicPath === null || parsedRight.topicPath === null
+    || canonicalJson(parsedLeft.topicPath) !== canonicalJson(parsedRight.topicPath)) return false;
+  const filed = new Set<AutomaticFilingDecision>(["filed_current", "filed_alias", "filed_created"]);
+  return filed.has(parsedLeft.decision) && filed.has(parsedRight.decision);
 }
 
 function isConstraintRefusal(error: unknown): boolean {
@@ -736,6 +833,25 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
   const filingSource = inputEnum(input.placement.filingSource, new Set(["rule", "model"] as const));
   if (!Number.isFinite(input.placement.confidence)
     || input.placement.confidence < 0 || input.placement.confidence > 1) refuse();
+  let automaticFiling: CapturedInput["automaticFiling"] = null;
+  if (input.automaticFiling !== undefined) {
+    if (input.automaticFiling === null || typeof input.automaticFiling !== "object"
+      || Array.isArray(input.automaticFiling)
+      || Reflect.ownKeys(input.automaticFiling).length !== 3
+      || !Reflect.ownKeys(input.automaticFiling).every((key) =>
+        key === "topicPath" || key === "maximumNewTopics" || key === "inboxTopicId")) refuse();
+    const topicPath = normalizeAutomaticTopicPath(input.automaticFiling.topicPath);
+    if (topicPath === null) refuse();
+    const inboxTopicId = inputUlid(input.automaticFiling.inboxTopicId);
+    if (input.placement.topicId !== inboxTopicId || filingSource !== "rule"
+      || input.transition.lifecycleState !== "active" || input.version.uncertain
+      || input.placement.confidence < 0.6) refuse();
+    automaticFiling = Object.freeze({
+      topicPath,
+      maximumNewTopics: inputInteger(input.automaticFiling.maximumNewTopics, 0, 6),
+      inboxTopicId,
+    });
+  }
   return Object.freeze({
     principalId,
     itemId: inputUlid(input.itemId),
@@ -773,7 +889,15 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
       confidence: input.placement.confidence,
       reason: safeInputText(input.placement.reason, 512),
     }),
+    automaticFiling,
   });
+}
+
+function withCapturedPlacement(
+  input: CapturedInput,
+  placement: CapturedInput["placement"],
+): CapturedInput {
+  return Object.freeze({ ...input, placement: Object.freeze({ ...placement }) });
 }
 
 export class MemoryRepository {
@@ -872,25 +996,33 @@ export class MemoryRepository {
       const captured = captureInput(input);
       await this.validateHashes(captured);
       await this.requireActivePrincipal(captured.principalId);
-      const replay = await this.inspectReplay(captured);
+      let plan = await this.prepareAutomaticCommit(captured);
+      const replay = await this.inspectReplay(plan.input);
       if (replay === "exact") {
-        return { item: await this.readCurrentItemInternal(captured.principalId, captured.itemId), replayed: true };
+        return {
+          item: await this.readCurrentItemInternal(captured.principalId, captured.itemId),
+          replayed: true,
+          ...(captured.automaticFiling === null ? {} : { automaticFilingCreatedTopicCount: 0 }),
+        };
       }
       if (replay === "conflict") refuse();
 
       let lastError: unknown;
       for (let attempt = 1; attempt <= this.maximumWriteAttempts; attempt += 1) {
+        if (attempt > 1) plan = await this.prepareAutomaticCommit(captured);
         await this.validateSourceReceipts(captured);
-        await this.requireActiveTopic(captured.principalId, captured.placement.topicId);
+        if (plan.topicStatements.length === 0) {
+          await this.requireActiveTopic(captured.principalId, plan.input.placement.topicId);
+        }
         const createdAt = this.freshNow().toISOString();
         const transitionAt = this.freshNow().toISOString();
         const placementAt = this.freshNow().toISOString();
-        const statements = this.initialItemStatements(
-          captured,
+        const statements = [...plan.topicStatements, ...this.initialItemStatements(
+          plan.input,
           createdAt,
           transitionAt,
           placementAt,
-        );
+        )];
         const fault = repositoryTestSeams.get(this)?.batchFault("commit", attempt) ?? null;
         if (fault !== null) statements.push(fault);
         try {
@@ -899,14 +1031,20 @@ export class MemoryRepository {
           return {
             item: await this.readCurrentItemInternal(captured.principalId, captured.itemId),
             replayed: false,
+            ...(captured.automaticFiling === null
+              ? {}
+              : { automaticFilingCreatedTopicCount: plan.createdTopicCount }),
           };
         } catch (error) {
           lastError = error;
-          const afterFailure = await this.inspectReplay(captured);
+          const afterFailure = await this.inspectReplay(plan.input);
           if (afterFailure === "exact") {
             return {
               item: await this.readCurrentItemInternal(captured.principalId, captured.itemId),
               replayed: true,
+              ...(captured.automaticFiling === null
+                ? {}
+                : { automaticFilingCreatedTopicCount: plan.createdTopicCount }),
             };
           }
           if (afterFailure === "conflict") refuse();
@@ -1130,15 +1268,29 @@ export class MemoryRepository {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
       if (!Array.isArray(pathInput) || pathInput.length < 1 || pathInput.length > 64) refuse();
-      const components = pathInput.map(topicComponent);
       if (!Number.isSafeInteger(maximumNewTopicsInput)
         || maximumNewTopicsInput < 0 || maximumNewTopicsInput > 6) refuse();
-      if (components.length > AUTOMATIC_TOPIC_DEPTH_LIMIT) {
-        return Object.freeze({ topic: null, createdTopicCount: 0, cappedBy: "depth" as const });
-      }
       await this.requireActivePrincipal(principalId);
       const bootstrapped = await this.readBootstrapTopics(principalId);
       if (bootstrapped === null) refuse();
+      const normalizedPath = normalizeAutomaticTopicPath(
+        pathInput,
+        bootstrapped.root.displayName,
+        bootstrapped.inbox.displayName,
+      );
+      if (normalizedPath === null) {
+        const first = pathInput[0];
+        const leadingRoot = typeof first === "string"
+          && new Set([
+            foldedTopicName(MEMORY_ROOT_DISPLAY_NAME),
+            foldedTopicName(bootstrapped.root.displayName),
+          ]).has(foldedTopicName(first.normalize("NFC").trim()));
+        if (pathInput.length - (leadingRoot ? 1 : 0) > AUTOMATIC_TOPIC_DEPTH_LIMIT) {
+          return Object.freeze({ topic: null, createdTopicCount: 0, cappedBy: "depth" as const });
+        }
+        refuse();
+      }
+      const components = normalizedPath.map(topicComponent);
 
       let lastError: unknown;
       for (let attempt = 1; attempt <= this.maximumWriteAttempts; attempt += 1) {
@@ -1248,18 +1400,22 @@ export class MemoryRepository {
           AND placement.relation = 'primary' AND placement.status = 'active'
           AND state.lifecycle_state = 'active' AND version.uncertain = 0
           AND event.confidence >= 0.6
-          AND event.reason LIKE ?
+          AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
         ORDER BY placement.updated_at ASC, placement.item_id ASC
         LIMIT ?`).bind(
           principalId,
           bootstrapped.inbox.topicId,
-          `${AUTOMATIC_FILING_REASON_PREFIX}%`,
-          AUTOMATIC_INBOX_REFILE_LIMIT,
+          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
+          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
+          AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT,
         )
         .all<InboxRefilingRow>();
+      let examinedItemCount = 0;
       let refiledItemCount = 0;
       let failedItemCount = 0;
       for (const row of rows.results) {
+        if (refiledItemCount >= AUTOMATIC_INBOX_REFILE_LIMIT) break;
+        examinedItemCount += 1;
         exactRow(row, new Set([
           "placement_id", "item_id", "last_placement_event_number", "confidence", "reason",
         ]));
@@ -1269,7 +1425,13 @@ export class MemoryRepository {
         const confidence = this.rowConfidence(row.confidence);
         const reason = parseAutomaticFilingReason(row.reason);
         if (reason === null) continue;
-        const components = reason.topicPath.map(topicComponent);
+        const normalizedPath = normalizeAutomaticTopicPath(
+          reason.topicPath,
+          bootstrapped.root.displayName,
+          bootstrapped.inbox.displayName,
+        );
+        if (normalizedPath === null) continue;
+        const components = normalizedPath.map(topicComponent);
         const target = await this.resolveAutomaticPath(
           principalId,
           bootstrapped.root.topicId,
@@ -1295,7 +1457,7 @@ export class MemoryRepository {
               bootstrapped.inbox.topicId,
               target.topicId,
               confidence,
-              automaticFilingReason("refiled_exact", reason.topicPath),
+              safeAutomaticFilingReason("refiled_exact", normalizedPath),
               occurredAt,
             ).run();
           refiledItemCount += 1;
@@ -1311,7 +1473,7 @@ export class MemoryRepository {
         }
       }
       return Object.freeze({
-        examinedItemCount: rows.results.length,
+        examinedItemCount,
         refiledItemCount,
         failedItemCount,
       });
@@ -1849,15 +2011,16 @@ export class MemoryRepository {
       display_name, normalized_name, status, redirect_to_topic_id, last_topic_event_id,
       created_at, updated_at FROM memory_topics
       WHERE principal_id = ? AND parent_topic_id = ?
-        AND normalized_name = ? AND status = 'active'`)
-      .bind(principalId, parentTopicId, normalizedName).all<TopicRow>();
-    if (result.results.length > 1) corrupt();
-    const row = result.results[0];
-    if (row === undefined) return null;
-    const topic = validateTopicRow(row, principalId);
-    if (topic.parentTopicId !== parentTopicId || topic.normalizedName !== normalizedName
-      || topic.status !== "active") corrupt();
-    return topic;
+        AND status = 'active'
+      ORDER BY created_at ASC, topic_id ASC`)
+      .bind(principalId, parentTopicId).all<TopicRow>();
+    const topics = result.results.map((row) => validateTopicRow(row, principalId));
+    if (topics.some((topic) => topic.parentTopicId !== parentTopicId || topic.status !== "active")) corrupt();
+    const exact = topics.filter((topic) => topic.normalizedName === normalizedName);
+    if (exact.length > 1) corrupt();
+    if (exact[0] !== undefined) return exact[0];
+    const folded = foldedTopicName(normalizedName);
+    return topics.find((topic) => foldedTopicName(topic.displayName) === folded) ?? null;
   }
 
   private async readNewestActiveSiblingAlias(
@@ -2054,6 +2217,100 @@ export class MemoryRepository {
     const state = await this.readBootstrapState(principalId);
     if (state.root === null || state.inbox === null) return null;
     return Object.freeze({ root: topicEntry(state.root), inbox: topicEntry(state.inbox) });
+  }
+
+  private async prepareAutomaticCommit(input: CapturedInput): Promise<AutomaticCommitPlan> {
+    const automatic = input.automaticFiling;
+    if (automatic === null) {
+      return Object.freeze({ input, topicStatements: Object.freeze([]), createdTopicCount: 0 });
+    }
+    const bootstrapped = await this.readBootstrapTopics(input.principalId);
+    if (bootstrapped === null || bootstrapped.inbox.topicId !== automatic.inboxTopicId) refuse();
+    const topicPath = normalizeAutomaticTopicPath(
+      automatic.topicPath,
+      bootstrapped.root.displayName,
+      bootstrapped.inbox.displayName,
+    );
+    const inboxPlan = (
+      decision: "inbox_cap" | "inbox_filing_failure" | "inbox_invalid_path",
+      includePath: boolean,
+    ): AutomaticCommitPlan => Object.freeze({
+      input: withCapturedPlacement(input, {
+        ...input.placement,
+        topicId: automatic.inboxTopicId,
+        filingSource: "rule",
+        reason: safeAutomaticFilingReason(decision, includePath && topicPath !== null ? topicPath : undefined),
+      }),
+      topicStatements: Object.freeze([]),
+      createdTopicCount: 0,
+    });
+    if (topicPath === null) return inboxPlan("inbox_invalid_path", false);
+    const components = topicPath.map(topicComponent);
+    let resolved: Awaited<ReturnType<MemoryRepository["resolveAutomaticPath"]>>;
+    try {
+      resolved = await this.resolveAutomaticPath(
+        input.principalId,
+        bootstrapped.root.topicId,
+        components,
+        true,
+      );
+    } catch (error) {
+      if (error instanceof MemoryRepositoryError && error.code === "memory_corrupt") throw error;
+      return inboxPlan("inbox_filing_failure", true);
+    }
+    if (resolved.missingIndex === components.length) {
+      if (resolved.topicId === automatic.inboxTopicId) return inboxPlan("inbox_invalid_path", false);
+      const decision: AutomaticFilingDecision = resolved.matchedAlias ? "filed_alias" : "filed_current";
+      return Object.freeze({
+        input: withCapturedPlacement(input, {
+          ...input.placement,
+          topicId: resolved.topicId,
+          filingSource: "model",
+          reason: safeAutomaticFilingReason(decision, topicPath),
+        }),
+        topicStatements: Object.freeze([]),
+        createdTopicCount: 0,
+      });
+    }
+    const missingCount = components.length - resolved.missingIndex;
+    if (missingCount > automatic.maximumNewTopics) return inboxPlan("inbox_cap", true);
+    try {
+      if (await this.activeChildCount(input.principalId, resolved.topicId) >= AUTOMATIC_TOPIC_CHILD_LIMIT) {
+        return inboxPlan("inbox_cap", true);
+      }
+    } catch (error) {
+      if (error instanceof MemoryRepositoryError && error.code === "memory_corrupt") throw error;
+      return inboxPlan("inbox_filing_failure", true);
+    }
+
+    const topicStatements: D1PreparedStatement[] = [];
+    let parentTopicId = resolved.topicId;
+    let finalTopicId = resolved.topicId;
+    for (const component of components.slice(resolved.missingIndex)) {
+      const now = this.freshNow();
+      const topicId = inputUlid(this.idFactory(now));
+      topicStatements.push(this.createAutomaticTopicStatement(
+        input.principalId,
+        topicId,
+        parentTopicId,
+        component.display,
+        inputUlid(this.idFactory(now)),
+        now.toISOString(),
+        "model-inference automatic filing path",
+      ));
+      parentTopicId = topicId;
+      finalTopicId = topicId;
+    }
+    return Object.freeze({
+      input: withCapturedPlacement(input, {
+        ...input.placement,
+        topicId: finalTopicId,
+        filingSource: "model",
+        reason: safeAutomaticFilingReason("filed_created", topicPath),
+      }),
+      topicStatements: Object.freeze(topicStatements),
+      createdTopicCount: missingCount,
+    });
   }
 
   private async validateHashes(input: CapturedInput): Promise<void> {
@@ -2407,7 +2664,7 @@ export class MemoryRepository {
       || placement.new_topic_id !== input.placement.topicId || placement.relation !== "primary"
       || placement.filing_source !== input.placement.filingSource
       || placement.confidence !== input.placement.confidence
-      || placement.reason !== input.placement.reason
+      || !equivalentAutomaticFilingReason(placement.reason, input.placement.reason)
       || placement.owner_authorizing_event_id !== null) return "conflict";
     const sorted = [...sources.results].sort((left, right) =>
       Number(left.source_position) - Number(right.source_position));

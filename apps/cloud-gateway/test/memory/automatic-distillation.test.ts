@@ -20,11 +20,13 @@ import {
 } from "../../src/memory/automatic-distillation.js";
 import {
   automaticFilingReason,
+  createMemoryRepositoryForTest,
   MemoryRepository,
+  type AutomaticFilingDecision,
 } from "../../src/memory/memory-repository.js";
 import { MemoryExtractionFailure } from "../../src/memory/memory-extraction-budget.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
-import type { CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
+import { MemoryRepositoryError, type CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
 import {
   EventRepository,
   type AppendedEvent,
@@ -294,6 +296,102 @@ async function storedItem(principalId: string): Promise<{
   return row;
 }
 
+async function itemCount(principalId: string): Promise<number> {
+  return await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
+    .bind(principalId).first<number>("count") ?? -1;
+}
+
+async function placementDetail(principalId: string, itemId?: Ulid): Promise<{
+  topic_id: Ulid;
+  display_name: string;
+  confidence: number;
+  reason: string;
+}> {
+  const row = await env.DB.prepare(`SELECT placement.topic_id, topic.display_name,
+      event.confidence, event.reason
+    FROM memory_item_placement_state placement
+    JOIN memory_item_placement_events event
+      ON event.principal_id = placement.principal_id
+      AND event.placement_id = placement.placement_id
+      AND event.placement_event_number = placement.last_placement_event_number
+    JOIN memory_topics topic
+      ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+    WHERE placement.principal_id = ? AND (? IS NULL OR placement.item_id = ?)
+      AND placement.relation = 'primary' AND placement.status = 'active'
+    ORDER BY placement.updated_at DESC LIMIT 1`).bind(principalId, itemId ?? null, itemId ?? null)
+    .first<{ topic_id: Ulid; display_name: string; confidence: number; reason: string }>();
+  if (row === null) throw new Error("automatic_distillation_placement_missing");
+  return row;
+}
+
+async function commitInboxItem(
+  repository: MemoryRepository,
+  events: EventRepository,
+  principalId: string,
+  inboxTopicId: Ulid,
+  text: string,
+  decision: AutomaticFilingDecision,
+  topicPath: readonly string[],
+  lifecycle: "active" | "proposed" = "active",
+  confidence = 0.9,
+): Promise<Ulid> {
+  const event = await appendConversation(
+    events,
+    principalId,
+    text,
+    lifecycle === "active" ? { directOwnerText: true } : {},
+  );
+  const itemId = newUlid();
+  await repository.commitInitialItem(Object.freeze({
+    principalId,
+    itemId,
+    kind: "fact" as const,
+    creationEventId: event.envelope.eventId,
+    creationEventSequence: event.eventSequence,
+    version: Object.freeze({
+      versionId: newUlid(),
+      text,
+      textHash: await sha256Hex(text),
+      basis: lifecycle === "active" ? "stated" as const : "inferred" as const,
+      origin: lifecycle === "active" ? "authenticated_first_person" as const : "model" as const,
+      uncertain: lifecycle !== "active",
+      sensitivity: "normal" as const,
+      validFrom: null,
+      validTo: null,
+      extractorVersion: "automatic-distillation-v1",
+      extractorModelId: lifecycle === "active" ? null : MODEL_ID,
+    }),
+    sources: Object.freeze([Object.freeze({
+      sourceId: newUlid(),
+      eventId: event.envelope.eventId,
+      eventSequence: event.eventSequence,
+      sourceLocation: "live" as const,
+      r2SegmentId: null,
+      excerpt: text,
+      excerptHash: await sha256Hex(text),
+      channel: "telegram" as const,
+      occurredAt: event.envelope.occurredAt,
+    })]),
+    transition: Object.freeze({
+      transitionId: newUlid(),
+      lifecycleState: lifecycle,
+      reason: lifecycle === "active"
+        ? "exact authenticated first-person evidence"
+        : "model inference awaits owner confirmation",
+      policyVersion: "automatic-distillation-v1",
+    }),
+    placement: Object.freeze({
+      placementId: newUlid(),
+      placementEventId: newUlid(),
+      topicId: inboxTopicId,
+      filingSource: "rule" as const,
+      confidence,
+      reason: automaticFilingReason(decision, topicPath),
+    }),
+  }));
+  return itemId;
+}
+
 beforeAll(async () => {
   await applyMemoryDistillationMigration();
 });
@@ -347,7 +445,7 @@ describe("automatic memory distillation", () => {
     const example = JSON.parse(MEMORY_EXTRACTION_JSON_EXAMPLE) as {
       proposals: Array<Record<string, unknown>>;
     };
-    expect(schema.properties.proposals.items.required).toEqual(expect.arrayContaining([
+    expect(schema.properties.proposals.items.required).not.toEqual(expect.arrayContaining([
       "topicPath",
       "filingConfidence",
     ]));
@@ -446,6 +544,148 @@ describe("automatic memory distillation", () => {
     });
   });
 
+  it("keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid", async () => {
+    const cases: readonly (readonly string[])[] = [
+      ["One", "Two", "Three", "Four", "Five"],
+      ["界".repeat(22)],
+      ["Ticket 482913"],
+      ["School", "Unit\u20282"],
+      ["School > Chemistry"],
+      ["School\u200b"],
+    ];
+    for (const [index, topicPath] of cases.entries()) {
+      const principalId = await principal();
+      const events = new EventRepository(env.DB);
+      const text = `I kept invalid filing example ${index}.`;
+      const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+      const provider = new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, topicPath, 0.9)],
+      });
+
+      const result = await workflow(principalId, provider).runNext({ runKey: `invalid-path:${newUlid()}` });
+      const placement = await placementDetail(principalId);
+
+      expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+      expect(placement.display_name).toBe("Inbox / Needs filing");
+      expect(placement.reason).toContain('"decision":"inbox_invalid_path"');
+      expect(placement.reason).not.toContain("topicPath");
+      expect(placement.reason).not.toContain(topicPath.join("/"));
+    }
+  });
+
+  it("treats a missing or out-of-range filingConfidence as zero without rejecting the fact", async () => {
+    for (const filingConfidence of [undefined, -0.01, 1.01, "invalid"] as const) {
+      const principalId = await principal();
+      const events = new EventRepository(env.DB);
+      const text = `I kept confidence case ${String(filingConfidence)}.`;
+      const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+      const raw = { ...proposal(event, text, text, 0.95, ["Personal"], 0.9) } as Record<string, unknown>;
+      if (filingConfidence === undefined) delete raw.filingConfidence;
+      else raw.filingConfidence = filingConfidence;
+
+      const result = await workflow(principalId, new FakeModelProvider({ completeJson: [raw] }))
+        .runNext({ runKey: `invalid-filing-confidence:${newUlid()}` });
+      const placement = await placementDetail(principalId);
+
+      expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+      expect(placement).toMatchObject({ display_name: "Inbox / Needs filing", confidence: 0 });
+      expect(placement.reason).toContain('"decision":"inbox_low_confidence"');
+    }
+  });
+
+  it("bounds the encoded topic path so quote-heavy names cannot throw while building the filing reason", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I recorded the quote-heavy filing case.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const quoted = '"'.repeat(64);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, [quoted, quoted, quoted], 0.9)],
+    });
+
+    const result = await workflow(principalId, provider).runNext({ runKey: `bounded-path:${newUlid()}` });
+
+    expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+    expect(await placementDetail(principalId)).toMatchObject({ display_name: "Inbox / Needs filing" });
+  });
+
+  it("advances past a proposed fact whose invalid path contains a newline", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "Mum says the reunion is in July.";
+    const event = await appendConversation(events, principalId, text);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["Family", "Reunion\nJuly"], 0.9)],
+    });
+    const distillation = workflow(principalId, provider);
+
+    const first = await distillation.runNext({ runKey: `invalid-control-a:${newUlid()}` });
+    const second = await distillation.runNext({ runKey: `invalid-control-b:${newUlid()}` });
+
+    expect([first.outcome, second.outcome]).toEqual(["succeeded", "nothing_new"]);
+    expect(second.cursorEventSequence).toBe(event.eventSequence);
+    expect(provider.requests).toHaveLength(1);
+    expect(await itemCount(principalId)).toBe(1);
+  });
+
+  it("rethrows memory_corrupt from topic resolution instead of hiding repository corruption", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I recorded a corruption guard fact.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const canonical = new MemoryRepository(env.DB);
+    let commitCalls = 0;
+    const repository = {
+      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
+      commitInitialItem: (input: CommitInitialMemoryInput) => {
+        commitCalls += 1;
+        return canonical.commitInitialItem(input);
+      },
+      resolveOrCreateAutomaticTopicPath: async (): Promise<never> => {
+        throw new MemoryRepositoryError("memory_corrupt");
+      },
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
+    };
+
+    const result = await workflow(
+      principalId,
+      new FakeModelProvider({ completeJson: [proposal(event, text)] }),
+      repository,
+    ).runNext({ runKey: `corrupt-filing:${newUlid()}` });
+
+    expect(result).toMatchObject({ outcome: "failed", failureCode: "distillation_step_failed" });
+    expect(commitCalls).toBe(0);
+    expect(await itemCount(principalId)).toBe(0);
+  });
+
+  it("does not leave model-created topics when the atomic item commit fails", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I signed up for the physics olympiad.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const canonical = new MemoryRepository(env.DB);
+    const repository = {
+      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
+      commitInitialItem: async (): Promise<never> => { throw new Error("fixture_commit_unavailable"); },
+      resolveOrCreateAutomaticTopicPath: (id: string, path: readonly string[], maximum: number) =>
+        canonical.resolveOrCreateAutomaticTopicPath(id, path, maximum),
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
+    };
+
+    const result = await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["School", "Physics", "Olympiad"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `atomic-filing-failure:${newUlid()}` });
+
+    expect(result.outcome).toBe("failed");
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topic_events
+      WHERE principal_id = ? AND reason = 'model-inference automatic filing path'`)
+      .bind(principalId).first("count")).toBe(0);
+  });
+
   it("files into an existing path by normalized sibling names without creating duplicates", async () => {
     const principalId = await principal();
     const repository = new MemoryRepository(env.DB);
@@ -471,6 +711,56 @@ describe("automatic memory distillation", () => {
     ]);
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
       .bind(principalId).first("count")).toBe(4);
+  });
+
+  it("drops a leading Memory root and NFKC-folds a full-width sibling name", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_school_missing");
+    const events = new EventRepository(env.DB);
+    const text = "I joined the debate club.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["Memory", "ＳＣＨＯＯＬ"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `nfkc-root:${newUlid()}` });
+
+    const placement = await placementDetail(principalId);
+    expect(placement.topic_id).toBe(school.topic.topicId);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND parent_topic_id = ? AND status = 'active'`)
+      .bind(principalId, school.topic.path[0]?.topicId).first("count")).toBe(2);
+  });
+
+  it("never creates or files beneath the Inbox from a model path", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const events = new EventRepository(env.DB);
+    const text = "I dissected a frog in biology.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["Inbox / Needs filing", "Biology"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `inbox-target:${newUlid()}` });
+
+    expect(await placementDetail(principalId)).toMatchObject({
+      topic_id: topics.inbox.topicId,
+      display_name: "Inbox / Needs filing",
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND parent_topic_id = ? AND status = 'active'`)
+      .bind(principalId, topics.inbox.topicId).first("count")).toBe(0);
   });
 
   it("uses the newest sibling alias after active normalized names do not match", async () => {
@@ -715,6 +1005,39 @@ describe("automatic memory distillation", () => {
       WHERE principal_id = ? AND display_name = 'Overflow'`).bind(principalId).first("count")).toBe(0);
   });
 
+  it("keeps the conditional child-cap insert effective when a sibling wins the commit race", async () => {
+    const principalId = await principal();
+    const canonical = new MemoryRepository(env.DB);
+    await canonical.bootstrapTopics(principalId);
+    for (let index = 0; index < 38; index += 1) {
+      const created = await canonical.resolveOrCreateAutomaticTopicPath(principalId, [`Race area ${index}`], 1);
+      if (created.topic === null) throw new Error("automatic_distillation_race_fixture_failed");
+    }
+    const repository = createMemoryRepositoryForTest(env.DB, {
+      beforeBatch: async (operation, attempt) => {
+        if (operation === "commit" && attempt === 1) {
+          const winner = await canonical.resolveOrCreateAutomaticTopicPath(principalId, ["Race winner"], 1);
+          if (winner.topic === null) throw new Error("automatic_distillation_race_winner_missing");
+        }
+      },
+    });
+    const events = new EventRepository(env.DB);
+    const text = "I keep the raced overflow note.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({ completeJson: [proposal(event, text, text, 0.95, ["Overflow"], 0.9)] }),
+      repository,
+    ).runNext({ runKey: `topic-child-race:${newUlid()}` });
+
+    expect(await storedItem(principalId)).toMatchObject({ display_name: "Inbox / Needs filing" });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND display_name = 'Overflow'`).bind(principalId).first("count")).toBe(0);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND status = 'active'`).bind(principalId).first("count")).toBe(41);
+  });
+
   it("examines at most ten eligible inbox items in one refile step", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
@@ -785,6 +1108,103 @@ describe("automatic memory distillation", () => {
     });
   });
 
+  it("re-files a later resolvable candidate past ten older unmovable Inbox rows", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_refile_school_missing");
+    for (let index = 0; index < 10; index += 1) {
+      await commitInboxItem(
+        repository,
+        events,
+        principalId,
+        topics.inbox.topicId,
+        `I capped side note ${index}.`,
+        "inbox_cap",
+        [`Missing ${index}`],
+      );
+    }
+    const fileable = await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I capped the school note.",
+      "inbox_cap",
+      ["School"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toMatchObject({ refiledItemCount: 1, failedItemCount: 0 });
+    expect((await placementDetail(principalId, fileable)).topic_id).toBe(school.topic.topicId);
+  });
+
+  it("re-file skips proposed uncertain, low-confidence, and Inbox-target items in SQL and policy", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    const proposed = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "The owner may like school.", "inbox_cap", ["School"], "proposed",
+    );
+    const lowConfidence = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "I kept the low-confidence note.", "inbox_low_confidence", ["School"], "active", 0.4,
+    );
+    const inboxTarget = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "I kept the Inbox-target note.", "inbox_filing_failure", ["Inbox / Needs filing"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result.refiledItemCount).toBe(0);
+    for (const itemId of [proposed, lowConfidence, inboxTarget]) {
+      expect((await placementDetail(principalId, itemId)).topic_id).toBe(topics.inbox.topicId);
+    }
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
+      WHERE principal_id = ? AND operation = 'refile'`).bind(principalId).first("count")).toBe(0);
+  });
+
+  it("re-file matches current names exactly and never follows an alias", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const chemistry = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["School", "Chemistry"],
+      2,
+    );
+    if (chemistry.topic === null) throw new Error("automatic_distillation_refile_alias_missing");
+    await renameStoredTopic(
+      principalId,
+      chemistry.topic.topicId,
+      "Chemistry",
+      "Chem",
+      "Memory/School/Chemistry",
+    );
+    const itemId = await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I capped the chemistry note.",
+      "inbox_filing_failure",
+      ["School", "Chemistry"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toEqual({ examinedItemCount: 1, refiledItemCount: 0, failedItemCount: 0 });
+    expect((await placementDetail(principalId, itemId)).topic_id).toBe(topics.inbox.topicId);
+  });
+
   it("keeps a sentence extracted from a direct-marked multi-sentence message uncertain", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
@@ -810,7 +1230,12 @@ describe("automatic memory distillation", () => {
     const events = new EventRepository(env.DB);
     const sourceEvents: AppendedEvent[] = [];
     for (let index = 0; index < AUTOMATIC_DISTILLATION_STEP_LIMITS.eventsExamined; index += 1) {
-      sourceEvents.push(await appendConversation(events, principalId, `I recorded preference ${index}.`));
+      sourceEvents.push(await appendConversation(
+        events,
+        principalId,
+        `I recorded preference ${index}.`,
+        { directOwnerText: true },
+      ));
     }
     const provider = new FakeModelProvider({
       completeJson: sourceEvents.slice(0, AUTOMATIC_DISTILLATION_STEP_LIMITS.proposalsAccepted)
@@ -840,6 +1265,12 @@ describe("automatic memory distillation", () => {
       AUTOMATIC_DISTILLATION_STEP_LIMITS.eventsExamined,
       AUTOMATIC_DISTILLATION_STEP_LIMITS.proposalsAccepted,
     ));
+    expect(await env.DB.prepare(`SELECT count(*) AS count
+      FROM memory_item_placement_state placement
+      JOIN memory_topics topic
+        ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+      WHERE placement.principal_id = ? AND topic.display_name = 'Personal'`)
+      .bind(principalId).first("count")).toBe(result.createdItemCount);
     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1Statements);
     expect(result.budget.d1Statements).toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements);
   });

@@ -95,7 +95,6 @@ export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
         additionalProperties: false,
         required: [
           "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
-          "topicPath", "filingConfidence",
         ],
         properties: {
           text: { type: "string" },
@@ -118,7 +117,12 @@ export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
             type: "array",
             minItems: 1,
             maxItems: 4,
-            items: { type: "string", minLength: 1, maxLength: 64 },
+            items: {
+              type: "string",
+              minLength: 1,
+              maxLength: 64,
+              description: "One area name, no more than 64 UTF-8 bytes.",
+            },
           },
           filingConfidence: { type: "number", minimum: 0, maximum: 1 },
         },
