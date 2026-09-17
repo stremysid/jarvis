@@ -24,6 +24,11 @@ import {
   LiteralHistoryService,
   type LiteralHistoryHit,
 } from "./literal-history.js";
+import {
+  MEMORY_MEANING_BINDING_MISSING_CODE,
+  type MeaningSearchHit,
+  type MeaningSearchReader,
+} from "./meaning-search.js";
 import { MemoryRepository } from "./memory-repository.js";
 import {
   MemoryRepositoryError,
@@ -48,12 +53,18 @@ const MAX_REFERENCED_ITEMS = 8;
 const MAX_FORGOTTEN_ITEMS = 128;
 const DEFAULT_RETRIEVAL_TIMEOUT_MS = 800;
 const DEFAULT_BASE_RETRIEVAL_TIMEOUT_MS = 2_500;
+const DEFAULT_MEANING_SEARCH_TIMEOUT_MS = 450;
 const MAX_RETRIEVAL_TIMEOUT_MS = 5_000;
 const MAX_BASE_RETRIEVAL_TIMEOUT_MS = 10_000;
+const MAX_MEANING_SEARCH_TIMEOUT_MS = 450;
+const MAX_MEANING_RESULTS = 8;
+const RRF_RANK_CONSTANT = 60;
 const RETRIEVAL_FALLBACK_CODE = "telegram_memory_retrieval_fallback";
 const RETRIEVAL_MEMORY_TIMEOUT_CODE = "telegram_memory_retrieval_memory_timeout";
 const RETRIEVAL_BASE_TIMEOUT_CODE = "telegram_memory_retrieval_base_timeout";
 const RETRIEVAL_BASE_ERROR_CODE = "telegram_memory_retrieval_base_error";
+const MEANING_TIMEOUT_CODE = "memory_meaning_search_timeout";
+const MEANING_PROVIDER_ERROR_CODE = "memory_meaning_search_provider_error";
 const ASSISTANT_STAGE_EVENT_TYPE = "conversation.assistant_staged";
 const ASSISTANT_DELIVERED_EVENT_TYPE = "conversation.assistant_delivered";
 const ALL_MEMORY_STATES: readonly MemoryLifecycleState[] = Object.freeze([
@@ -123,10 +134,23 @@ export interface TelegramMemoryRetrieverOptions {
   readonly baseContext?: ContextRetriever;
   readonly retrievalTimeoutMs?: number;
   readonly baseRetrievalTimeoutMs?: number;
+  readonly meaningSearch?: MeaningSearchReader;
+  readonly meaningSearchTimeoutMs?: number;
+  readonly observeMeaningSearch?: (observation: TelegramMeaningSearchObservation) => void;
   readonly log?: (
     code: TelegramMemoryRetrievalLogCode,
     timings: TelegramMemoryRetrievalTimings,
   ) => void;
+}
+
+export type TelegramMeaningSearchFallbackCode =
+  | typeof MEMORY_MEANING_BINDING_MISSING_CODE
+  | typeof MEANING_TIMEOUT_CODE
+  | typeof MEANING_PROVIDER_ERROR_CODE;
+
+export interface TelegramMeaningSearchObservation {
+  readonly meaningSearchMs: number;
+  readonly fallbackCode: TelegramMeaningSearchFallbackCode | null;
 }
 
 export type TelegramMemoryRetrievalLogCode =
@@ -309,6 +333,26 @@ interface ItemStateRow {
   readonly lifecycle_state: unknown;
 }
 
+interface MeaningItemRow {
+  readonly item_id: unknown;
+}
+
+interface MeaningHistoryRow {
+  readonly chunk_id: unknown;
+  readonly text: unknown;
+  readonly content_hash: unknown;
+  readonly start_event_sequence: unknown;
+  readonly end_event_sequence: unknown;
+  readonly source_location: unknown;
+  readonly r2_segment_id: unknown;
+  readonly event_id: unknown;
+}
+
+interface RankedMemoryContext {
+  readonly key: string;
+  readonly context: RetrievedContext;
+}
+
 function controlFtsQuery(value: string): string | null {
   const terms: string[] = [];
   const seen = new Set<string>();
@@ -395,6 +439,53 @@ async function historyEvidence(hit: LiteralHistoryHit): Promise<string> {
   }
   const source = hit.sourceLocation === "live" ? "live D1" : `R2 ${hit.r2SegmentId}`;
   return `History evidence [${source}; event ${eventId}; ${hit.occurredAt}; ${hit.channel}]: ${excerpt}`;
+}
+
+function meaningHistoryEvidence(row: Readonly<{
+  startEventSequence: number;
+  endEventSequence: number;
+  sourceLocation: "live" | "archived" | "mixed";
+  r2SegmentId: Sha256Hex | null;
+  eventId: Ulid;
+  text: string;
+}>): string {
+  const source = row.sourceLocation === "live" ? "live D1"
+    : row.sourceLocation === "archived" ? `R2 ${row.r2SegmentId}` : "mixed D1/R2";
+  const range = row.startEventSequence === row.endEventSequence
+    ? `event ${row.eventId}`
+    : `events ${row.startEventSequence}-${row.endEventSequence}; first event ${row.eventId}`;
+  return `History evidence [${source}; ${range}]: ${row.text}`;
+}
+
+function reciprocalRankFusion(
+  keyword: readonly RankedMemoryContext[],
+  meaning: readonly RankedMemoryContext[],
+): readonly RankedMemoryContext[] {
+  const ranked = new Map<string, {
+    context: RetrievedContext;
+    score: number;
+    firstRank: number;
+  }>();
+  for (const list of [keyword, meaning]) {
+    list.forEach((entry, index) => {
+      const rank = index + 1;
+      const existing = ranked.get(entry.key);
+      if (existing === undefined) {
+        ranked.set(entry.key, {
+          context: entry.context,
+          score: 1 / (RRF_RANK_CONSTANT + rank),
+          firstRank: rank,
+        });
+      } else {
+        existing.score += 1 / (RRF_RANK_CONSTANT + rank);
+        existing.firstRank = Math.min(existing.firstRank, rank);
+      }
+    });
+  }
+  return Object.freeze([...ranked.entries()]
+    .sort(([leftKey, left], [rightKey, right]) => right.score - left.score
+      || left.firstRank - right.firstRank || leftKey.localeCompare(rightKey))
+    .map(([key, value]) => Object.freeze({ key, context: value.context })));
 }
 
 function recallableAt(item: CanonicalMemoryItem, now: string): boolean {
@@ -546,6 +637,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
   private readonly baseContext: ContextRetriever;
   private readonly retrievalTimeoutMs: number;
   private readonly baseRetrievalTimeoutMs: number;
+  private readonly meaningSearchTimeoutMs: number;
   private readonly log: (
     code: TelegramMemoryRetrievalLogCode,
     timings: TelegramMemoryRetrievalTimings,
@@ -557,6 +649,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     this.baseContext = options.baseContext ?? new D1ContextRetriever(options.database);
     this.retrievalTimeoutMs = options.retrievalTimeoutMs ?? DEFAULT_RETRIEVAL_TIMEOUT_MS;
     this.baseRetrievalTimeoutMs = options.baseRetrievalTimeoutMs ?? DEFAULT_BASE_RETRIEVAL_TIMEOUT_MS;
+    this.meaningSearchTimeoutMs = options.meaningSearchTimeoutMs ?? DEFAULT_MEANING_SEARCH_TIMEOUT_MS;
     this.log = options.log ?? ((code, timings) => console.warn(code, timings));
     if (!Number.isSafeInteger(this.retrievalTimeoutMs) || this.retrievalTimeoutMs < 1
       || this.retrievalTimeoutMs > MAX_RETRIEVAL_TIMEOUT_MS) {
@@ -565,6 +658,10 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     if (!Number.isSafeInteger(this.baseRetrievalTimeoutMs) || this.baseRetrievalTimeoutMs < 1
       || this.baseRetrievalTimeoutMs > MAX_BASE_RETRIEVAL_TIMEOUT_MS) {
       throw new TypeError("telegram_memory_base_timeout_invalid");
+    }
+    if (!Number.isSafeInteger(this.meaningSearchTimeoutMs) || this.meaningSearchTimeoutMs < 1
+      || this.meaningSearchTimeoutMs > MAX_MEANING_SEARCH_TIMEOUT_MS) {
+      throw new TypeError("telegram_memory_meaning_timeout_invalid");
     }
     const authority = options.controlAuthority ?? null;
     this.controlAuthority = authority === null ? null : Object.freeze({
@@ -664,11 +761,17 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       captured,
       timestamp,
     );
+    const meaningContextsPromise = this.readMeaningContexts(
+      dependencies,
+      captured,
+      timestamp,
+    );
     // Base retrieval is intentionally concurrent. Attach a handler now so a
     // fast D1 failure cannot become unhandled while the base promise settles.
     void candidateContextsPromise.catch(() => undefined);
+    void meaningContextsPromise.catch(() => undefined);
     const baseContexts = await basePromise;
-    let historyContexts: readonly RetrievedContext[] = Object.freeze([]);
+    let historyContexts: readonly RankedMemoryContext[] = Object.freeze([]);
     const literalQuery = literalHistoryQuery(captured.query);
     if (literalQuery !== null && !recentContextCoversQuery(captured.query, baseContexts)) {
       const history = await dependencies.history.searchLiteral({
@@ -693,12 +796,23 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       for (const context of evidence) {
         if (context !== null) retained.push(context);
       }
-      historyContexts = Object.freeze(retained);
+      historyContexts = Object.freeze(retained.map((context) => Object.freeze({
+        key: `history:${context.sourceEventId}`,
+        context,
+      })));
     }
-    const candidateContexts = await candidateContextsPromise;
+    const [candidateContexts, meaningContexts] = await Promise.all([
+      candidateContextsPromise,
+      meaningContextsPromise,
+    ]);
+    const fused = reciprocalRankFusion(
+      Object.freeze([...candidateContexts, ...historyContexts]),
+      meaningContexts,
+    );
     const contexts: RetrievedContext[] = [];
     let bytes = 0;
-    for (const context of [...candidateContexts, ...historyContexts]) {
+    for (const ranked of fused) {
+      const context = ranked.context;
       const textBytes = encoder.encode(context.text).byteLength;
       if (bytes + textBytes > captured.maxTokens) continue;
       bytes += textBytes;
@@ -711,7 +825,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     dependencies: RetrievalDependencies,
     captured: Readonly<ContextRetrieverInput>,
     timestamp: string,
-  ): Promise<readonly RetrievedContext[]> {
+  ): Promise<readonly RankedMemoryContext[]> {
     const candidates = await this.readCandidates(dependencies, captured, timestamp);
     const contexts = await Promise.all(candidates.map(async (candidate) => {
       try {
@@ -724,16 +838,185 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           ? !visibility.retrievable
           : visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0) return null;
         return Object.freeze({
-          sourceEventId: item.sources[0]!.eventId,
-          text: itemEvidence(item),
-          sensitivity: item.version.sensitivity === "sensitive" ? "restricted" as const : "personal" as const,
+          key: `item:${item.itemId}`,
+          context: Object.freeze({
+            sourceEventId: item.sources[0]!.eventId,
+            text: itemEvidence(item),
+            sensitivity: item.version.sensitivity === "sensitive" ? "restricted" as const : "personal" as const,
+          }),
         });
       } catch (error) {
         if (error instanceof MemoryRepositoryError && error.code === "memory_not_found") return null;
         throw error;
       }
     }));
-    return Object.freeze(contexts.filter((context): context is RetrievedContext => context !== null));
+    const retained: RankedMemoryContext[] = [];
+    for (const context of contexts) {
+      if (context !== null) retained.push(context);
+    }
+    return Object.freeze(retained);
+  }
+
+  private async readMeaningContexts(
+    dependencies: RetrievalDependencies,
+    captured: Readonly<ContextRetrieverInput>,
+    timestamp: string,
+  ): Promise<readonly RankedMemoryContext[]> {
+    if (recallTerms(captured.query).length === 0) {
+      this.observeMeaningSearch({ meaningSearchMs: 0, fallbackCode: null });
+      return Object.freeze([]);
+    }
+    if (this.options.meaningSearch === undefined) {
+      this.observeMeaningSearch({
+        meaningSearchMs: 0,
+        fallbackCode: MEMORY_MEANING_BINDING_MISSING_CODE,
+      });
+      return Object.freeze([]);
+    }
+    const startedAt = performance.now();
+    const outcome = await timedOutcome(
+      this.options.meaningSearch.search({
+        principalId: captured.principalId,
+        query: captured.query,
+        maxResults: MAX_MEANING_RESULTS,
+      }),
+      this.meaningSearchTimeoutMs,
+      startedAt,
+    );
+    if (outcome.status !== "fulfilled") {
+      this.observeMeaningSearch({
+        meaningSearchMs: outcome.elapsedMs,
+        fallbackCode: outcome.status === "timeout" ? MEANING_TIMEOUT_CODE : MEANING_PROVIDER_ERROR_CODE,
+      });
+      return Object.freeze([]);
+    }
+    try {
+      const contexts: RankedMemoryContext[] = [];
+      for (const hit of outcome.value) {
+        const context = hit.itemKind === "item"
+          ? await this.readMeaningItem(dependencies, captured.principalId, timestamp, hit)
+          : await this.readMeaningHistory(dependencies, captured.principalId, hit);
+        if (context !== null) contexts.push(context);
+      }
+      this.observeMeaningSearch({ meaningSearchMs: outcome.elapsedMs, fallbackCode: null });
+      return Object.freeze(contexts);
+    } catch {
+      this.observeMeaningSearch({
+        meaningSearchMs: elapsedMilliseconds(startedAt),
+        fallbackCode: MEANING_PROVIDER_ERROR_CODE,
+      });
+      return Object.freeze([]);
+    }
+  }
+
+  private async readMeaningItem(
+    dependencies: RetrievalDependencies,
+    principalId: string,
+    timestamp: string,
+    hit: MeaningSearchHit,
+  ): Promise<RankedMemoryContext | null> {
+    const row = await dependencies.database.prepare(`SELECT version.item_id
+      FROM memory_item_versions version
+      JOIN memory_item_state state
+        ON state.principal_id = version.principal_id
+        AND state.current_version_id = version.version_id
+      JOIN memory_retrievable_item_versions eligible
+        ON eligible.principal_id = version.principal_id
+        AND eligible.version_id = version.version_id
+      WHERE version.principal_id = ? AND version.version_id = ?
+        AND version.text_hash = ? AND state.lifecycle_state = 'active'
+        AND (version.valid_from IS NULL OR version.valid_from <= ?)
+        AND (version.valid_to IS NULL OR version.valid_to > ?)`)
+      .bind(principalId, hit.itemId, hit.contentHash, timestamp, timestamp)
+      .first<MeaningItemRow>();
+    if (row === null) return null;
+    exactRow(row, new Set(["item_id"]), "telegram_memory_meaning_item_invalid");
+    const itemId = safeUlid(row.item_id);
+    try {
+      const [item, visibility] = await Promise.all([
+        dependencies.memory.readCurrentItem(principalId, itemId),
+        dependencies.memory.readItemVisibility(principalId, itemId),
+      ]);
+      if (item.version.versionId !== hit.itemId || item.version.textHash !== hit.contentHash
+        || !recallableAt(item, timestamp) || item.lifecycle.state !== "active"
+        || !visibility.retrievable) return null;
+      return Object.freeze({
+        key: `item:${item.itemId}`,
+        context: Object.freeze({
+          sourceEventId: item.sources[0]!.eventId,
+          text: itemEvidence(item),
+          sensitivity: item.version.sensitivity === "sensitive" ? "restricted" as const : "personal" as const,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof MemoryRepositoryError && error.code === "memory_not_found") return null;
+      throw error;
+    }
+  }
+
+  private async readMeaningHistory(
+    dependencies: RetrievalDependencies,
+    principalId: string,
+    hit: MeaningSearchHit,
+  ): Promise<RankedMemoryContext | null> {
+    const row = await dependencies.database.prepare(`SELECT chunk.chunk_id, chunk.text,
+        chunk.content_hash, chunk.start_event_sequence, chunk.end_event_sequence,
+        chunk.source_location, chunk.r2_segment_id,
+        COALESCE(live.event_id, archived.event_id) AS event_id
+      FROM memory_retrievable_history_chunks chunk
+      LEFT JOIN events live
+        ON live.subject_id = chunk.principal_id
+        AND live.sequence = chunk.start_event_sequence
+      LEFT JOIN archive_segment_events archived
+        ON archived.subject_id = chunk.principal_id
+        AND archived.event_sequence = chunk.start_event_sequence
+        AND (chunk.r2_segment_id IS NULL OR archived.segment_id = chunk.r2_segment_id)
+      WHERE chunk.principal_id = ? AND chunk.chunk_id = ? AND chunk.content_hash = ?`)
+      .bind(principalId, hit.itemId, hit.contentHash).first<MeaningHistoryRow>();
+    if (row === null) return null;
+    exactRow(row, new Set([
+      "chunk_id", "text", "content_hash", "start_event_sequence", "end_event_sequence",
+      "source_location", "r2_segment_id", "event_id",
+    ]), "telegram_memory_meaning_history_invalid");
+    const chunkId = safeUlid(row.chunk_id);
+    const text = safeText(row.text, 32_768, "telegram_memory_meaning_history_invalid");
+    if (chunkId !== hit.itemId || safeText(row.content_hash, 64, "telegram_memory_meaning_history_invalid")
+      !== hit.contentHash || await sha256Hex(text) !== hit.contentHash
+      || !Number.isSafeInteger(row.start_event_sequence) || (row.start_event_sequence as number) < 1
+      || !Number.isSafeInteger(row.end_event_sequence)
+      || (row.end_event_sequence as number) < (row.start_event_sequence as number)) {
+      throw new TypeError("telegram_memory_meaning_history_invalid");
+    }
+    const sourceLocation = row.source_location === "live" ? "live"
+      : row.source_location === "archived" ? "archived"
+        : row.source_location === "mixed" ? "mixed" : null;
+    const r2SegmentId = row.r2_segment_id === null ? null
+      : safeText(row.r2_segment_id, 64, "telegram_memory_meaning_history_invalid") as Sha256Hex;
+    if (sourceLocation === null || sourceLocation !== "archived" && r2SegmentId !== null
+      || sourceLocation === "archived" && (r2SegmentId === null || !SHA256.test(r2SegmentId))) {
+      throw new TypeError("telegram_memory_meaning_history_invalid");
+    }
+    const eventId = safeUlid(row.event_id);
+    return Object.freeze({
+      key: `history:${eventId}`,
+      context: Object.freeze({
+        sourceEventId: eventId,
+        text: meaningHistoryEvidence({
+          startEventSequence: row.start_event_sequence as number,
+          endEventSequence: row.end_event_sequence as number,
+          sourceLocation,
+          r2SegmentId,
+          eventId,
+          text,
+        }),
+        sensitivity: "personal" as const,
+      }),
+    });
+  }
+
+  private observeMeaningSearch(observation: TelegramMeaningSearchObservation): void {
+    try { this.options.observeMeaningSearch?.(Object.freeze(observation)); }
+    catch { /* Observability cannot change recall. */ }
   }
 
   private async retrieveBase(

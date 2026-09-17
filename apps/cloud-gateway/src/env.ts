@@ -4,6 +4,9 @@ export interface Env {
   DB: D1Database;
   ARCHIVE: R2Bucket;
   CALL_SESSION: DurableObjectNamespace<CallSession>;
+  /** Optional together: either missing keeps meaning indexing and recall disabled. */
+  AI?: Ai;
+  MEMORY_VECTORS?: Vectorize;
   OWNER_VOICE_IDENTITY_ID: string;
   GUEST_PIN_PEPPER_V1: string;
   AUTHENTICATION_BUDGET_PEPPER: string;

@@ -111,6 +111,31 @@ The gateway owns D1 migrations. The watchdog binds the same `jarvis`
 database and never applies migrations. The gateway also binds the
 `jarvis-archive` R2 bucket and `CALL_SESSION` Durable Object.
 
+## R2 meaning-search resource setup
+
+Run these one-time commands **before the first deployment whose gateway
+configuration contains the `AI` and `MEMORY_VECTORS` bindings**. Creating the
+index is an owner production action; the deploy script does not do it.
+
+```powershell
+& node $wrangler vectorize create jarvis-memory-bge-m3 --dimensions=1024 --metric=cosine --config $gateway --env ''
+& node $wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=principal --type=string --config $gateway --env ''
+```
+
+`principal` is the only metadata field used as a Vectorize query filter, so
+it is the only metadata index. Vectors also carry `itemKind`, `itemId`, and
+`contentHash` for canonical D1 re-reading; none of those fields contains
+memory text. If a later query filters another metadata field, create its
+metadata index before deploying that query.
+
+The hourly step processes at most eight total Vectorize mutations. It makes
+at most one Workers AI embedding request with eight inputs and 65,536 UTF-8
+bytes, at most eight Vectorize mutation requests, and fewer than 32 D1
+statements. A failed mutation leaves the `embeddings` cursor unchanged and
+is retried on a later hourly run. Missing `AI` or `MEMORY_VECTORS` bindings
+log `memory_meaning_bindings_missing`; distillation, literal FTS, and replies
+continue without meaning search.
+
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation
 of the old DeepSeek key. No values were shared. `PIN_VERIFIER_JSON` is

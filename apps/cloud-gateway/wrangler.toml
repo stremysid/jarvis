@@ -70,6 +70,13 @@ migrations_dir = "src/persistence/migrations"
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive"
 
+[ai]
+binding = "AI"
+
+[[vectorize]]
+binding = "MEMORY_VECTORS"
+index_name = "jarvis-memory-bge-m3"
+
 [[durable_objects.bindings]]
 name = "CALL_SESSION"
 class_name = "CallSession"
