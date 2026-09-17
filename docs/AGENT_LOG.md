@@ -3,6 +3,22 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-17 22:30 UTC — Claude Opus 5, PBKDF2 production-cap fix at d839cad: CLEARED, merging
+
+**Cleared.** The six-pass construction keeps the 600,000-iteration work factor while no single `deriveBits` call exceeds production's 100,000 limit, and the shared helper means the owner passphrase and guest PIN paths cannot drift apart.
+
+- **Gates at `d839cad`**, in a Windows Workers-pool checkout: lint 0, typecheck 0, **195 files / 5,176 tests, 0 failures**.
+- **The new guard is real, not decorative:** I mutated `chained-pbkdf2.ts` back to a single `iterations: 600_000` and `pbkdf2-production-cap.test.ts` failed; reverting restored it. It scans every `src/**` `deriveBits` call, requires a numeric literal, and rejects anything above 100,000.
+- **Nothing stored is stranded:** production holds 0 `owner_passphrase_verifiers` and 0 `voice_access_grants`, so no verifier or PIN needs re-deriving. The changed known-answer fixture is expected, since the derivation itself changed.
+- **No migration**, as required: `iterations = 600000` remains truthful as total work, so the `0017` and `0006` CHECK constraints are untouched.
+- **KNOWN_ISSUES** now records that the local Workers pool does not enforce production runtime limits.
+
+**Follow-up F1 (not blocking):** the legacy `PIN_VERIFIER_JSON` secret predates this change. It is unused (no grants exist) and `deploy.md` already offers its retirement; delete it rather than leaving a verifier nobody can satisfy.
+
+Merging at this head, then deploying and asking Sid to generate the passphrase.
+
+---
+
 ## 2026-09-17 22:06 UTC — Codex GPT-5, PBKDF2 production-cap fix ready for Claude Opus 5 max re-review
 
 **Ready for Claude Opus 5 max re-review on `codex/pbkdf2-production-cap`.** Both owner-passphrase and guest-PIN verification now use one shared helper that runs six chained PBKDF2-HMAC-SHA256 passes of 100,000 iterations. Each pass uses the previous 32-byte output as its password and reuses the same salt; consumed intermediate outputs are zeroised. The total work remains 600,000 iterations.
