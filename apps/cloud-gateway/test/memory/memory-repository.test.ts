@@ -7,7 +7,12 @@ import {
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
-import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import {
+  AUTOMATIC_TOPIC_PROMPT_TREE_BYTES,
+  automaticFilingReason,
+  MemoryRepository,
+  normalizeAutomaticTopicPath,
+} from "../../src/memory/memory-repository.js";
 import type { ArchivedEventReader } from "../../src/archive/tiered-event-reader.js";
 import type { AppendedEvent } from "../../src/persistence/event-repository.js";
 import {
@@ -670,6 +675,36 @@ describe("MemoryRepository", () => {
       .bind(principalId).first()).toEqual({ count: 2 });
   });
 
+  it("checks folded separators and removes default-ignorable name characters", async () => {
+    expect(normalizeAutomaticTopicPath(["School ＞ Chemistry"])).toBeNull();
+    expect(normalizeAutomaticTopicPath(["School／Chemistry"])).toBeNull();
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const heart = await createTopic(principalId, topics.root.topicId, "Music ❤");
+    const school = await createTopic(principalId, topics.root.topicId, "School");
+
+    const variation = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Music ❤️"], 0);
+    const filler = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Schoㅤol"], 0);
+
+    expect(variation).toMatchObject({ topic: { topicId: heart } });
+    expect(filler).toMatchObject({ topic: { topicId: school } });
+  });
+
+  it("rejects format and bidi controls on display names while keeping emoji joiners and variation selectors", () => {
+    const forbidden = [
+      "\u061c", "\u200b", "\u200c", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d",
+      "\u202e", "\u2066", "\u2067", "\u2068", "\u2069", "\ufeff", String.fromCodePoint(0xe0000),
+      String.fromCodePoint(0xe007f),
+    ];
+    for (const control of forbidden) {
+      expect(normalizeAutomaticTopicPath([`School${control}`])).toBeNull();
+    }
+    expect(normalizeAutomaticTopicPath(["\u3164"])).toBeNull();
+    const emoji = "Projects \u{1f469}\u200d\u{1f4bb} \u2764\ufe0f";
+    expect(normalizeAutomaticTopicPath([emoji])).toEqual([emoji]);
+  });
+
   it("keeps the canonical root and inbox identities after both display names are renamed", async () => {
     const principalId = await seedPrincipal();
     const repository = new MemoryRepository(env.DB);
@@ -744,6 +779,40 @@ describe("MemoryRepository", () => {
     await expectCode(prepared.repository.commitInitialItem(conflicting), "memory_refused");
     await expect(prepared.repository.readCurrentItem(prepared.principalId, prepared.input.itemId))
       .resolves.toMatchObject({ version: { text: prepared.input.version.text } });
+  });
+
+  it("replays equivalent automatic filing reasons after the created area is renamed", async () => {
+    const prepared = await fixture();
+    const path = ["School"];
+    const automaticInput: CommitInitialMemoryInput = {
+      ...prepared.input,
+      placement: {
+        ...prepared.input.placement,
+        topicId: (await prepared.repository.bootstrapTopics(prepared.principalId)).inbox.topicId,
+        filingSource: "rule",
+        confidence: 0.9,
+        reason: automaticFilingReason("inbox_filing_failure", path),
+      },
+      automaticFiling: {
+        topicPath: path,
+        maximumNewTopics: 1,
+        inboxTopicId: (await prepared.repository.bootstrapTopics(prepared.principalId)).inbox.topicId,
+      },
+    };
+    const first = await prepared.repository.commitInitialItem(automaticInput);
+    await renameTopic(
+      prepared.principalId,
+      first.item.primaryPlacement.topicId,
+      "School",
+      "Academics",
+      "Memory/School",
+    );
+
+    const replay = await prepared.repository.commitInitialItem(automaticInput);
+
+    expect(first).toMatchObject({ replayed: false, automaticFilingCreatedTopicCount: 1 });
+    expect(replay).toMatchObject({ replayed: true, automaticFilingCreatedTopicCount: 0 });
+    expect(replay.item.primaryPlacement.reason).toContain('"decision":"filed_created"');
   });
 
   it("accepts a verified archived receipt only as an uncertain proposed item", async () => {
@@ -895,6 +964,83 @@ describe("MemoryRepository", () => {
     await renameTopic(principalId, current, "Shared", "Current final", "Memory/Shared");
     const aliasWinner = await repository.resolveTopicPath(principalId, ["Memory", "Shared"]);
     expect(aliasWinner).toMatchObject({ topicId: current, matchedBy: "alias" });
+  });
+
+  it("chooses the oldest NFKC-equal sibling when no exact current name exists", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const oldest = await createTopic(principalId, topics.root.topicId, "ﬁnance");
+    await createTopic(principalId, topics.root.topicId, "Finance");
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["ＦＩＮＡＮＣＥ"],
+      0,
+    );
+
+    expect(resolved).toMatchObject({ topic: { topicId: oldest, matchedBy: "current" } });
+  });
+
+  it("prefers an exact current name before an older NFKC-folded sibling", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    await createTopic(principalId, topics.root.topicId, "ﬁnance");
+    const exact = await createTopic(principalId, topics.root.topicId, "Finance");
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Finance"], 0);
+
+    expect(resolved).toMatchObject({ topic: { topicId: exact, matchedBy: "current" } });
+  });
+
+  it("NFKC-folds stored sibling aliases without rewriting existing rows", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const chemistry = await createTopic(principalId, topics.root.topicId, "Chem");
+    await renameTopic(principalId, chemistry, "Chem", "Chemistry", "Memory/ＣＨＥＭ");
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["chem"], 0);
+
+    expect(resolved).toMatchObject({ topic: { topicId: chemistry, matchedBy: "alias" } });
+  });
+
+  it("prefers an exact sibling alias before a newer NFKC-folded alias", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const exact = await createTopic(principalId, topics.root.topicId, "Exact alias source");
+    await renameTopic(principalId, exact, "Exact alias source", "Exact alias target", "Memory/Finance");
+    const folded = await createTopic(principalId, topics.root.topicId, "Folded alias source");
+    await renameTopic(principalId, folded, "Folded alias source", "Folded alias target", "Memory/ﬁnance");
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Finance"], 0);
+
+    expect(resolved).toMatchObject({ topic: { topicId: exact, matchedBy: "alias" } });
+  });
+
+  it("checks the byte bound after each round-robin child while keeping every top-level area", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    for (let index = 0; index < 40; index += 1) {
+      const top = await createTopic(
+        principalId,
+        topics.root.topicId,
+        `Top ${index.toString().padStart(2, "0")} ${"x".repeat(50)}`,
+      );
+      await createTopic(principalId, top, `Child ${index.toString().padStart(2, "0")} ${"y".repeat(48)}`);
+    }
+
+    const tree = await repository.readAutomaticTopicPromptTree(principalId);
+    const encodedBytes = new TextEncoder().encode(canonicalJson(tree)).byteLength;
+
+    expect(encodedBytes).toBeLessThanOrEqual(AUTOMATIC_TOPIC_PROMPT_TREE_BYTES);
+    expect(tree).toHaveLength(40);
+    expect(tree.flatMap(([, children]) => children).length).toBeGreaterThan(0);
+    expect(tree.flatMap(([, children]) => children).length).toBeLessThan(40);
+    expect(tree.flatMap(([, children]) => children)).not.toContain(MEMORY_INBOX_DISPLAY_NAME);
   });
 
   it("follows a merged sibling alias during automatic path resolution", async () => {

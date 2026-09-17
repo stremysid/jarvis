@@ -1,5 +1,14 @@
 # Known issues
 
+## Verified backups do not yet have an owner-enabled R2 bucket lock
+
+The backup worker verifies every object before publishing a manifest, records
+the verified set in D1 before updating `latest.json`, and retention deletes data
+objects before the manifest and the final D1 status change. Those application
+guards do not replace an R2 bucket lock. Enabling and proving the owner-managed
+bucket lock remains a deployment setting outside this PR and has not yet been
+performed.
+
 ## University application details has eight deliberately closed edges
 
 - **Forwarded and quoted offer text:** the existing Telegram input still has no

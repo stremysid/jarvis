@@ -3,6 +3,8 @@ import type { CallSession } from "./index.js";
 export interface Env {
   DB: D1Database;
   ARCHIVE: R2Bucket;
+  /** Separate logical backups. Missing production wiring is handled as an alertable job failure. */
+  BACKUP?: R2Bucket;
   CALL_SESSION: DurableObjectNamespace<CallSession>;
   /** Optional together: either missing keeps meaning indexing and recall disabled. */
   AI?: Ai;
