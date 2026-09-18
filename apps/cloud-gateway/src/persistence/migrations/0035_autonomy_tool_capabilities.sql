@@ -1,4 +1,4 @@
--- Capability tiers for the eight tools the owner agent can already dispatch.
+-- Capability tiers for the nine tools the owner agent can already dispatch.
 --
 -- `0008_autonomy.sql` seeded the tiers for the hands the roadmap adds. The
 -- owner tools predate the registry and had no rows. Under the fail-closed rule
