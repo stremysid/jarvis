@@ -639,7 +639,7 @@ export class MemoryOwnerControlsService {
       return Object.freeze({
         item: returnedItem,
         receipt: modelInferred && transitionIsCurrent
-          ? "Saved 1 uncertain model-inferred memory for confirmation; it is not active recall evidence."
+          ? "Saved 1 uncertain memory for confirmation; I recall it as an unconfirmed possibility, never as a fact."
           : replayed && !transitionIsCurrent
           ? result.item.lifecycle.state === "forgotten"
             ? "That remember request was already handled; the memory is currently hidden."
@@ -673,8 +673,11 @@ export class MemoryOwnerControlsService {
         const ownerText = await this.memory.validateOwnerTurn(ownerTurn, "confirm");
         if (!ownerText.includes(sourceExcerpt)) refuse();
         const item = await this.memory.readCurrentItem(ownerTurn.principalId, itemId);
+        // A model-inferred proposal is promotable here, like any other uncertain
+        // proposal: the owner's own turn has to quote the stored wording, which
+        // is the authority. Refusing it left the remember receipt promising a
+        // confirmation that no caller could perform.
         if (item.lifecycle.state !== "proposed" || !item.version.uncertain
-          || item.version.origin === "model" && item.version.basis === "inferred"
           || item.sources.length < 1 || item.sources.length > 7) refuse();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
           operation: "item.transition",

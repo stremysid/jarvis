@@ -313,19 +313,47 @@ beforeAll(async () => {
 });
 
 describe("MemoryOwnerControlsService", () => {
-  it("refuses to promote a model-inferred proposal through the free-text confirm service", async () => {
+  it("promotes a model-inferred proposal when the owner's confirm turn quotes its stored excerpt", async () => {
+    const sourceTurn = await seedTurn("I might prefer violet layouts.");
+    const proposed = await commitItemFromTurn(sourceTurn, sourceTurn.text, {
+      lifecycleState: "proposed",
+      origin: "model",
+    });
+    const confirmTurn = await seedTurn(
+      `Yes, confirm "I might prefer violet layouts."`,
+      { memoryIntent: "confirm" },
+    );
+
+    const receipt = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).confirm({
+      ownerTurn: confirmTurn.input,
+      candidateItemIds: [proposed.itemId],
+      sourceExcerpt: sourceTurn.text,
+    });
+
+    expect(receipt.item).toMatchObject({
+      lifecycle: { state: "active", actor: "owner" },
+      version: { basis: "confirmed", origin: "authenticated_first_person", uncertain: false },
+    });
+    expect(receipt.receipt).toMatch(/^Confirmed 1 proposed memory for recall/u);
+    await expect(new MemoryRepository(env.DB).readCurrentItem(OWNER_ID, proposed.itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "active" } });
+  });
+
+  it("refuses to promote a model-inferred proposal when the owner's turn does not quote it", async () => {
     const sourceTurn = await seedTurn("I might prefer violet layouts.");
     const proposed = await commitItemFromTurn(sourceTurn, sourceTurn.text, {
       lifecycleState: "proposed",
       origin: "model",
     });
     const confirmTurn = await seedTurn("yes, confirm that", { memoryIntent: "confirm" });
+    const before = await commandCount();
 
     await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).confirm({
       ownerTurn: confirmTurn.input,
       candidateItemIds: [proposed.itemId],
-      sourceExcerpt: "yes",
+      sourceExcerpt: sourceTurn.text,
     }), "memory_refused");
+    expect(await commandCount()).toBe(before);
     await expect(new MemoryRepository(env.DB).readCurrentItem(OWNER_ID, proposed.itemId))
       .resolves.toMatchObject({
         lifecycle: { state: "proposed" },
@@ -337,6 +365,7 @@ describe("MemoryOwnerControlsService", () => {
     const turn = await seedTurn("Please remember that I prefer concise release notes.");
     const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const input = rememberInput(turn, "I prefer concise release notes.");
+    const before = await commandCount();
 
     const first = await service.remember(input);
     await seedTurn("This newer owner turn must not break exact command recovery.");
@@ -357,7 +386,7 @@ describe("MemoryOwnerControlsService", () => {
       "Inbox / Needs filing",
     ]);
     expect(first.receipt).toMatch(/^Remembered 1 memory\.[^\n]+ordinary language/u);
-    expect(await commandCount()).toBe(1);
+    expect(await commandCount()).toBe(before + 1);
     const command = await env.DB.prepare(`SELECT event_id, subject_id,
       json_extract(envelope_json, '$.causationId') AS causation_id,
       json_extract(envelope_json, '$.payload.operation') AS operation,

@@ -232,10 +232,24 @@ interface LivingNoteRow {
   readonly created_at: unknown;
 }
 
+/**
+ * Recall order, not a gate. 0 is evidence the owner stated or confirmed; 1 is
+ * an uncertain proposal. A proposal is still returned, because an unrecallable
+ * proposal is a memory the owner can never confirm, but it never displaces a
+ * stated fact just because it matched the words better.
+ */
+const ASSERTED_RECALL_TIER = 0;
+const UNCERTAIN_RECALL_TIER = 1;
+
 interface RankedMemoryContext {
   readonly key: string;
   readonly context: RetrievedContext;
   readonly dedupText: string;
+  readonly tier: number;
+}
+
+function recallTier(lifecycleState: MemoryLifecycleState): number {
+  return lifecycleState === "active" ? ASSERTED_RECALL_TIER : UNCERTAIN_RECALL_TIER;
 }
 
 interface MeaningCanonicalRow {
@@ -580,6 +594,7 @@ function reciprocalRankFusion(
     dedupText: string;
     score: number;
     firstRank: number;
+    tier: number;
   }>();
   for (const list of [keyword, meaning]) {
     list.forEach((entry, index) => {
@@ -591,6 +606,7 @@ function reciprocalRankFusion(
           dedupText: entry.dedupText,
           score: 1 / (RRF_RANK_CONSTANT + rank),
           firstRank: rank,
+          tier: entry.tier,
         });
       } else {
         existing.score += 1 / (RRF_RANK_CONSTANT + rank);
@@ -599,12 +615,14 @@ function reciprocalRankFusion(
     });
   }
   return Object.freeze([...ranked.entries()]
-    .sort(([leftKey, left], [rightKey, right]) => right.score - left.score
+    .sort(([leftKey, left], [rightKey, right]) => left.tier - right.tier
+      || right.score - left.score
       || left.firstRank - right.firstRank || leftKey.localeCompare(rightKey))
     .map(([key, value]) => Object.freeze({
       key,
       context: value.context,
       dedupText: value.dedupText,
+      tier: value.tier,
     })));
 }
 
@@ -661,8 +679,7 @@ async function historyEvidence(hit: LiteralHistoryHit): Promise<string> {
 
 function recallableAt(item: CanonicalMemoryItem, now: string): boolean {
   return (item.lifecycle.state === "active"
-      || item.lifecycle.state === "proposed" && item.version.uncertain
-        && !(item.version.origin === "model" && item.version.basis === "inferred"))
+      || item.lifecycle.state === "proposed" && item.version.uncertain)
     && (item.version.validFrom === null || item.version.validFrom <= now)
     && (item.version.validTo === null || item.version.validTo > now);
 }
@@ -1115,7 +1132,12 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             text: await historyEvidence(hit),
             sensitivity: "personal" as const,
           });
-          retained.push(Object.freeze({ key: `history:${hit.eventId}`, context, dedupText: hit.excerpt }));
+          retained.push(Object.freeze({
+            key: `history:${hit.eventId}`,
+            context,
+            dedupText: hit.excerpt,
+            tier: ASSERTED_RECALL_TIER,
+          }));
         }
         historyContexts = Object.freeze(retained);
       }
@@ -1200,6 +1222,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       contexts.push(Object.freeze({
         key: `item:${item.itemId}`,
         dedupText: item.version.text,
+        tier: recallTier(item.lifecycle.state),
         context: Object.freeze({
           sourceEventId: item.sources[0]!.eventId,
           text: itemEvidence(item),
@@ -1340,6 +1363,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           key: `note:${noteVersionId}`,
           context,
           dedupText: markdown,
+          tier: ASSERTED_RECALL_TIER,
         }));
       }
     }
@@ -1531,6 +1555,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         return Object.freeze({
           key: `item:${item.itemId}`,
           dedupText: item.version.text,
+          tier: recallTier(item.lifecycle.state),
           context: Object.freeze({
             sourceEventId: item.sources[0]!.eventId,
             text: itemEvidence(item),
@@ -1594,6 +1619,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       return Object.freeze({
         key: `history:${eventId}`,
         dedupText: text,
+        tier: ASSERTED_RECALL_TIER,
         context: Object.freeze({
           sourceEventId: eventId,
           text: `History evidence [${source}; event ${eventId}; ${envelope.occurredAt}; ${channel}; speaker owner]: ${text}`,
@@ -1955,8 +1981,6 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
           WHERE state.lifecycle_state IN ('active', 'proposed')
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
-            AND NOT (state.lifecycle_state = 'proposed'
-              AND version.origin = 'model' AND version.basis = 'inferred')
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
             AND NOT EXISTS (
@@ -1982,7 +2006,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
                 AND supersession.change_kind = 'supersession'
                 AND supersession.subject_id = state.item_id
             )
-          ORDER BY version.created_at DESC, version.item_id ASC LIMIT ?4`)
+          ORDER BY CASE state.lifecycle_state WHEN 'active' THEN 0 ELSE 1 END,
+            version.created_at DESC, version.item_id ASC LIMIT ?4`)
           .bind(topic.topicId, input.principalId, timestamp, MAX_MEMORY_CANDIDATES)
           .all<CandidateRow>();
         return candidateRows(result.results);
@@ -2004,8 +2029,6 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       WHERE memory_item_fts MATCH ? AND version.principal_id = ?
         AND state.lifecycle_state IN ('active', 'proposed')
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
-        AND NOT (state.lifecycle_state = 'proposed'
-          AND version.origin = 'model' AND version.basis = 'inferred')
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
         AND NOT EXISTS (
@@ -2031,7 +2054,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             AND supersession.change_kind = 'supersession'
             AND supersession.subject_id = state.item_id
         )
-      ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
+      ORDER BY CASE state.lifecycle_state WHEN 'active' THEN 0 ELSE 1 END,
+        memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
       .bind(terms, input.principalId, timestamp, timestamp, MAX_MEMORY_CANDIDATES)
       .all<CandidateRow>();
     return candidateRows(result.results);

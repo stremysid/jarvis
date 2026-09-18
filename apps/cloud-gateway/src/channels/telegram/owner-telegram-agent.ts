@@ -44,7 +44,11 @@ const DEFAULT_TURN_TIMEOUT_MS = 20_000;
 const OWNER_AGENT_WEBHOOK_BUDGET_MS = 20_000;
 const MAX_CLAIMS = 16;
 const MAX_RECEIPT_IDS = 4;
-const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
+// Both recall envelopes name the item: the asserted one reads "Memory evidence"
+// and the uncertain one "Uncertain memory evidence", so the first letter is not
+// fixed. Without the uncertain form the model can see a proposal and still be
+// refused when it names it, which leaves confirmation with no route in.
+const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?[Mm]emory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
 const encoder = new TextEncoder();
 const POST_COMMIT_FALLBACK = "Done — I couldn't write a longer reply.";
 const NOT_SAVED_FALLBACK = "I couldn't finish that, and nothing was saved.";
@@ -313,7 +317,10 @@ function explanationReceipt(explanation: MemoryExplanation, memoryText: string):
   const sources = explanation.sources.map((source) =>
     `${source.channel} event ${source.eventId} at ${source.occurredAt}`).join(", ");
   const area = explanation.topicPath.at(-1) ?? "hidden area";
-  return memoryReceipt(`Evidence for 1 memory in ${area}: ${sources}; nothing changed.`, memoryText);
+  // "Evidence for 1 memory" claims more than an uncertain row holds. A proposal
+  // is recalled and explained, never asserted, so the receipt says which it is.
+  const subject = explanation.uncertain ? "1 unconfirmed memory" : "1 memory";
+  return memoryReceipt(`Evidence for ${subject} in ${area}: ${sources}; nothing changed.`, memoryText);
 }
 
 async function collectPipelineOutcome(

@@ -48,7 +48,10 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   "directOwnerText",
 ]);
 const HIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
-const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
+// Kept in step by hand with the copy in owner-telegram-agent.ts: both decide
+// which recalled envelopes the model may name, and both missed the uncertain
+// form until the recall envelope became reachable.
+const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?[Mm]emory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
 const MEMORY_CITATION_ITEM = /\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu;
 const MAX_RECORDED_REFERENCES = 8;
 const encoder = new TextEncoder();
@@ -173,7 +176,10 @@ function evidenceReceipt(explanation: MemoryExplanation, text: string): string {
     `${source.channel} event ${source.eventId} at ${source.occurredAt}`
   )).join(", ");
   const area = explanation.topicPath.at(-1) ?? "hidden area";
-  return namedReceipt(`Evidence for 1 memory in ${area}: ${sources}; nothing changed.`, text);
+  // Matches the agent's explanation receipt: an uncertain memory is recalled and
+  // explained as unconfirmed, never presented as a settled fact.
+  const subject = explanation.uncertain ? "1 unconfirmed memory" : "1 memory";
+  return namedReceipt(`Evidence for ${subject} in ${area}: ${sources}; nothing changed.`, text);
 }
 
 function mutationReceipt(intent: "remember" | "forget" | "lift", receipt: string): string {
