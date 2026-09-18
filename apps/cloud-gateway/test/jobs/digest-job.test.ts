@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   assembleDigest,
+  expectedPushSources,
   runDigestJob,
   unconfiguredDeadlineSources,
   type DigestJobDependencies,
@@ -187,7 +188,31 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
       readApplicationItems: async () => [],
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
-      readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
+      // A deployment whose school scan is working. Every test that shows a
+      // school source broken overrides this one reader, and the tests that are
+      // about something else do not have to say "and school is healthy too".
+      // A default of "never scanned" would put a school gap into almost every
+      // digest in this file and hide which test was actually about it.
+      readSchoolObservations: async () => ({
+        source: {
+          principalId: "principal-a",
+          sourceId: "source-a",
+          checkpointCourseId: null,
+          checkpointPageToken: null,
+          scanStartedAt: null,
+          derivationScanAt: null,
+          derivationStartedAt: null,
+          derivationAfterDeadlineId: null,
+          lastBatchAt: NOW,
+          lastSuccessAt: NOW,
+          lastSuccessStartedAt: NOW,
+          lastFailure: null,
+          lastFailureAt: null,
+        },
+        grades: [],
+        missingWork: [],
+        missingWorkOmitted: 0,
+      }),
       readProjectStatuses: async () => [],
       readOpenDecisions: async () => [],
     },
@@ -492,6 +517,59 @@ describe("a source that will not answer", () => {
     expect(digest.text).toContain("D2L notification email: has never received a message");
   });
 
+  it("says a configured D2L feed has never received a message with no stored source row", async () => {
+    // `ensureSource` runs inside the mail handler, so before the first message
+    // there is no row, no gap and no symptom at all: a deleted Email Routing
+    // rule, or D2L notifications switched off, reads exactly like a quiet term
+    // and keeps reading that way. The expectation has to come from the
+    // configuration, because it is the one fact the first delivery creates.
+    const digest = await assembleDigest("daily", deps({
+      expectedPushSources: expectedPushSources({
+        SCHOOL_EMAIL_INGEST_ADDRESS: "school-abcdefghijklmnop@onesid.ca",
+      }),
+      sources: { readDeadlineSources: async () => [] },
+    }));
+
+    expect(digest.text).toContain("D2L notification email: has never received a message");
+  });
+
+  it("keeps a dead school feed's line when the digest is trimmed to fit", async () => {
+    // The failure a term hides best is the one with no symptom, and length
+    // trimming is the one thing that could take the line away without anyone
+    // noticing it had gone. Everything else here is droppable.
+    const digest = await assembleDigest("daily", deps({
+      expectedPushSources: expectedPushSources({
+        SCHOOL_EMAIL_INGEST_ADDRESS: "school-abcdefghijklmnop@onesid.ca",
+      }),
+      sources: {
+        readDeadlineSources: async () => [],
+        readProjectStatuses: async () => Array.from({ length: 400 }, (_unused, index) => status({
+          project: {
+            projectId: `project-${index}`,
+            owner: "ksid",
+            repository: "st-remy-efficiency",
+            displayName: `Project ${index} with a deliberately long name to consume the budget`,
+            staleAfterDays: 7,
+            active: true,
+            createdAt: NOW,
+          },
+          latestObservation: {
+            observationId: "observation-a",
+            projectId: `project-${index}`,
+            observedAt: NOW,
+            headSha: null,
+            lastCommitAt: null,
+            failure: "head:unavailable:503 with a deliberately long suffix to consume the budget",
+          },
+        })),
+      },
+    }));
+
+    expect(digest.truncated).toBe(true);
+    expect(digest.text).toContain("D2L notification email: has never received a message");
+    expect(digest.text).toContain("(trimmed to fit)");
+  });
+
   it("reports expected D2L notification email as not set up without a stored source row", async () => {
     const digest = await assembleDigest("daily", deps({
       // This is the same helper used by both the scheduled and manual /digest
@@ -597,6 +675,24 @@ describe("a source that will not answer", () => {
     const digest = await assembleDigest("daily", deps({
       sources: {
         readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
+  });
+
+  it("says school has never been read when Classroom was never set up at all", async () => {
+    // The row a completed scan writes is created by the first sync attempt, so
+    // a deployment whose Classroom credentials were never installed has no row
+    // to read. Guarding the never-run message on that row made the one state
+    // the owner most needs named -- nothing has ever come out of school -- the
+    // one state the digest could not describe.
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [],
         readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
       },
     }));
