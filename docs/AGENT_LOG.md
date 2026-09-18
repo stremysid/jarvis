@@ -320,6 +320,53 @@ a handoff claiming the opposite, loses — because the handoff is what a new
 session reads first. Same shape as the D2L calendar feed before it. **When a fact
 contradicts a load-bearing document, correct the document in the same change.**
 
+### Running the gate under builder load — the asymmetry that makes it usable
+
+`gate.ps1` was run for the first time today, twice, by two sessions. It
+completes and **it does not short-circuit**: another session's run had
+hermes-runtime fail and watchdog still ran afterwards (8 files, 119 tests,
+green). `pnpm test:all` would have stopped dead at hermes-runtime. That
+short-circuit is what hid four security tests on `main` for six days, and it is
+the script's entire reason for existing. **That part is proven.**
+
+The open question was whether to pause builders for a gate run. Framing it as a
+binary is wrong, because **load can only ADD failures, never remove them:**
+
+| Gate result | Builders running | What it means |
+|---|---|---|
+| **green** | yes | **Genuinely green.** Stronger than a quiet run, not weaker. |
+| **red** | yes | **Uninformative.** Cannot fail a PR on it. |
+| green | no | Genuinely green |
+| red | no | A real finding, worth diagnosing |
+
+**So the policy is: never pause builders for a gate run. Pause them only when a
+RED result needs to mean something** — i.e. when a PR's fate turns on it. A green
+run under load is the cheapest strong signal available and costs no throughput.
+
+**Evidence from my own run** (`5a8acf3`, three builders working): lint exit 0,
+typecheck exit 0, and **twelve** files failed across cloud-gateway and
+hermes-runtime — nine cloud-gateway files that do not fail quietly. That number
+is unusable as a finding and is recorded here as a load measurement, not a
+defect list. The other session's run measured hermes-runtime alone at **1080
+seconds** under load; budget ~20 minutes for a full gate.
+
+**One discrepancy worth not propagating:** the other session saw a
+hermes-runtime failure in `test/workflow-containment-review5.test.mjs`, which is
+NOT on the known pre-existing list, and correctly declined to call it a finding.
+**My run's hermes failures were exactly the three known files** —
+`sbom-integrity-round2`, `sbom-security-review3`, `source-lock`. Two runs
+disagreeing on which files fail is itself the load evidence.
+
+**Tooling defect, and it is the reason a working script looked hung:** the script
+prints a line per package and then nothing while a package runs. Under load that
+is an eight-to-eighteen minute silence. Another session concluded their run
+"exceeded ten minutes without finishing" and abandoned it. **Silence and a hang
+are indistinguishable.** It needs per-package elapsed output before anyone will
+trust it unattended.
+
+**Also lost to a pipe:** the other session piped its run through `tail -35` and
+lost lint, typecheck, cloud-gateway and the verdict. Capture a gate run to a file.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
