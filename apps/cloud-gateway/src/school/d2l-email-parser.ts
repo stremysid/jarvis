@@ -34,6 +34,14 @@ export type ParsedD2lEmailEvent =
       kind: "address_verification";
       verificationUrl: string | null;
       verificationCode: string | null;
+      /**
+       * True when the body carried a link that was not on a pinned D2L host.
+       *
+       * The caller tells Sid the message was refused rather than relaying
+       * anything from it, so it needs to distinguish "no link in this
+       * message" from "a link was dropped on purpose".
+       */
+      linkWithheld: boolean;
     }>
   | Readonly<{ kind: "unrecognised"; reason: string }>;
 
@@ -42,6 +50,14 @@ export interface D2lEmailParseInput {
   readonly text: string | undefined;
   readonly html: string | undefined;
   readonly timeZone: string;
+  /**
+   * D2L domains a verification link may point at.
+   *
+   * A link is relayed to Sid only when its host is one of these, so an empty
+   * or absent list means no link at all: the notice can name a code, never a
+   * destination chosen by whoever sent the message.
+   */
+  readonly pinnedLinkDomains?: readonly string[];
 }
 
 const MAXIMUM_BODY_CHARACTERS = 200_000;
@@ -154,14 +170,20 @@ function formattedWall(instant: number, selected: Intl.DateTimeFormat): Omit<Wal
 
 function wallInstant(wall: WallTime, timeZone: string): string | null {
   const selected = formatter(timeZone);
-  const naive = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second, wall.millisecond);
+  // `formattedWall` reads whole seconds back out of a formatted instant, so
+  // the probe must be a whole-second value: with the wall time's own
+  // milliseconds in it, every offset comes back 999 ms short of the truth and
+  // every date-only due date (the branch that carries .999) resolves to a
+  // candidate that the wall-field filter then rejects. The milliseconds are
+  // added back onto the candidate, which the filter ignores.
+  const naive = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
   const possibleOffsets = new Set<number>();
   for (const delta of [-36, -12, 0, 12, 36]) {
     const probe = naive + delta * 3_600_000;
     const seen = formattedWall(probe, selected);
     possibleOffsets.add(Date.UTC(seen.year, seen.month - 1, seen.day, seen.hour, seen.minute, seen.second) - probe);
   }
-  const matches = [...possibleOffsets].map((offset) => naive - offset).filter((candidate) => {
+  const matches = [...possibleOffsets].map((offset) => naive - offset + wall.millisecond).filter((candidate) => {
     const seen = formattedWall(candidate, selected);
     return seen.year === wall.year && seen.month === wall.month && seen.day === wall.day
       && seen.hour === wall.hour && seen.minute === wall.minute && seen.second === wall.second;
@@ -233,32 +255,55 @@ function dueInstant(value: string, timeZone: string): { readonly dueAt: string; 
   return dueAt === null ? null : { dueAt, dueTimeSupplied: supplied };
 }
 
-function safeVerificationUrl(value: string): string | null {
+function pinnedLinkHost(host: string, pinnedDomains: readonly string[]): boolean {
+  const normalized = host.trim().toLowerCase().replace(/\.$/u, "");
+  if (normalized.length === 0) return false;
+  return pinnedDomains.some((domain) => {
+    const pinned = domain.trim().toLowerCase().replace(/\.$/u, "");
+    return pinned.length > 0 && (normalized === pinned || normalized.endsWith(`.${pinned}`));
+  });
+}
+
+function safeVerificationUrl(value: string, pinnedDomains: readonly string[]): string | null {
   const candidate = decodeHtmlEntities(value).replace(/[).,;]+$/u, "");
   try {
     const url = new URL(candidate);
-    return url.protocol === "https:" && url.username === "" && url.password === ""
-      ? url.toString()
-      : null;
+    // The host decides. Jarvis relays this link to Sid in a notice the runbook
+    // tells him to act on, so a link to anywhere but a pinned D2L host would
+    // make Jarvis the delivery vehicle for whoever composed the message.
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
+    return pinnedLinkHost(url.hostname, pinnedDomains) ? url.toString() : null;
   } catch {
     return null;
   }
 }
 
-function verificationUrl(input: D2lEmailParseInput, body: string): string | null {
+interface VerificationLinkScan {
+  readonly url: string | null;
+  readonly withheld: boolean;
+}
+
+function verificationLink(input: D2lEmailParseInput, body: string): VerificationLinkScan {
+  const pinnedDomains = input.pinnedLinkDomains ?? [];
+  let withheld = false;
   const html = input.html?.slice(0, MAXIMUM_BODY_CHARACTERS) ?? "";
   for (const match of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["'](https:\/\/[^"']{1,2048})["'][^>]*>([\s\S]{0,4096}?)<\/a>/giu)) {
     const label = htmlText(match[2] ?? "");
     const candidate = match[1] ?? "";
     if (!/(?:verify|confirm)/iu.test(`${label} ${candidate}`)) continue;
-    const safe = safeVerificationUrl(candidate);
-    if (safe !== null) return safe;
+    const safe = safeVerificationUrl(candidate, pinnedDomains);
+    if (safe !== null) return Object.freeze({ url: safe, withheld: false });
+    withheld = true;
   }
+  // Plain text is still read, but only a pinned host is ever returned. There
+  // is deliberately no "first https:// in the body" fallback: it made any
+  // unrelated link in any verification-shaped message eligible for relay.
   for (const match of body.matchAll(/https:\/\/[^\s<>"']{1,2048}/giu)) {
-    const safe = safeVerificationUrl(match[0]);
-    if (safe !== null) return safe;
+    const safe = safeVerificationUrl(match[0], pinnedDomains);
+    if (safe !== null) return Object.freeze({ url: safe, withheld: false });
+    withheld = true;
   }
-  return null;
+  return Object.freeze({ url: null, withheld });
 }
 
 function verificationCode(body: string): string | null {
@@ -289,11 +334,17 @@ export async function parseD2lEmail(input: D2lEmailParseInput): Promise<ParsedD2
   const signal = `${subject}\n${body}`;
 
   if (/(?:verify|confirm).{0,40}(?:email|address)|(?:email|address).{0,40}verification/iu.test(signal)) {
-    const url = verificationUrl(input, body);
+    const link = verificationLink(input, body);
     const code = verificationCode(body);
-    return url === null && code === null
-      ? unrecognised("verification_value_missing")
-      : Object.freeze({ kind: "address_verification" as const, verificationUrl: url, verificationCode: code });
+    // A verification-shaped message stays named as one even when there is
+    // nothing relayable in it: the caller owes Sid a refusal notice for it,
+    // and "unrecognised" would drop that on the floor.
+    return Object.freeze({
+      kind: "address_verification" as const,
+      verificationUrl: link.url,
+      verificationCode: code,
+      linkWithheld: link.withheld,
+    });
   }
 
   const course = labelled(body, ["Course", "Class"]);

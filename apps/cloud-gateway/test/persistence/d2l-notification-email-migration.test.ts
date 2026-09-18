@@ -152,4 +152,25 @@ describe("D2L notification email migration 0033", () => {
       "d2l_email_grade_observation_delete_forbidden",
     );
   });
+
+  it("needs the whole message delete trigger to refuse deleting an ingested receipt", async () => {
+    const emailId = await addMessage("assignment_due", "ingested-delete-guard");
+    await env.DB.prepare(`UPDATE d2l_email_messages SET status = 'ingested', processed_at = ?
+      WHERE principal_id = ? AND email_id = ?`).bind(NOW, PRINCIPAL, emailId).run();
+    await proveWholeTrigger(
+      "d2l_email_messages_delete_guard",
+      () => env.DB.prepare("DELETE FROM d2l_email_messages WHERE principal_id = ? AND email_id = ?")
+        .bind(PRINCIPAL, emailId).run(),
+      "d2l_email_message_delete_forbidden",
+    );
+  });
+
+  it("allows a quarantined receipt to be deleted so refused mail can expire", async () => {
+    const emailId = await addMessage("assignment_due", "quarantine-expiry");
+    await env.DB.prepare(`UPDATE d2l_email_messages
+      SET status = 'quarantined', quarantine_reason = 'from_domain_unpinned', processed_at = ?
+      WHERE principal_id = ? AND email_id = ?`).bind(NOW, PRINCIPAL, emailId).run();
+    await expect(env.DB.prepare("DELETE FROM d2l_email_messages WHERE principal_id = ? AND email_id = ?")
+      .bind(PRINCIPAL, emailId).run()).resolves.toBeDefined();
+  });
 });

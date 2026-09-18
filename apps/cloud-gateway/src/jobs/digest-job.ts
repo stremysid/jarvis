@@ -41,6 +41,16 @@ const DEADLINE_HORIZON_DAYS = 7;
 const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 /** A complete grades/submissions walk may span several hourly checkpoint slices. */
 const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
+/**
+ * How long a push source may be silent before the digest says so.
+ *
+ * D2L notification mail has no heartbeat: it either arrives or it does not,
+ * and a source that stops delivering looks exactly like a quiet term. A week
+ * is long enough not to nag between real notifications and short enough that
+ * a reset notification setting or a shadowed Email Routing rule surfaces
+ * while the assignment is still ahead.
+ */
+const PUSH_SOURCE_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
@@ -104,7 +114,7 @@ function deadlineSourceName(source: Pick<DeadlineSource, "kind"> & Partial<Pick<
 
 function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
   if (!source.active || source.kind === "manual") return null;
-  if (source.sourceId === "d2l-notification-email") return source.lastFailure;
+  if (source.sourceId === "d2l-notification-email") return pushSourceGap(source, observedAt);
   let partialResult: string | null = null;
   if (source.lastFailure !== null) {
     const truncation = source.kind === "brightspace"
@@ -128,6 +138,23 @@ function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | 
     return partialResult === null ? "last successful sync is stale" : `${partialResult}; last successful sync is stale`;
   }
   return partialResult;
+}
+
+/**
+ * A push source cannot fail loudly, so silence is the only symptom it has.
+ *
+ * A recorded failure still wins: it names something specific, and the
+ * freshness line would only restate the same silence less usefully.
+ */
+function pushSourceGap(source: DeadlineSource, observedAt: Date): string | null {
+  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastSuccessAt === null) return "has never received a message";
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) return "last received time is unreadable";
+  return age > PUSH_SOURCE_STALE_AFTER_MS
+    ? `nothing received in ${String(PUSH_SOURCE_STALE_AFTER_MS / (24 * 60 * 60 * 1_000))} days`
+    : null;
 }
 
 /**

@@ -4,6 +4,18 @@ import type { D2lEmailEventKind } from "./d2l-email-parser.js";
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 
+/**
+ * How many refused receipts survive per principal, and for how long.
+ *
+ * A quarantined receipt is bounded evidence for Sid, not a permanent record:
+ * the sender is unauthenticated by definition, so retaining every delivery
+ * lets anyone who learns the address fill the D1 database that also holds his
+ * deadlines and memory. The newest five are enough to diagnose the last few
+ * refusals; anything older than the window is prunable by the same path.
+ */
+export const MAXIMUM_RETAINED_QUARANTINED_RECEIPTS = 5;
+export const QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+
 export type D2lEmailMessageStatus = "pending" | "ingested" | "quarantined";
 
 interface MessageRow {
@@ -195,6 +207,54 @@ export class D2lEmailRepository {
     return completed;
   }
 
+  /**
+   * Delete quarantined receipts that are beyond the cap or past the window.
+   *
+   * Ingested receipts are never touched, and the migration's delete trigger
+   * refuses them explicitly: the whole point of the guard is that the evidence
+   * for real school data cannot be removed. Refused mail is the opposite --
+   * one stranger can produce it without limit, so it is the part that expires.
+   */
+  async pruneQuarantined(principalId: string, currentEmailId: string, now: Date): Promise<number> {
+    const timestamp = at(now);
+    const cutoff = at(new Date(now.getTime() - QUARANTINE_RETENTION_MS));
+    // The receipt in hand is never a candidate: it is the one this request is
+    // still writing about, and a clock skew must not turn its own reference
+    // into a foreign-key failure.
+    const victims = await this.database.prepare(`SELECT email_id FROM d2l_email_messages
+      WHERE principal_id = ? AND status = 'quarantined' AND email_id <> ?
+        AND (
+          processed_at < ?
+          OR email_id NOT IN (
+            SELECT email_id FROM d2l_email_messages
+            WHERE principal_id = ? AND status = 'quarantined'
+            ORDER BY processed_at DESC, email_id DESC LIMIT ?
+          )
+        ) LIMIT 200`)
+      .bind(principalId, currentEmailId, cutoff, principalId, MAXIMUM_RETAINED_QUARANTINED_RECEIPTS)
+      .all<{ email_id: string }>();
+    let deleted = 0;
+    for (const victim of victims.results) {
+      // The failure state points at refusals, so the pointer is released
+      // before the row goes: the foreign key stays RESTRICT, and the count is
+      // what the next refusal is measured against, not the receipt it arrived
+      // on. Spending the claim here can re-arm one later notice, never more.
+      await this.database.prepare(`UPDATE d2l_email_failure_state
+        SET last_failure_email_id = NULL, updated_at = ?
+        WHERE principal_id = ? AND last_failure_email_id = ?`)
+        .bind(timestamp, principalId, victim.email_id).run();
+      await this.database.prepare(`UPDATE d2l_email_failure_state
+        SET notice_claim_email_id = NULL, notice_sent_at = NULL, updated_at = ?
+        WHERE principal_id = ? AND notice_claim_email_id = ?`)
+        .bind(timestamp, principalId, victim.email_id).run();
+      const result = await this.database.prepare(`DELETE FROM d2l_email_messages
+        WHERE principal_id = ? AND email_id = ? AND status = 'quarantined'`)
+        .bind(principalId, victim.email_id).run();
+      deleted += result.meta.changes;
+    }
+    return deleted;
+  }
+
   async markVerificationNotified(principalId: string, emailId: string, now: Date): Promise<boolean> {
     const result = await this.database.prepare(`UPDATE d2l_email_messages
       SET verification_notified_at = ?
@@ -204,7 +264,15 @@ export class D2lEmailRepository {
     return result.meta.changes > 0;
   }
 
-  async recordFailure(principalId: string, emailId: string, now: Date): Promise<boolean> {
+  /**
+   * Count a refusal, and claim the one owner notice a failure streak earns.
+   *
+   * `claimImmediately` exists for a refused address-verification message:
+   * Sid asked D2L for that mail and is waiting on it, so silence would look
+   * like D2L never sent it. A flood of forged ones still earns at most the
+   * one notice, because the claim only moves while it is still unclaimed.
+   */
+  async recordFailure(principalId: string, emailId: string, now: Date, claimImmediately = false): Promise<boolean> {
     const timestamp = at(now);
     await this.database.prepare(`INSERT INTO d2l_email_failure_state (
       principal_id, consecutive_failures, last_failure_email_id, notice_claim_email_id,
@@ -217,9 +285,11 @@ export class D2lEmailRepository {
       .bind(principalId, emailId, timestamp).run();
     const claimed = await this.database.prepare(`UPDATE d2l_email_failure_state
       SET notice_claim_email_id = ?, updated_at = ?
-      WHERE principal_id = ? AND consecutive_failures >= 3
+      WHERE principal_id = ? AND (consecutive_failures >= 3 OR ? = 1)
         AND notice_claim_email_id IS NULL
-      RETURNING principal_id`).bind(emailId, timestamp, principalId).first<{ principal_id: string }>();
+      RETURNING principal_id`)
+      .bind(emailId, timestamp, principalId, claimImmediately ? 1 : 0)
+      .first<{ principal_id: string }>();
     return claimed !== null;
   }
 
@@ -242,8 +312,9 @@ export class D2lEmailRepository {
   async hasPendingFailureNotice(principalId: string): Promise<boolean> {
     const row = await this.database.prepare(`SELECT consecutive_failures, notice_claim_email_id, notice_sent_at
       FROM d2l_email_failure_state WHERE principal_id = ?`).bind(principalId).first<FailureStateRow>();
-    return row !== null && row.consecutive_failures >= 3
-      && row.notice_claim_email_id !== null && row.notice_sent_at === null;
+    // The claim itself is the record that a notice is owed: it is only ever
+    // written by recordFailure, so the counter does not need re-testing here.
+    return row !== null && row.notice_claim_email_id !== null && row.notice_sent_at === null;
   }
 
   async markFailureNoticeSent(principalId: string, now: Date): Promise<boolean> {

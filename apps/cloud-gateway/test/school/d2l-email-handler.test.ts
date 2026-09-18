@@ -8,6 +8,10 @@ import {
   handleD2lNotificationEmail,
 } from "../../src/school/d2l-email-handler.js";
 import { parseD2lEmail } from "../../src/school/d2l-email-parser.js";
+import {
+  D2lEmailRepository,
+  MAXIMUM_RETAINED_QUARANTINED_RECEIPTS,
+} from "../../src/school/d2l-email-repository.js";
 import { SchoolObservationRepository } from "../../src/school/school-observation-repository.js";
 import { D2L_EMAIL_FIXTURES } from "../fixtures/d2l-email-fixtures.js";
 import { applyD2lNotificationEmailMigration } from "../persistence/migration.js";
@@ -24,9 +28,36 @@ function configuredEnv(): Env {
     OWNER_PRINCIPAL_ID: PRINCIPAL_ID,
     SCHOOL_EMAIL_INGEST_ADDRESS: CAPABILITY_ADDRESS,
     D2L_EMAIL_FROM_DOMAINS: PINNED_DOMAIN,
-    GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS: "classroom.google.example",
+    D2L_EMAIL_ARC_SEALER_DOMAINS: FORWARDER_DOMAIN,
     DIGEST_TIMEZONE: "America/Toronto",
   } as Env;
+}
+
+/**
+ * The receiving MTA's own evaluation of a correctly delivered D2L message.
+ *
+ * Positive evidence is required before anything is ingested, so a fixture that
+ * is meant to describe real mail has to carry what real mail carries. Tests
+ * that need a refusal pass `null` or their own value.
+ */
+const PINNED_AUTHENTICATION = `mx.cloudflare.net; spf=fail; dkim=pass header.d=${PINNED_DOMAIN}; dmarc=none`;
+const FORWARDER_DOMAIN = "school-tenant.onmicrosoft.com";
+
+/**
+ * A principal of this test's own.
+ *
+ * The refusal counter and its one-notice claim live per principal and outlive
+ * a single delivery, so a test that asserts *which* notice is sent has to own
+ * the state it is asserting about rather than inherit another test's streak.
+ */
+async function isolatedEnv(suffix: string): Promise<Env> {
+  const principalId = `principal:d2l-email-${suffix}`;
+  await env.DB.prepare(`INSERT OR IGNORE INTO principals (
+    principal_id, principal_type, status, display_name, created_at, updated_at
+  ) VALUES (?, 'human', 'active', ?, ?, ?)`).bind(
+    principalId, `D2L ${suffix} owner`, NOW.toISOString(), NOW.toISOString(),
+  ).run();
+  return { ...configuredEnv(), OWNER_PRINCIPAL_ID: principalId } as Env;
 }
 
 function withMessageId(raw: string, suffix: string): string {
@@ -50,13 +81,17 @@ function emailMessage(
   options: Readonly<{
     to?: string;
     envelopeFrom?: string;
-    authenticationResults?: string;
+    /** `null` sends no Authentication-Results at all; undefined pins the pass. */
+    authenticationResults?: string | null;
   }> = {},
 ): Readonly<{ message: ForwardableEmailMessage; rejects: string[] }> {
   const bytes = encoder.encode(raw);
   const headers = rawHeaders(raw);
-  if (options.authenticationResults !== undefined) {
-    headers.set("Authentication-Results", options.authenticationResults);
+  if (options.authenticationResults !== null) {
+    // Appended, never replaced: the receiving MTA writes its result after
+    // whatever the sender put in the message, and that order is exactly what
+    // the handler relies on.
+    headers.append("Authentication-Results", options.authenticationResults ?? PINNED_AUTHENTICATION);
   }
   const rejects: string[] = [];
   const message = {
@@ -159,8 +194,8 @@ describe("D2L notification email", () => {
       .bind(PRINCIPAL_ID).first<{ count: number }>())?.count).toBe(0);
   });
 
-  it("does not let the separate Classroom domain pin authorize a D2L template", async () => {
-    const raw = withMessageId(fixture("assignment_due"), "classroom-pin-is-not-d2l")
+  it("refuses a message whose sender domain is pinned for no integration at all", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "unpinned-integration")
       .replaceAll(PINNED_DOMAIN, "classroom.google.example");
     const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
@@ -189,7 +224,9 @@ describe("D2L notification email", () => {
   it("does not mistake forwarded SPF failure for proof that the pinned message is forged", async () => {
     const raw = withMessageId(fixture("announcement"), "forwarded-spf-failure");
     const result = await handleD2lNotificationEmail(emailMessage(raw, {
-      authenticationResults: "mx.cloudflare.net; spf=fail; dkim=pass; dmarc=pass",
+      // Forwarded mail fails SPF at the receiving MTA by design. A DKIM pass
+      // for the pinned signer is the evidence that survives the forward.
+      authenticationResults: `mx.cloudflare.net; spf=fail; dkim=pass header.d=${PINNED_DOMAIN}; dmarc=pass`,
     }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
     expect(result).toMatchObject({ outcome: "ingested", eventKind: "announcement" });
   });
@@ -219,9 +256,10 @@ describe("D2L notification email", () => {
 
   it("records absent authentication as unknown instead of inventing a pass", async () => {
     const raw = withMessageId(fixture("new_content"), "authentication-unknown");
-    await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+    const result = await handleD2lNotificationEmail(emailMessage(raw, { authenticationResults: null }).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
     });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
     const row = await env.DB.prepare(`SELECT authentication_json FROM d2l_email_messages
       WHERE provider_message_id = ?`).bind("<authentication-unknown@notifications.minds-online.example>")
       .first<{ authentication_json: string }>();
@@ -381,19 +419,38 @@ describe("D2L notification email", () => {
     expect(deadline).toEqual({ title: "Titration lab", status: "open" });
   });
 
-  it("sends one fixed owner notice after repeated failures and does not send one per message", async () => {
+  it("sends one fixed owner notice after repeated authenticity failures and does not send one per message", async () => {
     const sent: string[] = [];
+    const owner = await isolatedEnv("authenticity-notice");
     for (let index = 0; index < 4; index += 1) {
-      const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: Unknown ${index}\r\nMessage-ID: <repeated-${index}@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\nUnknown body ${index}\r\n`;
-      await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+      const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: Assignment due soon\r\nMessage-ID: <repeated-${index}@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\nCourse: Chemistry\r\nAssignment: Lab ${index}\r\nAssignment ID: repeated-${index}\r\nDue Date: September 26, 2026 at 11:59 PM\r\n`;
+      await handleD2lNotificationEmail(emailMessage(raw, { authenticationResults: null }).message, owner, {
         now: () => new Date(NOW.getTime() + index * 1_000),
         sendOwnerText: async (text) => { sent.push(text); },
         logHeaderNames: () => undefined,
       });
     }
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("repeatedly failed authenticity or parsing checks");
+    expect(sent[0]).toContain("repeatedly failed authenticity checks");
+    expect(sent[0]).toContain("Check Email Routing");
     expect(sent[0]).not.toContain(CAPABILITY_ADDRESS);
+  });
+
+  it("never tells Sid to check his setup when the mail was authentic but unreadable", async () => {
+    const sent: string[] = [];
+    const owner = await isolatedEnv("content-notice");
+    for (let index = 0; index < 4; index += 1) {
+      const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: Unknown ${index}\r\nMessage-ID: <unreadable-${index}@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\nUnknown body ${index}\r\n`;
+      await handleD2lNotificationEmail(emailMessage(raw).message, owner, {
+        now: () => new Date(NOW.getTime() + index * 1_000),
+        sendOwnerText: async (text) => { sent.push(text); },
+        logHeaderNames: () => undefined,
+      });
+    }
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("could not read");
+    expect(sent[0]).not.toContain("Check Email Routing");
+    expect(sent[0]).not.toContain("sender-domain pins");
   });
 
   it("quarantines delivery for any recipient other than the configured capability", async () => {
@@ -402,5 +459,335 @@ describe("D2L notification email", () => {
       to: "school-wrongcapability1234@onesid.ca",
     }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
     expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "recipient_mismatch" });
+  });
+
+  it("refuses a forged notification that carries no authentication evidence at all", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "forged-no-evidence")
+      .replace("Assignment ID: chemistry-lab-4", "Assignment ID: forged-no-evidence");
+    const result = await handleD2lNotificationEmail(
+      // The visible From is the pinned D2L domain and the envelope sender is a
+      // stranger: the header is a routing hint, and neither one is proof.
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
+      WHERE source_id = ? AND external_id = 'd2l:forged-no-evidence'`)
+      .bind(D2L_EMAIL_SOURCE_ID).first()).toBeNull();
+  });
+
+  it("refuses a message whose only DKIM signature is for an unrelated domain", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "forged-foreign-dkim")
+      .replace("Assignment ID: chemistry-lab-4", "Assignment ID: forged-foreign-dkim")
+      .replace(
+        "MIME-Version: 1.0",
+        "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=evil.example; s=s1; b=AAAA\r\nMIME-Version: 1.0",
+      );
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      authenticationResults: "mx.cloudflare.net; dkim=pass header.d=evil.example; spf=pass; dmarc=none",
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
+      WHERE external_id = 'd2l:forged-foreign-dkim'`).first()).toBeNull();
+  });
+
+  it("does not accept a sender-written Authentication-Results that claims a pinned signature passed", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "forged-result-header")
+      .replace("Assignment ID: chemistry-lab-4", "Assignment ID: forged-result-header")
+      .replace(
+        "MIME-Version: 1.0",
+        `Authentication-Results: mx.cloudflare.net; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass; dmarc=pass\r\nMIME-Version: 1.0`,
+      );
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      // The receiving MTA appends the truth after the sender's claim, and the
+      // last result attributed to it is the one that decides.
+      authenticationResults: "mx.cloudflare.net; dkim=fail; spf=fail; dmarc=fail",
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_failed" });
+    expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
+      WHERE external_id = 'd2l:forged-result-header'`).first()).toBeNull();
+  });
+
+  it("does not believe a pinned DKIM signature the receiving MTA reported failing", async () => {
+    const raw = withMessageId(fixture("announcement"), "contradicted-dkim")
+      .replace(
+        "MIME-Version: 1.0",
+        `DKIM-Signature: v=1; a=rsa-sha256; d=${PINNED_DOMAIN}; s=school; b=AAAA\r\nMIME-Version: 1.0`,
+      );
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      authenticationResults: `mx.cloudflare.net; dkim=fail header.d=${PINNED_DOMAIN}; spf=pass; dmarc=fail`,
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_failed" });
+  });
+
+  it("accepts a message whose own DKIM signature names a pinned domain and no result contradicts it", async () => {
+    const raw = withMessageId(fixture("announcement"), "pinned-dkim-signature")
+      .replace(
+        "MIME-Version: 1.0",
+        `DKIM-Signature: v=1; a=rsa-sha256; d=${PINNED_DOMAIN}; s=school; b=AAAA\r\nMIME-Version: 1.0`,
+      );
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "ingested", eventKind: "announcement" });
+    const row = await env.DB.prepare(`SELECT authentication_json FROM d2l_email_messages
+      WHERE provider_message_id = ?`).bind(`<pinned-dkim-signature@${PINNED_DOMAIN}>`)
+      .first<{ authentication_json: string }>();
+    expect(JSON.parse(row!.authentication_json)).toMatchObject({
+      authenticity: { trusted: true, path: "dkim-signature" },
+    });
+  });
+
+  it("accepts a pinned ARC chain whose original authentication passed", async () => {
+    const raw = withMessageId(fixture("announcement"), "arc-forwarded")
+      .replace(
+        "MIME-Version: 1.0",
+        `ARC-Seal: i=1; a=rsa-sha256; t=1; cv=pass; d=${FORWARDER_DOMAIN}; s=arc; b=AAAA\r\n`
+        + `ARC-Authentication-Results: i=1; mx.microsoft.com; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass\r\n`
+        + "MIME-Version: 1.0",
+      );
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "ingested", eventKind: "announcement" });
+    const row = await env.DB.prepare(`SELECT authentication_json FROM d2l_email_messages
+      WHERE provider_message_id = ?`).bind(`<arc-forwarded@${PINNED_DOMAIN}>`)
+      .first<{ authentication_json: string }>();
+    expect(JSON.parse(row!.authentication_json)).toMatchObject({
+      authenticity: { trusted: true, path: "arc-chain" },
+    });
+  });
+
+  it("reads Microsoft's versioned authserv-id so the tenant's ARC record can be believed", async () => {
+    const raw = withMessageId(fixture("announcement"), "arc-versioned")
+      .replace(
+        "MIME-Version: 1.0",
+        `ARC-Seal: i=1; a=rsa-sha256; t=1; cv=pass; d=${FORWARDER_DOMAIN}; s=arc; b=AAAA\r\n`
+        + `ARC-Authentication-Results: i=1; mx.microsoft.com 1; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass\r\n`
+        + "MIME-Version: 1.0",
+      );
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "ingested", eventKind: "announcement" });
+    const row = await env.DB.prepare(`SELECT authentication_json FROM d2l_email_messages
+      WHERE provider_message_id = ?`).bind(`<arc-versioned@${PINNED_DOMAIN}>`)
+      .first<{ authentication_json: string }>();
+    expect(JSON.parse(row!.authentication_json)).toMatchObject({
+      authenticity: { trusted: true, path: "arc-chain" },
+    });
+  });
+
+  it("does not accept an ARC chain sealed by a forwarder that is not pinned", async () => {
+    const raw = withMessageId(fixture("announcement"), "arc-unpinned")
+      .replace(
+        "MIME-Version: 1.0",
+        `ARC-Seal: i=1; a=rsa-sha256; t=1; cv=pass; d=evil.example; s=arc; b=AAAA\r\n`
+        + `ARC-Authentication-Results: i=1; evil.example; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass\r\n`
+        + "MIME-Version: 1.0",
+      );
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+  });
+
+  it("tells Sid a verification message was refused instead of relaying an unpinned link", async () => {
+    const sent: string[] = [];
+    const owner = await isolatedEnv("refused-verification");
+    const raw = `From: D2L Notifications <no-reply@${PINNED_DOMAIN}>\r\n`
+      + "Subject: Please verify your email address\r\n"
+      + `Message-ID: <refused-verification@${PINNED_DOMAIN}>\r\nContent-Type: text/html; charset=utf-8\r\n\r\n`
+      + "<html><body><p>Confirm your email address to finish set-up.</p>"
+      + "<p><a href=\"https://evil.example/verify?t=steal\">Verify your address</a></p></body></html>\r\n";
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      owner,
+      {
+        now: () => NOW,
+        sendOwnerText: async (text) => { sent.push(text); },
+        logHeaderNames: () => undefined,
+      },
+    );
+    expect(result).toMatchObject({ outcome: "quarantined", eventKind: "address_verification" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("refused");
+    expect(sent.join("\n")).not.toContain("evil.example");
+    expect(sent.join("\n")).not.toContain("http");
+  });
+
+  it("refuses an authentic verification message whose link points off the pinned hosts", async () => {
+    const sent: string[] = [];
+    const owner = await isolatedEnv("offhost-verification");
+    const raw = `From: D2L Notifications <no-reply@${PINNED_DOMAIN}>\r\n`
+      + "Subject: Please verify your email address\r\n"
+      + `Message-ID: <offhost-verification@${PINNED_DOMAIN}>\r\nContent-Type: text/html; charset=utf-8\r\n\r\n`
+      + "<html><body><p>Confirm your email address to finish set-up.</p>"
+      + "<p><a href=\"https://d2l-partner.example/verify?t=1\">Verify your address</a></p></body></html>\r\n";
+    const result = await handleD2lNotificationEmail(emailMessage(raw).message, owner, {
+      now: () => NOW,
+      sendOwnerText: async (text) => { sent.push(text); },
+      logHeaderNames: () => undefined,
+    });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "verification_link_unpinned" });
+    expect(sent).toHaveLength(1);
+    expect(sent.join("\n")).not.toContain("d2l-partner.example");
+  });
+
+  it("relays a verification code when the authentic message carries no link at all", async () => {
+    const sent: string[] = [];
+    const owner = await isolatedEnv("code-verification");
+    const raw = `From: D2L Notifications <no-reply@${PINNED_DOMAIN}>\r\n`
+      + "Subject: Please verify your email address\r\n"
+      + `Message-ID: <code-only-verification@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\n`
+      + "Confirm your email address by entering this code.\r\nCode: ABCD1234\r\n";
+    const result = await handleD2lNotificationEmail(emailMessage(raw).message, owner, {
+      now: () => NOW,
+      sendOwnerText: async (text) => { sent.push(text); },
+      logHeaderNames: () => undefined,
+    });
+    expect(result).toMatchObject({ outcome: "ingested", eventKind: "address_verification" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Code: ABCD1234");
+    expect(sent.join("\n")).not.toContain("http");
+  });
+
+  it("parses a date-only due date at the end of the Toronto day", async () => {
+    const parsed = await parseD2lEmail({
+      subject: "Assignment due soon",
+      text: "Course: Grade 12 Chemistry\nAssignment: Titration lab\n"
+        + "Assignment ID: date-only\nDue Date: 2026-11-02",
+      html: undefined,
+      timeZone: "America/Toronto",
+    });
+    expect(parsed).toMatchObject({
+      kind: "assignment_due",
+      dueTimeSupplied: false,
+      dueAt: "2026-11-03T04:59:59.999Z",
+    });
+  });
+
+  it("parses the worded form of a date-only due date on the summer side of the Toronto change", async () => {
+    const raw = withMessageId(
+      fixture("assignment_due")
+        .replace("Assignment ID: chemistry-lab-4", "Assignment ID: date-only-summer")
+        .replace(/^Due Date:.*$/imu, "Due Date: July 1, 2026"),
+      "date-only-summer",
+    );
+    const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+      now: () => NOW, logHeaderNames: () => undefined,
+    });
+    expect(result).toMatchObject({ outcome: "ingested", deadlineOutcome: "created" });
+    const deadline = await env.DB.prepare(`SELECT due_at FROM deadlines
+      WHERE source_id = ? AND external_id = 'd2l:date-only-summer'`)
+      .bind(D2L_EMAIL_SOURCE_ID).first<{ due_at: string }>();
+    expect(deadline).toEqual({ due_at: "2026-07-02T03:59:59.999Z" });
+    const receipt = await env.DB.prepare(`SELECT json_extract(structured_json, '$.dueTimeSupplied') AS supplied
+      FROM d2l_email_messages WHERE provider_message_id = ?`)
+      .bind(`<date-only-summer@${PINNED_DOMAIN}>`).first<{ supplied: number }>();
+    expect(receipt).toEqual({ supplied: 0 });
+  });
+
+  it("retains no raw MIME for a message refused on its visible sender", async () => {
+    const raw = `From: stranger <someone@evil.example>\r\nSubject: hello\r\n`
+      + "Message-ID: <no-raw-retention@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n";
+    const result = await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      configuredEnv(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
+    const receipt = await env.DB.prepare(`SELECT length(raw_mime_base64) AS retained, length(raw_sha256) AS hashed
+      FROM d2l_email_messages WHERE provider_message_id = ?`)
+      .bind("<no-raw-retention@evil.example>").first<{ retained: number; hashed: number }>();
+    expect(receipt).toEqual({ retained: 0, hashed: 64 });
+  });
+
+  it("keeps only a bounded number of quarantined receipts for one owner", async () => {
+    const owner = await isolatedEnv("flood-cap");
+    for (let index = 0; index < 8; index += 1) {
+      const raw = `From: stranger <someone@evil.example>\r\nSubject: flood ${index}\r\n`
+        + `Message-ID: <flood-${index}@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding ${index}\r\n`;
+      await handleD2lNotificationEmail(
+        emailMessage(raw, { authenticationResults: null }).message,
+        owner,
+        { now: () => new Date(NOW.getTime() + index * 1_000), logHeaderNames: () => undefined },
+      );
+    }
+    const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM d2l_email_messages
+      WHERE principal_id = ? AND status = 'quarantined'`)
+      .bind(`principal:d2l-email-flood-cap`).first<{ count: number }>();
+    expect(row?.count ?? 0).toBeLessThanOrEqual(MAXIMUM_RETAINED_QUARANTINED_RECEIPTS);
+  });
+
+  it("deletes a quarantined receipt but never an ingested one", async () => {
+    const quarantined = await env.DB.prepare(`SELECT email_id FROM d2l_email_messages
+      WHERE principal_id = ? AND status = 'quarantined' LIMIT 1`)
+      .bind(PRINCIPAL_ID).first<{ email_id: string }>();
+    expect(quarantined).not.toBeNull();
+    await expect(env.DB.prepare("DELETE FROM d2l_email_messages WHERE principal_id = ? AND email_id = ?")
+      .bind(PRINCIPAL_ID, quarantined?.email_id).run()).resolves.toBeDefined();
+    const ingested = await env.DB.prepare(`SELECT email_id FROM d2l_email_messages
+      WHERE principal_id = ? AND status = 'ingested' LIMIT 1`)
+      .bind(PRINCIPAL_ID).first<{ email_id: string }>();
+    expect(ingested).not.toBeNull();
+    await expect(env.DB.prepare("DELETE FROM d2l_email_messages WHERE principal_id = ? AND email_id = ?")
+      .bind(PRINCIPAL_ID, ingested?.email_id).run())
+      .rejects.toThrow("d2l_email_message_delete_forbidden");
+  });
+
+  it("prunes a quarantined receipt that is past the retention window", async () => {
+    const repository = new D2lEmailRepository(env.DB);
+    await isolatedEnv("retention-window");
+    const principalId = "principal:d2l-email-retention-window";
+    const staleAt = new Date(NOW.getTime() - 40 * 24 * 60 * 60 * 1_000);
+    const stale = await repository.begin({
+      principalId,
+      ingestionKey: "message-id-sha256:stale-quarantine",
+      rawSha256: "a".repeat(64),
+      providerMessageId: "<stale-quarantine@evil.example>",
+      headerNames: [],
+      authentication: {},
+      envelopeFromDomain: "evil.example",
+      fromDomain: "evil.example",
+      eventKind: "unrecognised",
+      structured: {},
+      rawMimeBase64: "",
+      now: staleAt,
+    });
+    await repository.complete(principalId, stale.receipt.emailId, {
+      status: "quarantined",
+      reason: "from_domain_unpinned",
+    }, new Date(staleAt.getTime() + 1_000));
+    const current = await repository.begin({
+      principalId,
+      ingestionKey: "message-id-sha256:current-quarantine",
+      rawSha256: "b".repeat(64),
+      providerMessageId: "<current-quarantine@evil.example>",
+      headerNames: [],
+      authentication: {},
+      envelopeFromDomain: "evil.example",
+      fromDomain: "evil.example",
+      eventKind: "unrecognised",
+      structured: {},
+      rawMimeBase64: "",
+      now: NOW,
+    });
+    await repository.complete(principalId, current.receipt.emailId, {
+      status: "quarantined",
+      reason: "from_domain_unpinned",
+    }, NOW);
+    expect(await repository.pruneQuarantined(principalId, current.receipt.emailId, NOW)).toBeGreaterThan(0);
+    expect(await repository.read(principalId, stale.receipt.emailId)).toBeNull();
+    expect(await repository.read(principalId, current.receipt.emailId)).not.toBeNull();
   });
 });

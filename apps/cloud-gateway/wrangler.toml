@@ -33,7 +33,8 @@ required = [
 # GOOGLE_REFRESH_TOKEN.
 # Brightspace calendar ingestion: BRIGHTSPACE_ICAL_URL.
 # School notification email: SCHOOL_EMAIL_INGEST_ADDRESS,
-# D2L_EMAIL_FROM_DOMAINS, GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS.
+# D2L_EMAIL_FROM_DOMAINS, and optionally D2L_EMAIL_ARC_SEALER_DOMAINS for the
+# forwarder tenants whose ARC seal may be believed.
 
 [exports.CallSession]
 type = "durable-object"

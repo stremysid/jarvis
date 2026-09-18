@@ -3,6 +3,10 @@ import { sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { DeadlineIngestion } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import type { Env } from "../env.js";
+import {
+  assessAuthenticity,
+  type AuthenticityEvidence,
+} from "./d2l-email-authenticity.js";
 import { D2lEmailRepository, type D2lEmailMessageReceipt } from "./d2l-email-repository.js";
 import { parseD2lEmail, type ParsedD2lEmailEvent } from "./d2l-email-parser.js";
 import { SchoolObservationRepository } from "./school-observation-repository.js";
@@ -38,7 +42,8 @@ interface D2lEmailConfiguration {
   readonly principalId: string;
   readonly ingestAddress: string;
   readonly d2lDomains: ReadonlySet<string>;
-  readonly googleClassroomDomains: ReadonlySet<string>;
+  /** Forwarder tenants whose ARC seal can be believed; empty disables ARC. */
+  readonly arcSealerDomains: ReadonlySet<string>;
   readonly timeZone: string;
 }
 
@@ -54,6 +59,11 @@ interface AuthenticationRecord extends Readonly<Record<string, unknown>> {
   readonly hardFailures: readonly string[];
 }
 
+/** What is written to the receipt: the measurement plus why it was believed. */
+interface StoredAuthenticationRecord extends AuthenticationRecord {
+  readonly authenticity: AuthenticityEvidence;
+}
+
 function configuredDomain(value: string): string | null {
   const domain = value.trim().toLowerCase();
   if (
@@ -66,8 +76,7 @@ function configuredDomain(value: string): string | null {
   return domain;
 }
 
-function domainSet(value: string | undefined): ReadonlySet<string> {
-  if (value === undefined) throw new Error("school_email_configuration_invalid");
+function domainSet(value: string): ReadonlySet<string> {
   const domains = value.split(",").map(configuredDomain);
   if (domains.length === 0 || domains.some((domain) => domain === null)) {
     throw new Error("school_email_configuration_invalid");
@@ -75,10 +84,20 @@ function domainSet(value: string | undefined): ReadonlySet<string> {
   return new Set(domains as string[]);
 }
 
+/**
+ * The ARC sealer pin is optional configuration: without it the ARC path is
+ * simply unavailable and a message that needs it quarantines rather than
+ * being trusted on a chain nobody pinned.
+ */
+function optionalDomainSet(value: string | undefined): ReadonlySet<string> {
+  if (value === undefined || value.trim().length === 0) return new Set();
+  return domainSet(value);
+}
+
 function configuration(env: Pick<
   Env,
   "OWNER_PRINCIPAL_ID" | "SCHOOL_EMAIL_INGEST_ADDRESS" | "D2L_EMAIL_FROM_DOMAINS"
-  | "GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS" | "DIGEST_TIMEZONE"
+  | "D2L_EMAIL_ARC_SEALER_DOMAINS" | "DIGEST_TIMEZONE"
 >): D2lEmailConfiguration {
   const address = env.SCHOOL_EMAIL_INGEST_ADDRESS?.trim().toLowerCase();
   if (
@@ -96,8 +115,10 @@ function configuration(env: Pick<
   return Object.freeze({
     principalId,
     ingestAddress: address,
-    d2lDomains: domainSet(env.D2L_EMAIL_FROM_DOMAINS),
-    googleClassroomDomains: domainSet(env.GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS),
+    // Required: the sender-domain pin is the routing filter every message is
+    // measured against, and it authorises nothing on its own.
+    d2lDomains: domainSet(env.D2L_EMAIL_FROM_DOMAINS ?? ""),
+    arcSealerDomains: optionalDomainSet(env.D2L_EMAIL_ARC_SEALER_DOMAINS),
     timeZone,
   });
 }
@@ -252,7 +273,41 @@ function verificationText(event: Extract<ParsedD2lEmailEvent, { kind: "address_v
   return `D2L email address verification is waiting. Jarvis did not open the link.\n\n${values.join("\n")}`;
 }
 
-const REPEATED_FAILURE_NOTICE = "D2L notification email has repeatedly failed authenticity or parsing checks. The messages are quarantined, and no deadline, grade, or memory was created. Check Email Routing and the configured sender-domain pins.";
+const REPEATED_FAILURE_NOTICE = "D2L notification email has repeatedly failed authenticity checks. The messages are quarantined, and no deadline, grade, or memory was created. Check Email Routing and the configured sender-domain pins.";
+// A parse failure is a statement about the templates Jarvis knows, not about
+// Sid's mail configuration: telling him to check DNS while a real assignment
+// quietly never appears is the failure this notice exists to avoid.
+const CONTENT_FAILURE_NOTICE = "D2L notification email has repeatedly arrived in a form Jarvis could not read, so no deadline or grade was created. Nothing in Email Routing or the sender pins needs checking; the message format may have changed.";
+const REFUSED_VERIFICATION_NOTICE = "A D2L email-address verification message was refused because it could not be proven to come from D2L. Jarvis did not open it and has no link to pass on. If you expected a verification mail, set the address in D2L itself.";
+
+/** Reasons that mean Sid's own mail configuration may be wrong. */
+const AUTHENTICITY_REASONS = new Set([
+  "authentication_failed", "authentication_unproven", "from_missing", "from_domain_unpinned",
+]);
+/** Reasons that describe the delivery itself, not anything Sid controls. */
+const DELIVERY_REASONS = new Set(["recipient_mismatch", "message_too_large", "mime_parse_failed"]);
+
+function failureNoticeText(receipt: D2lEmailMessageReceipt): string | null {
+  if (receipt.eventKind === "address_verification") return REFUSED_VERIFICATION_NOTICE;
+  if (receipt.quarantineReason === null || AUTHENTICITY_REASONS.has(receipt.quarantineReason)) {
+    return REPEATED_FAILURE_NOTICE;
+  }
+  return DELIVERY_REASONS.has(receipt.quarantineReason) ? null : CONTENT_FAILURE_NOTICE;
+}
+
+/**
+ * Reasons whose raw bytes are not retained.
+ *
+ * The envelope recipient and the visible `From:` are the two checks anyone on
+ * the internet can fail or pass without knowing anything about D2L, so a
+ * refusal there keeps the hash, the header names and the reason, and nothing
+ * else. What is left is capped and expires (see the repository).
+ */
+const RAW_WITHHELD_REASONS = new Set(["recipient_mismatch", "from_missing", "from_domain_unpinned"]);
+
+function retainsRawMime(reason: string | null): boolean {
+  return reason === null || !RAW_WITHHELD_REASONS.has(reason);
+}
 
 function eventFromReceipt(receipt: D2lEmailMessageReceipt): ParsedD2lEmailEvent {
   return receipt.structured as unknown as ParsedD2lEmailEvent;
@@ -260,17 +315,22 @@ function eventFromReceipt(receipt: D2lEmailMessageReceipt): ParsedD2lEmailEvent 
 
 async function sendPendingFailureNotice(
   repository: D2lEmailRepository,
-  principalId: string,
+  receipt: D2lEmailMessageReceipt,
   send: ((text: string) => Promise<void>) | undefined,
   now: Date,
 ): Promise<void> {
-  if (!await repository.hasPendingFailureNotice(principalId)) return;
+  if (receipt.status !== "quarantined") return;
+  if (!await repository.hasPendingFailureNotice(receipt.principalId)) return;
+  const text = failureNoticeText(receipt);
+  // A refusal of the delivery itself is not Sid's setup to fix, and spending
+  // the claim on it would silence the notice a real failure streak earns.
+  if (text === null) return;
   // A quarantined receipt must stay final even if this optional adapter was
   // omitted. Production supplies the sender; a delivery error still throws
   // and leaves the durable claim pending for the next message to retry.
   if (send === undefined) return;
-  await send(REPEATED_FAILURE_NOTICE);
-  await repository.markFailureNoticeSent(principalId, now);
+  await send(text);
+  await repository.markFailureNoticeSent(receipt.principalId, now);
 }
 
 async function sendPendingVerification(
@@ -294,10 +354,12 @@ async function sendPendingVerification(
 /**
  * Process the Email Routing delivery without granting body text any command path.
  *
- * Trust comes from the configured capability recipient plus an exact From
- * domain pin. Authentication headers are retained as measurements. Their
- * absence is unknown, while an explicit DKIM, DMARC, or ARC failure can only
- * make a message less trusted.
+ * Trust comes from positive authentication evidence and nothing else: a DKIM
+ * signature naming a pinned domain, the receiving MTA's own `dkim=pass` for a
+ * pinned signer, or a pinned ARC chain whose original authentication passed.
+ * The configured capability recipient and the `From:` domain pin only route
+ * and filter -- anyone on the internet can set a `From:` header, so neither
+ * one authorises a write. Missing evidence is quarantine, never trust.
  */
 export async function handleD2lNotificationEmail(
   message: ForwardableEmailMessage,
@@ -339,10 +401,21 @@ export async function handleD2lNotificationEmail(
   const authentication = authenticationRecord(message.headers);
   const parsed = email === null
     ? Object.freeze({ kind: "unrecognised" as const, reason: raw.truncated ? "message_too_large" : "mime_parse_failed" })
-    : await parseD2lEmail({ subject: email.subject, text: email.text, html: email.html, timeZone: config.timeZone });
+    : await parseD2lEmail({
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+      timeZone: config.timeZone,
+      pinnedLinkDomains: [...config.d2lDomains],
+    });
   const parsedFromDomain = fromDomain(email);
   const envelopeFromDomain = addressDomain(message.from);
   const messageId = providerMessageId(email, message.headers);
+  const evidence = assessAuthenticity({
+    headerValues: authentication.headerValues,
+    pinnedDomains: config.d2lDomains,
+    arcSealerDomains: config.arcSealerDomains,
+  });
   let quarantineReason: string | null = null;
   if (message.to.trim().toLowerCase() !== config.ingestAddress) quarantineReason = "recipient_mismatch";
   else if (raw.truncated) quarantineReason = "message_too_large";
@@ -350,9 +423,21 @@ export async function handleD2lNotificationEmail(
   else if (authentication.state === "hard_fail") quarantineReason = "authentication_failed";
   else if (parsedFromDomain === null) quarantineReason = "from_missing";
   else if (!config.d2lDomains.has(parsedFromDomain)) quarantineReason = "from_domain_unpinned";
+  else if (!evidence.trusted) quarantineReason = "authentication_unproven";
+  // An authentic verification message is only refused when it has nothing
+  // relayable: a link somewhere other than a pinned D2L host, or neither a
+  // link nor a code. Either way Sid hears about it through a fixed notice
+  // that carries no content borrowed from the message.
+  else if (parsed.kind === "address_verification" && parsed.linkWithheld) quarantineReason = "verification_link_unpinned";
+  else if (parsed.kind === "address_verification" && parsed.verificationUrl === null && parsed.verificationCode === null) {
+    quarantineReason = "verification_value_missing";
+  }
   else if (parsed.kind === "unrecognised") quarantineReason = parsed.reason;
-  void config.googleClassroomDomains;
 
+  const storedAuthentication: StoredAuthenticationRecord = Object.freeze({
+    ...authentication,
+    authenticity: evidence,
+  });
   const repository = new D2lEmailRepository(env.DB);
   const begun = await repository.begin({
     principalId: config.principalId,
@@ -360,12 +445,12 @@ export async function handleD2lNotificationEmail(
     rawSha256: rawHash,
     providerMessageId: messageId,
     headerNames: names,
-    authentication,
+    authentication: storedAuthentication,
     envelopeFromDomain,
     fromDomain: parsedFromDomain,
     eventKind: parsed.kind,
     structured: structured(parsed, raw.truncated),
-    rawMimeBase64: base64(raw.bytes),
+    rawMimeBase64: retainsRawMime(quarantineReason) ? base64(raw.bytes) : "",
     now,
   });
   (dependencies.logHeaderNames ?? ((emailId, headerNamesValue) => {
@@ -374,7 +459,7 @@ export async function handleD2lNotificationEmail(
 
   if (!begun.created && begun.receipt.status !== "pending") {
     await sendPendingVerification(repository, begun.receipt, dependencies.sendOwnerText, now);
-    await sendPendingFailureNotice(repository, config.principalId, dependencies.sendOwnerText, now);
+    await sendPendingFailureNotice(repository, begun.receipt, dependencies.sendOwnerText, now);
     return Object.freeze({
       outcome: "duplicate" as const,
       eventKind: begun.receipt.eventKind,
@@ -391,9 +476,17 @@ export async function handleD2lNotificationEmail(
       { status: "quarantined", reason: quarantineReason },
       now,
     );
+    // Pruned here, in the same request as the write that grew the table, so a
+    // stranger flooding the address cannot outrun the cap.
+    await repository.pruneQuarantined(config.principalId, quarantined.emailId, now);
     await deadlines.recordSourceFailure(D2L_EMAIL_SOURCE_ID, quarantineReason, now);
-    await repository.recordFailure(config.principalId, begun.receipt.emailId, now);
-    await sendPendingFailureNotice(repository, config.principalId, dependencies.sendOwnerText, now);
+    await repository.recordFailure(
+      config.principalId,
+      quarantined.emailId,
+      now,
+      quarantined.eventKind === "address_verification",
+    );
+    await sendPendingFailureNotice(repository, quarantined, dependencies.sendOwnerText, now);
     return Object.freeze({
       outcome: "quarantined" as const,
       eventKind: quarantined.eventKind,

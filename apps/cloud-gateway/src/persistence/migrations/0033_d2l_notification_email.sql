@@ -4,6 +4,8 @@
 -- They are deliberately absent from structured fields because the capability
 -- must never enter a migration, log, or owner-facing message. The exact raw
 -- MIME is retained as evidence and can contain provider-supplied address text.
+-- A refused message is retained only under the application's cap and window,
+-- because anyone who learns the address can produce refused mail without limit.
 
 CREATE TABLE d2l_email_messages (
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
@@ -125,7 +127,10 @@ CREATE TABLE d2l_email_failure_state (
     REFERENCES d2l_email_messages(principal_id, email_id) ON DELETE RESTRICT,
   FOREIGN KEY (principal_id, notice_claim_email_id)
     REFERENCES d2l_email_messages(principal_id, email_id) ON DELETE RESTRICT,
-  CHECK ((consecutive_failures = 0) = (last_failure_email_id IS NULL)),
+  -- No constraint ties the counter to a surviving row here. Pruning a
+  -- quarantined receipt clears the reference and keeps the count, which is
+  -- what the next refusal is measured against. The notice claim is spent by
+  -- notice_sent_at, not by the receipt still existing.
   CHECK (notice_sent_at IS NULL OR notice_claim_email_id IS NOT NULL)
 ) WITHOUT ROWID;
 
@@ -185,9 +190,14 @@ BEGIN
   SELECT RAISE(ABORT, 'd2l_email_message_update_invalid');
 END;
 
+-- An ingested receipt is the evidence a deadline or grade was created from and
+-- can never be deleted. A quarantined one is the opposite: anyone who learns
+-- the address can produce it without limit, so the application prunes those
+-- beyond its cap and past its window. One stranger must not be able to fill
+-- the database that also holds Sid's deadlines and memory.
 CREATE TRIGGER d2l_email_messages_delete_guard
 BEFORE DELETE ON d2l_email_messages
-WHEN 1 = 1
+WHEN OLD.status <> 'quarantined'
 BEGIN
   SELECT RAISE(ABORT, 'd2l_email_message_delete_forbidden');
 END;

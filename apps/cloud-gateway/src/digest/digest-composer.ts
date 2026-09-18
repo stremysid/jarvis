@@ -202,7 +202,12 @@ function schoolObservationSection(input: DigestInput, timeZone: string): DigestS
         ? `${String(grade.assignedGrade)} (scale and weight not supplied)`
         : `${String(grade.assignedGrade)}/${String(grade.maxPoints)} (${(grade.assignedGrade / grade.maxPoints * 100).toFixed(1)}%)`;
       const observedAt = grade.gradeUpdatedAt ?? grade.lastSeenAt;
-      return `[verified: ${grade.source}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
+      // `verified:` is reserved for the API read, which sees the gradebook
+      // itself. A grade scraped out of a message is authenticated at best --
+      // it was never checked against the gradebook -- so it says who reported
+      // it instead of claiming a confirmation Jarvis did not perform.
+      const provenance = grade.source === "D2L email" ? "reported by D2L email" : `verified: ${grade.source}`;
+      return `[${provenance}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
     }),
     ...input.missingWork.map((item) =>
       `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,

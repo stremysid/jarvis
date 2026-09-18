@@ -295,7 +295,10 @@ describe("assembling from every source", () => {
 
     expect(digest.text).toContain("verified: Google Classroom");
     expect(digest.text).toContain("assigned grade 84");
-    expect(digest.text).toContain("verified: D2L email");
+    // An email-sourced grade is authenticated at best, never checked against
+    // the gradebook, so it cannot claim the API source's `verified:`.
+    expect(digest.text).toContain("reported by D2L email");
+    expect(digest.text).not.toContain("verified: D2L email");
     expect(digest.text).toContain("assigned grade 18/20 (90.0%)");
     expect(digest.text).toContain("derived: Google Classroom showed no submission as of");
     expect(digest.text).not.toContain("you missed");
@@ -444,7 +447,7 @@ describe("a source that will not answer", () => {
     );
   });
 
-  it("does not call event-driven D2L notification email stale between messages", async () => {
+  it("does not call a push source stale inside its silence window", async () => {
     const digest = await assembleDigest("daily", deps({
       sources: {
         readDeadlineSources: async () => [deadlineSource({
@@ -457,6 +460,36 @@ describe("a source that will not answer", () => {
 
     expect(digest.text).not.toContain("D2L notification email:");
     expect(digest.text).not.toContain("last successful sync is stale");
+  });
+
+  it("reports a push source that has received nothing for a week", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "d2l-notification-email",
+          lastSuccessAt: "2026-08-24T11:29:59.000Z",
+        })],
+      },
+    }));
+
+    // Email is push, not poll: a notification setting that was reset or a
+    // shadowed routing rule produces silence, and silence is not a quiet term.
+    expect(digest.text).toContain("D2L notification email: nothing received in 7 days");
+  });
+
+  it("reports a push source that has never received a message", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "d2l-notification-email",
+          lastSuccessAt: null,
+        })],
+      },
+    }));
+
+    expect(digest.text).toContain("D2L notification email: has never received a message");
   });
 
   it("reports expected D2L notification email as not set up without a stored source row", async () => {
