@@ -18,7 +18,7 @@ export const MEMORY_BACKUP_LATEST_KEY = "memory-backup/latest.json";
 
 /**
  * Dependency order is also restore order. These are all authoritative D1
- * tables in migrations 0001 through 0032, apart from the explicit derived
+ * tables in migrations 0001 through 0033, apart from the explicit derived
  * list below.
  */
 export const MEMORY_BACKUP_TABLES = Object.freeze([
@@ -58,6 +58,8 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "deadline_sources",
   "deadlines",
   "deadline_revisions",
+  "d2l_email_messages",
+  "d2l_email_grade_observations",
   "quiet_windows",
   "liveness_alerts",
   "scheduled_runs",
@@ -189,6 +191,7 @@ export const MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES = Object.freeze([
   "memory_backup_objects",
   "memory_backup_alerts",
   "memory_consolidation_model_steps",
+  "d2l_email_failure_state",
 ] as const);
 
 /** Restore-only tables appear after migration and remain outside later backup sets. */

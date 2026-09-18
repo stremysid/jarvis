@@ -8,7 +8,7 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { appendEvents, markDelivered, resetArchiveFixture, setCreatedAt } from "./archive-fixture.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { applyMemoryDistillationMigration } from "../persistence/migration.js";
+import { applyD2lNotificationEmailMigration } from "../persistence/migration.js";
 
 async function hourly(iso = "2026-12-01T00:00:00.000Z") {
   const ctx = createExecutionContext();
@@ -29,7 +29,7 @@ async function hourly(iso = "2026-12-01T00:00:00.000Z") {
 describe("hourly archival through the Worker entrypoint", () => {
   let reports: unknown[][];
   beforeEach(async () => {
-    await applyMemoryDistillationMigration();
+    await applyD2lNotificationEmailMigration();
     await resetArchiveFixture();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
     reports = [];

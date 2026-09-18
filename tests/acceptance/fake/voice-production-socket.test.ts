@@ -10,7 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
-import { applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
+import { applyCloudMemoryMigration, applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
   applyOwnerSensitiveActionPinMigration, applyVoiceOwnerDeliveryMigration, clearConversationDataForTest,
   clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
@@ -32,11 +32,12 @@ describe("production voice through the real DO stub and socket", () => {
   const stub = () => env.CALL_SESSION.get(env.CALL_SESSION.idFromName(sessionId));
 
   beforeEach(async () => {
-    // 0034 owns the owner-admission boundary. Without it this fixture keeps the
+    // 0035 owns the owner-admission boundary. Without it this fixture keeps the
     // 0018 lineage trigger that demanded a step-up success the owner path no longer
     // writes, and admission aborts instead of reaching conversation.
     await applyVoiceRuntimeMigration();
     await applyVoiceOwnerDeliveryMigration();
+    await applyCloudMemoryMigration();
     await applyOwnerSensitiveActionPinMigration();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);

@@ -409,10 +409,28 @@ export class D1ContextRetriever implements ContextRetriever {
       ORDER BY relevance ASC, distilled_at DESC, fact_id ASC, device_id ASC
       LIMIT ?3`)
       .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES);
+    // Suppression is applied HERE, in the shared retriever, rather than by
+    // each caller. Telegram used to filter this afterwards, which left every
+    // other caller -- voice above all -- reading forgotten turns back into
+    // model context. The owner asks Jarvis to forget a remark and then hears
+    // it again on the next phone call; that is the defect this closes.
+    //
+    // The anti-join is deliberately applied BEFORE LIMIT, not after. Filtering
+    // a limited page would silently shorten history by one turn per forgotten
+    // event, instead of backfilling with older visible turns to keep the
+    // window full.
     const historyStatement = this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
       FROM events INDEXED BY events_subject_sequence_idx
       WHERE subject_id = ?1
         AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions suppression
+          WHERE suppression.principal_id = ?1
+            AND (
+              suppression.target_event_id = events.event_id
+              OR events.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+            )
+        )
       ORDER BY sequence DESC
       LIMIT ?2`)
       .bind(captured.principalId, MAX_CANDIDATES);

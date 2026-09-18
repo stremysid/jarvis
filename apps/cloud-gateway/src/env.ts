@@ -150,6 +150,20 @@ export interface Env {
   BRIGHTSPACE_ICAL_URL?: string;
 
   /**
+   * Email Routing delivers only the configured unguessable capability address.
+   * The address and the comma-separated exact From-domain pin set are
+   * configuration, never source defaults. The pin only routes; a write needs
+   * the positive authentication evidence the handler demands.
+   *
+   * `D2L_EMAIL_ARC_SEALER_DOMAINS` is optional: it names the forwarder tenants
+   * whose ARC seal may be believed when the original DKIM no longer verifies,
+   * and leaving it unset simply disables that path.
+   */
+  SCHOOL_EMAIL_INGEST_ADDRESS?: string;
+  D2L_EMAIL_FROM_DOMAINS?: string;
+  D2L_EMAIL_ARC_SEALER_DOMAINS?: string;
+
+  /**
    * The watchdog's heartbeat endpoint and its shared secret.
    *
    * Deliberately a URL rather than a service binding: the watchdog is a

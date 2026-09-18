@@ -50,14 +50,14 @@ export interface SchoolObservationSyncState {
 
 export interface SchoolGradeObservation {
   readonly observationId: string;
-  readonly deadlineId: string;
+  readonly deadlineId: string | null;
   readonly course: string;
   readonly title: string;
-  /** Classroom's assigned grade exactly as supplied. */
+  /** The source's assigned grade exactly as supplied. */
   readonly assignedGrade: number;
   readonly maxPoints: number | null;
-  readonly source: "google_classroom_api";
-  /** Classroom's own submission update time, not the time Jarvis polled it. */
+  readonly source: "google_classroom_api" | "d2l_notification_email";
+  /** Provider update time when supplied; D2L email has no separate value. */
   readonly gradeUpdatedAt: string | null;
   readonly contentChangedAt: string;
   readonly lastSeenAt: string;

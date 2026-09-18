@@ -275,8 +275,12 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     const send = vi.fn(async (_text: string) => undefined);
     const jobContext = { ...context(fetcher), delivery: { send } };
 
+    // `ok` because the memory phases did run against the configured owner, and
+    // `degraded` because the network sweep the poll exists for did not. Both
+    // facts have to survive; either one alone misleads.
     await expect(runPoll(jobContext)).resolves.toMatchObject({
       ok: true,
+      degraded: true,
       detail: expect.stringContaining("Brightspace not configured"),
     });
     expect(fetcher).not.toHaveBeenCalled();
@@ -285,7 +289,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
     await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
-    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace: not set up");
+    expect(String(send.mock.calls[0]?.[0])).toContain("D2L notification email: not set up");
   });
 
   it("records removed configuration without contacting the feed", async () => {

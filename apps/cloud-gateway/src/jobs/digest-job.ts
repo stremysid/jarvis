@@ -41,6 +41,16 @@ const DEADLINE_HORIZON_DAYS = 7;
 const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 /** A complete grades/submissions walk may span several hourly checkpoint slices. */
 const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
+/**
+ * How long a push source may be silent before the digest says so.
+ *
+ * D2L notification mail has no heartbeat: it either arrives or it does not,
+ * and a source that stops delivering looks exactly like a quiet term. A week
+ * is long enough not to nag between real notifications and short enough that
+ * a reset notification setting or a shadowed Email Routing rule surfaces
+ * while the assignment is still ahead.
+ */
+const PUSH_SOURCE_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
@@ -63,8 +73,11 @@ export interface DigestJobDependencies {
   readonly delivery: DigestDelivery;
   readonly clock: DigestClock;
   readonly timeZone: string;
-  /** Fixed source kinds known to be absent from configuration at compose time. */
-  readonly unconfiguredDeadlineSourceKinds?: readonly DeadlineSourceKind[];
+  /** Fixed sources known to be absent from configuration at compose time. */
+  readonly unconfiguredDeadlineSources?: readonly Readonly<{
+    sourceId: string;
+    kind: DeadlineSourceKind;
+  }>[];
   /**
    * Injected only so the failure path below can be exercised.
    *
@@ -78,11 +91,13 @@ export interface DigestJobDependencies {
   readonly assess?: typeof assessStaleness;
 }
 
-export function unconfiguredDeadlineSourceKinds(
-  env: Pick<Env, "BRIGHTSPACE_ICAL_URL">,
-): readonly DeadlineSourceKind[] {
-  return env.BRIGHTSPACE_ICAL_URL === undefined || env.BRIGHTSPACE_ICAL_URL.length === 0
-    ? Object.freeze(["brightspace"])
+export function unconfiguredDeadlineSources(
+  env: Pick<Env, "BRIGHTSPACE_ICAL_URL" | "SCHOOL_EMAIL_INGEST_ADDRESS">,
+): readonly Readonly<{ sourceId: string; kind: DeadlineSourceKind }>[] {
+  const emailConfigured = (env.SCHOOL_EMAIL_INGEST_ADDRESS?.length ?? 0) > 0;
+  const calendarConfigured = (env.BRIGHTSPACE_ICAL_URL?.length ?? 0) > 0;
+  return !emailConfigured && !calendarConfigured
+    ? Object.freeze([Object.freeze({ sourceId: "d2l-notification-email", kind: "brightspace" as const })])
     : Object.freeze([]);
 }
 
@@ -90,14 +105,16 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function deadlineSourceName(source: Pick<DeadlineSource, "kind">): string {
+function deadlineSourceName(source: Pick<DeadlineSource, "kind"> & Partial<Pick<DeadlineSource, "sourceId">>): string {
   if (source.kind === "classroom") return "Google Classroom";
+  if (source.sourceId === "d2l-notification-email") return "D2L notification email";
   if (source.kind === "brightspace") return "Brightspace";
   return "Manual deadlines";
 }
 
 function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
   if (!source.active || source.kind === "manual") return null;
+  if (source.sourceId === "d2l-notification-email") return pushSourceGap(source, observedAt);
   let partialResult: string | null = null;
   if (source.lastFailure !== null) {
     const truncation = source.kind === "brightspace"
@@ -121,6 +138,23 @@ function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | 
     return partialResult === null ? "last successful sync is stale" : `${partialResult}; last successful sync is stale`;
   }
   return partialResult;
+}
+
+/**
+ * A push source cannot fail loudly, so silence is the only symptom it has.
+ *
+ * A recorded failure still wins: it names something specific, and the
+ * freshness line would only restate the same silence less usefully.
+ */
+function pushSourceGap(source: DeadlineSource, observedAt: Date): string | null {
+  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastSuccessAt === null) return "has never received a message";
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) return "last received time is unreadable";
+  return age > PUSH_SOURCE_STALE_AFTER_MS
+    ? `nothing received in ${String(PUSH_SOURCE_STALE_AFTER_MS / (24 * 60 * 60 * 1_000))} days`
+    : null;
 }
 
 /**
@@ -248,13 +282,28 @@ function toDigestProject(
   };
 }
 
-function toDigestDeadline(deadline: Deadline): DigestDeadline {
+function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]): DigestDeadline {
+  const source = sources.find((candidate) => candidate.sourceId === deadline.sourceId);
+  const label: DigestDeadline["source"] = deadline.sourceId === "d2l-notification-email"
+    ? "D2L email"
+    : deadline.sourceId === "google-classroom"
+      ? "Google Classroom"
+      : deadline.sourceId === "brightspace-ical"
+        ? "Brightspace calendar"
+        : source?.kind === "manual"
+          ? "Manual"
+          : source?.kind === "brightspace"
+            ? "Brightspace"
+            : source?.kind === "classroom"
+              ? "Google Classroom"
+              : undefined;
   return {
     deadlineId: deadline.deadlineId,
     course: deadline.course,
     title: deadline.title,
     dueAt: deadline.dueAt,
     effort: deadline.effort,
+    ...(label === undefined ? {} : { source: label }),
   };
 }
 
@@ -300,23 +349,24 @@ export async function assembleDigest(
       ), gaps),
   ]);
 
-  const unconfigured = new Set(dependencies.unconfiguredDeadlineSourceKinds ?? []);
-  for (const kind of unconfigured) {
-    if (kind === "manual") continue;
-    const lastKnown = deadlineSources.find((source) => source.kind === kind);
+  const unconfigured = new Set((dependencies.unconfiguredDeadlineSources ?? [])
+    .map((source) => source.sourceId));
+  for (const expected of dependencies.unconfiguredDeadlineSources ?? []) {
+    if (expected.kind === "manual") continue;
+    const lastKnown = deadlineSources.find((source) => source.sourceId === expected.sourceId);
     const detail = lastKnown === undefined
       ? "not set up"
       : lastKnown.lastSuccessAt === null
         ? "configuration removed; no successful sync is available"
         : `configuration removed; showing last-known deadlines from ${localDate(new Date(lastKnown.lastSuccessAt), dependencies.timeZone)}`;
-    gaps.push({ source: deadlineSourceName({ kind }), detail });
+    gaps.push({ source: deadlineSourceName(expected), detail });
   }
 
   // Keep the last known deadlines visible while saying that their source is
   // failed or stale. Dropping the deadlines would turn a sync fault into
   // "nothing due".
   for (const source of deadlineSources) {
-    if (unconfigured.has(source.kind)) continue;
+    if (unconfigured.has(source.sourceId)) continue;
     const detail = scheduledSourceGap(source, observedAt);
     if (detail === null) continue;
     // The stored label is source data. Gap source names are structural text in
@@ -389,7 +439,7 @@ export async function assembleDigest(
       dueTimeZone: item.deadline.timeZone,
       verificationState: item.deadline.verification.state,
     })),
-    deadlines: deadlines.map(toDigestDeadline),
+    deadlines: deadlines.map((deadline) => toDigestDeadline(deadline, deadlineSources)),
     grades: (schoolSnapshot?.grades ?? []).map((grade) => ({
       observationId: grade.observationId,
       course: grade.course,
@@ -397,7 +447,7 @@ export async function assembleDigest(
       assignedGrade: grade.assignedGrade,
       maxPoints: grade.maxPoints,
       gradeUpdatedAt: grade.gradeUpdatedAt,
-      source: "Google Classroom" as const,
+      source: grade.source === "d2l_notification_email" ? "D2L email" as const : "Google Classroom" as const,
       lastSeenAt: grade.lastSeenAt,
     })),
     missingWork: (schoolSnapshot?.missingWork ?? []).map((item) => ({

@@ -267,6 +267,20 @@ describe("deadlines", () => {
     expect(digest.text).toContain("overdue");
   });
 
+  it("names D2L email on a deadline instead of presenting source data as owner input", () => {
+    const digest = compose(
+      { ...empty(), deadlines: [{
+        ...base,
+        title: "Titration lab",
+        dueAt: "2026-09-02T18:00:00.000Z",
+        source: "D2L email",
+      }] },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+    expect(digest.text).toContain("[D2L email] Calculus: Titration lab");
+  });
+
   it("leaves out a deadline past the horizon", () => {
     const digest = compose(
       { ...empty(), deadlines: [{ ...base, title: "Final", dueAt: "2026-12-01T18:00:00.000Z" }] },

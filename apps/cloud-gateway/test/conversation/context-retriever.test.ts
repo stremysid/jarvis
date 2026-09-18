@@ -15,12 +15,67 @@ import { D1ContextRetriever } from "../../src/conversation/context-retriever.js"
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import type { ConversationDeliveryId } from "../../src/conversation/conversation-types.js";
 import {
+  applyCloudMemoryMigration,
   applyFoundationMigration,
   clearConversationDataForTest,
   clearMemoryProjectionDataForTest,
 } from "../persistence/migration.js";
 
 const observedAt = "2026-08-30T12:00:00.000Z";
+
+/**
+ * Seeds a valid `history.suppress` owner command and the suppression row it
+ * authorizes, through the same guards production writes go through.
+ *
+ * A hand-written INSERT would be refused by
+ * `memory_event_suppressions_insert_guard`, and bypassing that guard would
+ * make this fixture prove something the real write path does not do. So the
+ * command event is created first and bound to the suppression fields exactly
+ * as the trigger requires.
+ */
+async function suppressEventForTest(input: {
+  principalId: string;
+  targetEventId: string;
+}): Promise<void> {
+  const suppressionId = newUlid();
+  const commandEventId = newUlid();
+  const contentHash = await sha256Hex(canonicalJson({ suppressionId, commandEventId }));
+  const envelope = {
+    eventId: commandEventId,
+    correlationId: commandEventId,
+    eventType: "memory.owner_command",
+    source: "memory-control",
+    subjectId: input.principalId,
+    occurredAt: observedAt,
+    receivedAt: observedAt,
+    contentHash,
+    producerVersion: "memory-control-v1",
+    payload: {
+      operation: "history.suppress",
+      targetId: suppressionId,
+      targetEventId: input.targetEventId,
+      startEventSequence: null,
+      endEventSequence: null,
+      newlyHiddenTurnCount: 1,
+      totalCoveredTurnCount: 1,
+    },
+  };
+  await env.DB.prepare(`INSERT INTO events (
+    event_id, event_type, source, subject_id, occurred_at, received_at,
+    content_hash, envelope_json, created_at
+  ) VALUES (?, 'memory.owner_command', 'memory-control', ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      commandEventId, input.principalId, observedAt, observedAt,
+      contentHash, JSON.stringify(envelope), observedAt,
+    ).run();
+  await env.DB.prepare(`INSERT INTO memory_event_suppressions (
+    suppression_id, principal_id, target_event_id, start_event_sequence,
+    end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+    source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+  ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'owner asked Jarvis to forget this', 1, 1, ?)`)
+    .bind(suppressionId, input.principalId, input.targetEventId, commandEventId, observedAt)
+    .run();
+}
 
 async function conversationEnvelope(input: {
   eventType: "conversation.user_committed" | "conversation.assistant_delivered" | "conversation.assistant_staged";
@@ -65,6 +120,7 @@ async function append(repository: EventRepository, envelope: PersistableEventEnv
 describe("D1ContextRetriever", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
+    await applyCloudMemoryMigration();
     await clearConversationDataForTest();
     await clearMemoryProjectionDataForTest();
     await env.DB.batch([
@@ -814,5 +870,49 @@ describe("D1ContextRetriever", () => {
       { sourceEventId: admission.turn.userEventId, text: "remembered question", sensitivity: "personal" },
       { sourceEventId: delivered.deliveredAssistantEventId, text: "acknowledged answer", sensitivity: "personal" },
     ]);
+  });
+
+  it("does not return a suppressed turn to any caller, including voice", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:suppression-shared";
+    await env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?1, 'human', 'active', 'Suppression owner', ?2, ?2)`)
+      .bind(principalId, observedAt).run();
+
+    const forgotten = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text: "my spare key is under the blue pot",
+    });
+    const kept = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text: "remind me to book the dentist",
+    });
+    await append(events, forgotten);
+    await append(events, kept);
+
+    await suppressEventForTest({
+      principalId,
+      targetEventId: forgotten.eventId,
+    });
+
+    const retrieved = await new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "what should I do today",
+      maxTokens: 1_024,
+    });
+
+    // The owner asked Jarvis to forget this on a call. It must not come back
+    // as history on the next call, while the untouched turn still does.
+    expect(retrieved.map((context) => context.text)).toEqual(["remind me to book the dentist"]);
+    expect(retrieved.some((context) => context.sourceEventId === forgotten.eventId)).toBe(false);
   });
 });
