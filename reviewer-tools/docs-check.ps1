@@ -36,12 +36,22 @@
     Placeholders are skipped: any token containing `...`, `<`, `>`, `NNNN` or
     `<topic>` is an example, not a claim.
 
-    A line containing `docs-check:ignore` is skipped entirely. This is needed,
-    not a convenience: a Cloudflare Worker version id is 8 hex characters and is
-    NOT a git sha, and the handoff deliberately quotes a sha that does not exist
-    as the worked example of a false claim. Both are correct prose that this
-    tool cannot tell from a mistake. Annotate the line and say why in the same
-    breath -- an unexplained ignore is how a linter dies.
+    A line carrying `docs-check:ignore: <reason>` has its findings absorbed. This
+    is needed, not a convenience: a Cloudflare Worker version id is 8 hex
+    characters and is NOT a git sha, and the handoff deliberately quotes a sha
+    that does not exist as the worked example of a false claim. Both are correct
+    prose that this tool cannot tell from a mistake.
+
+    The reason is required, and a directive without one absorbs nothing and is
+    reported in its own right: an unexplained ignore cannot be told from a
+    forgotten one, and that is how a linter dies.
+
+    Two things keep a suppression honest. The annotated line is still checked in
+    full -- the directive decides what is reported, not what is tested -- and the
+    count each directive absorbed is printed, so a line that has quietly grown a
+    second false claim does not hide behind the first. And a directive that
+    absorbs nothing is reported as STALE rather than passing silently, so a
+    suppression cannot outlive the text it was written for.
 
     Exit 0 clean, 1 findings, 2 could not run.
 #>
@@ -93,24 +103,44 @@ if (Test-Path -LiteralPath $migrationDir) {
 }
 
 $findings = New-Object System.Collections.Generic.List[object]
+$suppressions = New-Object System.Collections.Generic.List[object]
 $checked = 0
+
+# Findings are collected one line at a time and only then promoted to $findings,
+# because whether an ignore on the line is still doing any work can only be known
+# once the line has been checked.
+$lineFindings = New-Object System.Collections.Generic.List[object]
 
 function Add-Finding {
     param([string] $File, [int] $Line, [string] $Kind, [string] $Token, [string] $Why)
-    $findings.Add([pscustomobject]@{ File = $File; Line = $Line; Kind = $Kind; Token = $Token; Why = $Why })
+    $lineFindings.Add([pscustomobject]@{ File = $File; Line = $Line; Kind = $Kind; Token = $Token; Why = $Why })
+}
+
+# `docs-check:ignore: <reason>`, anywhere on the line. $null when the line carries
+# no directive at all; an empty Reason means the suppression is bare.
+function Get-IgnoreDirective {
+    param([Parameter(Mandatory)][AllowEmptyString()][string] $Line)
+    $m = [regex]::Match($Line, 'docs-check:ignore\b(?<rest>.*)$')
+    if (-not $m.Success) { return $null }
+    # Drop an HTML comment terminator and anything past it, so the markup that
+    # closes the comment on a table row does not become part of the reason.
+    $rest = $m.Groups['rest'].Value -replace '-->.*$', ''
+    $rest = $rest -replace '^\s*[:-\u2014\u2013]+\s*', ''
+    return [pscustomobject]@{ Reason = $rest.Trim() }
 }
 
 foreach ($relative in $Files) {
     $path = Join-Path $Repo $relative
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        Add-Finding -File $relative -Line 0 -Kind 'FILE' -Token $relative -Why 'listed for checking but does not exist'
+        # No line to annotate, so this one cannot be absorbed by a directive.
+        $findings.Add([pscustomobject]@{ File = $relative; Line = 0; Kind = 'FILE'; Token = $relative; Why = 'listed for checking but does not exist' })
         continue
     }
     $lines = Get-Content -LiteralPath $path
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
         $number = $i + 1
-        if ($line -match 'docs-check:ignore') { continue }
+        $lineFindings.Clear()
 
         # SHA. Word-bounded hex of 7-40. Excludes anything with a non-hex
         # neighbour so ULIDs and hashes inside longer tokens are left alone.
@@ -171,6 +201,34 @@ foreach ($relative in $Files) {
                 }
             }
         }
+
+        $ignore = Get-IgnoreDirective -Line $line
+        if ($null -eq $ignore) {
+            foreach ($f in $lineFindings) { $findings.Add($f) }
+        }
+        elseif ($ignore.Reason.Length -eq 0) {
+            # A bare suppression is worse than the finding it hides, so it hides
+            # nothing: the findings stay, and the directive is named alongside them.
+            foreach ($f in $lineFindings) { $findings.Add($f) }
+            $findings.Add([pscustomobject]@{
+                    File = $relative; Line = $number; Kind = 'IGNORE'; Token = 'docs-check:ignore'
+                    Why = 'suppresses without a reason, so it is not honoured; say why in the same comment'
+                })
+        }
+        elseif ($lineFindings.Count -eq 0) {
+            # The suppression outlived what it was written for. Reporting it is
+            # the point: an ignore that no longer covers anything still looks
+            # deliberate, and a reader cannot tell that from a live exception.
+            $findings.Add([pscustomobject]@{
+                    File = $relative; Line = $number; Kind = 'STALE'; Token = 'docs-check:ignore'
+                    Why = "absorbs nothing any more, so the reason it records is spent: $($ignore.Reason)"
+                })
+        }
+        else {
+            $suppressions.Add([pscustomobject]@{
+                    File = $relative; Line = $number; Count = $lineFindings.Count; Reason = $ignore.Reason
+                })
+        }
     }
 }
 
@@ -179,6 +237,13 @@ Write-Output '===== DOCS CHECK ====='
 Write-Output ("repo: {0}" -f $Repo)
 Write-Output ("files: {0}" -f ($Files -join ', '))
 Write-Output ("claims checked: {0}" -f $checked)
+if ($suppressions.Count -gt 0) {
+    $absorbed = ($suppressions | Measure-Object -Property Count -Sum).Sum
+    Write-Output ("documented ignores: {0}, absorbing {1} finding(s)" -f $suppressions.Count, $absorbed)
+    foreach ($s in $suppressions) {
+        Write-Output ("    {0}:{1}  absorbs {2}  {3}" -f $s.File, $s.Line, $s.Count, $s.Reason)
+    }
+}
 if ($findings.Count -eq 0) {
     Write-Output 'every checkable claim resolved.'
 }
