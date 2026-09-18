@@ -564,10 +564,19 @@ work. Apply this lens before proposing anything new.
 
 ### Track A — school, calendar-bound
 
-- **A1. Google Classroom consent — SID'S ACTION, one sitting.** `pollClassroom`
-  is already wired into the hourly job and gated only on `GOOGLE_CLIENT_ID` /
-  `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN`. **Highest value per hour in
-  the whole plan; nothing else is one action from delivering.**
+- **A1. Google Classroom consent — NOT SID'S ACTION. THE API ROUTE IS DEAD.**
+  `pollClassroom` is wired into the hourly job and gated on `GOOGLE_CLIENT_ID` /
+  `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN`, and **those three can never be
+  obtained.** Sid's school account cannot reach `console.cloud.google.com` — the
+  board runs Microsoft 365 and does not allow Google accounts. He established
+  this on 2026-09-17; it was recorded in reviewer memory and **not** in this
+  handoff, so a later session sent him back to the runbook anyway on 2026-09-18.
+  A personal Google account does not help: the data is the school account's, so
+  consent must come from it. **Never present this as a one-sitting owner action.**
+  The live route is Classroom notification emails through the `onesid.ca` forward
+  Sid already built; the outstanding work is **ours** — `d2l-email-parser.ts`
+  handles D2L only, so Classroom notifications arrive and are ignored. See
+  `docs/runbooks/google-classroom-oauth.md`, which now carries the same warning.
 - **A3. Digest school-first — DONE, PR #97.** Verify.
 - **A4. Grade and missing-work watch.** Needs A1's submissions scope.
 - **D2L: LDSB Brightspace has NO calendar or iCal feed.** **Never ask Sid for
