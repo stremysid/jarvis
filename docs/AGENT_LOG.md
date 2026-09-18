@@ -3,6 +3,116 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
+
+**Effort level: I could not determine it, so I am not naming one.** Nothing in
+this session states the level it ran at, and the two signals I could find
+disagree — `~/.dsh/settings.yaml` sets the agent default to
+`reasoningEffort: max` for `deepseek-flash`, while the inherited environment
+carries `CLAUDE_EFFORT=high`, which belongs to the session that launched this
+one. Naming either would be a guess.
+
+**Branch:** `codex/memory-proposed-recallable`, merged with `origin/main` at
+`faa1403`. **Heads:** `aa9788d` (merge of `b8cf5e9` and `faa1403`), `69ae121`
+(the test). **PR [#98](https://github.com/ksid1229-ops/jarvis/pull/98).** No
+migration, and none needed. The worktree is left in place at
+`C:\Users\Sid\jarvis-f1` for inspection.
+
+### F1's test, built as specified, at `69ae121`
+
+`does not recall a proposed model memory whose cited turn alone was forgotten`
+in `apps/cloud-gateway/test/memory/telegram-memory.test.ts`, driven through the
+real `MemoryOwnerControlsService.forget`, the real `MemoryRepository` and the
+real `TelegramMemoryRetriever`:
+
+- turn 1 creates the proposal; turn 2 is a *later* owner turn that the proposal
+  merely cites as a source, by passing it as `commitTestItem`'s `source`;
+- a second, active memory owns turn 2 and nothing else, so forgetting *that*
+  memory suppresses turn 2 alone;
+- the test asserts through `readCurrentItemsWithVisibility` that the proposal is
+  still `proposed`, that `creationEventSuppressed` is **false**, and that
+  `suppressedSourceIds` holds exactly one entry — the separation F1 asked for is
+  asserted rather than assumed;
+- a control recall before the forget proves the fixture recalls at all.
+
+### Both directions of the clause test, as asked
+
+| Run | Mutation | Result |
+|---|---|---|
+| 1 | none — clause present | **PASS** (0.31 s) |
+| 2 | `\|\| visibility.suppressedSourceIds.length > 0` deleted from `readCandidateContexts` in `telegram-memory-retriever.ts` (`69ae121`), nothing else touched | **PASS — the test does not fail** |
+
+So this test does **not** pin the clause, and I am not claiming it does. Run 2
+is the answer to F1: the clause cannot be killed this way, because it is not the
+layer doing the work. The fixture edit alone was never in play — runs 1 and 2
+differ by that one deletion.
+
+### Which layer is doing the work, and the proof
+
+`readCandidates` — both the FTS path and the topic-area path — already applies
+the same two suppression predicates, creation event and every current-version
+source, one D1 round trip before `readCurrentItemsWithVisibility` returns the
+visibility that `readCandidateContexts` then tests. Two further runs place the
+withholding:
+
+- **Probe A:** delete only the candidate query's source-suppression `NOT EXISTS`,
+  keep the guard clause → **PASS**; the guard withholds the item once it can see
+  it.
+- **Probe B:** that same deletion *plus* the guard clause → **FAIL** at the final
+  `expect(recalled(await recall())).toBe(false)`, item recalled. The pair is
+  load-bearing, and the candidate query is the half that fires.
+
+A third run found the whole non-active branch of that ternary shadowed, not just
+its second clause: deleting `visibility.creationEventSuppressed ||` alone leaves
+**both** this new test and PR #98's existing `does not recall a proposed model
+memory whose creation event was forgotten` green.
+
+`git log -S` puts both predicates in the same commit, `cba94ef` ("fix(memory):
+harden Telegram runtime integration"), so the guard has been the redundant copy
+of the pair since it was written — for every origin of proposal, not only for
+the model-inferred class this PR newly makes recallable.
+
+### For the reviewer: unreachable, not unpinned
+
+The clause is **deterministically unreachable**, so no fixture can pin it, and
+F1's remedy cannot be built as stated. It is not dead code: the candidate read
+and the visibility read are separate round trips, so a forget committed by
+another request inside that window still lands on this clause. That interleaving
+is the only execution it can affect. I did not manufacture it — the brief said
+to report unreachable and stop, and a synthetic race seam would be new scope.
+
+**No product behaviour was changed.** The clause stays.
+
+### Gates, on `69ae121` plus this doc commit
+
+- `pnpm lint` — PASS. Five packages: `tsc --noEmit` for cloud-gateway, watchdog,
+  contracts and acceptance, `node --check` for the hermes-runtime sources.
+- `pnpm typecheck` — PASS, same five.
+- `pnpm test` (cloud gateway, contracts, acceptance) — **199 files, 5342 tests,
+  all passed**, 159 s. No failure to attribute or re-run.
+- Focused: `telegram-memory.test.ts` alone — 70/70 pass.
+
+### The merge, and the one artifact it left
+
+`origin/main` (`faa1403`, PRs #99 and #100) merged into the branch with one
+conflict in `docs/AGENT_LOG.md`, resolved by keeping main's entries above this
+PR's 06:11 entry. Auto-merge then left a duplicated `MemoryOwnerControlsService`
+import in `telegram-memory.test.ts` — both parents added it — which made the
+file fail to parse. The dedupe is amended into the merge commit `aa9788d`, so no
+commit on this branch has a test file that cannot load.
+
+### Not done, and named
+
+- No merge, no deploy, no migration, no secret touched, no spend, no outside
+  contact.
+- Did not add a concurrency seam to force the guard (see above).
+- `suppressionHides` in `memory-owner-controls.ts` (`69ae121`) carries the same
+  `creationEventSuppressed || suppressedSourceIds.length > 0` expression, there
+  deciding whether `correct` may repeat an earlier wording. F1 named the
+  retriever; I did not test whether that copy is pinned. Out of scope, flagged.
+
+— DeepSeek V4.1 Flash
+
 ## 2026-09-18 19:03 UTC — DeepSeek V4.1 Flash, memory correction: ready for review
 
 **Branch:** `codex/memory-correction`, from `origin/main` = `385c052`, rebased
