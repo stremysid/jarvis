@@ -268,6 +268,58 @@ is a claim about the mutation first and the tests second** — §4.11 says the
 opposite by default, and this is the case that shows why the schema probe
 belongs in the loop. Not yet independently re-run by me.
 
+### Migration `0035` was claimed twice — caught, resolved, and now checkable
+
+**Found by `git ls-tree` across every open branch, not from a document:**
+
+| Branch | File |
+|---|---|
+| `codex/tier3-classify-memory-correct` (#106) | `0035_autonomy_tool_capabilities.sql` |
+| `codex/r1-sensitive-action-pin-v6` (#96) | `0035_owner_sensitive_action_pin.sql` |
+
+Production D1 is at `0034`, so both were genuinely next and only one could have
+it. **Second collision on this project**; `0018` was the first.
+
+**Resolved:** #106 keeps `0035` (reviewed, green, control-verified); #96
+renumbered to `0036` at `1734bb4`. Ordered by readiness, not importance. The
+rename is not the whole job — the inventory in
+`memory-backup-restore-migrations.ts` matters most, because a migration missing
+from it makes backups at that schema version unrestorable.
+
+**The mechanism, not the incident.** Migrations are numbered by FILENAME, two
+vendors build in parallel on separate branches, and each picks "the next free
+number" by looking at `main` — where neither branch's file exists yet. The
+mitigation was a sentence in a runbook saying to check every open PR branch by
+hand. **It has now failed twice.**
+
+`reviewer-tools/migration-numbers.ps1` (branch `codex/migration-collision-check`,
+`bc6951a`) reads `origin/main` plus every open PR branch via `gh pr list` and
+`git ls-tree` against remote refs — no checkout, no working tree touched. Exit 1
+on collision, 0 clean, **2 when it could not produce a usable result**, which is
+the distinction `mutate.ps1` exists to preserve.
+
+**My verification, and its one honest gap:** I ran it myself — it scanned `main`
+plus all three open PR branches, 138 files, and reported **next free `0037`**,
+which is only correct if it actually read `0036` off #96's branch. **I could NOT
+reproduce the positive case on live state, because the collision was fixed
+between the builder's run and mine, by my own instruction.** The builder's pasted
+22:47 output names both branches while it still existed, and I had independently
+found the same collision minutes earlier, so the chain holds — but my own
+positive control was not possible and I am not claiming one.
+
+**Builder's recommendation, not implemented and worth a decision:** the
+reservation is a filename checked after the fact, so the class survives any
+human-triggered checker. A claim file on `main` or a pre-push check would make it
+atomic, but that changes the migration workflow.
+
+### The repo is the record; agent memory is a cache
+
+Added to `AGENTS.md` on the #105 branch. The Classroom re-ask was a mechanism,
+not an accident: a durable fact about Sid recorded only in agent memory, against
+a handoff claiming the opposite, loses — because the handoff is what a new
+session reads first. Same shape as the D2L calendar feed before it. **When a fact
+contradicts a load-bearing document, correct the document in the same change.**
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
