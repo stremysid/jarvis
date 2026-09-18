@@ -3,6 +3,127 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 22:30 UTC — DeepSeek V4.1 Flash, builder: the whole-trigger proof for `memory_item_transitions_insert_guard`
+
+**Effort level: `max` is what `~/.dsh/settings.yaml` pins for `deepseek-flash` as the
+agent default, and this session is that agent — but I cannot see the level the run itself
+used, and the other signal in the environment disagrees.** `CLAUDE_EFFORT=xhigh` is
+carried by the Claude Desktop session that launched this one, not by the agent it
+launched. Recorded with its provenance rather than asserted, the same way PR #98's entry
+handled it.
+
+**Branch:** `codex/whole-trigger-0016`, off `origin/main` `bb51861`, worktree
+`C:\Users\Sid\jarvis-trig0016`. One test file changed, `docs/AGENT_LOG.md` only
+otherwise. **No migration changed and none needed.** Nothing merged, deployed, or applied
+anywhere.
+
+### What landed
+
+One test — `needs the whole transition insert guard to refuse replacing a memory that is
+no longer current` — in 0016's own test file,
+`apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts`, through PR #99's
+`proveWholeTrigger`. Same helper, same home, same shape as the living-notes and D2L
+proofs.
+
+It seeds one item, retires it once with an owner-authorized `superseded` transition, and
+then hands the helper that same statement again. That second row is exactly what
+`supersedeStatements` (`memory-repository.ts:3234`) would append to replace an
+already-retired wording if its own `state !== "active"` check at `:3232` were deleted —
+same version, next transition number, actor `owner`.
+
+**The control is inside the test.** The identical statement is accepted while the item is
+current and refused once it is superseded, and both calls read the next transition number
+off `memory_item_state`. The only input that differs between the two is the state the item
+is already in, so a clause that refused the second would refuse the first — that is what
+rules out the guard's other clauses (owner-command binding, transition number, version
+lineage, clock) as the reason, and it is what makes this a proof of the
+`active -> superseded and nothing else into superseded` arm rather than of "the trigger
+refuses something".
+
+### Both directions, with real output
+
+| Run | Trigger | Result |
+|---|---|---|
+| 1 | as migrated | **PASS** |
+| 2 | body replaced with `SELECT 1;` — installed, fires, refuses nothing | **FAIL** |
+| 3 | `state.lifecycle_state = 'active'` widened to `IN ('active', 'superseded')` | **FAIL** |
+| 4 | restored with `git checkout` | **PASS**, 142/142 for the file |
+
+Runs 2 and 3 both die at `whole-trigger-proof.ts:29`:
+
+```
+AssertionError: promise resolved "'01k3w1t400000000000000000b'" instead of rejecting
+ ❯ proveWholeTrigger apps/cloud-gateway/test/persistence/whole-trigger-proof.ts:29:27
+  29|   await expect(mutation()).rejects.toThrow(expectedFailure);
+```
+
+Run 3 is the one that answers "for the right reason": the single edit is the clause the
+test names, nothing else, and the test dies on it. The refusal in run 1 reads
+
+```
+D1_ERROR: memory_item_transition_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+```
+
+and after it `memory_item_state` still reads `superseded` / `last_transition_number 2`, so
+the refused half leaves no transition behind for the helper's second call.
+`memory_item_transition_invalid` is *raised* in exactly one place in the tree,
+`0016_cloud_memory.sql:1516` — every other occurrence is a test assertion.
+
+**A wrong first attempt at run 2, recorded because it is a trap.** `WHEN 0 AND EXISTS (...)`
+does **not** neuter this trigger: its `WHEN` clause is one long `OR` chain, so that edit
+disabled only the first disjunct and the test stayed green. It took a probe reading
+`sqlite_schema` to see that the mutation *was* installed — green did not mean the fault had
+landed. A no-op body is the neutering that works.
+
+### Gate
+
+- `pnpm lint` — **PASS** (exit 0): `tsc --noEmit` for cloud-gateway, watchdog, contracts
+  and acceptance, `node --check` for the hermes-runtime sources.
+- `pnpm typecheck` — **PASS** (exit 0), the same five packages.
+- `pnpm test` — three full runs, 199 files and 5343 tests each:
+  **run 1** 5340 passed / 3 failed, 208 s; **run 2** 5338 passed / 5 failed, 283 s;
+  **run 3** (on the final content) 5340 passed / 3 failed, 248 s.
+  `cloud-memory-migration.test.ts` passed inside all three.
+- Focused: the touched file **142/142**; the whole `test/persistence` directory
+  **789/789 across 32 files**.
+
+### The failures, attributed rather than waved at
+
+No two runs failed the same set, and nothing that failed is in a file this change touches.
+
+| Failing test | Re-run alone |
+|---|---|
+| `owner-telegram-agent` — `delivery_unknown` for `telegram_delivered` (run 1 and 3, two different test names) | alone: 93/94, still one failure, a **third** name, same `delivery_unknown`. The documented flake. |
+| `telegram-memory` — five different tests across runs 1 and 2, including its explicit `within 500 ms` bound | alone ×4: 1 failure, 1 failure, 1 failure, then **70/70 PASS** — three names, never the same one twice |
+| three `tests/acceptance/fake/voice-*` files (run 2) | alone together: **91/91 PASS** |
+| `voice/call-session-do` — `Test timed out in 5000ms` (run 3) | alone: **126/126 PASS** |
+
+That is the known `delivery_unknown` flake plus ordinary load sensitivity on this machine,
+which the third and fourth isolated `telegram-memory` runs settle. I did not re-measure the
+flake's rate and make no claim about it.
+
+### What this effort did not cover
+
+- **It does not pin the two application-level checks above the trigger.** PR #100's M4–M6
+  showed either can be deleted with the suite still green; that is unchanged. This pins
+  the layer that was doing the work alone.
+- **It measures this test dying, not the old suite staying green.** "Drop the trigger and
+  the suite stays green" is the brief's premise; what I ran is the neutered trigger
+  against this one test.
+- **One arm of one clause.** The guard's other arms (newer-version reinstatement,
+  `proposed` exits, forbidden re-entry), its owner-command binding and its clock clauses
+  have ordinary tests in the same file but still no whole-trigger proof, and this added
+  none.
+- **The migration traps were not exercised** — nothing schema-adjacent changed, and both
+  trigger edits were reverted, with `git diff` on `0016_cloud_memory.sql` empty at the
+  commit.
+- The refused half of the proof leaves one unused `events` row per call, because each call
+  seeds its own authorizing owner command; it is append-only and the retry's fresh ids and
+  later sequence cannot collide with it. Said out loud in the test's own comment.
+- No remote D1, no deploy, no merge, no migration applied.
+
+— DeepSeek V4.1 Flash, builder
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in

@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import { applyCloudMemoryMigration } from "./migration.js";
+import { proveWholeTrigger } from "./whole-trigger-proof.js";
 
 const testClock = Date.now();
 const timestamp = new Date(testClock - 60_000).toISOString();
@@ -3703,6 +3704,48 @@ describe.sequential("cloud memory migration", () => {
     expect(await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
       WHERE principal_id = ? AND item_id = ?`)
       .bind(owner.principalId, expiringItemId).first()).toEqual({ lifecycle_state: "expired" });
+  });
+
+  it("needs the whole transition insert guard to refuse replacing a memory that is no longer current", async () => {
+    const owner = await seedPrincipal();
+    const item = await seedActiveItem(owner.principalId, await seedEvent(owner.principalId));
+    const retire = async (): Promise<string> => {
+      const state = await env.DB.prepare(`SELECT last_transition_number FROM memory_item_state
+        WHERE principal_id = ? AND item_id = ?`)
+        .bind(owner.principalId, item.itemId).first<{ last_transition_number: number }>();
+      if (state === null) throw new Error("memory_transition_proof_state_missing");
+      return insertOwnerTransition({
+        principalId: owner.principalId,
+        itemId: item.itemId,
+        versionId: item.versionId,
+        transitionNumber: state.last_transition_number + 1,
+        lifecycleState: "superseded",
+      });
+    };
+
+    // Accepted while the wording is current. This is the control for the
+    // refusal below: the two statements take the same shape and the same next
+    // transition number, so the only input that differs is the state the item
+    // is already in. Anything else refusing the second one would refuse this.
+    await retire();
+    expect(await env.DB.prepare(`SELECT lifecycle_state, last_transition_number
+      FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
+      .bind(owner.principalId, item.itemId).first())
+      .toEqual({ lifecycle_state: "superseded", last_transition_number: 2 });
+
+    // `supersedeStatements` in `memory-repository.ts` would append exactly this
+    // row to replace an already-retired wording once its own `state !== "active"`
+    // check is removed: same version, next transition number, actor `owner`.
+    // The guard's "active -> superseded and nothing else into superseded" clause
+    // is then the only thing left carrying the guarantee. Each call seeds its
+    // own authorizing command, so the refused half leaves an unused `events`
+    // row rather than nothing; it is append-only and the retry's fresh ids and
+    // later sequence cannot collide with it.
+    await proveWholeTrigger(
+      "memory_item_transitions_insert_guard",
+      retire,
+      "memory_item_transition_invalid",
+    );
   });
 
   it("bounds rules expiry by wall clock and the current state timestamp", async () => {
