@@ -298,8 +298,10 @@ export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void>
     .all<{ name: string }>();
   const triggers = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
     .all<{ name: string }>();
+  // `_cf_` is D1's reserved namespace, so a DROP or CREATE inside it is refused;
+  // leave those tables alone instead of reading Cloudflare's bookkeeping as schema.
   const tables = await env.DB.prepare(`SELECT name FROM sqlite_schema
-    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_cf_METADATA'`)
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) != '_cf_'`)
     .all<{ name: string }>();
   const virtualNames = virtualTables.results.map(({ name }) => name);
   const regularNames = tables.results.map(({ name }) => name).filter((name) =>

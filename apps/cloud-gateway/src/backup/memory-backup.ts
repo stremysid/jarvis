@@ -437,6 +437,16 @@ function scheduledRunsSince(startedAt: string): string {
   return new Date(Date.parse(startedAt) - 48 * 60 * 60_000).toISOString();
 }
 
+/**
+ * D1 reserves the `_cf_` prefix for its own bookkeeping (`_cf_METADATA`,
+ * `_cf_KV`) and its authorizer refuses a CREATE there (SQLITE_AUTH), so such a
+ * table can only exist because Cloudflare put it there. Exempting these by name
+ * instead is what aborted the nightly backup when `_cf_KV` first appeared.
+ */
+function isCloudflareInternalTable(name: string): boolean {
+  return name.startsWith("_cf_");
+}
+
 function isInternalFtsTable(name: string): boolean {
   return MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.some(
     (table) => table.endsWith("_fts") && name.startsWith(`${table}_`),
@@ -524,8 +534,8 @@ class MemoryBackupRepository {
       ...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES,
     ]);
     const unclassified = schema.results.map((row) => row.name).filter((name) =>
-      !name.startsWith("sqlite_") && name !== "d1_migrations" && name !== "_cf_METADATA"
-      && !isInternalFtsTable(name) && !classified.has(name));
+      !name.startsWith("sqlite_") && name !== "d1_migrations"
+      && !isCloudflareInternalTable(name) && !isInternalFtsTable(name) && !classified.has(name));
     if (unclassified.length > 0) {
       throw new Error(`memory_backup_table_unclassified:${unclassified.sort().join(",")}`);
     }

@@ -140,6 +140,54 @@ async function readLatestManifest(): Promise<Record<string, unknown>> {
   return JSON.parse(await manifestBody.text()) as Record<string, unknown>;
 }
 
+/**
+ * The exact live-schema read the backup classifies from. The injection below
+ * keys off this string and the test asserts it injected, so renaming the query
+ * cannot leave the test green without exercising the exemption.
+ */
+const BACKUP_SCHEMA_QUERY = "SELECT name, sql FROM sqlite_schema WHERE type = 'table'";
+
+/**
+ * D1 refuses a CREATE inside the reserved `_cf_` namespace (SQLITE_AUTH), so
+ * production's `_cf_KV` cannot be created with SQL here. This wraps the binding
+ * so the one schema read the backup classifies from also returns the rows
+ * Cloudflare would have created, and records what it injected so a test can show
+ * the rows reached the classifier rather than assume they did.
+ */
+function databaseWithPlatformTables(
+  platformTables: readonly Readonly<{ name: string; sql: string }>[],
+  injected: string[],
+): D1Database {
+  const database = env.DB;
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (query: string): D1PreparedStatement => {
+          const statement = target.prepare(query);
+          if (query !== BACKUP_SCHEMA_QUERY) return statement;
+          injected.push(...platformTables.map(({ name }) => name));
+          return new Proxy(statement, {
+            get(statementTarget, statementProperty) {
+              if (statementProperty === "all") {
+                return async (): Promise<D1Result<{ name: string; sql: string }>> => {
+                  const rows = await statementTarget.all<{ name: string; sql: string }>();
+                  return { ...rows, results: [...rows.results, ...platformTables] };
+                };
+              }
+              const value = Reflect.get(statementTarget, statementProperty, statementTarget) as unknown;
+              return typeof value === "function"
+                ? (value as (...args: unknown[]) => unknown).bind(statementTarget)
+                : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
 describe("nightly verified memory backup", () => {
   beforeEach(async () => {
     await clearMemoryBackupDataForTest();
@@ -259,6 +307,21 @@ describe("nightly verified memory backup", () => {
     } finally {
       await env.DB.prepare("DROP TABLE memory_backup_unclassified_probe").run();
     }
+  });
+
+  it("treats _cf_KV and an invented _cf_FUTURE as Cloudflare bookkeeping rather than unclassified tables", async () => {
+    const injected: string[] = [];
+    const { outcome } = await driveBackup(service({ database: databaseWithPlatformTables([
+      { name: "_cf_KV", sql: "CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB)" },
+      { name: "_cf_FUTURE", sql: "CREATE TABLE _cf_FUTURE (id INTEGER PRIMARY KEY)" },
+    ], injected) }));
+    expect(outcome.outcome).toBe("verified");
+    expect(injected).toEqual(["_cf_KV", "_cf_FUTURE"]);
+  });
+
+  it("relies on D1 refusing an application table in the reserved _cf_ namespace", async () => {
+    await expect(env.DB.prepare("CREATE TABLE _cf_APPLICATION_SQUAT (id INTEGER PRIMARY KEY)").run())
+      .rejects.toThrow(/SQLITE_AUTH/u);
   });
 
   it("keeps unchanged nightly row counts stable and limits scheduled runs to the last 48 hours", async () => {
