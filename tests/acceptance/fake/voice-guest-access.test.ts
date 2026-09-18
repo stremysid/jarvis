@@ -1,11 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
+import { applyCloudMemoryMigration } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { createFakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
+  // The recalled-memory and separation cases below read model context through
+  // the shared retriever, which anti-joins memory_active_event_suppressions.
+  // Applied here rather than in createFakeCallingSystem, because that helper is
+  // shared with outbound-dispatch suites whose admission this migration
+  // disturbs. Only this file's tests exercise the retriever.
+  beforeAll(async () => {
+    await applyCloudMemoryMigration();
+  });
+
   it("closes an evicted guest relay that sends another prompt after three wrong PINs", async () => {
     const system = await createFakeCallingSystem();
     try {
