@@ -102,21 +102,23 @@ trigger is the real boundary. Recorded as **Correction N2** in
 
 ### Gates
 
-On the pre-rebase tree at `49d80a2`: `pnpm lint` 0, `pnpm typecheck` 0,
-`pnpm test` **199/199 files, 5315/5315 tests**. After rebasing onto `4c3ec69`
-(main's digest work adds 7 tests, so 5322) lint and typecheck are still 0, but
-`owner-telegram-agent.test.ts` fails intermittently — a different test each
-run, never one this branch added, and every one of them passes in isolation.
+Final head `8308251`, rebased onto `4c3ec69`: `pnpm lint` 0, `pnpm typecheck` 0,
+`pnpm test` **199/199 files, 5322/5322 tests**. (The pre-rebase head `49d80a2`
+was 199/199 and 5315/5315; main's digest work adds the extra 7.)
 
-**That is pre-existing.** Measured by alternating the same 87 tests between
-unmodified `origin/main` and this branch in one time window: **main failed 3 of
-8 runs, this branch 2 of 8**, with different tests failing each time on both
-sides. The failures are `outcome: 'delivery_unknown'` from the dispatcher catch
-in `ConversationService.deliver` — Telegram delivery, not memory. An earlier
-non-interleaved measurement made this branch look far worse (6 of 10); the
-interleaved result is the one to trust, and it is why I stopped rather than
-chased it. The reviewer recorded the same class of flake at 18:35 UTC
-(`call-session-do` and `voice-production-worker` hook timeouts).
+Getting there needed one detour worth recording. Early post-rebase runs failed
+in `owner-telegram-agent.test.ts` — a different test each time, never one this
+branch added, and every one of them passes in isolation. **That is
+pre-existing.** Measured by alternating the same 87 tests between unmodified
+`origin/main` and this branch in one time window: **main failed 3 of 8 runs,
+this branch 2 of 8**, with different tests failing each time on both sides. The
+failures are `outcome: 'delivery_unknown'` from the dispatcher catch in
+`ConversationService.deliver` — Telegram delivery, not memory. An earlier
+non-interleaved measurement made this branch look far worse (6 of 10);
+interleaving removed that, which is why the interleaved numbers are the ones to
+trust and why I stopped instead of chasing it. The reviewer recorded the same
+class of flake at 18:35 UTC (`call-session-do` and `voice-production-worker`
+hook timeouts).
 
 ### If this deploys before the migrations it needs
 
