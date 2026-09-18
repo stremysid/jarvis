@@ -24,9 +24,12 @@ def _js_whitespace_pattern(pattern: str) -> re.Pattern[str]:
 
 _REDACTED_PATTERNS = (
     re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])"),
+    # The credential word decides what a credential is, not the digit count:
+    # the four-digit owner call PIN matched no pattern while this rule wanted
+    # exactly eight. Kept in step with CONTEXTUAL_AUTHENTICATION_DIGITS.
     _js_whitespace_pattern(
         r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
-        r"(?:\s+is)?\s*[=:]?\s*[0-9]{8}(?![0-9])",
+        r"(?:\s+is)?\s*[=:]?\s*[0-9]{2,}(?![0-9])",
     ),
     _js_whitespace_pattern(r"\bauthorization\s*:\s*[^\r\n]*"),
     _js_whitespace_pattern(

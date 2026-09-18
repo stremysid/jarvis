@@ -4,6 +4,8 @@ import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 
 function expand(text: string): string {
   return text.replaceAll("<six>", "6".repeat(6)).replaceAll("<eight>", "7".repeat(8))
+    .replaceAll("<four>", "4".repeat(4)).replaceAll("<five>", "5".repeat(5))
+    .replaceAll("<nine>", "9".repeat(9))
     .replaceAll("<bearer>", "a".repeat(15) + "1");
 }
 

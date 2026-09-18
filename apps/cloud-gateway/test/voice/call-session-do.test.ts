@@ -677,6 +677,7 @@ async function accessHarness(
   withOwnerAdministration = false,
   capacity = healthyCapacity,
   withCleanEnd = false,
+  withSensitiveAction = true,
 ) {
   await clearFixture();
   await seedActiveVoiceIdentity();
@@ -773,7 +774,7 @@ async function accessHarness(
     activation: null,
     ownerAccess,
     ownerStepUp,
-    sensitiveAction,
+    sensitiveAction: withSensitiveAction ? sensitiveAction : null,
     ownerStepUpAlerts: { alert: ownerStepUpAlert },
     ownerStepUpAlarm: { arm: armOwnerStepUpAlarm, clear: clearOwnerStepUpAlarm },
     conversation,
@@ -795,7 +796,7 @@ async function accessHarness(
     guestAuthentication,
     ownerAccess,
     ownerStepUp,
-    sensitiveAction,
+    sensitiveAction: withSensitiveAction ? sensitiveAction : null,
     authenticate,
     conversation,
     close,
@@ -1167,6 +1168,54 @@ describe("CallSessionCore owner and guest access", () => {
     });
     expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
     expect(harness.close).not.toHaveBeenCalled();
+  });
+
+  it("refuses an access change outright when the sensitive-action gate is missing", async () => {
+    // The gate is the only thing standing between a spoken sentence and a
+    // tier-3 change now that admission asks for nothing. A deployment that
+    // forgot to compose it must refuse the change, not perform it unguarded.
+    const harness = await accessHarness("owner", undefined, true, healthyCapacity, false, false);
+
+    await admitOwnerAdministration(harness);
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: `allow ${GUEST_E164} with conversation`,
+    });
+
+    expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_ACTION_REFUSED);
+    expect(harness.instance.phase).toBe("active");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+  });
+
+  it("refuses an access change whose authorisation cannot be read back as live", async () => {
+    // The interaction state says a PIN was accepted; the durable row is what
+    // decides. A spent, expired or missing receipt must refuse the change
+    // rather than being overruled by the in-memory memory of the question.
+    const harness = await accessHarness("owner", undefined, true);
+    await admitOwnerAdministration(harness);
+    vi.spyOn(harness.sensitiveAction as OwnerSensitiveActionService, "liveReceipt")
+      .mockResolvedValue(null);
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: `allow ${GUEST_E164} with conversation`,
+    });
+    await authoriseOwnerAccess(harness);
+
+    expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_ACTION_REFUSED);
+    expect(harness.sendNeutralText.mock.calls.flat())
+      .not.toContainEqual(expect.stringContaining("Enter four digits"));
+  });
+
+  it("spends the action authorisation before it runs the change", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await admitOwnerAdministration(harness);
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: `allow ${GUEST_E164} with conversation`,
+    });
+    await authoriseOwnerAccess(harness);
+
+    expect(await env.DB.prepare(`SELECT COUNT(*) AS count FROM owner_action_authorisations
+      WHERE consumed_at IS NOT NULL`).first()).toEqual({ count: 1 });
   });
 
   it("asks for the action PIN before a sensitive change and keeps the call open when it is wrong", async () => {

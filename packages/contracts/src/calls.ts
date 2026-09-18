@@ -5,7 +5,17 @@ const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
 const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
-const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{8})(?!\d)/gi;
+/**
+ * A credential word followed by its digits, at whatever length the credential
+ * happens to be. The owner call PIN is four digits and matched no rule here:
+ * the bare rule above wants exactly six and this one wanted exactly eight, so
+ * "my pin is 4821" was stored verbatim. Enumerating 4 beside 8 would work
+ * today and be a second magic number to forget the next time a credential
+ * changes length, so the count is the credential word's business and not the
+ * pattern's. A bare run of digits is still not a credential: only a run that
+ * follows one of these words is redacted.
+ */
+const CONTEXTUAL_AUTHENTICATION_DIGITS = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{2,})(?!\d)/gi;
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
 const BARE_BEARER = /\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})/gi;
 const CREDENTIAL_ASSIGNMENT = /(?<![A-Za-z0-9])(["']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|(?=\r?\n|$))|[^\s,;]+)/gi;
@@ -140,7 +150,7 @@ export function sanitizeRedaction(
       mark("credential");
       return REPLACEMENT.credential;
     });
-    redacted = redacted.replace(CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION, (_match, prefix: string) => {
+    redacted = redacted.replace(CONTEXTUAL_AUTHENTICATION_DIGITS, (_match, prefix: string) => {
       mark("authentication_digits");
       return `${prefix}${REPLACEMENT.authentication_digits}`;
     });

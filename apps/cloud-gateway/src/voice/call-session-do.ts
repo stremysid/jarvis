@@ -1026,38 +1026,72 @@ export class CallSessionCore {
       throw new Error("owner_access_unavailable");
     }
     this.#clearOwnerAccessState();
-    if (this.#sensitiveAction !== null) {
-      const gate = await this.#sensitiveAction.begin({
-        sessionId: this.#session.sessionId,
-        principalId: this.#session.binding.principalId,
-        identityId: this.#session.binding.identityId,
-        capability: OWNER_ACCESS_CAPABILITY,
-        summary: ownerAccessSummary(draft),
+    // No gate, no change. Falling through to the draft would run a tier-3
+    // action with no credential at all, and a deployment that forgot the
+    // service would look exactly like a working call.
+    if (this.#sensitiveAction === null) {
+      await this.#relay.sendNeutralText(OWNER_ACTION_REFUSED);
+      return;
+    }
+    const gate = await this.#sensitiveAction.begin({
+      sessionId: this.#session.sessionId,
+      principalId: this.#session.binding.principalId,
+      identityId: this.#session.binding.identityId,
+      capability: OWNER_ACCESS_CAPABILITY,
+      summary: ownerAccessSummary(draft),
+    });
+    if (gate.kind === "prompt") {
+      this.#interaction = Object.freeze({
+        kind: "owner_sensitive_action",
+        requestId: gate.requestId,
+        explanation: gate.explanation,
+        draft,
       });
-      if (gate.kind === "prompt") {
-        this.#interaction = Object.freeze({
-          kind: "owner_sensitive_action",
-          requestId: gate.requestId,
-          explanation: gate.explanation,
-          draft,
-        });
-        await this.#relay.sendNeutralText(`${gate.explanation} ${OWNER_ACTION_PIN_PROMPT}`);
-        return;
-      }
-      if (gate.kind === "exhausted") {
-        await this.#relay.sendNeutralText(gate.speech);
-        return;
-      }
-      if (gate.kind === "unavailable") throw new Error("owner_sensitive_action_unavailable");
+      await this.#relay.sendNeutralText(`${gate.explanation} ${OWNER_ACTION_PIN_PROMPT}`);
+      return;
+    }
+    if (gate.kind === "exhausted") {
+      await this.#relay.sendNeutralText(gate.speech);
+      return;
+    }
+    if (gate.kind === "unavailable") throw new Error("owner_sensitive_action_unavailable");
+    if (gate.kind === "not_sensitive") {
+      // The list says this is not a change that needs a credential, and there
+      // is no way to ask for one for a capability the list does not cover. It
+      // still cannot run without a receipt, so it refuses rather than becoming
+      // the second, hidden path around the gate.
+      await this.#relay.sendNeutralText(OWNER_ACTION_REFUSED);
+      return;
     }
     await this.#applyOwnerAccessDraft(draft, observedAt);
   }
 
-  /** Runs the draft that a live receipt has already authorised. */
+  /**
+   * Runs the draft that a live receipt has already authorised.
+   *
+   * The receipt is read back from D1 and spent here rather than trusted from
+   * the interaction state: hibernation rebuilds the core with no memory of the
+   * question, and a durable unconsumed row is the only thing that survives it.
+   * Spending happens before the change is prepared, so a receipt covers the one
+   * action it was issued for and a failed preparation still costs it.
+   */
   async #applyOwnerAccessDraft(draft: OwnerAccessDraft, observedAt: Date): Promise<void> {
     if (this.#ownerAccess === null || this.#authorityService === null || this.#authority?.kind !== "owner") {
       throw new Error("owner_access_unavailable");
     }
+    if (this.#sensitiveAction === null) {
+      await this.#relay.sendNeutralText(OWNER_ACTION_REFUSED);
+      return;
+    }
+    const authorisation = await this.#sensitiveAction.liveReceipt({
+      sessionId: this.#session.sessionId,
+      capability: OWNER_ACCESS_CAPABILITY,
+    });
+    if (authorisation === null) {
+      await this.#relay.sendNeutralText(OWNER_ACTION_REFUSED);
+      return;
+    }
+    await this.#sensitiveAction.consume(authorisation.authorisationId);
     await this.#authorityService.authorize(this.#authority, "access.manage", observedAt);
     const proposal = await this.#ownerAccess.prepare({
       ownerAuthority: this.#authority,
@@ -1128,8 +1162,8 @@ export class CallSessionCore {
   /**
    * A refusal or an expiry returns to conversation -- never to a closed call,
    * because a mis-heard digit is far likelier than an attacker and the caller
-   * must be able to ask again. An authorisation spends its receipt before the
-   * change runs, so it covers this draft and not the rest of the call.
+   * must be able to ask again. An authorisation is spent by the draft it
+   * authorised, in `#applyOwnerAccessDraft`, rather than here.
    */
   async #settleOwnerAction(
     interaction: Extract<CallInteraction, { kind: "owner_sensitive_action" }>,
@@ -1143,8 +1177,6 @@ export class CallSessionCore {
     this.#interaction = Object.freeze({ kind: "conversation" });
     this.#ownerActionPin.clear();
     if (result.kind === "authorised") {
-      if (this.#sensitiveAction === null) throw new Error("owner_sensitive_action_unavailable");
-      await this.#sensitiveAction.consume(result.authorisationId);
       await this.#applyOwnerAccessDraft(interaction.draft, observedAt);
       return;
     }

@@ -13,7 +13,14 @@ VECTORS = json.loads(
 
 
 def expand(text: str) -> str:
-    return text.replace("<six>", "6" * 6).replace("<eight>", "7" * 8).replace("<bearer>", "a" * 15 + "1")
+    return (
+        text.replace("<six>", "6" * 6)
+        .replace("<eight>", "7" * 8)
+        .replace("<four>", "4" * 4)
+        .replace("<five>", "5" * 5)
+        .replace("<nine>", "9" * 9)
+        .replace("<bearer>", "a" * 15 + "1")
+    )
 
 
 @pytest.mark.parametrize("case", VECTORS["redactionCases"], ids=lambda case: case["name"])
@@ -43,13 +50,27 @@ def test_shared_fact_byte_boundary_is_enforced_by_the_python_producer() -> None:
     [
         "Order " + "6" * 6,
         "pin is " + "7" * 8,
+        "my pin is " + "4" * 4,
+        "the passcode is " + "5" * 5,
+        "otp:" + "9" * 9,
         "authorization: synthetic",
         "bearer " + "a" * 15 + "1",
         'password="synthetic fixture"',
         "sk-" + "a" * 20,
         "-----BEGIN PRIVATE KEY-----not a key",
     ],
-    ids=["digits", "context", "header", "bearer", "assignment", "known-prefix", "key-block"],
+    ids=[
+        "digits",
+        "context",
+        "four-digit-pin",
+        "five-digit-passcode",
+        "nine-digit-otp",
+        "header",
+        "bearer",
+        "assignment",
+        "known-prefix",
+        "key-block",
+    ],
 )
 def test_every_redaction_category_is_refused(text: str) -> None:
     assert redaction_would_change(text)

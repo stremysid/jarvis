@@ -353,6 +353,35 @@ Until rollout and live acceptance, both paths remain release blockers and
 inbound must stay closed. The security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
+## Owner sensitive-action PIN has three deferred limits
+
+The 2026-09-17 decision replaces the every-call passphrase with a four-digit
+PIN asked only at a sensitive action. Migration
+`0035_owner_sensitive_action_pin.sql` and the call-session gate are additive and
+unapplied. Three limits are recorded rather than implied away:
+
+- **Redaction matches digits, not number words.** The contextual rule now
+  redacts a contiguous digit run of any length, so `pin is 4821` no longer
+  survives. `pin is four two seven one` and `pin is 4 8 2 7` still do, because
+  the rule matches digit characters only. The gate intercepts the credential
+  utterance itself, so a PIN spoken in answer to the prompt never reaches
+  storage either way; this bites only if the owner volunteers the PIN inside
+  ordinary conversation. Extend the contextual rule to number words before
+  claiming the redactor covers every spoken form.
+- **The PIN gate covers the one sensitive capability a call can reach today.**
+  `access.manage` is the only tier-3 capability the voice runtime installs, so
+  it is the only one this code asks about. The other tier-3 rows (money,
+  sending as Sid, booking, deletion, credential and safety changes, sensitive
+  memory) have no voice implementation yet. A capability that lands later must
+  call `OwnerSensitiveActionService` rather than re-deriving sensitivity.
+- **The access authority no longer re-reads a step-up receipt.** The call
+  session reads the live `owner_action_authorisations` row back from D1 and
+  spends it before preparing the change, which is the durable enforcement
+  point. The `VoiceAccessAuthorityService` boundary itself no longer consults
+  one: `requireOwnerStepUpVerified` was deleted along with the admission gate.
+  A future caller of `authorize(..., "access.manage")` that does not travel
+  through the call session would not be refused by that boundary.
+
 ## R1 live voice evidence has two deferred observability limits
 
 The release evidence can observe one durable rejection row, one durable

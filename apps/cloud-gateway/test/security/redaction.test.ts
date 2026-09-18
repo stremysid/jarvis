@@ -59,6 +59,39 @@ describe("Redactor", () => {
     if (result.ok) expect(result.text).not.toContain("12345678");
   });
 
+  it("redacts a four-digit owner PIN the digit-count rules never covered", () => {
+    // The owner call PIN is four digits. Before this rule, `pin` followed by
+    // eight digits was redacted and `pin` followed by four was not, so the
+    // secret this feature exists to protect was the one shape that survived.
+    const result = new Redactor().redactText("my pin is 4821 and I said it before");
+
+    expect(result).toEqual({
+      ok: true,
+      text: "my pin is [REDACTED_AUTH_DIGITS] and I said it before",
+      markers: ["authentication_digits"],
+    });
+    if (result.ok) expect(result.text).not.toContain("4821");
+  });
+
+  it.each([
+    ["five digits after the word", "the passcode is 51827 tomorrow"],
+    ["nine digits after the word", "otp:927410385"],
+  ])("redacts a credential of any length: %s", (_label, input) => {
+    const result = new Redactor().redactText(input);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).toContain("[REDACTED_AUTH_DIGITS]");
+      expect(result.markers).toEqual(["authentication_digits"]);
+    }
+  });
+
+  it("leaves a bare credential-shaped word alone when no digits follow it", () => {
+    const input = "The pin is on the 2026 page of the binder.";
+
+    expect(new Redactor().redactText(input)).toEqual({ ok: true, text: input, markers: [] });
+  });
+
   it("redacts a four-digit voice PIN by field context without redacting a year", () => {
     const redactor = new Redactor();
     expect(redactor.redact({ text: "4827", channel: "voice", field: "guest.pin" }))
