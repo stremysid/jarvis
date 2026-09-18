@@ -10,7 +10,9 @@
  *
  * The residual limit is deliberate and recorded in KNOWN_ISSUES.md: a sender
  * can write every header read here, so these paths are only as strong as the
- * receiving MTA's own record being present and last.
+ * receiving MTA's own record being present and prepended above everything the
+ * sender wrote. That placement is what makes delivered order evidence: a group
+ * naming the receiving MTA below the top group cannot be the record it added.
  */
 
 export type AuthenticityPath =
@@ -40,7 +42,9 @@ export interface AuthenticitySignal {
 /**
  * Cloudflare's own receiving MTA.
  *
- * This is the one authentication result the sender cannot make last. It is an
+ * This is the one authentication result the sender cannot put first: the
+ * receiving MTA prepends its record at delivery, so a group carrying this
+ * authserv-id below the top group is the sender's own text. It is still an
  * assumption about a provider string, so it is checked rather than assumed at
  * the only place it matters: a message whose result does not carry it fails
  * closed into quarantine (see KNOWN_ISSUES.md).
@@ -108,8 +112,10 @@ function methodsIn(body: string): readonly AuthenticationMethod[] {
 /**
  * Split one Authentication-Results value into its authserv-id groups.
  *
- * A value can carry several groups, and every header a sender writes arrives
- * before the receiving MTA's own, which is what `last` below relies on.
+ * Groups keep delivered order, which is also the order of the hops that wrote
+ * them: RFC 8601 §4.1 requires every authenticating MTA to prepend its record
+ * and forbids reordering it, so the receiving MTA's own record is the first
+ * group and a sender-written group can only sit below it.
  */
 function groupsIn(value: string): readonly AuthenticationGroup[] {
  const starts: Readonly<{ authservId: string; start: number; bodyStart: number }>[] = [];
@@ -198,8 +204,14 @@ export function assessAuthenticity(signal: AuthenticitySignal): AuthenticityEvid
     (signal.receivingMtaAuthservIds ?? RECEIVING_MTA_AUTHSERV_IDS).map((id) => id.toLowerCase()),
   );
   const evaluations = (signal.headerValues["authentication-results"] ?? []).flatMap(groupsIn);
-  const mine = evaluations.filter((group) => accepted.has(group.authservId));
-  const evaluated = mine.length === 0 ? null : mine[mine.length - 1]!;
+  // The receiving MTA's own record is the first group, never the last: RFC 8601
+  // §4.1 has every authenticating hop prepend its record and forbids reordering
+  // it, so everything below the first group was written before this delivery
+  // reached the MTA that accepted it. A later group naming the accepted
+  // authserv-id is therefore the forgery itself -- reading the last of them
+  // decides trust from a header the sender wrote.
+  const receiving = evaluations[0];
+  const evaluated = receiving !== undefined && accepted.has(receiving.authservId) ? receiving : null;
 
   if (evaluated !== null) {
     for (const method of evaluated.methods) {

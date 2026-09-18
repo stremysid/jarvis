@@ -64,8 +64,20 @@ function withMessageId(raw: string, suffix: string): string {
   return raw.replace(/^Message-ID:.*$/imu, `Message-ID: <${suffix}@notifications.minds-online.example>`);
 }
 
-function rawHeaders(raw: string): Headers {
+/**
+ * The delivered header block: the receiving MTA's record first, then the
+ * message's own headers.
+ *
+ * RFC 8601 §2.1 and §4.1 have every authenticating MTA prepend its record and
+ * forbid reordering it, so the receiving MTA's own record is the topmost
+ * `Authentication-Results` and anything the sender wrote sits below it. A
+ * harness that appended the record instead would model a message no compliant
+ * MTA produces, and would pin the sender's group as the authoritative one --
+ * the defect this file exists to refuse.
+ */
+function rawHeaders(raw: string, receivingMtaRecord: string | null): Headers {
   const headers = new Headers();
+  if (receivingMtaRecord !== null) headers.append("Authentication-Results", receivingMtaRecord);
   const block = raw.split(/\r?\n\r?\n/u, 1)[0] ?? "";
   const unfolded = block.replace(/\r?\n[ \t]+/gu, " ");
   for (const line of unfolded.split(/\r?\n/u)) {
@@ -86,13 +98,12 @@ function emailMessage(
   }> = {},
 ): Readonly<{ message: ForwardableEmailMessage; rejects: string[] }> {
   const bytes = encoder.encode(raw);
-  const headers = rawHeaders(raw);
-  if (options.authenticationResults !== null) {
-    // Appended, never replaced: the receiving MTA writes its result after
-    // whatever the sender put in the message, and that order is exactly what
-    // the handler relies on.
-    headers.append("Authentication-Results", options.authenticationResults ?? PINNED_AUTHENTICATION);
-  }
+  // Prepended, never appended: RFC 8601 puts the receiving MTA's record above
+  // everything the sender wrote, and the handler reads that delivered order.
+  const headers = rawHeaders(
+    raw,
+    options.authenticationResults === null ? null : options.authenticationResults ?? PINNED_AUTHENTICATION,
+  );
   const rejects: string[] = [];
   const message = {
     from: options.envelopeFrom ?? "forwarder@school-tenant.onmicrosoft.com",
@@ -500,13 +511,64 @@ describe("D2L notification email", () => {
         `Authentication-Results: mx.cloudflare.net; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass; dmarc=pass\r\nMIME-Version: 1.0`,
       );
     const result = await handleD2lNotificationEmail(emailMessage(raw, {
-      // The receiving MTA appends the truth after the sender's claim, and the
-      // last result attributed to it is the one that decides.
+      // The receiving MTA prepends the truth above the sender's claim, and the
+      // first result attributed to it is the one that decides.
       authenticationResults: "mx.cloudflare.net; dkim=fail; spf=fail; dmarc=fail",
     }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
     expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_failed" });
     expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
       WHERE external_id = 'd2l:forged-result-header'`).first()).toBeNull();
+  });
+
+  it("refuses a sender-written pass that the receiving MTA's own prepended record does not confirm", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "forged-result-header-no-mta-pass")
+      .replace("Assignment ID: chemistry-lab-4", "Assignment ID: forged-result-header-no-mta-pass")
+      .replace(
+        "MIME-Version: 1.0",
+        `Authentication-Results: mx.cloudflare.net; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass; dmarc=pass\r\nMIME-Version: 1.0`,
+      );
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      // The sender's group names the receiving MTA's authserv-id and claims a
+      // pinned pass. The record the receiving MTA actually prepended says no
+      // result was a pass at all, and it is the only one of the two that the
+      // message cannot have written itself.
+      authenticationResults: "mx.cloudflare.net; spf=fail; dkim=none; dmarc=none",
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
+      WHERE external_id = 'd2l:forged-result-header-no-mta-pass'`).first()).toBeNull();
+  });
+
+  it("refuses an mx.cloudflare.net record that is not the topmost Authentication-Results group", async () => {
+    const raw = withMessageId(fixture("assignment_due"), "authserv-not-topmost")
+      .replace("Assignment ID: chemistry-lab-4", "Assignment ID: authserv-not-topmost");
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      // The receiving MTA's record is prepended, so nothing can sit above it.
+      // A group claiming its authserv-id in second place was written by someone
+      // upstream of it, and believing that group is the whole forgery.
+      authenticationResults: `mx.microsoft.com; dkim=none; spf=pass, mx.cloudflare.net; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass`,
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    expect(await env.DB.prepare(`SELECT deadline_id FROM deadlines
+      WHERE external_id = 'd2l:authserv-not-topmost'`).first()).toBeNull();
+  });
+
+  it("reads the receiving MTA's verdict from the top group, not from a group written below it", async () => {
+    const raw = withMessageId(fixture("announcement"), "top-group-decides")
+      .replace(
+        "MIME-Version: 1.0",
+        "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=evil.example; spf=pass\r\nMIME-Version: 1.0",
+      );
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      authenticationResults: `mx.cloudflare.net; dkim=pass header.d=${PINNED_DOMAIN}; spf=pass`,
+    }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
+    expect(result).toMatchObject({ outcome: "ingested", eventKind: "announcement" });
+    const row = await env.DB.prepare(`SELECT authentication_json FROM d2l_email_messages
+      WHERE provider_message_id = ?`).bind(`<top-group-decides@${PINNED_DOMAIN}>`)
+      .first<{ authentication_json: string }>();
+    expect(JSON.parse(row!.authentication_json)).toMatchObject({
+      authenticity: { trusted: true, path: "cloudflare-dkim-pass", evaluatedBy: "mx.cloudflare.net" },
+    });
   });
 
   it("does not believe a pinned DKIM signature the receiving MTA reported failing", async () => {
