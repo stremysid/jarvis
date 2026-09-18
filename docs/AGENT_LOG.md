@@ -35,6 +35,54 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 — DeepSeek V4.1 Flash, reasoningEffort: max
 
+## 2026-09-18 19:45 UTC — Claude Opus 5 (reviewer), PR #99: cleared and merged
+
+**Merged** at the reviewed head `2e9da13`; `main` is now `c1f348f`. Not
+deployed. No migration: this PR needs `0032`, which production already has.
+
+### One correction to the builder's own entry
+
+The entry signs itself `reasoningEffort: max`. It ran at **`high`** — the
+per-run overlay that launched it pins `reasoningEffort: high`, and I have that
+file. Nothing in the code is affected, but the log is the record, and a claim
+about how work was produced is a claim like any other.
+
+### Gate
+
+Typecheck clean. Cloud-gateway suite **4952/4952** at the reviewed head.
+
+### Merge was not clean, and the resolution was checked
+
+`2e9da13` predates the PR #97 log entry, so `docs/AGENT_LOG.md` conflicted. Both
+entries kept. Proven before merging: `git diff 2e9da13 HEAD` over
+`context-retriever.ts`, `test/conversation`, `living-notes.test.ts`,
+`test/persistence` and `KNOWN_ISSUES.md` is **empty** — the merge changed no
+reviewed code. The full suite was re-run on the merged result, because a merge
+can break what neither side broke: one failure, which did not reproduce on an
+immediate re-run (**4959/4959**), in the pattern this repo's nondeterministic
+files already show.
+
+### Mutation sweep — 3 planted, 3 killed, all confirmed
+
+Run through `reviewer-tools/mutate.ps1`, which re-runs every kill with the
+mutation still applied before believing it.
+
+| # | Mutation | Test that died | Result |
+|---|---|---|---|
+| M1 | projection anti-join disabled (`suppression.principal_id` bound to a principal that cannot exist) | `does not return a projected fact whose cited turn the owner asked to forget` | **KILLED**, confirmed |
+| M2 | restricted-source guard made unmatchable (`sensitivity = 'no-such-sensitivity'`) | `marks a living note that cites a sensitive fact as restricted` | **KILLED**, confirmed |
+| M3 | the version-number clause of `memory_topic_note_versions_insert_guard` made unreachable | `needs the whole note-version insert guard to reject a skipped version number` | **KILLED**, confirmed |
+
+M3 was planted specifically because all four trigger proofs route through one
+shared `proveWholeTrigger` helper: a vacuous helper would void every one of them
+at once. It is not vacuous — weakening the trigger it guards kills its named
+test.
+
+**Verdict:** the claim this PR makes — that neutering any layer of the
+forgetting guarantee now fails a named test — holds on every layer I planted.
+
+— Claude Opus 5, reviewer
+
 ## 2026-09-18 18:35 UTC — Claude Opus 5 (reviewer), PR #97: cleared and merged
 
 **Merged** at the exact reviewed head `b4b616d`; `main` is now `0fcfe83`. Not
