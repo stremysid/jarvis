@@ -1,7 +1,11 @@
 # Neuter each new guard, run the test that names it, confirm failure, restore, confirm pass.
 # Prints one line per guard: "<name>: mutant=<PASS|FAIL|UNKNOWN> restored=<PASS|FAIL|UNKNOWN>".
 $ErrorActionPreference = "Continue"
-$root = "C:\Users\Sid\jarvis-readmail"
+# Defaults to the worktree this script is checked out in, so it runs anywhere.
+$root = Split-Path -Parent $PSScriptRoot
+if (-not (Test-Path (Join-Path $root "vitest.workspace.ts"))) {
+  throw "not a Jarvis worktree: $root has no vitest.workspace.ts"
+}
 Set-Location $root
 # Set-Location does not move the process's own working directory, and .NET file
 # APIs resolve against that, not against PowerShell's location. Without this,
@@ -70,12 +74,6 @@ $mutants = @(
      to   = '      ? {}'
      files = @("apps/cloud-gateway/test/jobs/digest-job.test.ts")
      filter = "labels a deadline the school-mail source produced" },
-  @{ name = "J migration: clear branch stops freezing the processed time"
-     file = "apps/cloud-gateway/src/persistence/migrations/0036_email_read_everything.sql"
-     from = "      AND NEW.processed_at IS OLD.processed_at`r`n      AND NEW.quarantine_reason IS OLD.quarantine_reason"
-     to   = "      AND NEW.processed_at IS NOT NULL`r`n      AND NEW.quarantine_reason IS OLD.quarantine_reason"
-     files = @("apps/cloud-gateway/test/persistence/email-read-everything-migration.test.ts")
-     filter = "refuses moving a receipt between statuses" },
   @{ name = "K migration: a cleared body may be refilled"
      file = "apps/cloud-gateway/src/persistence/migrations/0036_email_read_everything.sql"
      from = "      OLD.raw_mime_base64 <> ''`r`n      AND NEW.raw_mime_base64 = ''"

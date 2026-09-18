@@ -12,8 +12,9 @@ but belongs to the session that launched this one, so it is not the level I
 ran at.
 
 **Branch `codex/email-read-everything`.** **Heads:** `ee3ed2c` (the code,
-tests, migration and `KNOWN_ISSUES.md`; 23 files, +1,596/-120) and `9c5ee29`
-(this entry). Both pushed. Worktree at
+tests, migration and `KNOWN_ISSUES.md`; 23 files, +1,596/-120) and `576bc15`
+(this entry, plus a worktree-relative fix to `scripts/neutering-audit.ps1`).
+Both pushed. Worktree at
 `C:\Users\Sid\jarvis-readmail`. Read the brief at
 `C:\Users\Sid\jarvis-gate\reviewer-tools\relay\email-read-everything-prompt.txt`
 and followed it; it supersedes the earlier `codex/email-keep-everything` brief,
@@ -200,7 +201,7 @@ statement". The first semicolon inside a `--` comment is the trap.
 ### Neuter, confirm the named test fails, restore — and two clauses that did not
 
 `scripts/neutering-audit.ps1` in this branch applies each mutation, runs the
-test that names the guard, restores, and re-runs. Ten guards:
+test that names the guard, restores, and re-runs. Nine guards:
 
 | # | Guard neutered | Mutant | Restored |
 |---|---|---|---|
@@ -212,26 +213,27 @@ test that names the guard, restores, and re-runs. Ten guards:
 | F | digest deadline provenance label dropped | **FAIL** | **PASS** |
 | G | digest grade provenance label dropped | **FAIL** | **PASS** |
 | H | digest job stops passing the map into `toDigestDeadline` | **FAIL** | **PASS** |
-| I | trigger clear-branch stops freezing `status` | **PASS — did not fail** | **PASS** |
-| J | trigger clear-branch stops freezing `processed_at` | **PASS — did not fail** | **PASS** |
 | K | trigger clear-branch stops requiring a non-empty body / empty result | **FAIL** | **PASS** |
 
 Every named test failed under its mutant and passed again after restore, and no
 test was weakened to make that true.
 
-**I and J are the interesting rows.** They survive because the clause they
-neuter is redundant: the two pre-existing disjuncts require a non-pending
-transition to leave the body byte-identical (`NEW.raw_mime_base64 IS
-OLD.raw_mime_base64`), so an UPDATE that changes the body *and* the status is
-rejected by those before the clear branch is consulted. I rewrote the clear
-branch to name the state a clear may produce rather than list columns it must
-not touch, ran the mutants again, and they still survive — for the same reason.
-So I am reporting the clear branch as **one load-bearing clause (K) plus three
-column freezes that no test can distinguish, because overlapping clauses already
-reject those updates.** The behaviour is right; the extra clauses are cheap
-defence that the suite does not and cannot pin. That is exactly the kind of
-claim AGENTS.md says to write down instead of implying away, and it is why I
-kept the clause-by-clause table rather than a single "all guards killed" line.
+**Two mutants I ran and then removed from the script, because they survive and
+saying so is the point.** `I` loosened the clear branch's `status` freeze to `IS
+NOT NULL`, and `J` loosened its `processed_at` freeze the same way; both left
+the whole suite green. They survive because the clause they neuter is
+redundant: the two pre-existing disjuncts require a non-pending transition to
+leave the body byte-identical (`NEW.raw_mime_base64 IS OLD.raw_mime_base64`), so
+an UPDATE that changes the body *and* the status is rejected by those before the
+clear branch is consulted. I rewrote the clear branch to name the state a clear
+may produce rather than list columns it must not touch, ran both mutants again,
+and they still survive — for the same reason. So I am reporting the clear branch
+as **one load-bearing clause (K) plus column freezes that no test can
+distinguish, because overlapping clauses already reject those updates.** The
+behaviour is right; the extra clauses are cheap defence that the suite does not
+and cannot pin. That is the kind of claim AGENTS.md says to write down instead
+of implying away, and it is why the table is clause by clause rather than one
+"all guards killed" line.
 
 One thing I found while doing this and fixed rather than left: the first version
 of the clear branch used `length(OLD.raw_mime_base64) > 0`, and the mutant for
