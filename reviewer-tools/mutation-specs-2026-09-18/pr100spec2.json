@@ -1,0 +1,27 @@
+[
+  {
+    "name": "M5-repository-state-guard-removed",
+    "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+    "find": "if (superseded.lifecycle.state !== \"active\") refuse();",
+    "replace": "if (false) refuse();",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses to replace a memory that is no longer current"
+  },
+  {
+    "name": "M6-both-state-guards-removed",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+        "find": "if (superseded.lifecycle.state !== \"active\") refuse();",
+        "replace": "if (false) refuse();"
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+        "find": "supersededBefore.lifecycle.state !== \"active\" && !replaying",
+        "replace": "false"
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses to replace a memory that is no longer current"
+  }
+]

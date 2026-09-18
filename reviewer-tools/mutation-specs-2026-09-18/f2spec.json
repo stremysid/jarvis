@@ -1,0 +1,27 @@
+[
+  {
+    "name": "SAMEFILE-two-edits-restore",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+        "find": "!recallableAt(item, timestamp)) continue;",
+        "replace": "!recallableAt(item, timestamp)) continue; /* edit-one */"
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+        "find": "visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0",
+        "replace": "visibility.creationEventSuppressed"
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "expect": "does not recall a proposed model memory whose creation event was forgotten"
+  },
+  {
+    "name": "WILDCARD-expect-must-not-glob",
+    "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+    "find": "visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0",
+    "replace": "visibility.creationEventSuppressed",
+    "testPath": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "expect": "*"
+  }
+]

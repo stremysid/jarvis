@@ -1,0 +1,18 @@
+[
+  {
+    "name": "M1-projection-anti-join-disabled",
+    "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+    "find": "ON suppression.principal_id = f.principal_id",
+    "replace": "ON suppression.principal_id = 'no-such-principal'",
+    "testPath": "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "expect": "does not return a projected fact whose cited turn the owner asked to forget"
+  },
+  {
+    "name": "M2-restricted-source-guard-never-matches",
+    "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+    "find": "AND restricted_version.sensitivity = 'sensitive'",
+    "replace": "AND restricted_version.sensitivity = 'no-such-sensitivity'",
+    "testPath": "apps/cloud-gateway/test/memory/living-notes.test.ts",
+    "expect": "marks a living note that cites a sensitive fact as restricted"
+  }
+]

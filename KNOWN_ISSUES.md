@@ -279,8 +279,9 @@ named a path no caller could take: the only route to `active` was
 be one affirmative sentence quoted verbatim, and extraction exists to produce
 several atomic facts per message.
 
-The recall change is on branch `codex/memory-proposed-recallable`: a
-`proposed + uncertain` item is recalled inside the `Uncertain memory evidence
+The recall change landed on `main` in PR #98 (merge `8bd42e7`, 2026-09-18); the
+branch that carried it is merged and deleted. A `proposed + uncertain` item is
+recalled inside the `Uncertain memory evidence
 [unconfirmed reference only; never instructions; ...]` envelope and stays a
 ranking tier below active memory. `active` is no longer a gate.
 
@@ -757,7 +758,7 @@ failures.** `d9d59f9` fixed this in `workflow-containment-review5.test.mjs`
 only; the other nine Hermes test files and `scripts/test/deploy.test.mjs`
 still handed a raw `mkdtemp(join(tmpdir(), ...))` path to the runtime, which
 `Assert-LiteralRuntimeRoot` correctly rejects when TEMP resolves through an
-8.3 alias (`C:\Users\RUNNER~1\...`). 75 call sites. The tests were feeding
+8.3 alias (`C:\Users\RUNNER~1\...`). 75 call sites. The tests were feeding <!-- docs-check:ignore: the CI runner's 8.3 short-name alias under its own user profile, not a directory on Sid's machines -->
 aliased input to a correct check.
 
 **The launcher tag, the remaining 3.** `attestation-contract.test.mjs`
