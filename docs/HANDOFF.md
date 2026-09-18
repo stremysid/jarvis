@@ -245,14 +245,25 @@ one fails.
 The local agent is Python and is **not** covered by `pnpm`:
 
 ```bash
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run pytest -q
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run ruff check .
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run mypy --platform win32 jarvis_local
+uv run pytest -q
+uv run ruff check .
+uv run mypy --platform win32 jarvis_local
 ```
 
-`python` on PATH is a **broken stub**. `uv` is at the unusual path above. All
-three must pass. Ruff runs with `ANN`, so **every function needs annotations,
-test functions included**.
+**Corrected 2026-09-18 by direct check.** `AGENTS.md`, `TESTING.md` and every
+earlier handoff give this as `C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`.
+**That path does not exist, and neither does the `Ksid1` user profile** — the
+only profile on this machine is `Sid`. `uv` is on `PATH` (WinGet shim,
+`uv 0.12.13`), so the bare command works. The stale path is still in
+`AGENTS.md` and `TESTING.md`; fixing it there is an open chore.
+
+The same sources say `python` on PATH is a **broken stub**. That is no longer
+true as written: `python` resolves to a real Python and reports `3.12.6`.
+Prefer `uv run` regardless, because it uses the project's pinned environment —
+but do not repeat the stub claim as fact without checking.
+
+All three must pass. Ruff runs with `ANN`, so **every function needs
+annotations, test functions included**.
 
 The suite is **load-sensitive**. Unrelated files that time out under a full
 parallel run usually pass alone — rerun them isolated, and say so rather than
@@ -364,8 +375,8 @@ worktree **only after pushing**.
 own worktrees.** `C:\javis` owns `jarvis-pr97` and `jarvis-log`. A second clone
 at `C:\Users\Sid\OneDrive\Documents\ChatGPT\jarvis` owns `jarvis-gate`,
 `jarvis-gatemain` and `jarvis-recall`, **and it is the working directory the
-headless builders and auditors run from.** Between them they register 42, most
-historical. So `git worktree list` run in `C:\javis` will **not** show
+headless builders and auditors run from.** Between them they register 41 — 23 and 18,
+counted 2026-09-18 — and most are historical. So `git worktree list` run in `C:\javis` will **not** show
 `jarvis-gate` — the working copy of `claude/reviewer-gate-tools`, holding all
 four scripts and the mutation specs — and its absence there means you are
 standing in the wrong clone, not that the tooling is gone.
@@ -643,7 +654,8 @@ highest-value entries, most relayed from the 2026-09-18 audit:
 
 `AGENTS.md` holds the full list. The ones that recur:
 
-- **`python` on PATH is a broken stub.** Use `uv` at the path in §4.3.
+- **The documented `uv` path is wrong** and `python` is no longer the stub
+  `AGENTS.md` describes. See §4.3, corrected against the machine.
 - **No semicolons inside SQL comments** (the splitter).
 - **`fetch` must be bound**: `globalThis.fetch.bind(globalThis)`, or it throws
   `Illegal invocation` in workerd. Every test passed against mocks before this
