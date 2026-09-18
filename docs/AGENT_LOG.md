@@ -3,6 +3,177 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 22:02 UTC — DeepSeek V4.1 Flash, tier-3 gate: `memory_correct` was dispatched and unclassified, so the gate denied it
+
+**Effort level: not stated for this session; the two signals disagree, so I am
+not naming one.** `~/.dsh/settings.yaml` sets the agent default to
+`reasoningEffort: max` for `deepseek-flash`; the inherited environment carries
+`CLAUDE_EFFORT=xhigh`, which belongs to the session that launched this one. I
+did not find a per-turn record. Same ambiguity the PR #98 F1 entry hit, and I
+am resolving it the same way — by saying so rather than guessing.
+
+**Branch:** `codex/tier3-classify-memory-correct`, branched from
+`origin/claude/tier3-on-main` at `4052f4f` (today's main with the tier-3
+autonomy gate merged in), as the brief specified. **Head of this work:**
+`6077f75` (the fix and the guard), with this entry as the tip of
+`codex/tier3-classify-memory-correct`. No migration, and none needed. The
+worktree is left in place at `C:\Users\Sid\jarvis-t3fix` for inspection.
+
+### The defect, reproduced before it was touched
+
+`npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts -t "replaces one memory when Sid plainly states a new version"`
+
+```
+AssertionError: expected 'I did not complete the unreceipted ac…' to contain 'my fav subject is math'
+Expected: "my fav subject is math"
+Received: "I did not complete the unreceipted action."
+ ❯ apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts:1590:21
+ Tests  1 failed | 95 skipped (96)
+```
+
+That is the honest-refusal fallback: the tool never ran. `memory_correct` is
+dispatching in `owner-telegram-agent.ts` (`if (call.name === "memory_correct")
+return this.correct(...)`, definition at line 118) but had no row in
+`OWNER_TOOL_CAPABILITIES`, so `capabilityForTool` returned the raw name,
+`readCapabilityTier` found nothing and `decideOutcome` returned
+`denied_unknown_capability`. The gate was correct — fail closed on an
+unclassified tool. The map, written against an older main that had eight
+dispatchable tools, was the incomplete half.
+
+### The fix
+
+`memory_correct: "memory.write"`, alongside remember/forget/restore/confirm.
+Correcting a memory supersedes one stored wording with another in the same
+ledger, so it is a memory write, not a capability of its own — it inherits
+0035's existing tier-1 row, which is why **no migration was added**. The same
+test at `6077f75`:
+
+```
+ Test Files  1 passed (1)
+      Tests  1 passed | 95 skipped (96)
+```
+
+The comment above the map said "All eight are tier 1" and "These eight operate
+only on the owner's own conversational state"; both now say nine, because a
+count that is wrong in a file about classification is the defect's own
+documentation.
+
+### The guard, and the proof it is load-bearing
+
+`apps/cloud-gateway/test/autonomy/tool-classification.test.ts`. Nothing in the
+suite asserted that classification covered the dispatchable set, which is why
+a tool added on main became a silent denial on merge. Both sides are derived —
+the dispatchable set from `OWNER_TELEGRAM_TOOL_DEFINITIONS`, the classified set
+from `isToolClassified` — with no hand-written list of nine names, which would
+have been the same defect one level up.
+
+A second test covers the other way the same failure arrives: a tool classified
+as a capability that was never seeded is equally denied (as
+`denied_unknown_capability` with `classified` true, so the receipt blames the
+request rather than the missing row). Each derived capability is read back
+through the same `AutonomyRepository.readCapabilityTier` the gate calls.
+
+Both directions were run, not assumed. Three real runs:
+
+| Run | Mutation | Result |
+|---|---|---|
+| 1 | `memory_correct` deleted from `OWNER_TOOL_CAPABILITIES` | **FAIL** — `Error: unclassified_dispatchable_tools:["memory_correct"]` (classification test); the registration test also fails, with `["memory_correct"]`, since an unmapped tool resolves to its own name |
+| 2 | `memory_correct` remapped to `"memory.correct"` (classified, never seeded) | **FAIL** — `Error: dispatchable_tools_with_unregistered_capability:["memory.correct"]`, and the classification test stays **green**, which is the point: the two tests cover different halves |
+| 3 | restored to `"memory.write"` | **PASS** — `Test Files 1 passed (1) / Tests 2 passed (2)` |
+
+Run 1's failure output, verbatim:
+
+```
+ ❯ |default| apps/cloud-gateway/test/autonomy/tool-classification.test.ts (2 tests | 2 failed) 331ms
+     × every tool the model can dispatch has a capability classification 4ms
+     × every capability those tools are classified as is registered at a tier 11ms
+
+ FAIL  ... > every tool the model can dispatch has a capability classification
+Error: unclassified_dispatchable_tools:["memory_correct"]
+ ❯ expectNothingMissing apps/cloud-gateway/test/autonomy/tool-classification.test.ts:44:31
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+[exit code: 1]
+```
+
+The failure names the tool rather than printing two lists that differ. A guard
+that reports `expect([]).toEqual([])` tells a reader that something is wrong
+and not which tool was forgotten, which is the entire content of the failure.
+
+### Gate numbers, actually run at this revision
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | clean — 5 of 6 projects, all `Done` |
+| `pnpm typecheck` | clean — 5 of 6 projects, all `Done` |
+| `pnpm test` (run 1) | **201 files passed (201), 5356 tests passed (5356)**, 202.38 s |
+| `pnpm test` (run 2) | 3 failed / 198 passed files, 3 failed / 5353 passed tests — all three `Test timed out in 5000ms` |
+| `pnpm test` (run 3) | 1 failed / 200 passed files, 1 failed / 5355 passed tests — the documented flake |
+| `pnpm test` (run 4) | 12 failed / 189 passed files, 16 failed / 5340 passed tests — 15 timeouts + the flake again |
+
+**The full suite is not deterministic on this machine, and I am reporting all
+four runs rather than the one that was green.** Four runs, four different
+results, and neither failing shape is mine:
+
+- **The known pre-existing flake, exactly as the brief describes it**, appeared
+  in runs 3 and 4 with `expected { outcome: 'delivery_unknown', … } to match
+  object { outcome: 'telegram_delivered' }` — and the failing test name had
+  **roamed**, which is why it took two runs to recognise. Run 3's was
+  `records the refusal in the audit ledger with the outcome that caused it`;
+  run 4's was `labels an explanation of an uncertain memory as unconfirmed`.
+  Neither is a `memory_correct` test, and each passes alone. Not chased, as
+  instructed.
+- **The other 18 failures across runs 2 and 4 were 5–10-second timeouts under
+  full-suite load**, in files with no connection to tool classification:
+  `archival-service`, `memory-backup`, `call-session-repository`,
+  `owner-call-step-up-migration`, `guest-grant-notice-drain`,
+  `automatic-distillation`, `telegram-memory`, `voice/call-session-do`, and the
+  `tests/acceptance/fake/` voice suites. Run 2's three took 5.4–6.8 s against a
+  5000 ms limit; run 4's worst was 10.4 s. Run together in isolation the first
+  three are **3 files / 112 tests passed**. This branch's entire source diff is
+  one line added to an object literal in `tool-capabilities.ts`, which no
+  archive, backup, voice, call-session or job code reads, so these are load
+  contention rather than a regression — but they are a **second and much larger
+  source of non-determinism in `pnpm test` on this host than the brief's flake**,
+  and a reviewer re-running the gate will meet them. The correlation with
+  concurrent work on the machine is visible in the numbers: run 1, the only
+  fully green run, was the only one started while nothing else was touching this
+  worktree.
+
+The two tests this branch adds or repairs pass in **every** configuration
+tried: alone, in run 1's full pass, and in each of the three runs that had
+unrelated failures.
+
+### What this did not cover
+
+- **The cause, only the symptom.** The guard catches an unclassified or
+  unregistered dispatchable tool. It cannot catch a tool that dispatches but
+  never made it into `OWNER_TELEGRAM_TOOL_DEFINITIONS` — the dispatch chain and
+  the definitions array are still kept in step by hand. A model can only call
+  what the definitions offer, so that gap is currently unreachable, but it is a
+  gap.
+- **Tier correctness is not asserted.** Both tests prove a capability resolves
+  to *a* tier, not the *right* one. A future tool mapped to an existing but
+  wrong capability tier would pass.
+- **`memory_correct` was exercised only through the named test and the full
+  suite**, not against deployed D1. The mapping is inert until the gateway
+  deploys, and no deploy was run.
+- **The tier-3 gate's own behaviour was not re-reviewed.** Only the map and the
+  missing guard were in scope.
+- **`pnpm test` was not made deterministic, and is worse than the brief's
+  measured 2-in-11.** Across four runs the failure count went 0, 3, 1, 16. Every
+  failure was either the documented `delivery_unknown` flake or a 5–10 s timeout
+  under load in a file this branch does not touch; none reproduced in isolation.
+  That is a real property of the suite on this host and it is **not fixed here**
+  — the brief put it out of scope, and I did not chase it. What I can say
+  precisely is that it is not this branch: the source diff is one line in an
+  object literal, and the two tests this branch owns passed in all four runs.
+- The `wrangler.toml` warning about `vectorize`/`ai` not being inherited by
+  `env.test` is pre-existing noise in every run and was not touched.
+
+— DeepSeek V4.1 Flash, session `session-6ac26c4d-d7bb-4a95-b312-21cd73ae629e`
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
