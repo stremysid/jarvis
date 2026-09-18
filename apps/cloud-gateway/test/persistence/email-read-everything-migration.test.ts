@@ -4,7 +4,8 @@ import { newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js"
 import { applyD2lNotificationEmailMigration } from "./migration.js";
 
 /**
- * Migration 0036 is the one that lets every message be read.
+ * Migration 0037 is the one that lets every message be read. It was numbered
+ * 0036 until #96 kept that number for the sensitive-action pin.
  *
  * Two things about it are load-bearing and neither is visible from the
  * application code alone: a receipt written before the migration must not be
@@ -55,7 +56,7 @@ beforeAll(async () => {
     .bind(PRINCIPAL, NOW, NOW).run();
 });
 
-describe("email read-everything migration 0036", () => {
+describe("email read-everything migration 0037", () => {
   it("records a receipt written without a stated provenance as unverified, never as proven", async () => {
     const emailId = await addMessage("default-authenticity");
     expect(await authenticityOf(emailId)).toBe("unverified");

@@ -482,7 +482,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
               return await new D2lEmailRepository(env.DB)
                 .readAuthenticityBySourceExternalId(principalId, externalIds);
             } catch (error) {
-              // The Worker may be deployed before migration 0036 is applied.
+              // The Worker may be deployed before migration 0037 is applied.
               // Until the column exists there is no provenance to print, and
               // that is not a reason to lose the whole digest.
               if (/no such (?:table|column):\s*d2l_email_messages/iu.test(

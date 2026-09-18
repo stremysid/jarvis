@@ -1026,10 +1026,13 @@ END;
     };
 
     await recreateFreshDatabaseForBackupRestoreTest();
-    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0035_future.sql" }), /schema_mismatch/u);
+    // This name must stay a version no inventory holds, and it was bumped twice
+    // as real migrations took the numbers just above it. 9999 is above every
+    // number any branch has claimed, so a new migration cannot land on it.
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "9999_future.sql" }), /schema_mismatch/u);
 
-    await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES ('0035_future.sql')").run();
-    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0035_future.sql" }), /migrations_missing/u);
+    await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES ('9999_future.sql')").run();
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "9999_future.sql" }), /migrations_missing/u);
     await attempt(makeOptions(env.DB), /schema_mismatch/u);
 
     await recreateFreshDatabaseForBackupRestoreTest();

@@ -34,7 +34,7 @@ import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup
 import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
-import emailReadEverythingSql from "../../src/persistence/migrations/0036_email_read_everything.sql?raw";
+import emailReadEverythingSql from "../../src/persistence/migrations/0037_email_read_everything.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -282,7 +282,7 @@ export async function applyD2lNotificationEmailMigration(): Promise<void> {
   d2lNotificationEmailMigrated ??= applyD1Migrations(env.DB, [
     { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
     { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
-    { name: "0036_email_read_everything.sql", queries: splitMigration(emailReadEverythingSql) },
+    { name: "0037_email_read_everything.sql", queries: splitMigration(emailReadEverythingSql) },
   ]);
   await d2lNotificationEmailMigrated;
 }
@@ -311,7 +311,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
   { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
   { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
-  { name: "0036_email_read_everything.sql", queries: splitMigration(emailReadEverythingSql) },
+  { name: "0037_email_read_everything.sql", queries: splitMigration(emailReadEverythingSql) },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */

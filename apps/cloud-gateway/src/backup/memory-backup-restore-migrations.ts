@@ -32,7 +32,7 @@ import migration0031 from "../persistence/migrations/0031_memory_backup.sql";
 import migration0032 from "../persistence/migrations/0032_memory_living_notes.sql";
 import migration0033 from "../persistence/migrations/0033_d2l_notification_email.sql";
 import migration0034 from "../persistence/migrations/0034_scheduled_run_detail.sql";
-import migration0036 from "../persistence/migrations/0036_email_read_everything.sql";
+import migration0037 from "../persistence/migrations/0037_email_read_everything.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
 export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
@@ -70,8 +70,9 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0032_memory_living_notes.sql", sql: migration0032 }),
   Object.freeze({ name: "0033_d2l_notification_email.sql", sql: migration0033 }),
   Object.freeze({ name: "0034_scheduled_run_detail.sql", sql: migration0034 }),
-  // The live schema leaves a gap at 0035: an unmerged tier-3 branch claims it.
-  // A restore target built from a backup of the live database has 0036 applied,
-  // so replaying the target's receipt prefix needs this text available.
-  Object.freeze({ name: "0036_email_read_everything.sql", sql: migration0036 }),
+  // 0035 is claimed by an unmerged tier-3 branch and is absent here. This entry
+  // was renamed 0036 -> 0037 when another branch kept 0036 for itself; the name
+  // is what a D1 receipt records, so a restore replays this text only if the
+  // inventory carries it under the name the live schema actually applied.
+  Object.freeze({ name: "0037_email_read_everything.sql", sql: migration0037 }),
 ]);

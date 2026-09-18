@@ -75,7 +75,7 @@ $mutants = @(
      files = @("apps/cloud-gateway/test/jobs/digest-job.test.ts")
      filter = "labels a deadline the school-mail source produced" },
   @{ name = "K migration: a cleared body may be refilled"
-     file = "apps/cloud-gateway/src/persistence/migrations/0036_email_read_everything.sql"
+     file = "apps/cloud-gateway/src/persistence/migrations/0037_email_read_everything.sql"
      from = "      OLD.raw_mime_base64 <> ''`r`n      AND NEW.raw_mime_base64 = ''"
      to   = "      1 = 1"
      files = @("apps/cloud-gateway/test/persistence/email-read-everything-migration.test.ts")
