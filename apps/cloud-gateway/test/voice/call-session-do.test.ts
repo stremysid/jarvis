@@ -835,7 +835,7 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.sendNeutralText.mock.calls.flat()).not.toContainEqual(expect.stringMatching(/pin|passcode/iu));
   });
 
-  it("refuses a revoked passphrase at the action while the call PIN still authorises", async () => {
+  it("refuses a revoked passphrase at the action while the call PIN still authorises", { timeout: 30_000 }, async () => {
     const harness = await accessHarness("owner", undefined, true);
     await admitOwnerAdministration(harness);
     const restore = await revokeOwnerVerifierForTest();
@@ -1218,7 +1218,7 @@ describe("CallSessionCore owner and guest access", () => {
       WHERE consumed_at IS NOT NULL`).first()).toEqual({ count: 1 });
   });
 
-  it("asks for the action PIN before a sensitive change and keeps the call open when it is wrong", async () => {
+  it("asks for the action PIN before a sensitive change and keeps the call open when it is wrong", { timeout: 30_000 }, async () => {
     const harness = await accessHarness("owner", undefined, true);
     await admitOwnerAdministration(harness);
 
@@ -1246,7 +1246,11 @@ describe("CallSessionCore owner and guest access", () => {
       .toEqual({ status: "pending" });
   });
 
-  it("refuses the action after five wrong PINs without ending the call", async () => {
+  // Five credential derivations are the point of this test: the attempt budget
+  // is what it proves, and six chained PBKDF2 passes per attempt costs more
+  // than the 5s default under a loaded pool. The service-level twin in
+  // owner-sensitive-action.test.ts carries the same budget.
+  it("refuses the action after five wrong PINs without ending the call", { timeout: 30_000 }, async () => {
     const harness = await accessHarness("owner", undefined, true);
     await admitOwnerAdministration(harness);
     await harness.instance.handleRelayEvent({
@@ -1432,7 +1436,7 @@ describe("CallSessionCore owner and guest access", () => {
     expect(deriveBits).toHaveBeenCalledTimes(6);
   });
 
-  it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", async () => {
+  it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", { timeout: 30_000 }, async () => {
     const harness = await accessHarness("owner", undefined, true);
     await admitOwnerAdministration(harness);
 

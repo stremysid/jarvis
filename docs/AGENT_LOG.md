@@ -101,25 +101,35 @@ failure — `tests/test_owner_passphrase.py::test_python_runs_the_shared_canonic
 — reproduces on a clean `origin/main` checkout at `11e7007`, so it is not from
 this branch.
 
-**I did not get a green full suite, and it is not this branch.** Three runs:
-4 workers gave 5,293 passed / 1 failed (`telegram-memory.test.ts > skips a
-non-Telegram turn...`); 2 workers gave 5,290 passed / 4 failed, all timing
-(`call-session-do` PBKDF2 budget and interrupted-authorization timeouts, two
-fake-acceptance tests); the failures were a **different set each run**. Every
-one I reran in isolation passed. Two acceptance files that failed in one
-isolated run failed on a clean `origin/main` checkout too, with yet another
-pair of tests. The machine has three builder sessions on it tonight and this
-matches the load timeouts the handoff already records for `telegram-memory`
-and `call-session-do`. Treat the reviewer's own gate run as the evidence.
+**I did not get a green full suite, and it is not this branch.** Four runs:
+4 workers on the pre-merge head gave 5,293 passed / 1 failed; 2 workers gave
+5,290 / 4 failed; 4 workers on the merged head gave 5,292 / 5 failed. The
+failures were a **different set every run** and spanned unrelated areas
+(`telegram-memory`, `owner-telegram-agent`, `automatic-distillation`, two
+fake-acceptance files, and two `call-session-do` timeouts). Every one I reran
+in isolation passed, and two acceptance files that failed in one isolated run
+failed on a clean `origin/main` checkout too, with yet another pair of tests.
+The machine has three builder sessions on it tonight, and this matches the load
+timeouts the handoff already records.
+
+**One real fix came out of that.** Two of the merged-run failures were 5s
+timeouts inside this feature's own PIN tests: the test that spends all five
+attempts performs thirty chained PBKDF2 passes, which measures 2.8s alone and
+more than 5s under a loaded pool. `call-session-do.test.ts` now gives the four
+PIN-deriving tests an explicit 30s budget — the same one the service-level twin
+in `owner-sensitive-action.test.ts` already carried. No assertion changed.
+Treat the reviewer's own gate run as the evidence.
 
 ### Two builders worked this feature at once
 
 A Codex session was still building it in `C:\Users\Sid\jarvis-callpin-r1` on
-branch `codex/r1-sensitive-action-pin-v5` while this ran, and its log was still
-growing at 06:00 UTC. It had not pushed when this entry was written. **Review
-one of the two, not both.** Its uncommitted tree already showed the receipt
-read-back at the authority boundary that item 3 above puts in the call session;
-if it lands, reconcile the two rather than applying both.
+branch `codex/r1-sensitive-action-pin-v5` while this ran. It exited at about
+06:04 UTC without pushing; only `codex/r1-sensitive-action-pin-v6` exists on
+origin, and the uncommitted `v5` tree is still in that worktree if anyone wants
+to compare. **Review one of the two, not both.** That tree already showed the
+receipt read-back at the authority boundary that item 3 above puts in the call
+session; if it is ever finished and pushed, reconcile the two rather than
+applying both.
 
 ### Honest limits
 
