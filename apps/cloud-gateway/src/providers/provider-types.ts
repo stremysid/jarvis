@@ -121,7 +121,7 @@ export interface ModelAgentProvider {
 export interface ModelCompleteJsonInput {
   correlationId: string;
   principalId: string;
-  purpose: "memory_distillation";
+  purpose: "memory_distillation" | "memory_consolidation";
   prompt: string;
   timeoutMs: number;
   maxOutputTokens: number;
@@ -194,6 +194,59 @@ export const MEMORY_EXTRACTION_JSON_EXAMPLE = JSON.stringify({
 export const MEMORY_EXTRACTION_JSON_CONTRACT =
   `Return one JSON value matching this exact schema: ${MEMORY_EXTRACTION_JSON_SCHEMA} `
   + `Example: ${MEMORY_EXTRACTION_JSON_EXAMPLE}`;
+
+export const MEMORY_CONSOLIDATION_JSON_SCHEMA = JSON.stringify({
+  type: "object",
+  additionalProperties: false,
+  required: ["proposals"],
+  properties: {
+    proposals: {
+      type: "array",
+      maxItems: 16,
+      items: {
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "topicId", "markdown", "sourceIds", "reason"],
+            properties: {
+              kind: { const: "note" },
+              topicId: { type: "string" },
+              markdown: { type: "string" },
+              sourceIds: { type: "array", minItems: 1, maxItems: 64, items: { type: "string" } },
+              reason: { type: "string" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "olderItemId", "newerItemId", "reason"],
+            properties: {
+              kind: { const: "supersession" },
+              olderItemId: { type: "string" },
+              newerItemId: { type: "string" },
+              reason: { type: "string" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "sourceTopicId", "targetTopicId", "reason"],
+            properties: {
+              kind: { const: "topic_merge" },
+              sourceTopicId: { type: "string" },
+              targetTopicId: { type: "string" },
+              reason: { type: "string" },
+            },
+          },
+        ],
+      },
+    },
+  },
+});
+
+export const MEMORY_CONSOLIDATION_JSON_CONTRACT =
+  `Return one JSON value matching this exact schema: ${MEMORY_CONSOLIDATION_JSON_SCHEMA}`;
 
 export interface ModelCompleteJsonUsage {
   readonly priceId: string;

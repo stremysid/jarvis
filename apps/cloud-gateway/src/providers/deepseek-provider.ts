@@ -8,6 +8,7 @@ import type { MemoryExtractionBudgetPort } from "../memory/memory-extraction-bud
 import {
   issueModelCompleteJsonCompletion,
   issueModelCompleteJsonSettledFailure,
+  MEMORY_CONSOLIDATION_JSON_CONTRACT,
   MEMORY_EXTRACTION_JSON_CONTRACT,
   ProviderFailure,
   snapshotProviderFailure,
@@ -524,6 +525,7 @@ export class DeepSeekAgentProvider implements ModelAgentProvider {
 }
 
 const JSON_REQUEST_BYTES = 131_072;
+const CONSOLIDATION_JSON_REQUEST_BYTES = 32_768;
 const JSON_RESPONSE_BYTES = 262_144;
 const JSON_MAX_OUTPUT_TOKENS = 2_048;
 const JSON_CORRELATION_ID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -617,7 +619,8 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
   }
 
   async completeJson(input: ModelCompleteJsonInput): Promise<unknown> {
-    if (input.purpose !== "memory_distillation" || input.reasoningEffort !== "high"
+    if (input.purpose !== "memory_distillation" && input.purpose !== "memory_consolidation"
+      || input.reasoningEffort !== "high"
       || !JSON_CORRELATION_ID.test(input.correlationId)
       || typeof input.principalId !== "string" || input.principalId.length === 0
       || input.principalId.length > 256 || !input.principalId.isWellFormed()
@@ -632,7 +635,10 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
       messages: [
         {
           role: "system",
-          content: `${MEMORY_EXTRACTION_JSON_CONTRACT} Do not include markdown or commentary.`,
+          content: input.purpose === "memory_distillation"
+            ? `${MEMORY_EXTRACTION_JSON_CONTRACT} Do not include markdown or commentary.`
+            : `${MEMORY_CONSOLIDATION_JSON_CONTRACT} `
+              + "Return only the JSON object and no surrounding commentary.",
         },
         { role: "user", content: input.prompt },
       ],
@@ -643,7 +649,10 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
       stream: false,
     });
     const requestBytes = new TextEncoder().encode(body).byteLength;
-    if (requestBytes > JSON_REQUEST_BYTES) throw ProviderFailure.permanent("invalid_request");
+    const requestByteLimit = input.purpose === "memory_consolidation"
+      ? CONSOLIDATION_JSON_REQUEST_BYTES
+      : JSON_REQUEST_BYTES;
+    if (requestBytes > requestByteLimit) throw ProviderFailure.permanent("invalid_request");
     const prepared = await this.#budget.prepare(input.principalId);
     const reservation = await this.#budget.reserve({
       principalId: input.principalId,

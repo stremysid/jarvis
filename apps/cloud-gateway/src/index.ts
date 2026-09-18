@@ -799,7 +799,37 @@ ${COMMAND_HELP}`));
         };
       }
       : undefined;
-    const context = { env, clock, liveClock, delivery, fetcher, memoryDistillationFactory };
+    const memoryConsolidationFactory = env.DEEPSEEK_API_KEY !== undefined
+      && env.DEEPSEEK_API_KEY.length > 0 && principalId !== undefined && principalId.length > 0
+      ? () => {
+        const extractionBudget = new MemoryExtractionBudget({
+          database: env.DB,
+          modelId: "deepseek-flash",
+          monthlyCapUsd: env.MEMORY_EXTRACTION_MONTHLY_CAP_USD,
+          now: liveClock.now,
+          notice: delivery,
+        });
+        return {
+          provider: new DeepSeekJsonProvider({
+            apiKey: env.DEEPSEEK_API_KEY!,
+            model: "deepseek-flash",
+            budget: extractionBudget,
+            fetchImplementation: fetcher,
+          }),
+          providerModelId: extractionBudget.providerModelId,
+          prepare: (ownerPrincipalId: string) => extractionBudget.prepare(ownerPrincipalId),
+        };
+      }
+      : undefined;
+    const context = {
+      env,
+      clock,
+      liveClock,
+      delivery,
+      fetcher,
+      memoryDistillationFactory,
+      memoryConsolidationFactory,
+    };
 
     const report = await handleScheduled(controller.cron, clock.now(), {
       runs: buildScheduledRuns(context),

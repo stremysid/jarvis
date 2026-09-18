@@ -157,7 +157,7 @@ describe("nightly verified memory backup", () => {
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
     const manifest = await readLatestManifest();
-    expect(manifest.databaseSchemaVersion).toBe("0031_memory_backup.sql");
+    expect(manifest.databaseSchemaVersion).toBe("0032_memory_living_notes.sql");
     expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({
@@ -219,6 +219,17 @@ describe("nightly verified memory backup", () => {
       + MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.length
       + MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES.length
       + MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES.length);
+  });
+
+  it("backs up living-note evidence while classifying rebuilt heads and checkpoints separately", () => {
+    expect(MEMORY_BACKUP_TABLES).toEqual(expect.arrayContaining([
+      "memory_topic_note_versions",
+      "memory_topic_note_sources",
+      "memory_topic_note_receipts",
+      "memory_consolidation_change_receipts",
+    ]));
+    expect(MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES).toContain("memory_topic_note_heads");
+    expect(MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES).toContain("memory_consolidation_model_steps");
   });
 
   it("allows only the exact restore runtime tables in a later backup", async () => {

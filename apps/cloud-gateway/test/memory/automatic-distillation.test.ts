@@ -44,7 +44,7 @@ import {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
-import { applyMemoryDistillationMigration } from "../persistence/migration.js";
+import { applyMemoryLivingNotesMigration } from "../persistence/migration.js";
 
 const MODEL_ID = "openai:fake-memory-distillation-v1";
 const redactor = new Redactor();
@@ -449,7 +449,7 @@ async function commitInboxItem(
 }
 
 beforeAll(async () => {
-  await applyMemoryDistillationMigration();
+  await applyMemoryLivingNotesMigration();
 });
 
 beforeEach(async () => {
