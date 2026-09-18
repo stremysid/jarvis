@@ -1,0 +1,9 @@
+      Tests  8 failed | 5 passed (13)
+     × A1 refuses a forged notification that carries no authentication evidence at all 883ms
+     × A2 refuses a message whose only DKIM signature is for an unrelated domain 30ms
+     × B1 does not relay a verification link that is not on a pinned D2L domain 31ms
+     × B3 does not present an email-sourced grade to the owner as verified 1ms
+     × C1 accepts a D2L due date that names a day but no clock time 2ms
+     × C3 accepts the worded form of a date-only D2L due date 0ms
+     × D1 does not retain unbounded raw receipts when a stranger floods the address 160ms
+     × D2 offers a retention path for a quarantined receipt 25ms
