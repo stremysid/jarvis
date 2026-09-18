@@ -15,9 +15,12 @@ import { CallRepository, type StoredCallSession } from "../../src/persistence/ca
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
 import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
-import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
-import { OwnerCallPinVerifier } from "../../src/security/owner-call-pin-verifier.js";
-import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
+import { GuestPinVerifier, type GuestPinVerifierRecordV2 } from "../../src/security/guest-pin-verifier.js";
+import { OwnerCallPinVerifier, type OwnerCallPinVerifierRecordV1 } from "../../src/security/owner-call-pin-verifier.js";
+import {
+  OwnerPassphraseVerifier,
+  type OwnerPassphraseVerifierRecordV1,
+} from "../../src/security/owner-passphrase-verifier.js";
 import { OwnerCallPinRepository } from "../../src/persistence/owner-call-pin-repository.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
@@ -254,13 +257,54 @@ async function createInboundSession(
   return stored;
 }
 
-async function seedActiveOwnerPassphrase(): Promise<void> {
-  const verifier = new OwnerPassphraseVerifier(
+/**
+ * Every credential here derives through six chained 100,000-iteration PBKDF2
+ * passes, and the fixtures used to pay that per test: the owner passphrase for
+ * every owner session, the call PIN for each of the thirteen
+ * owner-administration harnesses, the guest PIN for every guest seeding.
+ * That is seconds of pure setup competing with each test's own
+ * five-second budget, and it is why these tests time out under load whether
+ * they run alone or with the file.
+ *
+ * Every one of those derivations has identical inputs -- one pepper, one
+ * pinned salt, one identity, version 1, one candidate -- so every one produced
+ * the same record. Deriving each once per module is the same fixture without
+ * the repetition: the whole file went from 198.9s to 161.2s here.
+ *
+ * These caches hold a pure derivation, never database state. `clearFixture`
+ * does not reset them and must not: nothing about a record depends on what ran
+ * before it, so a test run alone gets byte-for-byte the record a test run
+ * after a hundred others gets. The records are still published through the
+ * guarded rotation the runtime uses, so the schema guards see every insert.
+ */
+let ownerPassphraseRecord: Promise<OwnerPassphraseVerifierRecordV1> | undefined;
+let ownerCallPinRecord: Promise<OwnerCallPinVerifierRecordV1> | undefined;
+let guestPinRecord: Promise<GuestPinVerifierRecordV2> | undefined;
+
+function fixtureOwnerPassphraseRecord(): Promise<OwnerPassphraseVerifierRecordV1> {
+  ownerPassphraseRecord ??= new OwnerPassphraseVerifier(
     OWNER_TEST_PEPPER,
     "v1",
     () => new Uint8Array(16).fill(7),
-  );
-  const record = await verifier.create("identity:voice", 1, OWNER_TEST_PHRASE);
+  ).create("identity:voice", 1, OWNER_TEST_PHRASE);
+  return ownerPassphraseRecord;
+}
+
+function fixtureOwnerCallPinRecord(): Promise<OwnerCallPinVerifierRecordV1> {
+  // `create` zeroises the digits it is handed, so the array is built per call.
+  ownerCallPinRecord ??= new OwnerCallPinVerifier(OWNER_TEST_PEPPER, () => new Uint8Array(16).fill(9))
+    .create("identity:voice", 1, Uint8Array.from([52, 50, 55, 49]));
+  return ownerCallPinRecord;
+}
+
+function fixtureGuestPinRecord(): Promise<GuestPinVerifierRecordV2> {
+  guestPinRecord ??= new GuestPinVerifier(new Uint8Array(32).fill(12), () => new Uint8Array(16).fill(8))
+    .create(GUEST_GRANT_ID, Uint8Array.from([52, 56, 50, 55]));
+  return guestPinRecord;
+}
+
+async function seedActiveOwnerPassphrase(): Promise<void> {
+  const record = await fixtureOwnerPassphraseRecord();
   await new OwnerPassphraseRepository(env.DB).rotate({
     verified: {
       deviceId: "device:owner", principalId: "principal:owner", audience: DEVICE_AUDIENCE,
@@ -278,7 +322,6 @@ async function seedActiveOwnerCallPin(): Promise<void> {
   const existing = await env.DB.prepare("SELECT pin_version FROM owner_call_pin_heads WHERE singleton_id = 1")
     .first<{ pin_version: number }>();
   if (existing !== null) return;
-  const verifier = new OwnerCallPinVerifier(OWNER_TEST_PEPPER, () => new Uint8Array(16).fill(9));
   await new OwnerCallPinRepository(env.DB).rotate({
     verified: {
       deviceId: "device:owner", principalId: "principal:owner", audience: DEVICE_AUDIENCE,
@@ -287,7 +330,7 @@ async function seedActiveOwnerCallPin(): Promise<void> {
     },
     ownerPrincipalId: "principal:owner", ownerIdentityId: "identity:voice",
     expectedPinVersion: null,
-    record: await verifier.create("identity:voice", 1, Uint8Array.from([52, 50, 55, 49])),
+    record: await fixtureOwnerCallPinRecord(),
     commitId: "01m2ccccccccccccccccccc098", committedAt: NOW.toISOString(),
   });
 }
@@ -619,14 +662,15 @@ function fakeSocket(sessionId: Ulid) {
   return { socket, close, send };
 }
 
-async function seedPendingGuestAccess(
-  registry: CapabilityRegistry,
-  verifier: GuestPinVerifier,
-): Promise<void> {
+/**
+ * The verifier is not a parameter: every caller wants the one fixture grant
+ * that PIN 4827 opens, and a caller-supplied verifier would be silently
+ * ignored by the cached record above.
+ */
+async function seedPendingGuestAccess(registry: CapabilityRegistry): Promise<void> {
   const timestamp = NOW.toISOString();
   const snapshot = await registry.snapshotConfigured(["conversation.basic"]);
-  const pin = Uint8Array.from([52, 56, 50, 55]);
-  const record = await verifier.create(GUEST_GRANT_ID, pin);
+  const record = await fixtureGuestPinRecord();
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO principals (
       principal_id, principal_type, status, display_name, created_at, updated_at
@@ -688,7 +732,7 @@ async function accessHarness(
     new Uint8Array(32).fill(12),
     () => new Uint8Array(16).fill(8),
   );
-  if (kind === "guest") await seedPendingGuestAccess(registry, pinVerifier);
+  if (kind === "guest") await seedPendingGuestAccess(registry);
   const stored = kind === "owner"
     ? await createInboundSession(repo, "hmac-v1", withOwnerAdministration)
     : await repo.getOrCreateInboundSession({
@@ -2375,8 +2419,7 @@ describe("CallSession production composition", () => {
 
   it("shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation", async () => {
     await seedActiveVoiceIdentity();
-    await seedPendingGuestAccess(new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
-      new GuestPinVerifier(new Uint8Array(32).fill(12)));
+    await seedPendingGuestAccess(new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }));
     const stored = await repository().getOrCreateInboundSession({ callSid: CALL_SID, callerE164: GUEST_E164,
       ownerIdentityId: "identity:voice", currentChallengeHmacKeyVersion: "identity-hmac-v1", now: NOW });
     const call = await runtime(stored);
