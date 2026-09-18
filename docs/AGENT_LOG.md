@@ -155,6 +155,68 @@ verifies each receipt id against the receipts actually produced.** I read that
 mechanism on `main` rather than taking the status board's word for it. Sentence
 matching is also the design Sid ruled out on 2026-09-17. Reopenable.
 
+### Read-only auditor on the gate — it corroborated both my findings, and added two
+
+Launched a read-only adversarial audit in parallel. **It found F1 (`memory_correct`)
+and F2 (the hardcoded `permit`) independently**, which is the corroboration those
+two wanted. Auditor findings are read from code and it **cannot run tests**, so
+F3 and F4 below are suspects, not convictions — but both are clearly latent, and
+neither blocks the merge.
+
+- **F3 — a confirmation binds the CAPABILITY, not the tool name.**
+  `confirmationReference` is `capability:argumentsHash`. Two different tools
+  sharing one capability with byte-identical arguments produce the **same
+  reference**, so a tap raised for one authorizes the other. Not reachable today
+  — each reserved hand has its own capability. It becomes live the moment a
+  second third-party hand (say `send_sms`) is classified `contact.third_party`:
+  *"confirm this email"* would then authorize an SMS with the same body. Note the
+  same shape already exists benignly inside the eight: `memory_remember`,
+  `memory_forget`, `memory_restore` and `memory_confirm` all map to
+  `memory.write`, harmless **only** because all four are tier 1 and never reach a
+  confirmation. Settle with a unit test asserting the references differ.
+- **F4 — the fingerprint's canonical-vs-raw split is safe by coupling, not by
+  construction.** `argumentsFingerprint` hashes raw text when arguments are not
+  valid JSON. That is unreachable only because the sole consumer is
+  `parseArguments`, which is `JSON.parse`. **Nothing records which parser a hash
+  belongs to.** A future hand with a more lenient decoder could be confirmed
+  under one interpretation and executed under another.
+
+**Worth a separate eye, and it is not in the gate:** `capability_tiers` has **no
+`UPDATE`/`DELETE` guard trigger**, unlike `autonomy_evaluations` and
+`decision_responses`. A tier is mutable by anyone holding D1 credentials. That
+is the operational path that turns F2's tier-flip from theoretical into
+plausible, and it is the one enforcement this design leans on that the schema
+does not protect.
+
+**What the auditor tried to break and could not** — as useful as the findings:
+the gate runs before every tool body with no second dispatcher in `src`; it
+fails closed on every constructed path; a crafted tool name cannot forge audit
+fields, because provider names are `[A-Za-z0-9_-]{1,128}` and registered
+capabilities are dotted; tier 3 requires a tap before `decideOutcome` ever reads
+the mode, so shadow and live are identical for it. The confirmation SQL survived
+a deliberate attempt: `option_key` is foreign-keyed to that item's own options,
+a unique index makes an answered item answered once forever, principal is bound
+twice, and the TTL compares `resolved_at`, written from the server clock in the
+same transaction — no ordering seam.
+
+### PR #104 — reviewer tooling merged to main
+
+Merged at `5a8acf3`. **Curated, not the branch:** `claude/reviewer-gate-tools`
+carries 1,380 files and ~198k lines of per-PR scratch; **22 files** landed —
+the five scripts, the manual, `mutation-specs-2026-09-18/`, and the docs-check
+annotations. The rest stays preserved on that branch.
+
+Verified rather than relayed: `docs-check` exits **0** on merged `main`, and a
+control I planted myself (a false sha, a false branch, a false migration, plus a
+deliberately stale suppression) was **caught in full**, exit 1. The builder's one
+genuine finding was genuine — `codex/memory-proposed-recallable` is absent from
+origin and PR #98 is MERGED.
+
+**Trap for the next session:** `docs-check.ps1` defaults to `-Repo C:/javis`,
+the shared checkout. From a worktree without that flag it silently checks the
+wrong tree. It prints a `repo:` line that gives it away; I still lost a pass to
+it first.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
