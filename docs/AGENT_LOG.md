@@ -5,7 +5,7 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-18 18:49 UTC — DeepSeek V4.1 Flash (reasoningEffort: max), F1 + F2 + audit B-4 ready for Claude max review
 
-**Ready for Claude Opus 5 max review on `codex/forgetting-guarantee-pins`, head `80a4728`, branched from `385c052`.** This adds no feature. It makes the forgetting guarantee testable layer by layer, closes audit finding B-4 at read time, and records what B-4 still leaves open. No migration; `0033` and `0034` remain the only unapplied ones.
+**Ready for Claude Opus 5 max review on `codex/forgetting-guarantee-pins`, PR #99, work head `80a4728`, branched from `385c052`.** This adds no feature. It makes the forgetting guarantee testable layer by layer, closes audit finding B-4 at read time, and records what B-4 still leaves open. No migration; `0033` and `0034` remain the only unapplied ones.
 
 **F1 — the retriever-side guard is now pinned, and pinned with the trigger's effect absent.** The reason the reviewer's mutation survived is that the 0032 redaction trigger had already redacted the note head every living-notes assertion was reading. The new tests drop `memory_topic_notes_redact_for_event_suppression` for the duration of the body and restore it in a `finally`, so the anti-join in `telegram-memory-retriever.ts` is the only thing left that can withhold the fact, and the tests assert the heads are still `current` while the forbidden text is absent.
 
