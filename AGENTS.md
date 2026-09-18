@@ -27,7 +27,7 @@ Run every local-agent command through **`uv`**, which is on `PATH`
 See [TESTING.md](TESTING.md).
 
 **Corrected 2026-09-18.** This file previously gave `uv` as
-`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist,
+`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist, <!-- docs-check:ignore: the dead path this correction retracts -- the same sentence says it does not exist -->
 and neither does the `Ksid1` user profile** — the only profile on this machine
 is `Sid`, so every command here failed with "not found". It also called
 `python` on PATH a broken stub; `python` now resolves to a real Python and

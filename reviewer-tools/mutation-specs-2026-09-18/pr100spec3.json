@@ -1,0 +1,24 @@
+[
+  {
+    "name": "M7-all-three-state-layers-removed",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+        "find": "        OR (state.lifecycle_state = 'active'\n          AND NEW.lifecycle_state IN ('superseded', 'forgotten', 'expired'))",
+        "replace": "        OR (state.lifecycle_state = 'active'\n          AND NEW.lifecycle_state IN ('superseded', 'forgotten', 'expired'))\n        OR (state.lifecycle_state = 'superseded'\n          AND NEW.lifecycle_state = 'superseded')"
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+        "find": "if (superseded.lifecycle.state !== \"active\") refuse();",
+        "replace": "if (false) refuse();"
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+        "find": "supersededBefore.lifecycle.state !== \"active\" && !replaying",
+        "replace": "false"
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses to replace a memory that is no longer current"
+  }
+]

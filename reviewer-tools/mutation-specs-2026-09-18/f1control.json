@@ -1,0 +1,10 @@
+[
+  {
+    "name": "CONTROL-fixture-edit-alone",
+    "file": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "find": "      source: await latestUserEvent(owner.principalId),\n      state: \"proposed\",",
+    "replace": "      source: creation,\n      state: \"proposed\",",
+    "testPath": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "expect": "does not recall a proposed model memory whose creation event was forgotten"
+  }
+]

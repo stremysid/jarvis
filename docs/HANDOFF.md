@@ -94,7 +94,7 @@ until 2026-10-01**.
 |---|---|
 | `origin/main` | **query it** — `git log --oneline origin/main -1`. `6febf32` when written; not maintained here |
 | Migrations on main | **34**, `0001`–`0034`, no gaps |
-| Production Worker | **`555c1414`**, not redeployed since |
+| Production Worker | **`555c1414`**, not redeployed since <!-- docs-check:ignore: a Cloudflare Worker version id is 8 hex characters, not a git sha --> |
 | Production D1 | **migration `0034`** — verified by querying `d1_migrations` |
 | Open PRs | #96 (stuck), #84 (stale since 2026-09-17, never triaged) |
 | Running | nothing — all DeepSeek instances finished |
@@ -109,7 +109,7 @@ reconciled:
 - **Production is at migration `0034`, not `0032`.** An earlier draft of this
   document said `0032`; `reviewer-tools/HANDOFF-2026-09-18c.md` said `0034` and
   is **right**. The `0032` figure was accurate when written and went stale.
-- **Production runs Worker `555c1414`, not `c46e6c89`.** Same cause; 18c is
+- **Production runs Worker `555c1414`, not `c46e6c89`.** Same cause; 18c is <!-- docs-check:ignore: both tokens are Cloudflare Worker version ids, not git shas -->
   right. The redeploy happened on 2026-09-18.
 - **`main` was `6febf32`.** 18c records `8b5f438`, which was current when it was
   written, before #98's merge commit landed. Both are now behind main; see the
@@ -262,7 +262,7 @@ uv run mypy --platform win32 jarvis_local
 ```
 
 **Corrected 2026-09-18 by direct check.** `AGENTS.md`, `TESTING.md` and every
-earlier handoff give this as `C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`.
+earlier handoff give this as `C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. <!-- docs-check:ignore: the dead path this paragraph exists to retract, so flagging it inverts the meaning -->
 **That path does not exist, and neither does the `Ksid1` user profile** — the
 only profile on this machine is `Sid`. `uv` is on `PATH` (WinGet shim,
 `uv 0.12.13`), so the bare command works. The stale path is still in
@@ -491,7 +491,7 @@ redundant.**
 | `src/autonomy/tool-gate.ts` | The gate. Evaluates capability → tier **before** any tool acts; fails closed on unclassified and on an audit-write failure; never reads arguments for meaning |
 | `src/autonomy/tool-capabilities.ts` | Tool → capability map. The eight existing tools classified; the reserved hands (email/Tesla) pre-classified |
 | `src/autonomy/tool-confirmations.ts` | Tier-3 confirmation bound to **capability + a canonical hash of the arguments**, consumed from the existing `decision_responses` ledger. **No new table for the confirmation** |
-| `0035_autonomy_tool_capabilities.sql` | Additive seed of five capability rows. `0035` is the next free number |
+| `0035_autonomy_tool_capabilities.sql` | Additive seed of five capability rows. `0035` is the next free number <!-- docs-check:ignore: this file is on the unmerged branch above, not on main, and the cell says so by calling 0035 the next free number --> |
 | `test/autonomy/tool-gate.test.ts` | 9 gate tests |
 | `test/channels/owner-telegram-agent.test.ts` | +2 integration tests that fail if the gate call site is removed |
 
@@ -690,7 +690,7 @@ can query.
 
 This was learned expensively. An audit reported "production D1 is at 0031" and
 "last deploy is the PR #80 era" — both derived from `AGENT_LOG` prose, both
-**false**. The tell was present and dropped: `git log -1 ebe38aa4` returned
+**false**. The tell was present and dropped: `git log -1 ebe38aa4` returned <!-- docs-check:ignore: quoted as the deploy sha that proved the lesson, so it is supposed to be unresolvable -->
 *"unknown revision"*, a deploy SHA quoted as fact that did not exist as an object
 in the repository.
 

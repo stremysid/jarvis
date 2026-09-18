@@ -1,0 +1,10 @@
+[
+  {
+    "name": "M3-version-guard-clause-never-fires",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0032_memory_living_notes.sql",
+    "find": "OR NEW.version_number <> COALESCE((",
+    "replace": "OR NEW.version_number IS NULL AND NEW.version_number <> COALESCE((",
+    "testPath": "apps/cloud-gateway/test/persistence/memory-living-notes-migration.test.ts",
+    "expect": "needs the whole note-version insert guard to reject a skipped version number"
+  }
+]
