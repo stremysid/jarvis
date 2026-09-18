@@ -1,8 +1,9 @@
 # Gate tools
 
-Two Windows PowerShell scripts on the reviewer's branch. They are not product
-code and never ship. They exist because the review loop's two most expensive
-mistakes were both mechanical:
+Three Windows PowerShell scripts on the reviewer's branch. They are not product
+code and never ship. (`docs-check.ps1` is a fourth; it explains itself in its
+own header.) They exist because the review loop's most expensive mistakes have
+been mechanical:
 
 - `pnpm test:all` is a `&&` chain, so the first failing package stops the
   later ones. Four hermes-runtime security tests sat red on main for six days
@@ -10,10 +11,14 @@ mistakes were both mechanical:
 - A mutation whose `find` text silently matched nothing runs no mutation, the
   suite stays green, and it gets written up as SURVIVED. That happened twice by
   hand before `mutate.ps1` existed.
+- Two branches each picked "the next free migration number" by looking at main,
+  where the other branch's file did not exist yet. Both claimed `0018`, and
+  later both claimed `0035`. A human found each by eye, after the fact.
+  `migration-numbers.ps1` exists so that does not need a human eye.
 
 PowerShell, not bash: invoking the `pnpm`/`npx` shims from Git Bash on this
 machine dies with `'C:\Program' is not recognized` before anything starts.
-Both scripts run from any directory and quote every path, because this machine
+The scripts run from any directory and quote every path, because this machine
 has spaces in its program paths.
 
 ## `gate.ps1`
@@ -106,6 +111,38 @@ already red cannot be counted as a kill. Verdicts:
 Exit 0 only when every mutation was applied and every kill named the expected
 test.
 
+## `migration-numbers.ps1`
+
+```powershell
+pwsh -NoProfile -File migration-numbers.ps1 [-Repo C:\Users\Sid\jarvis-migcheck]
+```
+
+It answers two questions before a migration number is accepted: is any number
+claimed by more than one branch, and what is the next genuinely free number. It
+takes the open PR branches from `gh pr list` and reads each branch's migrations
+with `git ls-tree` against the remote ref, so it never checks a branch out and
+never touches a working tree.
+
+- `-Repo` defaults to the repository the script lives in (the parent of
+  `reviewer-tools/`), **not** to a shared checkout path. `docs-check.ps1`
+  defaults to `C:/javis`, so running it from a worktree silently checks the
+  wrong tree; this script cannot, because every git call is rooted at the
+  resolved repository and the resolved path plus every scanned ref is printed
+  at the top of the output.
+- It fetches `origin` first. A scan of stale local refs can report a collision
+  that has since been resolved, or miss one just created, so a fetch failure
+  aborts rather than answering from refs that may not match GitHub.
+- A number present, byte-identical, on main **and** on a branch is not a
+  collision: every branch contains main's migrations. It reports a number with
+  more than one distinct filename, and separately one filename whose contents
+  differ between refs.
+- The next free number is the smallest number above the highest number on
+  `origin/main` that no scanned ref claims - not a gap below it, because a gap
+  was either applied or deliberately skipped, and Wrangler applies by name.
+- Exit 0 clean, 1 collision, 2 could not produce a usable answer (gh missing or
+  unauthenticated, not a repository, fetch failed, or a listed PR branch has no
+  local ref). The exit-2 output says ABORTED and never prints a clean verdict.
+
 ## Worked example: `gate.ps1`
 
 Run at `origin/main` head on 2026-09-18 in `C:\Users\Sid\jarvis-pr39`:
@@ -162,6 +199,36 @@ restore verified: 2 file(s) byte-identical to backup
 Exit code 1, because `NOT APPLIED` is an error even though the other entry was
 killed.
 
+## Worked example: `migration-numbers.ps1`
+
+Run from `C:\Users\Sid\jarvis-migcheck` on 2026-09-18, when main was at `0034`:
+
+```text
+===== MIGRATION NUMBER CHECK =====
+repo:       C:/Users/Sid/jarvis-migcheck  (defaulted from this script's location)
+migrations: apps/cloud-gateway/src/persistence/migrations
+scanned:    origin/main + 3 open PR branch(es)
+    origin/main                                      main
+    origin/codex/tier3-classify-memory-correct       PR #106
+    origin/claude/classroom-route-dead               PR #105
+    origin/codex/r1-sensitive-action-pin-v6          PR #96
+files read: 138
+
+COLLISION 0035 - 2 different migrations claim this number:
+    0035_autonomy_tool_capabilities.sql  [2c0df4804a]
+        origin/codex/tier3-classify-memory-correct  (PR #106)
+    0035_owner_sensitive_action_pin.sql  [73f6b6903c]
+        origin/codex/r1-sensitive-action-pin-v6  (PR #96)
+
+next genuinely free number: 0036
+verdict: COLLISION - 1 number(s) claimed by more than one branch
+==================================
+```
+
+Exit code 1. With a non-repository path the same invocation prints the
+`ABORTED` banner and exits 2; that path is exercised by pointing `-Repo` at an
+empty folder.
+
 ## What these do NOT do
 
 **They decide nothing.** They run checks and plant faults. Choosing what to
@@ -176,9 +243,12 @@ string was removed proves nothing, and the scripts cannot tell the difference.
 - No voice gates. `typecheck:voice-access` and `test:voice-access` are not run.
 - No test typecheck. `tsconfig.test.json` reports 117 pre-existing errors and
   is not a CI gate, so it is not run either.
-- No GitHub. Neither script fetches a PR, reads a review, comments, approves,
-  merges, deploys or applies a migration. `git fetch`, `checkout --detach`,
-  `status` and `rev-parse` are the whole of their git use.
+- No GitHub writes. None of the three scripts comments, approves, merges,
+  deploys or applies a migration. `migration-numbers.ps1` is the only one that
+  reads GitHub (`gh pr list`) and the only one that fetches; its git use is
+  `fetch`, `rev-parse` and `ls-tree`, and it never checks anything out.
+  `gate.ps1` and `mutate.ps1` use only `git fetch`, `checkout --detach`,
+  `status` and `rev-parse`.
 - No history rewriting. `mutate.ps1` restores from its own backup copy, and
   refuses to start on a dirty tree; it never commits, stashes or discards.
 - No judgement about scope. The known-failure allowance is a list of test

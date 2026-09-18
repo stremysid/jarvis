@@ -49,7 +49,7 @@ The GitHub repo is `ksid1229-ops/jarvis`; the local folder is named `javis`.
 
 **Two PR branches, one AGENT_LOG file.** Both chats prepend entries, so conflicts in AGENT_LOG are normal. Resolve them by keeping every entry, newest first (`agentlog-union.mjs`). Codex usually merges main into its own branch.
 
-**Migration numbers** are reserved only on PR branches, not on main. Before accepting a number, check the migration files and AGENT_LOG on **every open PR branch**. A collision happened once: both chats claimed 0018.
+**Migration numbers** are reserved only on PR branches, not on main. Before accepting a number, run `reviewer-tools/migration-numbers.ps1`: it reads `origin/main` and every open PR branch with `git ls-tree` (no checkout) and reports any number claimed by more than one branch, plus the next genuinely free number. It exits 2 rather than answering when it cannot see every open branch. Collisions happened twice, both found by eye: 0018, then 0035. Still check AGENT_LOG for a reservation that has no file yet.
 
 ---
 
