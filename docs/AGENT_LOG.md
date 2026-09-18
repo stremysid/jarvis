@@ -3,6 +3,139 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 06:07 UTC — DeepSeek V4.1 Flash, sensitive-action PIN finished from the salvaged work: ready for Claude max review
+
+**Effort level: high.** The brief named the work and a previous builder had
+already committed most of it, so this entry is mostly what I kept, changed and
+discarded, and what is still not pinned.
+
+**PR [#96](https://github.com/ksid1229-ops/jarvis/pull/96)**, branch
+`codex/r1-sensitive-action-pin-v6`, based on the salvaged `8341c54` (branch
+`codex/r1-sensitive-action-pin-v4`, worktree `C:\Users\Sid\jarvis-pin-r1`) with
+`origin/main` merged twice, now `385c052`. The brief named the branch `v5`; a
+second builder session was already using that name, so this is `v6` — see
+"Two builders" below.
+
+**Migration `0035_owner_sensitive_action_pin.sql`, unapplied.** The salvaged
+work numbered it `0034`, which PR #94 took for `0034_scheduled_run_detail.sql`.
+Renamed and re-registered in `memory-backup-restore-migrations.ts`, the test
+migration chain, the remote-D1 syntax list and the backup fixture's expected
+schema version.
+
+### What I kept from the salvaged commit
+
+The PIN verifier (six chained 100,000-iteration PBKDF2 passes, never the
+digits, own HMAC domain prefix over the existing owner pepper), the repository
+and rotation compare-and-swap, the D1 attempt rows that make the five-attempt
+budget survive hibernation, the speech reader, the moved admission boundary,
+the three new live scenarios and the keypad path all stand as they were. The
+focused suites for them pass unchanged: 147 tests across the six PIN,
+redaction, migration and inventory files, and 125 in `call-session-do.test.ts`.
+
+### What I changed
+
+1. **The four-digit PIN is now redacted.** `packages/contracts/src/calls.ts`
+   had a bare six-digit rule and a contextual rule that wanted exactly eight,
+   so `my pin is 4821` was stored and replayed verbatim. The contextual rule is
+   now digit-count independent (`\d{2,}`); the six- and eight-digit rules are
+   untouched. The local agent's Python copy in `projection_policy.py` carries
+   the same rule, and both runtimes execute the same new vectors in
+   `tests/fixtures/memory-projection-policy.json` — four, five and nine digits
+   after the credential word refuse, bare runs of the same length do not.
+2. **A missing gate refuses instead of running the change.** The salvaged
+   `#beginOwnerAccess` applied the access draft when `sensitiveAction` was
+   `null`, which is the one path that could run a tier-3 change with no
+   credential at all. It now speaks the refusal and does nothing; a mutation
+   that turns that refusal into a bare `return`, and one that deletes the guard
+   entirely, each fail the named test.
+3. **The durable receipt is read back and spent at the action.**
+   `OwnerSensitiveActionService.liveReceipt` existed and was unit-tested but
+   had no production caller: the receipt was written and consumed, never read.
+   `#applyOwnerAccessDraft` now reads the live `owner_action_authorisations`
+   row, refuses if there is none, and spends it before the change is prepared.
+   The interaction state is no longer the only thing standing between a spoken
+   sentence and an access change.
+4. **The restore inventory is pinned by a test.** Nothing asserted that a new
+   migration reaches `MEMORY_BACKUP_RESTORE_MIGRATIONS`, which is the omission
+   that would make every later backup set unrestorable. A new test globs the
+   migrations directory and requires the inventory to match it, in order.
+5. **The voice release gate runs the PIN tests.** `scripts/voice-release-gate.mjs`
+   did not include any of the new files, so `pnpm test:voice-access` could pass
+   without exercising the gate; the filter list and its independent pin in
+   `scripts/test/voice-release-gate.test.mjs` now carry them.
+6. **The `not_sensitive` branch is explicit.** It refuses rather than falling
+   through to the draft, because a draft with no receipt cannot run and a
+   silent path around the gate is the thing this feature exists to remove.
+
+### What I discarded
+
+`tmp-notes/*.log`, three megabytes of the stopped builder's own test output
+committed by accident, removed in `d902aad`. Nothing else was dropped.
+
+### What breaks if this deploys before 0035 is applied
+
+Production still has the 0018 `call_session_authorities_require_current_lineage`
+trigger, which demands a step-up binding and an active passphrase head, and the
+new admission path writes neither — so **inbound owner calls stop being
+admitted**. The PIN tables the gate reads do not exist either, so the first
+sensitive action would fail at its first query. This is the same class as PR
+#94's chained deploy: migrations `0033`, `0034` and `0035` must all be applied
+before this Worker is published.
+
+### Mutations, run and restored one at a time
+
+| Guard | Mutation | Result |
+|---|---|---|
+| Contextual redaction, both runtimes | `\d{2,}` back to `\d{8}` (TS), `{2,}` to `{8}` (Python) | 29 TS tests fail; 31 Python tests fail. Named: *redacts a four-digit owner PIN the digit-count rules never covered* |
+| Missing-gate refusal | refusal body to a bare `return` | *refuses an access change outright when the sensitive-action gate is missing* fails on the missing sentence |
+| Missing-gate guard | whole `if (sensitiveAction === null)` deleted | same test fails with `TypeError: Cannot read properties of null (reading 'begin')` |
+| Receipt read-back | `authorisation === null` refusal to a bare `return` | *refuses an access change whose authorisation cannot be read back as live* fails |
+| Spend before the change | `consume(...)` removed | *spends the action authorisation before it runs the change* fails, `count: 0` vs `1` |
+| Restore inventory | 0035 entry removed | *registers every migration in order, so a restore can reach the newest schema* fails |
+
+### Gates, and where they are not green
+
+Lint and typecheck pass; `ruff check` passes; the focused files above pass; the
+Python local-agent suite is **904 passed, 32 skipped, 1 failed**, and that one
+failure — `tests/test_owner_passphrase.py::test_python_runs_the_shared_canonicalization_and_verifier_known_answers`
+— reproduces on a clean `origin/main` checkout at `11e7007`, so it is not from
+this branch.
+
+**I did not get a green full suite, and it is not this branch.** Three runs:
+4 workers gave 5,293 passed / 1 failed (`telegram-memory.test.ts > skips a
+non-Telegram turn...`); 2 workers gave 5,290 passed / 4 failed, all timing
+(`call-session-do` PBKDF2 budget and interrupted-authorization timeouts, two
+fake-acceptance tests); the failures were a **different set each run**. Every
+one I reran in isolation passed. Two acceptance files that failed in one
+isolated run failed on a clean `origin/main` checkout too, with yet another
+pair of tests. The machine has three builder sessions on it tonight and this
+matches the load timeouts the handoff already records for `telegram-memory`
+and `call-session-do`. Treat the reviewer's own gate run as the evidence.
+
+### Two builders worked this feature at once
+
+A Codex session was still building it in `C:\Users\Sid\jarvis-callpin-r1` on
+branch `codex/r1-sensitive-action-pin-v5` while this ran, and its log was still
+growing at 06:00 UTC. It had not pushed when this entry was written. **Review
+one of the two, not both.** Its uncommitted tree already showed the receipt
+read-back at the authority boundary that item 3 above puts in the call session;
+if it lands, reconcile the two rather than applying both.
+
+### Honest limits
+
+`KNOWN_ISSUES.md` records three under "Owner sensitive-action PIN has three
+deferred limits": redaction matches digit characters and not number words
+(`pin is four two seven one` still survives, though the gate intercepts the
+credential utterance so it never reaches storage), the gate covers only
+`access.manage` because it is the only tier-3 capability the voice runtime
+installs, and `VoiceAccessAuthorityService` no longer consults a receipt at its
+own boundary. No merge, deployment, migration application, secret operation,
+paid call or other live action occurred.
+
+— DeepSeek V4.1 Flash
+
+---
+
 ## 2026-09-18 05:25 UTC — Claude Opus 5, PR #95 max review at fe62db4: CLEARED, merging
 
 **Cleared.** This closes audit finding A-4, the inverted header-ordering
