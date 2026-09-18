@@ -405,6 +405,55 @@ trust it unattended.
 **Also lost to a pipe:** the other session piped its run through `tail -35` and
 lost lint, typecheck, cloud-gateway and the verdict. Capture a gate run to a file.
 
+### PR #96 — the fix is real, its A/B is not. Same error as the gate, third time tonight.
+
+The Claude builder **refuted the brief's premise**, which is the right outcome
+and worth more than a fix. Handoff §6 says *"#96 stuck: 11 tests pass together
+and fail in isolation."* It ran **274 isolated single-test runs** across every
+file the PR touches and got **zero failures**, then cleared the memoised-promise
+suspect I pointed it at (every `describe` applies the chain in its own
+`beforeEach`) and checked there was no `.wrangler` persistence directory masking
+it. **That state does not exist.** Fourth handoff claim today that does not
+survive checking.
+
+**The root cause it did prove is real and well-argued:** `accessHarness`
+re-derived the owner passphrase, owner call PIN and guest PIN **per test** — each
+six chained 100,000-iteration PBKDF2 passes, so owner-administration tests
+carried **1.2M iterations of setup inside the same 5 s budget as the test body.**
+Four tests already needed explicit 30 s budgets. The fix derives each once per
+module through the same guarded rotation.
+
+**Its A/B, and mine, disagree:**
+
+| | pre-fix `af39e01` | post-fix `6a322d1` |
+|---|---|---|
+| builder, 2 runs each | 124/125, 124/125 | 125/125, 125/125 |
+| **me, 2 runs each** | **125/125, 125/125** | **125/125, 124/125** |
+
+**Neither of us measured anything.** At n=2 per arm against a flake rate in the
+10–20% range, both results are noise, and mine is exactly as worthless as
+theirs — I must not claim the fix made things worse any more than it may claim
+it made them better. A real answer needs ~15–30 runs per arm.
+
+**What DOES hold, from both measurements:** post-fix is consistently faster —
+mine 197.0 s / 185.5 s against 207.1 s / 210.3 s, theirs 190.7 / 197.5 against
+213.9 / 231.4. Roughly 9%, in the direction the mechanism predicts. **Take the
+fix on its mechanism and its duration, not on its pass-rate claim**, and do not
+repeat the 124→125 framing.
+
+**The through-line, and it is the lesson of the night.** Three separate parties
+made the same error in one evening: `gate.ps1` promoted three flakes to REAL on
+one isolated re-run; this builder concluded a reliability improvement from two
+runs per arm; and I nearly reported the reverse from two of my own. **Under load,
+at a double-digit flake rate, n≤3 is not evidence in either direction.**
+
+**The root fix is none of the above.** The sweep measured it: **the suite
+configures no `testTimeout`**, so tests averaging ~170 ms inherit vitest's 5000 ms
+default while doing real PBKDF2 and real migrations. Every symptom tonight —
+roaming names, load flakes, the gate's misclassification, #96's timeouts — is
+downstream of that. Queued as `codex/suite-timeout-budget`; it is worth more than
+any individual flake fix.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
