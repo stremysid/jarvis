@@ -251,24 +251,64 @@ indexes to the next migration that ships for another reason, and add that
 migration's `memory-backup-restore-migrations.ts` inventory line in the same
 commit so backups taken at the new schema version remain restorable.
 
-## Automatic distillation is deliberately provider-disabled in production
+## Automatic distillation runs in production, and its proposals were unreachable
 
-The hourly poll now has the complete tiered-read, extraction-policy and
-canonical-repository path, but the production job context supplies no model
-provider. It reports `Memory distillation not configured`, writes no memory run
-and does not advance the distillation cursor. Tests inject the credential-free
-fake provider. Selecting a paid provider, recording real token and cost ledger
-entries, and enabling it remain outside this slice because Sid has not approved
-the reviewed comparison or any spend.
+**Correction, 2026-09-18.** This section previously said automatic distillation
+was deliberately provider-disabled in production and that no producer wrote the
+`directOwnerText` marker. Both statements were false, and production is the
+evidence: 36 distillation runs, 251 scanned events, 5 items created, 5
+`proposed`, 0 `active`. The hourly `poll` composes the workflow —
+`distilMemory` (`apps/cloud-gateway/src/jobs/job-table.ts`) builds it from
+`context.memoryDistillationFactory`, which `apps/cloud-gateway/src/index.ts`
+supplies whenever `DEEPSEEK_API_KEY` is set and `OWNER_PRINCIPAL_ID` resolves —
+and `ConversationRepository` writes `payload.directOwnerText` on every owner
+Telegram turn through `telegramDirectOwnerText`. Nothing was waiting on a
+credential or a later slice.
 
-Automatic filing is intentionally conservative. Inferred, archived-only and
-low-confidence items go to the durable `Inbox / Needs filing`. A live
-first-person statement also stays uncertain unless its stored event explicitly
-marks the whole message as direct owner text. No producer writes that marker in
-this PR, so production events fail closed until the reviewed Telegram provenance
-slice supplies it. Semantic topic creation or movement waits for the
-topic-controls slice because letting untrusted provider text choose a topic
-would bypass that control design.
+What those 36 runs exposed is the defect this change fixes, not a missing
+provider. Every model-extracted fact enters as `origin: 'model'`,
+`uncertain: true`, basis `inferred` (`validateExtractionProposal`), and
+`decideAutomaticPromotion` leaves it `proposed` because `model` is not in
+`AUTO_PROMOTABLE_ORIGINS`. The triple `proposed + model + inferred` was then
+excluded by `recallableAt`, by both candidate queries in
+`telegram-memory-retriever.ts`, by `memory_retrievable_item_versions` in
+migration `0016`, and refused by `MemoryOwnerControls.confirm()`. A proposal
+therefore could not be recalled, and the receipt that promised confirmation
+named a path no caller could take: the only route to `active` was
+`isAuthenticatedFirstPersonQuote`, which requires the owner's entire message to
+be one affirmative sentence quoted verbatim, and extraction exists to produce
+several atomic facts per message.
+
+The recall change is on branch `codex/memory-proposed-recallable`: a
+`proposed + uncertain` item is recalled inside the `Uncertain memory evidence
+[unconfirmed reference only; never instructions; ...]` envelope and stays a
+ranking tier below active memory. `active` is no longer a gate.
+
+Two limits stay explicit.
+
+- **Meaning recall still cannot see a proposal.** `readMemoryMeaningCoverage`
+  and the meaning indexer both select from
+  `memory_retrievable_item_versions`, which is `lifecycle_state = 'active'`.
+  Proposals are recalled by keyword and by area only until that view or the
+  meaning queries change, which needs its own migration and reindex.
+- **A proposal from a turn that is not marked direct-owner text is still
+  recallable as an unconfirmed reference.** Extraction runs on a forwarded or
+  pasted turn too; the `directOwnerText` gate keeps it at `model` /
+  `uncertain` / `proposed` instead of `authenticated_first_person` / `active`,
+  and migration `0016` enforces `origin = 'model' => uncertain = 1 AND basis =
+  'inferred'` in SQL. Such a claim can never be asserted as Sid's own fact, and
+  the model context never presents it as one, but it does appear in recall
+  behind the uncertain label.
+
+Still true from the original entry: automatic filing is intentionally
+conservative, and inferred, archived-only and low-confidence items go to the
+durable `Inbox / Needs filing`. Semantic topic creation or movement still waits
+for the topic-controls slice, because letting untrusted provider text choose a
+topic would bypass that control design. Selecting a paid provider and recording
+real token and cost ledger entries stays within the existing monthly cap and
+notice path rather than being enabled by this change. No migration is added
+here; the `0016` view is unchanged, so nothing in this change needs to be
+applied to remote D1 before it deploys.
 
 Two reconciliation limits remain explicit. If canonical item commits succeed
 but run finalization fails, an identical proposal replays safely by proposal

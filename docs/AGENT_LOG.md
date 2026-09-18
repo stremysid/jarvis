@@ -3,6 +3,116 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
+
+**Effort level: I could not determine it, so I am not naming one.** Nothing in
+this session states the level it ran at, and the two signals I could find
+disagree — `~/.dsh/settings.yaml` sets the agent default to
+`reasoningEffort: max` for `deepseek-flash`, while the inherited environment
+carries `CLAUDE_EFFORT=high`, which belongs to the session that launched this
+one. Naming either would be a guess.
+
+**Branch:** `codex/memory-proposed-recallable`, merged with `origin/main` at
+`faa1403`. **Heads:** `aa9788d` (merge of `b8cf5e9` and `faa1403`), `69ae121`
+(the test). **PR [#98](https://github.com/ksid1229-ops/jarvis/pull/98).** No
+migration, and none needed. The worktree is left in place at
+`C:\Users\Sid\jarvis-f1` for inspection.
+
+### F1's test, built as specified, at `69ae121`
+
+`does not recall a proposed model memory whose cited turn alone was forgotten`
+in `apps/cloud-gateway/test/memory/telegram-memory.test.ts`, driven through the
+real `MemoryOwnerControlsService.forget`, the real `MemoryRepository` and the
+real `TelegramMemoryRetriever`:
+
+- turn 1 creates the proposal; turn 2 is a *later* owner turn that the proposal
+  merely cites as a source, by passing it as `commitTestItem`'s `source`;
+- a second, active memory owns turn 2 and nothing else, so forgetting *that*
+  memory suppresses turn 2 alone;
+- the test asserts through `readCurrentItemsWithVisibility` that the proposal is
+  still `proposed`, that `creationEventSuppressed` is **false**, and that
+  `suppressedSourceIds` holds exactly one entry — the separation F1 asked for is
+  asserted rather than assumed;
+- a control recall before the forget proves the fixture recalls at all.
+
+### Both directions of the clause test, as asked
+
+| Run | Mutation | Result |
+|---|---|---|
+| 1 | none — clause present | **PASS** (0.31 s) |
+| 2 | `\|\| visibility.suppressedSourceIds.length > 0` deleted from `readCandidateContexts` in `telegram-memory-retriever.ts` (`69ae121`), nothing else touched | **PASS — the test does not fail** |
+
+So this test does **not** pin the clause, and I am not claiming it does. Run 2
+is the answer to F1: the clause cannot be killed this way, because it is not the
+layer doing the work. The fixture edit alone was never in play — runs 1 and 2
+differ by that one deletion.
+
+### Which layer is doing the work, and the proof
+
+`readCandidates` — both the FTS path and the topic-area path — already applies
+the same two suppression predicates, creation event and every current-version
+source, one D1 round trip before `readCurrentItemsWithVisibility` returns the
+visibility that `readCandidateContexts` then tests. Two further runs place the
+withholding:
+
+- **Probe A:** delete only the candidate query's source-suppression `NOT EXISTS`,
+  keep the guard clause → **PASS**; the guard withholds the item once it can see
+  it.
+- **Probe B:** that same deletion *plus* the guard clause → **FAIL** at the final
+  `expect(recalled(await recall())).toBe(false)`, item recalled. The pair is
+  load-bearing, and the candidate query is the half that fires.
+
+A third run found the whole non-active branch of that ternary shadowed, not just
+its second clause: deleting `visibility.creationEventSuppressed ||` alone leaves
+**both** this new test and PR #98's existing `does not recall a proposed model
+memory whose creation event was forgotten` green.
+
+`git log -S` puts both predicates in the same commit, `cba94ef` ("fix(memory):
+harden Telegram runtime integration"), so the guard has been the redundant copy
+of the pair since it was written — for every origin of proposal, not only for
+the model-inferred class this PR newly makes recallable.
+
+### For the reviewer: unreachable, not unpinned
+
+The clause is **deterministically unreachable**, so no fixture can pin it, and
+F1's remedy cannot be built as stated. It is not dead code: the candidate read
+and the visibility read are separate round trips, so a forget committed by
+another request inside that window still lands on this clause. That interleaving
+is the only execution it can affect. I did not manufacture it — the brief said
+to report unreachable and stop, and a synthetic race seam would be new scope.
+
+**No product behaviour was changed.** The clause stays.
+
+### Gates, on `69ae121` plus this doc commit
+
+- `pnpm lint` — PASS. Five packages: `tsc --noEmit` for cloud-gateway, watchdog,
+  contracts and acceptance, `node --check` for the hermes-runtime sources.
+- `pnpm typecheck` — PASS, same five.
+- `pnpm test` (cloud gateway, contracts, acceptance) — **199 files, 5342 tests,
+  all passed**, 159 s. No failure to attribute or re-run.
+- Focused: `telegram-memory.test.ts` alone — 70/70 pass.
+
+### The merge, and the one artifact it left
+
+`origin/main` (`faa1403`, PRs #99 and #100) merged into the branch with one
+conflict in `docs/AGENT_LOG.md`, resolved by keeping main's entries above this
+PR's 06:11 entry. Auto-merge then left a duplicated `MemoryOwnerControlsService`
+import in `telegram-memory.test.ts` — both parents added it — which made the
+file fail to parse. The dedupe is amended into the merge commit `aa9788d`, so no
+commit on this branch has a test file that cannot load.
+
+### Not done, and named
+
+- No merge, no deploy, no migration, no secret touched, no spend, no outside
+  contact.
+- Did not add a concurrency seam to force the guard (see above).
+- `suppressionHides` in `memory-owner-controls.ts` (`69ae121`) carries the same
+  `creationEventSuppressed || suppressedSourceIds.length > 0` expression, there
+  deciding whether `correct` may repeat an earlier wording. F1 named the
+  retriever; I did not test whether that copy is pinned. Out of scope, flagged.
+
+— DeepSeek V4.1 Flash
+
 ## 2026-09-18 19:03 UTC — DeepSeek V4.1 Flash, memory correction: ready for review
 
 **Branch:** `codex/memory-correction`, from `origin/main` = `385c052`, rebased
@@ -482,6 +592,227 @@ fails under the mutant and passes when restored.
   not help a feed that never reaches the handler, which is the whole failure.
 
 — DeepSeek V4.1 Flash, effort `low`
+
+---
+
+## 2026-09-18 06:11 UTC — DeepSeek V4.1 Flash, memory proposed recallable: ready for review
+
+**Effort level: low.** Stated because the handoff rules ask for it. Low effort
+is why the judgement calls are written out under "What I decided" instead of
+being left implicit, and why the mutation sweep reports three survivors rather
+than a clean sheet.
+
+**Branch:** `codex/memory-proposed-recallable`, from `origin/main` = `11e7007`.
+**Migration:** none, and none needed. `memory_retrievable_item_versions`
+(`0016`) is untouched, so this deploys with no schema step. `0033` and `0034`
+are still unapplied on `main` and are not this change's.
+
+### The defect, confirmed at `11e7007`
+
+Production, as reported to me and not measured by me: **36 distillation runs,
+251 events, 5 items created, 5 `proposed`, 0 `active`.** The chain is in the
+code:
+
+1. `validateExtractionProposal` (`extraction-policy.ts`) hardcodes every
+   extracted fact to `origin: "model"`, `uncertain: true`;
+   `AutomaticMemoryDistillationWorkflow.commitInput` sets basis `inferred`; and
+   `decideAutomaticPromotion` leaves it `proposed` because `model` is not in
+   `AUTO_PROMOTABLE_ORIGINS`.
+2. The resulting triple was excluded by `recallableAt`, by both candidate
+   queries in `telegram-memory-retriever.ts`, and by the `0016` view, which
+   `meaning-search.ts` and `living-notes.ts` also read.
+3. `MemoryOwnerControls.confirm()` refused exactly that triple, while the
+   receipt written by `remember` said "for confirmation".
+
+So the receipt named a path `confirm()` refused, and the only route to `active`
+was `isAuthenticatedFirstPersonQuote` — the owner's *entire* message, quoted
+verbatim — which extraction never produces for a multi-fact message.
+
+**Two more blockers were behind that one, and neither is in the brief.** With
+the exclusion removed, a recalled proposal still could not be acted on, because
+`MEMORY_CONTEXT_ITEM` — written twice by hand, in `owner-telegram-agent.ts` and
+`telegram-memory-controls.ts` — is `/^(?:Uncertain )?Memory evidence \[...` and
+the uncertain envelope `itemEvidence` builds reads `Uncertain memory evidence
+[`. It never matched, so `contextItemIds` and `referencedItemIds` returned
+nothing for precisely the items this PR makes recallable. I proved it with a
+five-line script before changing it (asserted match then, match now) and both
+copies now accept either envelope.
+
+### A. `confirm()` honours its own receipt
+
+Removed only the `origin === "model" && basis === "inferred"` clause from
+`MemoryOwnerControls.confirm`. Everything else is untouched: still `proposed`,
+still `uncertain`, the owner's own turn must still contain the stored excerpt,
+still the 1–7 source bound, still the accepted-turn and suppression checks.
+Owner-authorised promotion through the excerpt is the authority; refusing it
+left the receipt lying.
+
+The Telegram agent still routes a model-inferred confirmation through the bound
+decision tap, because `owner-telegram-agent.ts` branches on that triple before
+it ever reaches `confirm()`. That branch is now the *only* thing keeping free
+text from promoting a model-inferred memory in the product, and the existing
+named test *"keeps a model inference proposed until Sid confirms its exact
+stored wording by tap"* pins it — planting `if (false)` over that branch fails
+that test (M11 below).
+
+The `remember` receipt also changed, because "it is not active recall evidence"
+became false the moment B landed: it now reads "Saved 1 uncertain memory for
+confirmation; I recall it as an unconfirmed possibility, never as a fact."
+
+### B. The default output is recallable, labelled, and ranked
+
+`active` is a ranking tier, not a gate:
+
+- The triple predicate is gone from `recallableAt`, from the area-subtree
+  candidate SQL and from the FTS candidate SQL. Both queries also order
+  `CASE state.lifecycle_state WHEN 'active' THEN 0 ELSE 1 END` **before** their
+  relevance term, so the three-row `MAX_MEMORY_CANDIDATES` cap cannot let
+  proposals crowd an active memory out of the read.
+- `RankedMemoryContext` carries a `tier`, and `reciprocalRankFusion` sorts on it
+  before the score. Asserted evidence (active memory, recorded history, living
+  notes) precedes uncertain proposals in the model context even when a proposal
+  matched better.
+- The uncertainty label was already on `itemEvidence`; it now reaches the two
+  explanation receipts as well, which is the "any surface that renders a memory"
+  requirement. An uncertain memory is explained as "Evidence for 1 unconfirmed
+  memory in <area>: ...", never as "Evidence for 1 memory".
+- Sensitivity is unchanged: a sensitive proposal is still `restricted` context,
+  exactly like a sensitive active memory.
+
+### What I decided, and what a reviewer may want to overturn
+
+**"A forwarded claim must never become his memory" is enforced as "never
+asserted as his", not as "never stored or recalled".** The brief's sentence
+"extraction may only run on text marked as directly from Sid" is not what the
+producer does today: `validateStoredEvent` marks a non-direct turn
+`directOwnerText: false`, keeps it `eligible`, and a bare first-person forward
+is deliberately stored as `model` / `uncertain` / `proposed` — there is a named
+test asserting exactly that (`automatic-distillation.test.ts`, *"keeps a
+forwarded-shaped bare first-person turn uncertain without an explicit
+direct-owner marker"*). I did not change that producer, because changing it
+would delete stored memories and contradict that test. What I did instead:
+such an item is recalled only inside the uncertain envelope, migration `0016`
+enforces `origin = 'model' => uncertain = 1 AND basis = 'inferred'` in SQL so
+the label cannot be dropped, and it never becomes `active` without the owner's
+own confirmation. Planting `authenticatedOwner: true` in `commitInput` fails
+the named retriever test *"keeps a forwarded turn's extraction unasserted while
+still recalling it as uncertain"* (M8). If the reviewer means "skip
+non-direct-owner turns at extraction", that is a different PR and it will
+change what is stored, not only what is read.
+
+**Meaning search still cannot see a proposal.** `readMemoryMeaningCoverage` and
+the indexer both select from `memory_retrievable_item_versions`. Proposals are
+now recalled by keyword and by area only. Changing that needs the view or the
+meaning queries plus a reindex, so it is written into `KNOWN_ISSUES.md` instead
+of being smuggled in here.
+
+**Forget, lift and confirm receipts still quote the stored wording without an
+uncertainty marker.** I labelled the explanation surface, which *presents* a
+memory as evidence, and left the mutation receipts, where the text is the handle
+the owner just acted on and the receipt says what changed. That is a judgement
+call, not an oversight.
+
+### Named tests
+
+Retriever (`telegram-memory.test.ts`): *recalls a proposed model inference as
+unconfirmed evidence with its item id* (also asserts the item id reaches the
+model, because an id the model cannot name is still a dead end); *keeps a
+forwarded turn's extraction unasserted while still recalling it as uncertain*;
+*orders an active memory ahead of a better-matching proposed one*; *keeps a
+weakly matching active memory in the recalled set when three proposals match
+better*; *orders recorded history ahead of a better-matching proposed memory*;
+*labels a sensitive proposal restricted without downgrading its recall label*;
+*does not recall a proposed model memory whose creation event was forgotten*
+(with a positive control first, because an absence assertion with a broken
+fixture passes); *resolves a that-reference to an uncertain memory recalled into
+the previous reply*; *explains an uncertain memory as unconfirmed through the
+production service*.
+
+Controls (`memory-owner-controls.test.ts`): *promotes a model-inferred proposal
+when the owner's confirm turn quotes its stored excerpt*; *refuses to promote a
+model-inferred proposal when the owner's turn does not quote it*, which also
+asserts no command was recorded.
+
+Agent (`owner-telegram-agent.test.ts`): *labels an explanation of an uncertain
+memory as unconfirmed*; *names an uncertain memory from its recalled envelope
+without a staged target*.
+
+### Mutation sweep, planted by me
+
+Each mutation was confirmed present in the file before its run and the file was
+restored byte-for-byte afterwards (hashes re-checked). **Fourteen guards, eleven
+killed, three survived:**
+
+| Mutation | Verdict |
+|---|---|
+| M1 re-add the model-inferred refusal in `confirm()` | killed, *promotes a model-inferred proposal…* |
+| M2a neuter the pre-command excerpt check | killed, *refuses to promote…* (command count) |
+| M3 re-add the triple in `recallableAt` | killed, *recalls a proposed model inference…* |
+| M4 re-add the triple in the FTS candidate SQL | killed, same test |
+| M5 drop the tier from the fused ordering | killed, *orders recorded history ahead…* |
+| M6 drop the tier from the candidate ordering | killed, *keeps a weakly matching active memory…* |
+| M7c neuter both suppression checks | killed, *does not recall a proposed model memory…* |
+| M8 `authenticatedOwner: true` in `commitInput` | killed, *keeps a forwarded turn's extraction unasserted…* |
+| M9 drop the uncertainty label from `itemEvidence` | killed, *recalls a proposed model inference…* |
+| M10 sensitive context downgraded to `personal` | killed, *labels a sensitive proposal restricted…* |
+| M11 `if (false)` over the agent's tap route | killed, *keeps a model inference proposed until Sid confirms…* |
+| M12 restore the agent's pre-fix item-id regex | killed, *names an uncertain memory from its recalled envelope…* |
+| M13 restore the control adapter's pre-fix regex | killed, *resolves a that-reference to an uncertain memory…* |
+| M14/M15 drop the unconfirmed label from either receipt | killed, the two explanation tests |
+| **M2b** neuter the accepted-turn excerpt check alone | **survived** |
+| **M7a** neuter the in-code suppression check alone | **survived** |
+| **M7b** neuter the SQL suppression pre-filter alone | **survived** |
+
+M2b is the second of two enforcement points for the excerpt requirement. On the
+first-write path the pre-command check refuses before it, and on the replay path
+the request hash already pins the excerpt, so I could not reach it from a test
+without inventing stored drift. I left it in place and am not claiming it is
+pinned. M7a and M7b are the two layers of the same suppression property —
+mutating either leaves the other to exclude the item, and mutating both fails
+the named test, so the property is pinned and neither copy is independently
+pinned.
+
+### Gates
+
+- `pnpm lint`: pass. `pnpm typecheck`: pass.
+- `pnpm test`, full gateway suite, **run 1**: 199 files, 5308 tests,
+  **3 failed** — `owner-telegram-agent.test.ts` (*rejects confirmed forget when
+  callback data, item set, answered-confirm state, or principal differs*,
+  `delivery_unknown` instead of `telegram_delivered`), `voice/call-session-do.test.ts`
+  (5 s timeout) and one more in the same tail.
+- `pnpm test`, **run 2** (same command, nothing changed in between): 199 files,
+  5308 tests, **7 failed** in 4 files — four in
+  `tests/acceptance/fake/voice-call-path.test.ts`, one in
+  `tests/acceptance/fake/voice-telegram-call.test.ts`, one in
+  `voice/call-session-do.test.ts`, and one in `sync/memory-projection.test.ts`.
+  Almost nothing overlaps run 1.
+- **Flakiness, reported rather than smoothed over.** The failing sets are
+  disjoint between two identical runs, every failing file passes when run alone
+  (`memory-projection.test.ts` 87/87 twice, `owner-telegram-agent.test.ts` 89/89,
+  `telegram-memory.test.ts` 68/68 four times), and the assertions that fail are
+  the wall-clock-bounded ones. This machine carries three other agent processes
+  and 22 node processes. I did not loosen a bound, skip a test, or call a red
+  run green: the two failing runs are recorded here as failing.
+- A pristine `origin/main` worktree at `385c052`, carrying none of this
+  change, was run through the same `pnpm test`: **12 failed in 6 files**,
+  including the same `owner-telegram-agent.test.ts` case run 1 failed. The
+  full-suite flakiness is therefore pre-existing and environmental, not
+  something this branch introduces. On this machine it correlates with the
+  wall-clock-bounded voice, Durable Object and backup tests and with three
+  other agent processes and 22 node processes running.
+
+### What breaks if this deploys before any migration it needs
+
+Nothing. It needs no migration: `0016`'s view, the schema and
+`memory-backup-restore-migrations.ts` are unchanged, and the change is
+compatible with `0033`/`0034` still being unapplied. The deploy-order note is
+the reverse one — `0033` and `0034` are still pending on `main`, and this PR
+neither adds to nor depends on them.
+
+No merge, deploy, migration, secret operation, spend, sign-up or outside contact
+occurred. Branches and CI only.
+
+— DeepSeek V4.1 Flash
 
 ---
 
