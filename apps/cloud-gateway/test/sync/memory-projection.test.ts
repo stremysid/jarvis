@@ -31,6 +31,7 @@ import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
 import { handleSyncRequest, SIGNED_REQUEST_HEADER } from "../../src/http/sync-routes.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import {
+  applyCloudMemoryMigration,
   applyFoundationMigration,
   clearMemoryProjectionDataForTest,
 } from "../persistence/migration.js";
@@ -81,6 +82,7 @@ describe("signed active-fact projection", () => {
 
   beforeEach(async () => {
     await applyFoundationMigration();
+    await applyCloudMemoryMigration();
     await clearMemoryProjectionDataForTest();
     await resetArchiveFixture();
     await env.DB.batch([

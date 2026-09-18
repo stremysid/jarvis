@@ -11,6 +11,7 @@ import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  applyCloudMemoryMigration,
   applyFoundationMigration,
   clearConversationDataForTest,
 } from "../persistence/migration.js";
@@ -108,6 +109,9 @@ async function clearData(): Promise<void> {
 describe("ordinary Telegram turn D1 round trips", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
+    // The shared context retriever anti-joins memory_active_event_suppressions,
+    // so a fixture that models only the foundation schema is incomplete.
+    await applyCloudMemoryMigration();
     await clearData();
     await seedOwner();
   });
