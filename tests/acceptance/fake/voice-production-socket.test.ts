@@ -32,7 +32,7 @@ describe("production voice through the real DO stub and socket", () => {
   const stub = () => env.CALL_SESSION.get(env.CALL_SESSION.idFromName(sessionId));
 
   beforeEach(async () => {
-    // 0035 owns the owner-admission boundary. Without it this fixture keeps the
+    // 0036 owns the owner-admission boundary. Without it this fixture keeps the
     // 0018 lineage trigger that demanded a step-up success the owner path no longer
     // writes, and admission aborts instead of reaching conversation.
     await applyVoiceRuntimeMigration();

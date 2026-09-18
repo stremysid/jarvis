@@ -368,7 +368,7 @@ inbound must stay closed. The security contract and implementation order are in
 
 The 2026-09-17 decision replaces the every-call passphrase with a four-digit
 PIN asked only at a sensitive action. Migration
-`0035_owner_sensitive_action_pin.sql` and the call-session gate are additive and
+`0036_owner_sensitive_action_pin.sql` and the call-session gate are additive and
 unapplied. Three limits are recorded rather than implied away:
 
 - **Redaction matches digits, not number words.** The contextual rule now

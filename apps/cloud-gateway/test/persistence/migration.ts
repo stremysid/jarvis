@@ -34,7 +34,7 @@ import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup
 import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
-import ownerSensitiveActionPinSql from "../../src/persistence/migrations/0035_owner_sensitive_action_pin.sql?raw";
+import ownerSensitiveActionPinSql from "../../src/persistence/migrations/0036_owner_sensitive_action_pin.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -272,11 +272,12 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
 
 /**
  * Applies the sensitive-action PIN, the action-scoped receipt and the moved
- * owner-admission boundary. 0035 sits after the school-email and
+ * owner-admission boundary. 0036 sits after the school-email and
  * scheduled-run-detail migrations in number only; it is additive and reads
- * nothing either of them adds.
+ * nothing either of them adds. It was numbered 0035 until PR #106 took that
+ * number, which was already reviewed and green when this branch was not.
  *
- * It hangs off the voice chain, not the memory chain: 0035 reads
+ * It hangs off the voice chain, not the memory chain: 0036 reads
  * capability_tiers and autonomy_evaluations from 0008 and 0017's passphrase
  * head. Reaching further would install 0015's runtime controls and admission
  * triggers into the isolated voice fixtures that deliberately replace those
@@ -286,7 +287,7 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
 export async function applyOwnerSensitiveActionPinMigration(): Promise<void> {
   await applyOwnerCallStepUpMigration();
   ownerSensitiveActionPinMigrated ??= applyD1Migrations(env.DB, [
-    { name: "0035_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
+    { name: "0036_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
   ]);
   await ownerSensitiveActionPinMigrated;
 }
@@ -332,7 +333,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
   { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
   { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
-  { name: "0035_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
+  { name: "0036_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
@@ -404,7 +405,7 @@ export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void>
 export async function clearMemoryBackupDataForTest(): Promise<void> {
   // Backup's authoritative inventory must always have its newest tables, on
   // both chains: the memory chain reaches 0034 and the voice-side PIN migration
-  // is 0035. A partial schema makes a healthy backup look like an operational
+  // is 0036. A partial schema makes a healthy backup look like an operational
   // failure.
   await applyD2lNotificationEmailMigration();
   await applyOwnerSensitiveActionPinMigration();

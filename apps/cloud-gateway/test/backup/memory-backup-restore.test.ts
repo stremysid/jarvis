@@ -1026,10 +1026,10 @@ END;
     };
 
     await recreateFreshDatabaseForBackupRestoreTest();
-    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0035_future.sql" }), /schema_mismatch/u);
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0037_future.sql" }), /schema_mismatch/u);
 
-    await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES ('0035_future.sql')").run();
-    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0035_future.sql" }), /migrations_missing/u);
+    await env.DB.prepare("INSERT INTO d1_migrations (name) VALUES ('0037_future.sql')").run();
+    await attempt(makeOptions(env.DB, { databaseSchemaVersion: "0037_future.sql" }), /migrations_missing/u);
     await attempt(makeOptions(env.DB), /schema_mismatch/u);
 
     await recreateFreshDatabaseForBackupRestoreTest();

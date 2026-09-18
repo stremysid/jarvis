@@ -205,7 +205,7 @@ describe("nightly verified memory backup", () => {
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
     const manifest = await readLatestManifest();
-    expect(manifest.databaseSchemaVersion).toBe("0035_owner_sensitive_action_pin.sql");
+    expect(manifest.databaseSchemaVersion).toBe("0036_owner_sensitive_action_pin.sql");
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({
       afterKey: 0,

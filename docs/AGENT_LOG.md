@@ -3,6 +3,95 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 22:40 UTC — Claude Opus 5 (builder), PR #96: the call-session fixture was deriving a credential per test
+
+**The brief I was given does not reproduce, and I want that said first.** I was
+asked to fix eleven tests in
+`apps/cloud-gateway/test/voice/call-session-do.test.ts` that "pass when the file
+runs as a whole and fail when run in isolation". I could not find them. On
+`af39e01`, before changing anything, I ran individual tests alone with
+`-t "<name>"` and could not make a single one fail:
+
+| File | Tests run one at a time | Result |
+|---|---|---|
+| `voice/call-session-do.test.ts` | 68 (every literal-named test) | 68 pass |
+| `voice/owner-sensitive-action.test.ts` | 22 (all) | 22 pass |
+| `persistence/owner-sensitive-action-migration.test.ts` | 21 (all) | 21 pass |
+| `persistence/owner-call-step-up-migration.test.ts` | 11 (all) | 11 pass |
+| `fake/voice-owner-passphrase-security.test.ts` | 27 (all) | 27 pass |
+| `fake/voice-call-path.test.ts` | 18 (all) | 18 pass |
+| `fake/voice-owner-call-step-up.test.ts` | 4 (all) | 4 pass |
+| `persistence/voice-access-repository.test.ts` | 9 (all) | 9 pass |
+| `security/voice-access-authority.test.ts` | 7 (all) | 7 pass |
+
+Plus three-test probes on the backup, redaction, PIN-speech, remote-D1-syntax,
+projection-policy, live-smoke and production-worker/socket files: all pass. The
+whole file runs 125/125. The memoized promises in
+`test/persistence/migration.ts` were the named suspect; every describe in the
+file applies the chain in its own `beforeEach`, so a filtered run gets the
+schema the same way a full run does, and nothing I ran depends on an earlier
+test.
+
+**What I did reproduce is the failure this feature actually has.** Running one
+owner test alone *while a second vitest process was running* gave
+`Error: Test timed out in 5000ms` on *"clears active authority and transient
+interaction state on terminal callback invalidation"* — a test that had passed
+alone on a quiet machine minutes earlier. That is the class the previous entry
+describes, and it is not about ordering.
+
+**The cause is in the fixture, not the deadline.** `accessHarness` re-derived
+the owner passphrase, the owner call PIN and the guest PIN from scratch for
+every test that used them. Each derivation is six chained 100,000-iteration
+PBKDF2 passes, so an owner-administration test carried 1.2 million iterations
+of pure setup and a guest test 600,000 — inside the same five-second budget the
+test body has to finish in. Four tests already carried an explicit 30s budget
+for exactly this reason; the rest did not.
+
+Every one of those derivations had identical inputs — one pepper, one pinned
+salt, one identity, version 1, one candidate — so every one produced the same
+record. `0f4ce62` derives each once per module and re-publishes it through the
+same guarded rotation. **The cache holds a pure derivation and never database
+state**, so it adds no ordering dependency: a test run alone gets byte-for-byte
+the record a test run after a hundred others gets. `seedPendingGuestAccess`
+lost its verifier parameter, because a caller-supplied verifier would have been
+silently ignored by the cache; its second caller was passing one with an
+unpinned random salt, and nothing asserts on that salt.
+
+No assertion and no test name changed. The four 30s budgets stay: those tests
+do five real PIN verifications, which is what they exist to prove.
+
+**Evidence.** Whole file 125/125 in 198.9s before, 125/125 in 161.2s after.
+After the change, the first 59 tests in file order — every owner, guest and
+sensitive-action test in the first two describes — each pass run alone.
+`pnpm lint` and `pnpm typecheck` clean. `tsc -p apps/cloud-gateway/tsconfig.test.json`
+reports 21 diagnostics for this file both before and after, so the known
+test-typecheck backlog did not grow.
+
+**The migration is now `0036`, not `0035`.** PR #106
+(`codex/tier3-classify-memory-correct`) also claims `0035`, for
+`0035_autonomy_tool_capabilities.sql`, and it was reviewed and green when this
+branch was not; production D1 is at `0034`, so only one of the two can be next.
+The rename carries the restore inventory (`memory-backup-restore-migrations.ts`
+import and ordered entry), the test migration chain and
+`allCloudGatewayMigrations`, the remote-D1 syntax list and the backup manifest's
+expected `databaseSchemaVersion`. `MIGRATION_SEEDED_ROWS` and the backup table
+classification already carried this migration's rows and tables and did not
+move. The restore test's synthetic mismatch name went from `0035_future.sql` to
+`0037_future.sql`, so it stays a name no inventory holds once #106 lands. The
+file itself has no `SELECT CASE ... RAISE` and no semicolon inside a `--`
+comment, checked again after the move. **Nothing was applied**: `0036` is still
+unapplied, and the chain `0033`, `0034` and — depending on merge order — `0035`
+must all be applied before this Worker is published.
+
+**For the reviewer.** If the eleven tests are real, I need the exact names or
+the command that produced them — I did not find them and I will not claim a
+fix for a state I never saw. `origin/main` has also moved to `5a8acf3` since
+this branch last merged it (docs and `reviewer-tools/` only, no code).
+
+— Claude Opus 5
+
+---
+
 ## 2026-09-18 06:07 UTC — DeepSeek V4.1 Flash, sensitive-action PIN finished from the salvaged work: ready for Claude max review
 
 **Effort level: high.** The brief named the work and a previous builder had
