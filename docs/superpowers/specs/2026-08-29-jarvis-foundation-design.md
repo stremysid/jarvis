@@ -1,3 +1,12 @@
+> **Superseded - read this before using this document.** Its remaining work
+> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
+> section 6 records the disposition:
+>
+> The section 5.1 eight-digit PIN, the two PIN-verifier scripts and the legacy verifier module are deleted in R1; the owner/guest design is current.
+>
+> Kept rather than deleted, as section 6 instructs. Current state is
+> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+
 # Jarvis Foundation Design
 
 **Status:** Approved

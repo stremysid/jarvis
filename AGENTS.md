@@ -21,6 +21,54 @@ flight, and who owns the next action, is [docs/QUEUE.md](docs/QUEUE.md). What on
 Sid can do is [docs/OWNER-ACTIONS.md](docs/OWNER-ACTIONS.md). Read those three
 before anything longer, and if they disagree with a longer document, they win.
 
+## The fleet — the only machines this ships to
+
+| Device | OS |
+|---|---|
+| Home PC | **Windows 11** |
+| Laptop | **Windows 11** |
+| Phone | **iPhone 16** |
+| Car | Tesla — a separate integration, not a host |
+
+**There is no Linux machine and Sid has never used Linux.** Do not plan, build,
+review or write runbooks for a Linux host without raising it with him first: a
+bash, `systemd` or `chmod` instruction is not something he can run. There is also
+no server, no NAS and no VPS unless he says he has bought one.
+
+**The home PC is off overnight while he sleeps**, so "always-on" means "on except
+overnight", not 24/7. Anything that must survive that window belongs in the cloud
+gateway, which genuinely is always-on, or has to tolerate catching up in the
+morning.
+
+### The Linux node is a planning-session decision, not his
+
+`jarvis node` refuses to start on anything but Linux
+(`apps/local-agent/jarvis_local/node.py:239-240`) and the roadmap assumed "one small
+Linux server", attributed to Sid and never provisioned. Sid says he never asked for
+it and told the original planning chat he is on Windows. The requirement behind it
+is real and is his — memory must work from the phone with every PC off — but it is
+not Linux: D1 is the authoritative ledger and topic tree, with FTS5 and Vectorize as
+rebuildable indexes, and Obsidian is at most a later one-way export.
+
+Do not provision the node, port it to Windows, or make R2/R3 depend on it. The
+Windows implementations were never removed: `transport/pipe_server.py` and
+`crypto/dpapi.py` are in the tree.
+
+## Decisions attributed to Sid that were not his
+
+This has happened twice — the watchdog being ratified into R0 scope, and the Linux
+home node. **When a plan attributes a decision to Sid, that attribution is
+evidence, not proof.** If it commits him to hardware, a platform, a subscription or
+an operational burden, confirm it with him before building on it. Carry the
+requirement he stated forward rather than the implementation someone chose for it.
+
+## Things that are not this repository
+
+- **PC hardware, purchasing and Blender/Roblox workload talk is personal.** It never
+  goes in the repo, in a commit message, or in a PR.
+- **St. Remy code lives in its own dedicated chat.** Do not touch that codebase from
+  a Jarvis session.
+
 ## Traps that have actually cost time here
 
 Every one of these was hit at least once.

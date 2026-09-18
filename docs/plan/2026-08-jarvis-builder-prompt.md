@@ -1,3 +1,12 @@
+> **Superseded - read this before using this document.** Its remaining work
+> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
+> section 6 records the disposition:
+>
+> The "never touch St. Remy" rule is overruled by decision 5.7 for on-command, permission-gated control. Reading St. Remy data is still gated by that decision, not open-ended.
+>
+> Kept rather than deleted, as section 6 instructs. Current state is
+> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+
 # JARVIS BUILD — Session 1 Kickoff
 
 You are building Jarvis, Sid's personal assistant system. `jarvis-expansion-plan.md` (in this folder) is the source of truth — read it fully before writing anything. This prompt sequences the work and sets the rules; the plan carries the design.
