@@ -11,7 +11,9 @@ session ran on that default. `CLAUDE_EFFORT=xhigh` is also in the environment
 but belongs to the session that launched this one, so it is not the level I
 ran at.
 
-**Branch `codex/email-read-everything`, head `ee3ed2c`, pushed.** Worktree at
+**Branch `codex/email-read-everything`.** **Heads:** `ee3ed2c` (the code,
+tests, migration and `KNOWN_ISSUES.md`; 23 files, +1,596/-120) and `9c5ee29`
+(this entry). Both pushed. Worktree at
 `C:\Users\Sid\jarvis-readmail`. Read the brief at
 `C:\Users\Sid\jarvis-gate\reviewer-tools\relay\email-read-everything-prompt.txt`
 and followed it; it supersedes the earlier `codex/email-keep-everything` brief,
