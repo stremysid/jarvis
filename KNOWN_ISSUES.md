@@ -532,6 +532,50 @@ this loop, and it is itself untested — deleting it leaves the projection suite
 green. Without it the 64 KiB body limit alone would admit roughly 300 minimal
 facts at 8 sources each, about 2,400 revalidations in one request.
 
+## Fact projection is filtered on read but not scrubbed or refused on write
+
+Filed from audit finding B-4, closed as far as the model context goes by the
+read-time anti-join added in "Memory: pin the forgetting guarantee at every
+layer". `memory_fact_projection_facts` is a second copy of a turn: the
+publisher re-projects its whole local snapshot every cycle, so a fact distilled
+from a turn the owner later asks to forget is re-uploaded in every later
+version, and the copy had no suppression reference at all.
+
+What is closed: `D1ContextRetriever` (`context-retriever.ts`) now anti-joins
+`memory_active_event_suppressions` over every entry of `sources_json` inside
+the `eligible` CTE, before `LIMIT`, exactly as it already did for history. One
+named test pins it — *"does not return a projected fact whose cited turn the
+owner asked to forget"* — and neutering the anti-join fails that test and only
+that test. All eight cited sources are checked rather than `primary_event_id`
+alone, because the source list is what the client sends and the primary event
+is only its first entry.
+
+What is **not** closed, and must not be read as closed:
+
+- **Already-published rows are never scrubbed.** `memory_fact_projection_facts`
+  aborts every `UPDATE` and refuses `DELETE` while its version is published, so
+  a fact that was published before the forget stays in the table, in
+  `memory_fact_projection_fts`, and in the page JSON. The gateway no longer
+  returns it to a model, but any future reader of those tables that does not
+  re-apply suppression would see it again. Nothing rebuilds them from D1, and
+  the whole projection is classified as rebuildable operational state, so it is
+  not in the backup either.
+- **The write path still accepts it.** `sync/memory-projection.ts` never
+  consults suppression in `verifyPageSources` or at commit. Refusing there
+  would need a client-side quarantine path that does not exist: the local agent
+  treats only `memory_projection_content_rejected` as abandon
+  (`sync/cloud_client.py`), so any other refusal would retry forever, and no
+  refusal can remove a copy that is already published. A write-side guard
+  therefore belongs with the client contract, not ahead of it.
+- **Reachability.** The only intended client is the Linux-only local agent that
+  was never provisioned, so no device is expected to upload today. The route
+  itself is signature-gated but publicly addressable, so any enrolled device
+  holding an active key and the sync secret can create a projection.
+
+Follow-up: give a published projection version a retirement path (or rebuild
+the projection after a forget), then decide whether the client contract grows a
+quarantine/abandon path so the write side can refuse a suppressed source.
+
 ## CI type-checks only Windows, so every Linux branch is invisible to mypy
 
 `.github/workflows/ci.yml:117` runs `uv run mypy --platform win32 jarvis_local`,

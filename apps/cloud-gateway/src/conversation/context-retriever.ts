@@ -388,6 +388,23 @@ export class D1ContextRetriever implements ContextRetriever {
           ON d.device_id = f.device_id AND d.principal_id = f.principal_id AND d.status = 'active'
         JOIN principals p ON p.principal_id = f.principal_id AND p.status = 'active'
         WHERE memory_fact_projection_fts MATCH ?1 AND f.principal_id = ?2
+          -- A projected fact is a second copy of a turn, so it has to honour
+          -- suppression too, not just the history read below. The device
+          -- re-uploads its whole snapshot every cycle, so a fact distilled
+          -- from a turn the owner later asked to forget is re-published in
+          -- every later version; without this anti-join it comes back as model
+          -- context on the next call. Every source is checked, not only
+          -- primary_event_id, because a fact cites up to eight turns.
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(f.sources_json) projected_source
+            JOIN memory_active_event_suppressions suppression
+              ON suppression.principal_id = f.principal_id
+              AND (
+                suppression.target_event_id = json_extract(projected_source.value, '$.eventId')
+                OR json_extract(projected_source.value, '$.eventSequence')
+                  BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+              )
+          )
       ), aggregate_flags AS (
         SELECT fact_id,
                MAX(CASE WHEN sensitivity = 'sensitive' THEN 1 ELSE 0 END) AS any_sensitive,

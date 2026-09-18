@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { applyD2lNotificationEmailMigration } from "./migration.js";
+import { proveWholeTrigger } from "./whole-trigger-proof.js";
 
 const NOW = "2026-09-17T23:45:00.000Z";
 const PRINCIPAL = "principal:d2l-email-migration";
@@ -31,23 +32,6 @@ async function addGrade(emailId: string, suffix: string): Promise<string> {
     .bind(PRINCIPAL, observationId, emailId, `d2l:${suffix}`, contentHash, NOW)
     .run();
   return observationId;
-}
-
-async function proveWholeTrigger(
-  triggerName: string,
-  mutation: () => Promise<unknown>,
-  expectedFailure: string,
-): Promise<void> {
-  const trigger = await env.DB.prepare("SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?")
-    .bind(triggerName).first<{ sql: string }>();
-  if (trigger === null) throw new Error(`missing trigger ${triggerName}`);
-  await expect(mutation()).rejects.toThrow(expectedFailure);
-  await env.DB.prepare(`DROP TRIGGER ${triggerName}`).run();
-  try {
-    await expect(mutation()).resolves.toBeDefined();
-  } finally {
-    await env.DB.prepare(trigger.sql).run();
-  }
 }
 
 beforeAll(async () => {
