@@ -320,6 +320,42 @@ a handoff claiming the opposite, loses — because the handoff is what a new
 session reads first. Same shape as the D2L calendar feed before it. **When a fact
 contradicts a load-bearing document, correct the document in the same change.**
 
+### FINDING: `gate.ps1`'s REAL-vs-flake split is unreliable under load — all three of its "REAL failures" were flakes
+
+**This is the script's headline feature and it fails precisely when it is
+needed.** First complete run, `main` @ `5a8acf3`, verdict FAIL, exit 1, 40.0 min.
+Its verdict block named three failures under *"REAL failures (still fail when the
+file is run alone)"*, none on the known-pre-existing list:
+
+| # | Test | My isolated re-run |
+|---|---|---|
+| 1 | `voice-telegram-call > refuses a line separator immediately after the command` | **44/44 passed** |
+| 2 | `voice-telegram-call > refuses a call origin with wrong receipt scope` | **44/44 passed** (same run) |
+| 3 | `owner-telegram-agent > replays a model-inference Confirm tap without creating another promotion` | **2 passed, 1 failed of 3** |
+
+**Every one is a flake.** Two were disproved by a single command.
+
+**The mechanism.** The script re-runs each failing file alone *because the suite
+is load-sensitive* — but the isolation re-run happens **in the same loaded
+session**, with the builders still working. A flake that fails under load fails
+again under load, and gets promoted to REAL. The control does not control for the
+variable it exists to control for.
+
+**Why this is worse than no classification.** *"REAL failures (still fail when the
+file is run alone)"* reads as authoritative. A builder handed that list chases
+ghosts in code that is not broken — the exact waste the tool was built to
+prevent.
+
+**The fix is cheap:** run the isolation pass **N times** (3–5) and call a failure
+REAL only if it fails **every** time, reporting the rate (`failed 3/3 alone`)
+rather than a binary. Queued as `codex/gate-isolation-repeat`.
+
+**What DOES hold, and it is the reason the script exists:** it ran cloud-gateway,
+hermes-runtime **and** watchdog even though the first two exited 1.
+`pnpm test:all` stops at the first failing package — the short-circuit that hid
+four security tests on `main` for six days. It also matched all four known
+pre-existing hermes failures exactly, and its load-flake list was correct.
+
 ### Running the gate under builder load — the asymmetry that makes it usable
 
 `gate.ps1` was run for the first time today, twice, by two sessions. It
@@ -340,7 +376,9 @@ binary is wrong, because **load can only ADD failures, never remove them:**
 | red | no | A real finding, worth diagnosing |
 
 **So the policy is: never pause builders for a gate run. Pause them only when a
-RED result needs to mean something** — i.e. when a PR's fate turns on it. A green
+RED result needs to mean something** — and note the finding above: the script's
+own REAL-vs-flake split is a red classification, so it inherits this entirely and
+cannot be trusted under load until the repeat fix lands.** — i.e. when a PR's fate turns on it. A green
 run under load is the cheapest strong signal available and costs no throughput.
 
 **Evidence from my own run** (`5a8acf3`, three builders working): lint exit 0,
