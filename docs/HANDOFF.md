@@ -360,8 +360,15 @@ Short paths matter: the Hermes runtime containment check rejects paths
 containing an 8.3 short name, and a deep temp path can trip it. Remove the
 worktree **only after pushing**.
 
-24 worktrees are registered against `C:\javis`; **most are historical.** Live as
-of this writing: `jarvis-pr97` and `jarvis-log`.
+**There are two clones of this repository on the machine, and each registers its
+own worktrees.** `C:\javis` owns `jarvis-pr97` and `jarvis-log`. A second clone
+at `C:\Users\Sid\OneDrive\Documents\ChatGPT\jarvis` owns `jarvis-gate`,
+`jarvis-gatemain` and `jarvis-recall`, **and it is the working directory the
+headless builders and auditors run from.** Between them they register 42, most
+historical. So `git worktree list` run in `C:\javis` will **not** show
+`jarvis-gate` — the working copy of `claude/reviewer-gate-tools`, holding all
+four scripts and the mutation specs — and its absence there means you are
+standing in the wrong clone, not that the tooling is gone.
 
 ### 4.8 Deploy
 
