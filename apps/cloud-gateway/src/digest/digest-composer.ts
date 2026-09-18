@@ -370,6 +370,11 @@ function render(sections: readonly DigestSection[]): string {
  * Fit the digest to the channel, dropping the least load-bearing content
  * first.
  *
+ * Least load-bearing is positional: `compose` builds school content first, so
+ * trimming from the end gives up a project status or a waiting question before
+ * it gives up a deadline. The body order and the truncation order are the same
+ * order on purpose; splitting them is how the two drift apart.
+ *
  * The gaps section is never dropped. A digest that silently omits "the
  * Brightspace calendar feed failed" reads exactly like a digest reporting a
  * quiet day, and the entire point of recording a failed source is that those
@@ -417,13 +422,29 @@ export function compose(
 
   const gaps = gapSection(input.gaps);
   const candidates = [
+    // School first, most missable first. A dated obligation outranks undated
+    // study work; university applications carry dated December deadlines and
+    // this is a term-long priority; the day's catch-up and the study
+    // suggestion come next.
+    //
+    // This order is also the priority, because `fit` trims from the end. A
+    // deadline, a submission already not seen, or a grade must never be
+    // surrendered while a project status line is still in the message. Written
+    // down here because it was only ever implied by array position, and a
+    // section appended to the end would otherwise become the first thing
+    // trimmed.
     deadlineSection(input, now, horizon),
     schoolObservationSection(input, options.timeZone),
-    catchupSection(input.catchupActions),
     applicationSection(input.applicationItems, input.universityWorkflowItems ?? []),
+    catchupSection(input.catchupActions),
     studyCheckInSection(input),
-    projectSection(input),
+    // Everything the owner can act on in school is above this line. What
+    // follows is the queue of things waiting on him outside school, then how
+    // the projects and systems are doing.
     decisionSection(input),
+    projectSection(input),
+    // Protected from trimming -- see `fit`. A digest that cannot say a source
+    // is dead reads exactly like a quiet day.
     gaps,
   ].filter((section): section is DigestSection => section !== null);
 

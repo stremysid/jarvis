@@ -35,6 +35,205 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 — DeepSeek V4.1 Flash, reasoningEffort: max
 
+## 2026-09-18 18:35 UTC — Claude Opus 5 (reviewer), PR #97: cleared and merged
+
+**Merged** at the exact reviewed head `b4b616d`; `main` is now `0fcfe83`. Not
+deployed — two migrations (`0033`, `0034`) still gate every deploy and remain
+Sid's to apply.
+
+### The flaky failures were flake
+
+The earlier run showed 5 failures across 3 files. A clean re-run of the same
+seven files returned **162/162**, and a later run of the same set returned
+**193/193**. Nothing in this PR is responsible.
+
+### Mutation sweep — 5 planted, 4 killed, 1 unreachable
+
+Each mutation targets one promise the PR makes. Every edit was checksum-verified
+to have landed before its tests ran; an edit that changes nothing reports a
+false SURVIVED, which is how two results were lost on 2026-09-17.
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | `candidates` array reversed after `.filter(...)` — school no longer first, trim order inverted | **KILLED** |
+| M2 | `expectedPushSources` returns `[]` for every env — a never-delivering feed says nothing | **KILLED** |
+| M3 | dedup guard `if (unconfigured.has(expected.sourceId)) continue;` deleted (line 404) | **SURVIVED — unreachable** |
+| M4 | `classroomSource?.active !== false` reverted to `=== true` — the never-scanned case goes silent again | **KILLED** |
+| M5 | the new meaning-index entry removed from `missingCredentials` — indexing nothing reports clean | **KILLED** |
+
+### M3 is not a test gap
+
+`unconfiguredDeadlineSources` yields `d2l-notification-email` only when
+`!emailConfigured && !calendarConfigured`. `expectedPushSources` yields the same
+id only when `emailConfigured`. The two conditions are complementary on
+`emailConfigured`, so the sets can never intersect. Both production call sites
+(`index.ts`, `job-table.ts` via `digest`) derive both arrays from `env`, so no
+caller can produce the overlap the guard defends against.
+
+The guard is therefore dead code reachable only by injecting both arrays
+directly, which only a test can do. Leaving it is fine — it is cheap and it
+documents an invariant — but **no test should be written to pin it**, because
+pinning it would pin a state the configuration cannot reach. Recorded so the
+next sweep does not re-derive this.
+
+— Claude Opus 5, reviewer
+
+## 2026-09-18 06:10 UTC — DeepSeek V4.1 Flash, digest school-first + dead-feed states: ready for review
+
+**Branch:** `codex/digest-school-first`, from `origin/main` = `385c052`.
+**Code head:** `5d9df3b` (this entry is the commit on top of it).
+Built at **effort `low`**, unattended, in DeepSeek Harness. One worktree at
+`C:\Users\Sid\jarvis-digest`; `C:\javis` was untouched.
+
+Brief: Sid is in grade 12 and behind after surgery. University applications
+opened 2026-09-18 and are due in December, so this is a term-long priority and
+not a this-week emergency. The morning digest is the one message he reads
+daily, it did not lead with school, and it could not report a school feed that
+had died — over a term the failure that actually costs him marks, because a
+feed can be dead for weeks before a missed deadline reveals it.
+
+### A. School first
+
+`compose` in `digest-composer.ts` built its body in the order
+`Due, Grades and submission checks, School catch-up, University applications,
+Coursework check-in, Projects, Waiting on you`. `fit` trims from the **end**,
+so that order was already the truncation priority — school content was already
+last to be surrendered, and that part of the brief needed no change. Two things
+did change, both verified against the code before touching it:
+
+- **University applications moved above School catch-up.** A dated December
+  submission outranks today's undated study suggestion; the brief's rule is
+  that anything which can cause a missed deadline outranks everything else.
+- **Projects moved below Waiting on you**, so the body now reads: school,
+  then what waits on the owner, then how the systems are doing.
+
+The order was only ever *implied*. A section appended to the end would silently
+become the first thing trimmed, so the priority is now written beside the array
+and pinned by a test that asserts the whole heading sequence. A second test
+asserts the property that matters: under 200 projects of length pressure, both
+school sections still carry exactly their one line and the projects are what
+was cut.
+
+**I did not add a separate `priorityHeadings` list for `fit`.** I started to,
+then dropped it: with school sections built first and trimming running from the
+end, a priority set is behaviourally unreachable, and `AGENTS.md` is explicit
+that an unreachable guard is indistinguishable from a broken one. The two tests
+above bite; a third mechanism would not have.
+
+### B. A dead feed must not look like a quiet term
+
+All three audit instances were verified at `385c052` first. **One of them is
+mis-stated**, and the correction matters for anyone reading C-4 later:
+
+> (a) *"the Classroom 'has never completed a submission scan' branch is guarded
+> by `classroomSource !== undefined`, but the source row is created only on a
+> successful sync."*
+
+The row is **not** created only on success. `pollClassroom` calls
+`DeadlineRepository.ensureSource` (`deadline-repository.ts`) as soon as *any*
+Google credential is present, before it makes a request, and
+`recordSourceFailure` records failure onto that same row — so a Classroom
+integration that is configured and fails every hour was already reported. The
+real hole is narrower and worse: with **no** Google credentials at all,
+`pollClassroom` returns "Classroom not configured" before `ensureSource`, so no
+`deadline_sources` row ever exists, `classroomSource` is `undefined`, and the
+digest said nothing about school at all. That is the state a brand-new or
+never-working deployment is in, and it is exactly "never run reads as ok".
+
+- **1. `digest-job.ts`.** The guard is now `classroomSource?.active !== false`.
+  The observation reader being wired is what says this deployment expects
+  Classroom observations; a missing scan row is then a fact about the feed. An
+  explicitly inactive source still says nothing, because a deliberate switch-off
+  is not a silent failure.
+- **2. `digest-job.ts` + `expectedPushSources`.** D2L notification mail is push:
+  `d2l-email-handler.ts` is the only thing that calls `ensureSource` for it, and
+  migration `0033` seeds no row, so before the first message ever arrives there
+  is no row, no gap, and no symptom. A deleted Email Routing rule or D2L
+  notifications switched off read as a quiet term **permanently**. The new
+  `expectedPushSources` reads the expectation from `SCHOOL_EMAIL_INGEST_ADDRESS`
+  — the one fact the first delivery creates — and `assembleDigest` synthesises
+  "has never received a message" when the configuration expects a feed with no
+  row. Both digest call sites (`job-table.ts` scheduled, `index.ts` `/digest`)
+  pass it, and its test asserts the line survives a digest that is trimmed to
+  fit, since length truncation is the one thing that could take it away
+  unnoticed.
+- **3. `job-table.ts`.** Finishing PR #94's own disclosure: `poll` now treats a
+  missing `AI`/`MEMORY_VECTORS` binding as degraded (read from the environment,
+  not by matching words in its own prose — the file's existing rule), and
+  `drain` returns `degraded` when the guest-notice phase holds no
+  `TELEGRAM_BOT_TOKEN`. Both are phases of a job that really ran, so neither is
+  `not_measured`; a clean `ok` for either is what put a green tick on `/status`
+  for work that did not happen.
+
+**No migration.** Main carries `0033` and `0034` unapplied and `0034` is the
+highest number taken; nothing here needed one, which is the outcome the brief
+preferred. Nothing was applied.
+
+### Mutation evidence — each named test, each guard
+
+Neutered, confirmed the named test failed, restored, confirmed green:
+
+| Guard | Mutation | Named test |
+|---|---|---|
+| school-first order | `projectSection` back above the school sections | *orders deadlines, submissions and school work ahead of project and system health* — **failed** (2 failed with the length test) |
+| Classroom never-run | `classroomSource !== undefined` restored | *says school has never been read when Classroom was never set up at all* — **failed** |
+| D2L never-received | `expectedPushSources` loop short-circuited | *says a configured D2L feed has never received a message with no stored source row* **failed**, and *keeps a dead school feed's line when the digest is trimmed to fit* **failed** |
+| `drain` degraded | condition changed to an impossible value | *marks the frequent tick degraded when guest notices hold no bot token* — **failed** |
+| `poll` degraded | `\|\|` → `&&` on the binding check | *marks the hourly poll degraded when the meaning index holds no binding* — **failed** |
+
+The fifth needed two attempts worth reporting. My first version of that test set
+**both** `AI` and `MEMORY_VECTORS` to undefined, and survived the `&&` mutation
+— the mutant is still true when both are missing. Worse, my second version left
+the other credentials unset, so `degraded` was already true for reasons that had
+nothing to do with the guard and the mutation still passed. The test now holds
+every credential this classification reads, injects a fetcher that refuses to
+touch the network, and leaves exactly one binding absent, so the meaning
+binding is the only thing that can make the result degraded. That version
+fails under the mutant and passes when restored.
+
+### Gate at `5d9df3b`
+
+- `pnpm lint` — clean (5 projects).
+- `pnpm typecheck` — clean (5 projects).
+- `pnpm --filter @jarvis/cloud-gateway test` — **4947 passed / 4 failed, 180
+  files**. The four are `archival-service`, `owner-telegram-agent` and two in
+  `telegram-memory`.
+  **They are not mine, and I did not hand-wave that.** All three files pass
+  alone (195/195). I then stashed the whole change and ran the same command on
+  clean `385c052`: 4 failed again, a **different** set (`workspace`,
+  `capacity-source`, `cloud-memory-migration`,
+  `owner-call-step-up-migration`), each of which passes in isolation. Both runs
+  land on 4 failures under full parallel load with 180 files; the set moves.
+  That is the load/ordering flakiness PR #94 already recorded, not a new
+  defect, and I am reporting both runs rather than only the one that suited me.
+  The test count moved 4944 → 4951, which is exactly the 7 tests added here.
+
+### What I did not do
+
+- I did not run `pnpm test:all`. The brief named lint, typecheck and the gateway
+  suite as the gate; `test:all` additionally runs the hermes-runtime suite,
+  where four tests (SBOM, source-lock) already fail on main. I did not want to
+  spend the wall clock on a known-red suite, and I am saying so rather than
+  implying I ran it.
+- I did not change `fit` to protect school sections from line-trimming, for the
+  reason given under A: with school built first and trimming from the end, that
+  protection is already the behaviour, and the only way to make it observably
+  different would be to make it unsafe. A digest whose school content alone
+  exceeds 4096 characters is **rejected outright** by `TelegramRestProvider`
+  (`output_limit`, permanent) — `MAX_MESSAGE_CHARACTERS` in `digest-composer.ts`
+  is a hard ceiling, not a target — so a set of headings that `fit` may never
+  trim can turn "the digest is short" into "there is no digest". `Due` plus
+  `Grades and submission checks` can reach that size on a bad week. The existing
+  code's own position is that only the failure report is worth that risk, and I
+  left it there.
+- `d2l-email-handler.ts` is unchanged. The audit names it, but the fix belongs
+  where the digest decides what to say: seeding a row from the handler would
+  not help a feed that never reaches the handler, which is the whole failure.
+
+— DeepSeek V4.1 Flash, effort `low`
+
+---
+
 ## 2026-09-18 05:25 UTC — Claude Opus 5, PR #95 max review at fe62db4: CLEARED, merging
 
 **Cleared.** This closes audit finding A-4, the inverted header-ordering

@@ -98,6 +98,26 @@ describe("memory backup job wiring", () => {
     expect(outcome).toEqual({ ok: false, failure: "memory_backup_binding_missing" });
   });
 
+  it("marks the frequent tick degraded when guest notices hold no bot token", async () => {
+    // The tick really did run: D1 answered and the decision queue was read. One
+    // phase of it held no token, so it is not `not_measured` -- and it is not a
+    // clean success either, or `/status` reports a delivery path that cannot
+    // deliver as fine.
+    const drain = buildJobTable(jobEnvironment({
+      OWNER_PRINCIPAL_ID: "principal:owner",
+      TELEGRAM_BOT_TOKEN: undefined,
+    })).drain;
+    if (drain === undefined) throw new Error("drain job missing");
+
+    const outcome = await drain();
+
+    expect(outcome).toMatchObject({
+      ok: true,
+      degraded: true,
+      detail: expect.stringContaining("guest notices not configured"),
+    });
+  });
+
   it("reports a scheduled job that never installed its credential as not measured rather than ok", async () => {
     // The defect, at the job rather than the row. With no owner principal
     // there is nothing for either job to do, and `ok: true` recorded a

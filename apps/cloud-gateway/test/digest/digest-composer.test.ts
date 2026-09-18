@@ -529,6 +529,85 @@ describe("the decision queue in the digest", () => {
   });
 });
 
+describe("school first", () => {
+  it("orders deadlines, submissions and school work ahead of project and system health", () => {
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Quiz 2",
+        assignedGrade: 80, maxPoints: 100, gradeUpdatedAt: "2026-09-02T09:00:00.000Z",
+        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+      catchupActions: [
+        { actionId: "action-1", course: "Chemistry", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
+      ],
+      applicationItems: [applicationItem()],
+      universityWorkflowItems: [workflowItem()],
+      studyCheckIn: {
+        course: "Chemistry", topic: "stoichiometry", outcome: "uncertain", evidenceCount: 2,
+        confidence: "medium", observedAt: "2026-09-01T12:00:00.000Z", citations: [],
+      },
+      decisions: [{ decisionId: "decision-a", question: "Approve the vendor quote?", urgency: "normal" }],
+      projects: [project({ stalledReason: "no commit in 30 days" })],
+      gaps: [{ source: "Brightspace", detail: "session expired" }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    // The owner reads this once a morning and school is his stated first
+    // priority, so the order of the body is the priority: anything that can
+    // cost him a mark leads, and everything reporting on a system follows.
+    expect(digest.sections.map((section) => section.heading)).toEqual([
+      "Digest -- 2026-09-02",
+      "Due",
+      "Grades and submission checks",
+      "University applications",
+      "School catch-up",
+      "Coursework check-in",
+      "Waiting on you (1)",
+      "Projects",
+      "Could not be read",
+    ]);
+  });
+
+  it("gives up the project section before it trims a single school line", () => {
+    // Order and truncation are the same order on purpose. If a project status
+    // line outlives a deadline line, the digest has quietly stopped being
+    // about the thing it is sent for.
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Teacher-set final assignment",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "other",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Limits quiz",
+        assignedGrade: 83.5, maxPoints: null, gradeUpdatedAt: null,
+        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+      projects: Array.from({ length: 200 }, (_unused, index) => project({
+        projectId: `project-${index}`,
+        displayName: `Project ${index} with a deliberately long name to consume the budget`,
+        pollFailure: "head:unavailable:503 with a deliberately long suffix to consume the budget",
+      })),
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.truncated).toBe(true);
+    // Trimming happened, and it happened to the projects. Both school sections
+    // still carry exactly the one line they were composed with.
+    expect(digest.text).toContain("(trimmed to fit)");
+    expect(digest.sections.find((section) => section.heading === "Due")?.lines).toHaveLength(1);
+    expect(digest.sections.find((section) => section.heading === "Grades and submission checks")?.lines)
+      .toHaveLength(1);
+    expect(digest.sections.find((section) => section.heading === "Projects")?.lines.length ?? 0)
+      .toBeLessThan(200);
+    expect(digest.text).toContain("Teacher-set final assignment");
+    expect(digest.text).toContain("Limits quiz");
+  });
+});
+
 describe("the Sunday retro", () => {
   it("is titled as a week rather than a day", () => {
     const digest = compose(empty(), { kind: "retro", timeZone: TORONTO }, clockAt("2026-09-06T23:00:00.000Z"));

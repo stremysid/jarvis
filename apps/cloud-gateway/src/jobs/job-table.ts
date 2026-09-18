@@ -71,7 +71,7 @@ import {
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { isFailure, isNotMeasured } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
-import { runDigestJob, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
+import { runDigestJob, expectedPushSources, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
 
 export interface JobEnvironment {
@@ -782,12 +782,20 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // on none of these settings and it either ran or threw. So this job always
   // does *something*, which is why it is never `not_measured` -- the honest
   // report when nothing else ran is a degraded success, not a clean one.
+  //
+  // The last entry is a phase of this job rather than a credential it needs to
+  // start, and that is why it is here and not `not_measured`: the memory
+  // sweeps really did run, while the meaning index had no binding to run
+  // against. Recording a clean success for it erased that fact, and `/status`
+  // then said the gateway was fine while nothing was being indexed.
   const missingCredentials = [
     context.env.GOOGLE_CLIENT_ID === undefined
       && context.env.GOOGLE_CLIENT_SECRET === undefined
       && context.env.GOOGLE_REFRESH_TOKEN === undefined,
     context.env.BRIGHTSPACE_ICAL_URL === undefined,
     context.env.GITHUB_TOKEN === undefined,
+    context.memoryMeaningFactory === undefined
+      && (context.env.AI === undefined || context.env.MEMORY_VECTORS === undefined),
   ];
   const degraded = missingCredentials.some(Boolean);
 
@@ -891,6 +899,7 @@ async function digest(
     clock: context.clock,
     timeZone,
     unconfiguredDeadlineSources: unconfiguredDeadlineSources(context.env),
+    expectedPushSources: expectedPushSources(context.env),
   });
 
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };
@@ -1030,7 +1039,15 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
     if (backupContinuation.outcome === "failed") {
       return { ok: false, failure: backupContinuation.code };
     }
-    return { ok: true, detail: `${open.length} open; ${notices[noticeDetail]}; ${backupContinuation.detail}` };
+    const detail = `${open.length} open; ${notices[noticeDetail]}; ${backupContinuation.detail}`;
+    // "guest notices not configured" used to be one clause of an `ok: true`
+    // sentence, which made an unconfigured delivery path indistinguishable
+    // from a working one on `/status`. The tick really did run -- D1 answered
+    // and the queue was read -- so it is not `not_measured`; it is a success
+    // with a phase that held nothing to run with.
+    return noticeDetail === "not_configured"
+      ? { ok: true, degraded: true, detail }
+      : { ok: true, detail };
   } catch (error) {
     return { ok: false, failure: describe(error) };
   }
