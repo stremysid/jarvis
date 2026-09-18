@@ -1,5 +1,8 @@
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
+import { AutonomyService } from "./autonomy/autonomy-service.js";
+import { D1ToolConfirmationStore } from "./autonomy/tool-confirmations.js";
+import { ToolAutonomyGate } from "./autonomy/tool-gate.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
 import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
 import { D1TelegramOwnerStepUpCommands } from "./channels/telegram/telegram-owner-step-up-command.js";
@@ -295,6 +298,13 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           replyToBotMessageId: accepted.replyToBotMessageId,
           targets: memory,
           decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
+          // The capability gate. Constructed here so every owner tool call is
+          // classified against the database tiers before it acts, which is what
+          // makes the backstop the README advertises a thing that runs.
+          autonomy: new ToolAutonomyGate(
+            new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
+            new D1ToolConfirmationStore(env.DB),
+          ),
           schoolModel,
           universityModel,
           studyCoachModel: studyModel,

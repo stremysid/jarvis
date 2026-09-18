@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { TelegramRateLimiter } from "../../src/channels/telegram/telegram-rate-limit.js";
 import {
@@ -179,6 +180,7 @@ async function runTurn(input: {
     provider: input.provider,
     database: env.DB,
     archive: env.ARCHIVE,
+    autonomy: await testToolGate(env.DB),
     ownerPrincipalId: input.configuredOwnerPrincipalId ?? input.harness.principalId,
     directOwnerText,
     directPipelineText: input.directPipelineText,
@@ -2087,6 +2089,7 @@ describe("owner Telegram agent", () => {
       provider: new FakeAgentProvider([new Error("provider unavailable")]),
       database: env.DB,
       archive: env.ARCHIVE,
+      autonomy: await testToolGate(env.DB),
       ownerPrincipalId: "principal:owner",
       directOwnerText: true,
       directPipelineText: true,
@@ -2576,5 +2579,62 @@ describe("direct owner Telegram classification", () => {
       expect(classified.kind).toBe("text");
       if (classified.kind === "text") expect(classified.value.isMemoryControlAuthoritative).toBe(false);
     }
+  });
+});
+
+describe("the capability tier gate in tool dispatch", () => {
+  it("refuses a tier-3 tool call, asks for the tap, and runs nothing", async () => {
+    // This is the test that fails if the gate stops being called. Every other
+    // suite would still pass with the call site deleted, because they exercise
+    // tier-1 tools that the gate permits either way -- which is exactly how the
+    // original defect survived: the service was correct and unreferenced.
+    const harness = await ownerHarness("tier3-refusal");
+    const provider = new FakeAgentProvider([
+      called(tool("email-1", "send_email", {
+        to: "supplier@example.com",
+        body: "the order is confirmed",
+      })),
+      stopped("I need your confirmation before I send that."),
+    ]);
+
+    const reply = await runTurn({
+      harness,
+      text: "email the supplier that the order is confirmed",
+      provider,
+    });
+
+    // A tier-3 capability always needs the owner's tap, and the receipt says so
+    // rather than claiming the mail went out.
+    expect(reply).toContain("needs your tap");
+    expect(reply).toContain("contact.third_party");
+
+    const { results } = await env.DB.prepare(
+      `SELECT origin, origin_reference FROM decision_items WHERE origin = 'autonomy-tier3-tool'`,
+    ).all<{ origin: string; origin_reference: string }>();
+    expect(results).toHaveLength(1);
+    // The question is bound to the capability and a fingerprint of the exact
+    // arguments, so the tap authorizes this action and not a later one.
+    expect(results[0]?.origin_reference).toContain("contact.third_party:");
+  });
+
+  it("records the refusal in the audit ledger with the outcome that caused it", async () => {
+    const harness = await ownerHarness("tier3-audit");
+    const provider = new FakeAgentProvider([
+      called(tool("email-2", "send_email", { to: "a@example.com", body: "x" })),
+      stopped("Waiting on your confirmation."),
+    ]);
+
+    await runTurn({ harness, text: "email a@example.com", provider });
+
+    const { results } = await env.DB.prepare(
+      `SELECT capability, tier, outcome FROM autonomy_evaluations
+       WHERE capability = 'contact.third_party' ORDER BY rowid ASC`,
+    ).all<{ capability: string; tier: number; outcome: string }>();
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]).toMatchObject({
+      capability: "contact.third_party",
+      tier: 3,
+      outcome: "requires_confirmation",
+    });
   });
 });
