@@ -24,6 +24,10 @@ const HISTORY_PAYLOAD_FIELDS = new Set([
   "historyEligible",
   "text",
 ]);
+const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "directOwnerText",
+]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAX_CANDIDATES = 128;
 const MAX_FACT_CANDIDATES = 128;
@@ -115,6 +119,20 @@ function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: str
     captured[field] = descriptor.value;
   }
   return captured;
+}
+
+function historyPayload(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("context_payload_invalid");
+  }
+  const fields = Object.hasOwn(value, "directOwnerText")
+    ? HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactDataRecord(value, fields, "context_payload_invalid");
+  if (Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") {
+    throw new TypeError("context_payload_invalid");
+  }
+  return payload;
 }
 
 function requireText(value: unknown, label: string, maximumBytes: number): string {
@@ -319,8 +337,18 @@ function snapshotResultRows(value: unknown): unknown {
   return descriptor.value;
 }
 
+async function executeStatements(
+  database: D1Database,
+  statements: D1PreparedStatement[],
+): Promise<readonly D1Result<unknown>[]> {
+  if (typeof database.batch === "function") return database.batch(statements);
+  // Some existing callers provide the pre-batch D1 surface. Keep their
+  // validation behaviour while production D1 takes the single-trip path.
+  return Promise.all(statements.map(async (statement) => statement.all()));
+}
+
 function historyText(payload: unknown, eventType: string): string {
-  const value = exactDataRecord(payload, HISTORY_PAYLOAD_FIELDS, "context_payload_invalid");
+  const value = historyPayload(payload);
   if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
     || eventType === "conversation.assistant_delivered" && value.channelCode !== 2
     || eventType === "conversation.user_committed" && value.channelCode !== 1 && value.channelCode !== 2) {
@@ -342,8 +370,7 @@ export class D1ContextRetriever implements ContextRetriever {
     const deferredFacts: FactCandidate[] = [];
     let returnedBytes = 0;
     const ftsQuery = literalFtsQuery(captured.query);
-    if (ftsQuery !== null) {
-      const factResult = await this.database.prepare(`WITH eligible AS (
+    const factStatement = ftsQuery === null ? null : this.database.prepare(`WITH eligible AS (
         SELECT f.principal_id, f.device_id, f.projection_version, f.fact_id, f.text,
                f.origin, f.sensitivity, f.confidence, f.distiller_version, f.distilled_at,
                f.content_hash, f.primary_event_id, f.primary_event_sequence,
@@ -361,6 +388,23 @@ export class D1ContextRetriever implements ContextRetriever {
           ON d.device_id = f.device_id AND d.principal_id = f.principal_id AND d.status = 'active'
         JOIN principals p ON p.principal_id = f.principal_id AND p.status = 'active'
         WHERE memory_fact_projection_fts MATCH ?1 AND f.principal_id = ?2
+          -- A projected fact is a second copy of a turn, so it has to honour
+          -- suppression too, not just the history read below. The device
+          -- re-uploads its whole snapshot every cycle, so a fact distilled
+          -- from a turn the owner later asked to forget is re-published in
+          -- every later version; without this anti-join it comes back as model
+          -- context on the next call. Every source is checked, not only
+          -- primary_event_id, because a fact cites up to eight turns.
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(f.sources_json) projected_source
+            JOIN memory_active_event_suppressions suppression
+              ON suppression.principal_id = f.principal_id
+              AND (
+                suppression.target_event_id = json_extract(projected_source.value, '$.eventId')
+                OR json_extract(projected_source.value, '$.eventSequence')
+                  BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+              )
+          )
       ), aggregate_flags AS (
         SELECT fact_id,
                MAX(CASE WHEN sensitivity = 'sensitive' THEN 1 ELSE 0 END) AS any_sensitive,
@@ -381,8 +425,40 @@ export class D1ContextRetriever implements ContextRetriever {
       FROM ranked WHERE candidate_rank = 1
       ORDER BY relevance ASC, distilled_at DESC, fact_id ASC, device_id ASC
       LIMIT ?3`)
-        .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES)
-        .all<StoredFactRow>();
+      .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES);
+    // Suppression is applied HERE, in the shared retriever, rather than by
+    // each caller. Telegram used to filter this afterwards, which left every
+    // other caller -- voice above all -- reading forgotten turns back into
+    // model context. The owner asks Jarvis to forget a remark and then hears
+    // it again on the next phone call; that is the defect this closes.
+    //
+    // The anti-join is deliberately applied BEFORE LIMIT, not after. Filtering
+    // a limited page would silently shorten history by one turn per forgotten
+    // event, instead of backfilling with older visible turns to keep the
+    // window full.
+    const historyStatement = this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
+      FROM events INDEXED BY events_subject_sequence_idx
+      WHERE subject_id = ?1
+        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions suppression
+          WHERE suppression.principal_id = ?1
+            AND (
+              suppression.target_event_id = events.event_id
+              OR events.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+            )
+        )
+      ORDER BY sequence DESC
+      LIMIT ?2`)
+      .bind(captured.principalId, MAX_CANDIDATES);
+    const statements = factStatement === null
+      ? [historyStatement]
+      : [factStatement, historyStatement];
+    const batch = await executeStatements(this.database, statements);
+    if (batch.length !== statements.length) throw new TypeError("context_result_invalid");
+    if (factStatement !== null) {
+      const factResult = batch[0];
+      if (factResult === undefined) throw new TypeError("context_result_invalid");
       const factRows = snapshotFactRows(snapshotResultRows(factResult));
       let decodedFactBytes = 0;
       const candidates: FactCandidate[] = [];
@@ -405,15 +481,8 @@ export class D1ContextRetriever implements ContextRetriever {
         selectedFacts.push(candidate.item);
       }
     }
-
-    const historyResult = await this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
-      FROM events INDEXED BY events_subject_sequence_idx
-      WHERE subject_id = ?1
-        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
-      ORDER BY sequence DESC
-      LIMIT ?2`)
-      .bind(captured.principalId, MAX_CANDIDATES)
-      .all<StoredHistoryRow>();
+    const historyResult = batch.at(-1);
+    if (historyResult === undefined) throw new TypeError("context_result_invalid");
     const rows = snapshotRows(snapshotResultRows(historyResult));
     let decodedBytes = 0;
     const selectedNewestFirst: RetrievedContext[] = [];

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ScheduledRunRepository } from "../../src/scheduler/scheduled-run-repository.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyD2lNotificationEmailMigration } from "../persistence/migration.js";
 
 /**
  * Cron triggers are at-least-once, so the question this repository answers is
@@ -29,7 +29,9 @@ function repository(clock: StepClock): ScheduledRunRepository {
 
 describe("ScheduledRunRepository", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    // The current schema, not just 0013: the `detail` column this suite
+    // exercises arrives in 0034.
+    await applyD2lNotificationEmailMigration();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
   });
 
@@ -89,6 +91,38 @@ describe("ScheduledRunRepository", () => {
     expect(outcomes.filter((outcome) => outcome !== null)).toHaveLength(1);
   });
 
+  it("admits one cooldown claim across different request keys when callers race", async () => {
+    const clock = new StepClock("2026-09-02T11:30:00.000Z");
+    const runs = repository(clock);
+    const outcomes = await Promise.all(["one", "two", "three"].map((runKey) =>
+      runs.claimAfterCooldown(
+        { job: "brightspace_on_demand", runKey },
+        new Date("2026-09-02T11:25:00.000Z"),
+      )));
+    expect(outcomes.filter((outcome) => outcome !== null)).toHaveLength(1);
+  });
+
+  it("keeps a cooldown closed until the full interval has elapsed", async () => {
+    const clock = new StepClock("2026-09-02T11:30:00.000Z");
+    const runs = repository(clock);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "first" },
+      new Date("2026-09-02T11:25:00.000Z"),
+    )).resolves.not.toBeNull();
+
+    clock.advance(299);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "early" },
+      new Date("2026-09-02T11:29:59.000Z"),
+    )).resolves.toBeNull();
+
+    clock.advance(1);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "ready" },
+      new Date("2026-09-02T11:30:00.000Z"),
+    )).resolves.not.toBeNull();
+  });
+
   it("records a failure against the run rather than losing it", async () => {
     const clock = new StepClock("2026-09-02T11:30:00.000Z");
     const runs = repository(clock);
@@ -118,6 +152,74 @@ describe("ScheduledRunRepository", () => {
     await runs.fail({ job: "poll", runKey: "2026-09-02T11" }, "transient");
     await runs.finish({ job: "poll", runKey: "2026-09-02T11" });
     expect((await runs.recent("poll", 5))[0]?.failure).toBeNull();
+  });
+
+  it("keeps the detail a successful run returned instead of discarding it", async () => {
+    // The defect. `finish` wrote `failure = NULL` and nothing else, so a run
+    // that succeeded while reporting that a source was not configured left no
+    // trace of that sentence anywhere.
+    const runs = repository(new StepClock("2026-09-02T11:30:00.000Z"));
+    await runs.claim({ job: "poll", runKey: "2026-09-02T11" });
+    await runs.finish({ job: "poll", runKey: "2026-09-02T11" }, "ok", "12 archived; Classroom not configured");
+
+    const [row] = await runs.recent("poll", 5);
+    expect(row?.detail).toBe("12 archived; Classroom not configured");
+    expect(row?.completion).toBe("ok");
+    expect(row?.failure).toBeNull();
+  });
+
+  it("keeps a degraded success distinct from a clean one", async () => {
+    const runs = repository(new StepClock("2026-09-02T11:30:00.000Z"));
+    await runs.claim({ job: "poll", runKey: "2026-09-02T11" });
+    await runs.finish({ job: "poll", runKey: "2026-09-02T11" }, "degraded", "6 polled, 1 failed");
+
+    const [row] = await runs.recent("poll", 5);
+    expect(row?.detail).toBe("6 polled, 1 failed");
+    expect(row?.completion).toBe("degraded");
+  });
+
+  it("records that a run did not measure anything without recording it as a success", async () => {
+    // The third state. This is the row that used to be written as `ok: true`.
+    const runs = repository(new StepClock("2026-09-02T11:30:00.000Z"));
+    await runs.claim({ job: "backup", runKey: "2026-09-02" });
+    await runs.finish({ job: "backup", runKey: "2026-09-02" }, "not_measured", "Memory consolidation not configured");
+
+    const [row] = await runs.recent("backup", 5);
+    expect(row?.detail).toBe("Memory consolidation not configured");
+    expect(row?.completion).toBe("not_measured");
+    expect(row?.failure).toBeNull();
+  });
+
+  it("clears a stale detail when a later run fails", async () => {
+    // A detail describes a success. A failure that kept the previous run's
+    // health report would read as reassurance about a run that just broke.
+    const runs = repository(new StepClock("2026-09-02T11:30:00.000Z"));
+    await runs.claim({ job: "poll", runKey: "2026-09-02T11" });
+    await runs.finish({ job: "poll", runKey: "2026-09-02T11" }, "ok", "everything fine");
+    await runs.fail({ job: "poll", runKey: "2026-09-02T11" }, "GitHub returned 503");
+
+    const [row] = await runs.recent("poll", 5);
+    expect(row?.detail).toBeNull();
+    expect(row?.completion).toBe("ok");
+    expect(row?.failure).toBe("GitHub returned 503");
+  });
+
+  it("reports a success with no detail as a clean success", async () => {
+    const runs = repository(new StepClock("2026-09-02T11:30:00.000Z"));
+    await runs.claim({ job: "drain", runKey: "2026-09-02T11:30" });
+    await runs.finish({ job: "drain", runKey: "2026-09-02T11:30" });
+
+    const [row] = await runs.recent("drain", 5);
+    expect(row?.detail).toBeNull();
+    expect(row?.completion).toBe("ok");
+  });
+
+  it("names every scheduled job, so none can be missing from status", () => {
+    // The nightly backup was outside the three names `/status` iterated, and
+    // nothing about the code said so -- it was simply absent.
+    expect(repository(new StepClock("2026-09-02T11:30:00.000Z")).jobs()).toEqual([
+      "drain", "poll", "digest", "retro", "backup",
+    ]);
   });
 
   describe("reopening a failed run", () => {

@@ -10,6 +10,7 @@
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "fflate": "0.8.2"
+    "fflate": "0.8.2",
+    "postal-mime": "3.0.0"
   }
 }

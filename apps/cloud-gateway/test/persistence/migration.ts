@@ -1,4 +1,5 @@
 import { applyD1Migrations, env } from "cloudflare:test";
+import { splitMigration } from "../../../../scripts/split-migration.mjs";
 import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?raw";
 import foundationHardeningSql from "../../src/persistence/migrations/0002_foundation_hardening.sql?raw";
 import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
@@ -14,34 +15,48 @@ import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw"
 import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
 import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
+import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
+import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
+import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
+import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
+import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
+import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
+import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
+import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
+import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
+import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import memoryDistillationSql from "../../src/persistence/migrations/0026_memory_distillation.sql?raw";
+import schoolObservationsSql from "../../src/persistence/migrations/0027_school_observations.sql?raw";
+import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
+import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
+import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
+import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
+import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
+import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
+import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
+let cloudMemoryMigrated: Promise<void> | undefined;
+let ownerPassphraseMigrated: Promise<void> | undefined;
+let ownerCallStepUpMigrated: Promise<void> | undefined;
+let memoryIngressMigrated: Promise<void> | undefined;
+let schoolCatchupMigrated: Promise<void> | undefined;
+let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
+let universityTrackerMigrated: Promise<void> | undefined;
+let studyCoachMigrated: Promise<void> | undefined;
+let universityApplicationWorkflowMigrated: Promise<void> | undefined;
+let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let memoryDistillationMigrated: Promise<void> | undefined;
+let schoolObservationsMigrated: Promise<void> | undefined;
+let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
+let universityApplicationDetailsMigrated: Promise<void> | undefined;
+let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
+let memoryBackupMigrated: Promise<void> | undefined;
+let memoryLivingNotesMigrated: Promise<void> | undefined;
+let d2lNotificationEmailMigrated: Promise<void> | undefined;
 
-/**
- * Split a migration into the statements D1 applies one at a time.
- *
- * Triggers are lifted out first because their bodies contain the semicolons
- * this otherwise splits on. Any comment lines directly above a trigger are
- * lifted with it: left behind, they would be a fragment that no longer
- * resolves to the trigger marker, and the trigger would be applied as its own
- * literal text.
- *
- * Semicolons inside comments elsewhere still cut a statement in half, which
- * surfaces as `incomplete input` from D1. Migrations avoid them.
- */
-export function splitMigration(sql: string): string[] {
-  const triggers: string[] = [];
-  const statements = sql.replace(/(?:^[^\S\n]*--[^\n]*\n)*CREATE TRIGGER\b[\s\S]*?\nEND;/gimu, (trigger) => {
-    const marker = `__JARVIS_TRIGGER_${triggers.length}__`;
-    triggers.push(trigger.slice(0, -1));
-    return `${marker};`;
-  });
-  return statements.split(";").map((query) => query.trim()).filter(Boolean).map((query) => {
-    const marker = /^__JARVIS_TRIGGER_(\d+)__$/u.exec(query);
-    return marker === null ? query : (triggers[Number(marker[1])] ?? query);
-  });
-}
+export { splitMigration };
 
 export const voiceAccessBaseMigrations = Object.freeze([
   { name: "0001_foundation.sql", queries: splitMigration(foundationSql) },
@@ -90,6 +105,367 @@ export async function applyVoiceRuntimeMigration(): Promise<void> {
     { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
   ]);
   await voiceRuntimeMigrated;
+}
+
+/** Applies the reviewed cloud-memory schema only to the isolated D1 test binding. */
+export async function applyCloudMemoryMigration(): Promise<void> {
+  await applyVoiceRuntimeMigration();
+  cloudMemoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
+  ]);
+  await cloudMemoryMigrated;
+}
+
+/** Applies the privileged memory-command ingress contract after 0016. */
+export async function applyMemoryIngressMigration(): Promise<void> {
+  await applyCloudMemoryMigration();
+  await applyOwnerCallStepUpMigration();
+  memoryIngressMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+  ]);
+  await memoryIngressMigrated;
+}
+
+/** Applies the owner-passphrase verifier schema after the current R1 runtime. */
+export async function applyOwnerPassphraseMigration(): Promise<void> {
+  await applyFoundationMigration();
+  ownerPassphraseMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
+  ]);
+  await ownerPassphraseMigrated;
+}
+
+/** Applies the durable owner-call step-up schema and authority boundary. */
+export async function applyOwnerCallStepUpMigration(): Promise<void> {
+  await applyOwnerPassphraseMigration();
+  ownerCallStepUpMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+  ]);
+  await ownerCallStepUpMigrated;
+}
+
+/** Applies durable refusal completion and guest-notice delivery after current main. */
+export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
+  // This migration depends on 0018 but not the intervening memory schema.
+  // Keeping the isolated voice fixtures narrow avoids installing unrelated
+  // runtime controls that those fixtures deliberately replace with fakes.
+  await applyOwnerCallStepUpMigration();
+  voiceOwnerDeliveryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
+  ]);
+  await voiceOwnerDeliveryMigrated;
+}
+
+/** Applies the private school catch-up store to the isolated D1 test binding. */
+export async function applySchoolCatchupMigration(): Promise<void> {
+  await applyMemoryIngressMigration();
+  schoolCatchupMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+  ]);
+  await schoolCatchupMigrated;
+}
+
+/** Applies the conversational university tracker after the school catch-up store. */
+export async function applyUniversityTrackerMigration(): Promise<void> {
+  await applySchoolCatchupMigration();
+  universityTrackerMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
+  ]);
+  await universityTrackerMigrated;
+}
+
+/** Applies the operational study-coach store after the school trackers. */
+export async function applyStudyCoachMigration(): Promise<void> {
+  await applyUniversityTrackerMigration();
+  studyCoachMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
+  ]);
+  await studyCoachMigrated;
+}
+
+/** Applies the owner-reported application checklist after the study-coach store. */
+export async function applyUniversityApplicationWorkflowMigration(): Promise<void> {
+  await applyStudyCoachMigration();
+  universityApplicationWorkflowMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
+  ]);
+  await universityApplicationWorkflowMigrated;
+}
+
+/** Applies append-only application preparation and owner-reported workflow revisions. */
+export async function applyUniversityApplicationDetailsMigration(): Promise<void> {
+  await applyUniversityApplicationWorkflowMigration();
+  universityApplicationDetailsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
+  ]);
+  await universityApplicationDetailsMigrated;
+}
+
+/** Applies durable archive-complete literal-search jobs after memory ingress. */
+export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
+  await applyMemoryIngressMigration();
+  archiveLiteralHistoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
+  ]);
+  await archiveLiteralHistoryMigrated;
+}
+
+/** Applies automatic-distillation receipts and cursor guards after literal history. */
+export async function applyMemoryDistillationMigration(): Promise<void> {
+  await applyArchiveLiteralHistoryMigration();
+  memoryDistillationMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0026_memory_distillation.sql", queries: splitMigration(memoryDistillationSql) },
+  ]);
+  await memoryDistillationMigrated;
+}
+
+/** Applies verified school observations and derived missing-work transitions. */
+export async function applySchoolObservationsMigration(): Promise<void> {
+  await applyStudyCoachMigration();
+  await applyArchiveLiteralHistoryMigration();
+  schoolObservationsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
+  ]);
+  await schoolObservationsMigrated;
+}
+
+/** Applies fair, resumable guest-notice drain state after the delivery outbox. */
+export async function applyGuestGrantNoticeDrainMigration(): Promise<void> {
+  await applyVoiceOwnerDeliveryMigration();
+  guestGrantNoticeDrainMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0028_guest_grant_notice_drain.sql", queries: splitMigration(guestGrantNoticeDrainSql) },
+  ]);
+  await guestGrantNoticeDrainMigrated;
+}
+
+/** Applies durable daily study claims and direct-owner signal controls. */
+export async function applyStudyCoachWeakSpotsMigration(): Promise<void> {
+  await applySchoolObservationsMigration();
+  await applyGuestGrantNoticeDrainMigration();
+  studyCoachWeakSpotsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
+  ]);
+  await studyCoachWeakSpotsMigrated;
+}
+
+/** Applies durable custom-backup cuts, progress, verification and alert claims. */
+export async function applyMemoryBackupMigration(): Promise<void> {
+  await applyStudyCoachWeakSpotsMigration();
+  await applyUniversityApplicationDetailsMigration();
+  await applyMemoryDistillationMigration();
+  memoryBackupMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+  ]);
+  await memoryBackupMigrated;
+}
+
+/** Applies living-note history, receipts and immediate derivation redaction. */
+export async function applyMemoryLivingNotesMigration(): Promise<void> {
+  await applyMemoryBackupMigration();
+  memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+  ]);
+  await memoryLivingNotesMigrated;
+}
+
+/**
+ * Applies the newest prefix of the runtime schema: the D2L notification-email
+ * receipt and the detail column on `scheduled_runs`.
+ *
+ * Named for the migration that introduced it and extended here, so every
+ * fixture that already asked for the current schema keeps getting the current
+ * schema instead of silently pinning itself one migration back.
+ */
+export async function applyD2lNotificationEmailMigration(): Promise<void> {
+  await applyMemoryLivingNotesMigration();
+  d2lNotificationEmailMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
+    { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
+  ]);
+  await d2lNotificationEmailMigrated;
+}
+
+const allCloudGatewayMigrations = Object.freeze([
+  ...voiceAccessBaseMigrations,
+  voiceAccessBoundariesMigration,
+  ...assistantMigrations,
+  { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
+  { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
+  { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
+  { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+  { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+  { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+  { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
+  { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
+  { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
+  { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
+  { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
+  { name: "0026_memory_distillation.sql", queries: splitMigration(memoryDistillationSql) },
+  { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
+  { name: "0028_guest_grant_notice_drain.sql", queries: splitMigration(guestGrantNoticeDrainSql) },
+  { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
+  { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
+  { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+  { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+  { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
+  { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
+]);
+
+/** Rebuilds this isolated test binding as a newly migrated restore target. */
+export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void> {
+  await applyD2lNotificationEmailMigration();
+  const virtualTables = await env.DB.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`).all<{ name: string }>();
+  const views = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'view'")
+    .all<{ name: string }>();
+  const triggers = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
+    .all<{ name: string }>();
+  // `_cf_` is D1's reserved namespace, so a DROP or CREATE inside it is refused;
+  // leave those tables alone instead of reading Cloudflare's bookkeeping as schema.
+  const tables = await env.DB.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) != '_cf_'`)
+    .all<{ name: string }>();
+  const virtualNames = virtualTables.results.map(({ name }) => name);
+  const regularNames = tables.results.map(({ name }) => name).filter((name) =>
+    !virtualNames.includes(name) && !virtualNames.some((virtual) => name.startsWith(`${virtual}_`)));
+  const foreignKeys = await env.DB.batch(regularNames.map((name) => {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    return env.DB.prepare(`PRAGMA foreign_key_list(${name})`);
+  }));
+  const dependencies = new Map(regularNames.map((name) => [name, new Set<string>()]));
+  const incoming = new Map(regularNames.map((name) => [name, 0]));
+  for (let index = 0; index < regularNames.length; index += 1) {
+    const child = regularNames[index]!;
+    for (const row of ((foreignKeys[index]?.results as Array<{ table: string }> | undefined) ?? [])) {
+      if (row.table === child || !dependencies.has(row.table) || dependencies.get(child)?.has(row.table)) continue;
+      dependencies.get(child)?.add(row.table);
+      incoming.set(row.table, (incoming.get(row.table) ?? 0) + 1);
+    }
+  }
+  const ready = regularNames.filter((name) => incoming.get(name) === 0);
+  const dropOrder: string[] = [];
+  while (ready.length > 0) {
+    const child = ready.shift()!;
+    dropOrder.push(child);
+    for (const parent of dependencies.get(child) ?? []) {
+      const next = (incoming.get(parent) ?? 0) - 1;
+      incoming.set(parent, next);
+      if (next === 0) ready.push(parent);
+    }
+  }
+  dropOrder.push(...regularNames.filter((name) => !dropOrder.includes(name)).reverse());
+  const dropStatements: D1PreparedStatement[] = [env.DB.prepare("PRAGMA defer_foreign_keys = ON")];
+  for (const { name } of triggers.results) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TRIGGER ${name}`));
+  }
+  for (const { name } of views.results) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP VIEW ${name}`));
+  }
+  for (const name of virtualNames) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TABLE ${name}`));
+  }
+  for (const name of dropOrder) {
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error("test_schema_name_invalid");
+    dropStatements.push(env.DB.prepare(`DROP TABLE ${name}`));
+  }
+  await env.DB.batch(dropStatements);
+  await applyD1Migrations(env.DB, [...allCloudGatewayMigrations]);
+  await env.DB.exec("PRAGMA foreign_keys = ON");
+}
+
+/** Test-only reset that preserves and restores every production backup guard. */
+export async function clearMemoryBackupDataForTest(): Promise<void> {
+  // Backup's authoritative inventory must always have its newest tables. A
+  // partial schema makes a healthy backup look like an operational failure.
+  await applyD2lNotificationEmailMigration();
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name LIKE 'memory_backup_%'`)
+    .all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM memory_backup_alerts"),
+      env.DB.prepare("DELETE FROM memory_backup_objects"),
+      env.DB.prepare("DELETE FROM memory_backup_table_cuts"),
+      env.DB.prepare("DELETE FROM memory_backup_runs"),
+      env.DB.prepare("DELETE FROM memory_backup_row_ordinals"),
+    ]);
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/** Test-only reset for the singleton drain checkpoint. */
+export async function clearGuestGrantNoticeDrainStateForTest(): Promise<void> {
+  await applyGuestGrantNoticeDrainMigration();
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND tbl_name = 'guest_grant_notice_drain_state'`)
+    .all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  try {
+    await env.DB.prepare("DELETE FROM guest_grant_notice_drain_state").run();
+    await env.DB.prepare(`INSERT INTO guest_grant_notice_drain_state (
+      singleton_id, status, cursor_created_at, cursor_mutation_id,
+      run_id, lease_expires_at, updated_at, failure_code
+    ) VALUES (1, 'ready', NULL, NULL, NULL, NULL, '1970-01-01T00:00:00.000Z', NULL)`).run();
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/** Test-only reset for immutable per-call step-up and guest-attempt records. */
+export async function clearOwnerCallStepUpDataForTest(): Promise<void> {
+  await applyVoiceOwnerDeliveryMigration();
+  const tables = [
+    "guest_grant_notices", "owner_call_step_up_rejection_deliveries",
+    "owner_call_step_up_disabled_rejections",
+    "owner_call_step_up_repeat_checks", "owner_call_step_up_rejections",
+    "owner_call_step_up_successes", "owner_call_step_up_reprompts",
+    "owner_call_step_up_attempts", "owner_call_step_up_windows",
+    "owner_call_step_up_bindings", "guest_call_pin_attempts",
+  ] as const;
+  const guards = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND tbl_name IN (${tables.map(() => "?").join(", ")})`,
+  ).bind(...tables).all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS call_session_authorities_delete_forbidden").run();
+  try {
+    await env.DB.prepare("DELETE FROM call_session_authorities").run();
+    for (const table of tables) await env.DB.prepare(`DELETE FROM ${table}`).run();
+    await env.DB.prepare("DELETE FROM owner_call_step_up_alerts").run();
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+    await env.DB.prepare(`CREATE TRIGGER call_session_authorities_delete_forbidden
+      BEFORE DELETE ON call_session_authorities
+      BEGIN SELECT RAISE(ABORT, 'call_session_authority_delete_forbidden'); END`).run();
+  }
+}
+
+/** Test-only reset for append-only owner-passphrase history. */
+export async function clearOwnerPassphraseDataForTest(): Promise<void> {
+  await applyOwnerPassphraseMigration();
+  const deleteGuards = [
+    "owner_passphrase_heads_delete_forbidden",
+    "owner_passphrase_disable_commits_delete_forbidden",
+    "owner_passphrase_rotation_commits_delete_forbidden",
+    "owner_passphrase_verifiers_delete_forbidden",
+  ] as const;
+  const installed = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema WHERE type = 'trigger'
+     AND name IN (${deleteGuards.map(() => "?").join(", ")})`,
+  ).bind(...deleteGuards).all<{ name: string; sql: string }>();
+  for (const name of deleteGuards) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
+  try {
+    await env.DB.prepare("DELETE FROM owner_passphrase_heads").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_disable_commits").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_rotation_commits").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_verifiers").run();
+  } finally {
+    for (const guard of installed.results) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([

@@ -34,10 +34,14 @@ async function readJson(url: string, authorization: string, fetcher: typeof fetc
     const work = (async () => {
       const response = await fetcher(url, {
         method: "GET", headers: { authorization, accept: "application/json" },
-        redirect: "error", cache: "no-store", signal: controller.signal,
+        redirect: "manual", cache: "no-store", signal: controller.signal,
       });
       if (controller.signal.aborted) { void response.body?.cancel(); throw unavailable(); }
-      if (!response.ok || response.redirected || response.body === null) throw unavailable();
+      if (!response.ok || response.redirected || (response.type as string) === "opaqueredirect"
+        || response.status === 0 || response.body === null) {
+        void response.body?.cancel().catch(() => undefined);
+        throw unavailable();
+      }
       // A cached balance cannot acquire a new observedAt just because this
       // request was recent. The provider supplies no timestamp for credit.
       const age = response.headers.get("age");

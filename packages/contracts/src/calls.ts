@@ -3,6 +3,7 @@ import type { VoiceAccessBinding } from "./voice-access.js";
 
 const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
+const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{8})(?!\d)/gi;
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
@@ -95,19 +96,24 @@ function issueSanitizedRedaction(text: string, markers: readonly RedactionMarker
   return result;
 }
 
-/** Recognizes only tokens minted by issueRedaction in this module instance. */
+/** Recognizes only redaction tokens minted by this module instance. */
 export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction {
   return value !== null && typeof value === "object" && issuedRedactions.has(value);
 }
 
 /**
- * The only redaction-token issuer. It removes secrets before minting an opaque,
- * frozen token; failure values never retain the original input.
+ * Removes secrets before minting an opaque, frozen token; failure values never
+ * retain the original input.
  */
-export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): RedactionResult {
+export function sanitizeRedaction(
+  text: string,
+  fieldMarker?: RedactionMarker,
+  structuralUlid = false,
+): RedactionResult {
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
+    if (structuralUlid && LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);
     const markers: RedactionMarker[] = [];
     const mark = (marker: RedactionMarker) => {
       if (!markers.includes(marker)) markers.push(marker);

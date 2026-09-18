@@ -14,6 +14,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20260830.1
         version: 5.20260830.1
+      '@iarna/toml':
+        specifier: 2.2.5
+        version: 2.2.5
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -29,6 +32,9 @@ importers:
       fflate:
         specifier: 0.8.2
         version: 0.8.2
+      postal-mime:
+        specifier: 3.0.0
+        version: 3.0.0
 
   apps/hermes-runtime:
     devDependencies:
@@ -930,6 +936,9 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
+  postal-mime@3.0.0:
+    resolution: {integrity: sha512-Z4a9ar2Bv3YpK3IXag+Yda30k7bMZfpRuUGyqtHnZ2pjHG8Bl62EhZIk4n1dzv00gfzP9g+94e9kd8+XmjVWLA==}
+
   postcss@8.5.26:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1748,6 +1757,8 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
+
+  postal-mime@3.0.0: {}
 
   postcss@8.5.26:
     dependencies:

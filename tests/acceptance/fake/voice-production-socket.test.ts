@@ -1,11 +1,20 @@
 import { env, evictDurableObject } from "cloudflare:test";
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
-import { FAKE_PIN_A, seedFakeGuest } from "./voice-access-system.js";
+import {
+  FAKE_OWNER_PASSPHRASE,
+  FAKE_OWNER_PASSPHRASE_PEPPER,
+  FAKE_PIN_A,
+  seedFakeGuest,
+  seedFakeOwnerPassphrase,
+} from "./voice-access-system.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
-import { applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
-  clearConversationDataForTest, clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
+import { applyCloudMemoryMigration, applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
+  applyVoiceOwnerDeliveryMigration, clearConversationDataForTest, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
+  clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
+import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
+import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
 const ACCOUNT_SID = `AC${"6".repeat(32)}`;
@@ -23,6 +32,8 @@ describe("production voice through the real DO stub and socket", () => {
 
   beforeEach(async () => {
     await applyVoiceRuntimeMigration();
+    await applyVoiceOwnerDeliveryMigration();
+    await applyCloudMemoryMigration();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     requests = []; credit = "15"; creditFails = false; modelBodies = []; sessionId = newUlid();
@@ -55,18 +66,22 @@ describe("production voice through the real DO stub and socket", () => {
       env.DB.prepare(`INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at)
         VALUES (1, 'principal:owner', 'identity:voice', ?)`).bind(NOW.toISOString()),
     ]);
+    await seedFakeOwnerPassphrase();
   });
 
   afterEach(async () => {
     client?.close(); client = undefined;
     await evictDurableObject(stub(), { webSockets: "close" });
+    await clearOwnerCallStepUpDataForTest();
     await clearCallSessionsForTest();
     await clearAuthenticationAttemptReservationsForTest();
     await clearConversationDataForTest();
+    await clearOwnerPassphraseDataForTest();
     await clearVoiceAccessDataForTest();
     await env.DB.batch([env.DB.prepare("DELETE FROM capacity_alert_crossings"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
-      env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM principals")]);
+      env.DB.prepare("DELETE FROM device_keys"), env.DB.prepare("DELETE FROM channel_identities"),
+      env.DB.prepare("DELETE FROM principals")]);
     vi.restoreAllMocks(); vi.useRealTimers();
   });
 
@@ -75,6 +90,16 @@ describe("production voice through the real DO stub and socket", () => {
       300_000, () => sessionId);
     const stored = await repository.getOrCreateInboundSession({ callSid: CALL_SID, callerE164: caller,
       ownerIdentityId: "identity:voice", currentChallengeHmacKeyVersion: "identity-hmac-v1", now: NOW });
+    if (stored.binding.accessKind === "owner") {
+      await new OwnerCallStepUpService(
+        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
+      ).bind({
+        sessionId: stored.sessionId, callSid: stored.callSid,
+        ownerPrincipalId: stored.binding.principalId, ownerIdentityId: stored.binding.identityId,
+        direction: "inbound", lifecycleGeneration: 1, requirement: "required",
+        attestationClass: "absent", policy: "passphrase_always", createdAt: stored.createdAt,
+      });
+    }
     await stub().initialize({ sessionId: stored.sessionId, binding: stored.binding, relaySetupExpiresAt: stored.relaySetupExpiresAt! });
     const response = await stub().fetch(new Request(`https://internal/voice/relay/${stored.sessionId}`,
       { headers: { Upgrade: "websocket" } }));
@@ -87,8 +112,12 @@ describe("production voice through the real DO stub and socket", () => {
     client.addEventListener("close", (event) => { closes.push(event.code); });
     client.send(JSON.stringify({ type: "setup", sessionId: PROVIDER_SESSION_ID, accountSid: ACCOUNT_SID,
       callSid: CALL_SID, direction: "inbound", customParameters: { relayNonce: stored.binding.relayNonce } }));
-    await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase)
-      .toBe(stored.binding.accessKind === "guest" ? "pre_auth" : "active"));
+    await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("pre_auth"));
+    if (stored.binding.accessKind === "owner") {
+      client.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
+      await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("active"));
+      vi.advanceTimersByTime(2_001);
+    }
     return { repository, stored, frames, closes,
       prompt: (voicePrompt: string) => client!.send(JSON.stringify({ type: "prompt", voicePrompt, lang: "en-US", last: true })),
       digit: (digit: number) => client!.send(JSON.stringify({ type: "dtmf", digit: String.fromCharCode(digit) })),

@@ -33,10 +33,35 @@ export const DAILY_CRON = "30 11,12 * * *";
 const DIGEST_LOCAL_HOUR = 7;
 
 /** Sunday evening, per the plan. Local hour, same reasoning as the digest. */
-const RETRO_LOCAL_HOUR = 19;
-const RETRO_CRON = "30 23,0 * * *";
+const NIGHT_LOCAL_HOUR = 19;
+export const NIGHT_CRON = "30 23,0 * * *";
 
-export type ScheduledJob = "drain" | "poll" | "digest" | "retro";
+export type ScheduledJob = "drain" | "poll" | "digest" | "retro" | "backup";
+
+/**
+ * Every job name, as a value.
+ *
+ * The `Record<ScheduledJob, number>` is the guarantee: adding a member to
+ * `ScheduledJob` without listing it here is a compile error, so a job cannot
+ * become invisible to `/status` by being forgotten. Status used to iterate a
+ * hardcoded three, and the two jobs outside that literal -- including the
+ * nightly backup -- could fail every night without ever appearing on the
+ * owner's own status screen.
+ *
+ * The values are the display order.
+ */
+const JOB_DISPLAY_ORDER: Readonly<Record<ScheduledJob, number>> = Object.freeze({
+  drain: 0,
+  poll: 1,
+  digest: 2,
+  retro: 3,
+  backup: 4,
+});
+
+export const SCHEDULED_JOB_NAMES: readonly ScheduledJob[] = Object.freeze(
+  (Object.keys(JOB_DISPLAY_ORDER) as ScheduledJob[])
+    .sort((left, right) => JOB_DISPLAY_ORDER[left] - JOB_DISPLAY_ORDER[right]),
+);
 
 export interface ScheduledWork {
   readonly job: ScheduledJob;
@@ -91,13 +116,15 @@ export function routeCron(
     return [{ job: "digest", runKey: localDate(instant, timeZone) }];
   }
 
-  if (cron === RETRO_CRON) {
-    if (localHour(instant, timeZone) !== RETRO_LOCAL_HOUR) return [];
+  if (cron === NIGHT_CRON) {
+    if (localHour(instant, timeZone) !== NIGHT_LOCAL_HOUR) return [];
+    const date = localDate(instant, timeZone);
     // Sunday in the owner's week, not in UTC's. Late Sunday evening in
     // Toronto is already Monday in UTC, and keying off the UTC day would send
     // the retro on the wrong evening for half of every year.
-    if (localWeekday(instant, timeZone) !== 0) return [];
-    return [{ job: "retro", runKey: localDate(instant, timeZone) }];
+    return localWeekday(instant, timeZone) === 0
+      ? [{ job: "retro", runKey: date }, { job: "backup", runKey: date }]
+      : [{ job: "backup", runKey: date }];
   }
 
   return [];
@@ -108,5 +135,5 @@ export const ROUTED_CRONS: readonly string[] = Object.freeze([
   DRAIN_CRON,
   POLL_CRON,
   DAILY_CRON,
-  RETRO_CRON,
+  NIGHT_CRON,
 ]);

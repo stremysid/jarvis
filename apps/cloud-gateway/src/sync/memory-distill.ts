@@ -17,9 +17,9 @@
 
 import type { ModelAdapter } from "../model/model-types.js";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
-import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
-import { hasFactTextControls, MAX_MEMORY_FACT_BYTES, MAX_MEMORY_FACT_SOURCES } from "../../../../packages/contracts/src/memory-projection.js";
+import { hasFactTextControls } from "../../../../packages/contracts/src/memory-projection.js";
 import { collectStream } from "../providers/deepseek-provider.js";
+import { validateExtractionProposal } from "../memory/extraction-policy.js";
 
 export const DISTILL_PATH = "/memory/distill";
 
@@ -32,11 +32,6 @@ const MAX_OUTPUT_CHARACTERS = 8_000;
 const MAX_EXCERPTS = 32;
 const MAX_EXCERPT_CHARACTERS = 4_000;
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
-
-/** Mirrors the agent's list. A proposal carrying any of these is refused. */
-const FORBIDDEN_KEYS = new Set([
-  "tool", "tool_call", "function", "function_call", "action", "command", "state",
-]);
 
 const INSTRUCTIONS = [
   "You extract durable facts about the user from excerpts of their own messages.",
@@ -59,6 +54,8 @@ export interface DistillProposal {
   readonly text: string;
   readonly sourceEventIds: readonly string[];
   readonly confidence: number;
+  readonly origin: "model";
+  readonly uncertain: true;
 }
 
 export interface DistillDependencies {
@@ -99,31 +96,14 @@ export function validateProposal(
   value: unknown,
   supplied: ReadonlySet<string>,
 ): DistillProposal | null {
-  if (!isPlainObject(value)) return null;
-  for (const key of Object.keys(value)) {
-    // A tool call or a self-declared state is a model trying to act rather
-    // than observe.
-    if (FORBIDDEN_KEYS.has(key)) return null;
-  }
-
-  const { text, sourceEventIds, confidence } = value;
-  if (typeof text !== "string" || text.trim().length === 0) return null;
-  if (new TextEncoder().encode(text).byteLength > MAX_MEMORY_FACT_BYTES) return null;
-  if (hasFactTextControls(text)) return null;
-  const checked = sanitizeRedaction(text);
-  if (!checked.ok || checked.text !== text) return null;
-
-  if (!Array.isArray(sourceEventIds) || sourceEventIds.length === 0
-    || sourceEventIds.length > MAX_MEMORY_FACT_SOURCES) return null;
-  if (sourceEventIds.some((id) => typeof id !== "string" || !supplied.has(id))) return null;
-
-  const score = confidence === undefined ? 1 : confidence;
-  if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 1) return null;
-
+  const validated = validateExtractionProposal(value, supplied);
+  if (validated === null) return null;
   return {
-    text: text.trim(),
-    sourceEventIds: Object.freeze([...(sourceEventIds as string[])]),
-    confidence: score,
+    text: validated.text,
+    sourceEventIds: validated.sourceEventIds,
+    confidence: validated.confidence,
+    origin: validated.origin,
+    uncertain: validated.uncertain,
   };
 }
 

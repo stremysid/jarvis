@@ -1,0 +1,364 @@
+{
+  "schemaVersion": "1.0",
+  "firstPersonCases": [
+    {
+      "name": "accepts an exact first-person quote from the authenticated owner",
+      "quote": "I prefer short status updates",
+      "sourceText": "I prefer short status updates.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects a first-person sentence cut from a longer message",
+      "quote": "I’m renovating St. Remy",
+      "sourceText": "Earlier note. I’m renovating St. Remy. Another note.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a paraphrase that is not an exact source quote",
+      "quote": "I like concise updates",
+      "sourceText": "I prefer short status updates.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects first-person words from an unauthenticated speaker",
+      "quote": "My address is 10 Example Road",
+      "sourceText": "My address is 10 Example Road.",
+      "authenticatedOwner": false,
+      "expected": false
+    },
+    {
+      "name": "rejects an authenticated statement about somebody else",
+      "quote": "Sam prefers short status updates",
+      "sourceText": "Sam prefers short status updates.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a first-person token embedded inside another word",
+      "quote": "mystery",
+      "sourceText": "The mystery remains unsolved.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a desired move quoted out of an owner hedge",
+      "quote": "I want to move to Boston",
+      "sourceText": "I don't know if I want to move to Boston.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a statement quoted out of an owner question",
+      "quote": "I sell my car",
+      "sourceText": "Should I sell my car?",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a first-person quote inside reported speech",
+      "quote": "I'm lazy",
+      "sourceText": "My brother says I'm lazy.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a future action quoted out of a conditional",
+      "quote": "I'll move to Ottawa",
+      "sourceText": "If I get the job I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a prefix quote inside a denial question",
+      "quote": "I hate my job",
+      "sourceText": "Did I say I hate my jobs? No.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner question",
+      "quote": "Should I sell my car?",
+      "sourceText": "Should I sell my car?",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner conditional",
+      "quote": "If I get the job, I'll move to Ottawa.",
+      "sourceText": "If I get the job, I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole hedged owner statement",
+      "quote": "I might move to Ottawa.",
+      "sourceText": "I might move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "trusts a whole direct report without extracting its inner quote",
+      "quote": "I said I'm moving to Ottawa.",
+      "sourceText": "I said I'm moving to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects a whole owner sentence framed with I think",
+      "quote": "I think I'll move to Ottawa.",
+      "sourceText": "I think I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as not sure",
+      "quote": "I'm not sure I'll move to Ottawa.",
+      "sourceText": "I'm not sure I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as not knowing",
+      "quote": "I don't know my preferred report length.",
+      "sourceText": "I don't know my preferred report length.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects two sentences combined into one trusted quote",
+      "quote": "I'm fine. Sam approved the payment.",
+      "sourceText": "I'm fine. Sam approved the payment.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with probably",
+      "quote": "I'll probably move to Ottawa.",
+      "sourceText": "I'll probably move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with perhaps",
+      "quote": "Perhaps I'll move to Ottawa.",
+      "sourceText": "Perhaps I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as a guess",
+      "quote": "I guess I'm moving to Ottawa.",
+      "sourceText": "I guess I'm moving to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as a supposition",
+      "quote": "I suppose I'm moving to Ottawa.",
+      "sourceText": "I suppose I'm moving to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with could",
+      "quote": "I could move to Ottawa.",
+      "sourceText": "I could move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with would",
+      "quote": "I would move to Ottawa.",
+      "sourceText": "I would move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "trusts an explicit would-like preference",
+      "quote": "I would like short reports.",
+      "sourceText": "I would like short reports.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "trusts an explicit contracted preference",
+      "quote": "I'd like short reports.",
+      "sourceText": "I'd like short reports.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects a contracted would statement outside a preference construction",
+      "quote": "I'd move to Ottawa.",
+      "sourceText": "I'd move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "allows a decimal period inside one trusted sentence",
+      "quote": "I weigh 72.5 kg.",
+      "sourceText": "I weigh 72.5 kg.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects an interior exclamation mark joining two sentences",
+      "quote": "I'm fine! Sam approved the payment.",
+      "sourceText": "I'm fine! Sam approved the payment.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "allows a reviewed non-St abbreviation inside one trusted sentence",
+      "quote": "I prefer Dr. Brown.",
+      "sourceText": "I prefer Dr. Brown.",
+      "authenticatedOwner": true,
+      "expected": true
+    }
+  ],
+  "promotionCases": [
+    {
+      "name": "authenticated first-person evidence auto-promotes",
+      "origin": "authenticated_first_person",
+      "currentState": "proposed",
+      "expectedState": "active",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "deterministic observations auto-promote",
+      "origin": "deterministic_observation",
+      "currentState": "proposed",
+      "expectedState": "active",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "model guesses remain proposed and uncertain",
+      "origin": "model",
+      "currentState": "proposed",
+      "expectedState": "proposed",
+      "expectedUncertain": true,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "third-party claims remain proposed",
+      "origin": "third_party",
+      "currentState": "proposed",
+      "expectedState": "proposed",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "superseded facts cannot be revived by automatic promotion",
+      "origin": "authenticated_first_person",
+      "currentState": "superseded",
+      "expectedState": "superseded",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "automatic promotion never demotes an already active model fact",
+      "origin": "model",
+      "currentState": "active",
+      "expectedState": "active",
+      "expectedUncertain": true,
+      "expectedConfirmed": false
+    }
+  ],
+  "validationCases": [
+    {
+      "name": "normalizes a valid model proposal and ignores a claimed trusted origin",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "  Sid prefers concise completion reports.  ",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal",
+        "origin": "authenticated_first_person"
+      },
+      "expected": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "defaults omitted confidence and sensitivity without trusting the model",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
+        "text": "Sid is working on St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"]
+      },
+      "expected": {
+        "text": "Sid is working on St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 1,
+        "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "preserves an explicitly sensitive model proposal",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
+        "text": "Sid stores private records in the locked drawer.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 0.75,
+        "sensitivity": "sensitive"
+      },
+      "expected": {
+        "text": "Sid stores private records in the locked drawer.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 0.75,
+        "sensitivity": "sensitive",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "rejects a proposal that attempts to set lifecycle state",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "state": "active"
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects a proposal that cites an unsupplied source",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"]
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects a fact containing an unredacted authentication code",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Use code 123456.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"]
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects model text that is not NFC normalized",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid likes Cafe\u0301 St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"]
+      },
+      "expected": null
+    }
+  ]
+}

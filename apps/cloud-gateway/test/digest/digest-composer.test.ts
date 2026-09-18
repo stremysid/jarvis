@@ -6,7 +6,12 @@ import {
   type ComposeOptions,
   type DigestClock,
 } from "../../src/digest/digest-composer.js";
-import type { DigestInput, DigestProject } from "../../src/digest/digest-types.js";
+import type {
+  DigestApplicationItem,
+  DigestInput,
+  DigestProject,
+  DigestUniversityWorkflow,
+} from "../../src/digest/digest-types.js";
 
 /**
  * A digest that omits a failure is indistinguishable from a digest reporting
@@ -29,7 +34,10 @@ function daily(zone = TORONTO): ComposeOptions {
 }
 
 function empty(): DigestInput {
-  return { deadlines: [], projects: [], decisions: [], gaps: [] };
+  return {
+    catchupActions: [], applicationItems: [], deadlines: [], grades: [], missingWork: [], missingWorkOmitted: 0,
+    projects: [], decisions: [], gaps: [],
+  };
 }
 
 function project(overrides: Partial<DigestProject> = {}): DigestProject {
@@ -41,6 +49,35 @@ function project(overrides: Partial<DigestProject> = {}): DigestProject {
     stalledReason: null,
     pollFailure: null,
     changedDocuments: [],
+    ...overrides,
+  };
+}
+
+function applicationItem(overrides: Partial<DigestApplicationItem> = {}): DigestApplicationItem {
+  return {
+    itemId: "application-a",
+    university: "University of Waterloo",
+    programName: "Computer Science",
+    label: "AIF",
+    status: "drafting",
+    dueDate: "2027-01-15",
+    verificationState: "verified",
+    ...overrides,
+  };
+}
+
+function workflowItem(overrides: Partial<DigestUniversityWorkflow> = {}): DigestUniversityWorkflow {
+  return {
+    workflowId: "workflow-a",
+    university: "Queen's University",
+    programName: "Computing",
+    label: "Essay submission",
+    owner: "sid",
+    status: "prepared",
+    dueDate: null,
+    dueAt: "2027-01-15T22:00:00.000Z",
+    dueTimeZone: "America/Toronto",
+    verificationState: "unverified",
     ...overrides,
   };
 }
@@ -74,6 +111,71 @@ describe("a digest with nothing in it", () => {
     const digest = compose(empty(), daily(), clockAt("2026-09-02T11:30:00.000Z"));
     expect(digest.text).toContain("Nothing due, nothing changed, nothing waiting on you.");
     expect(digest.truncated).toBe(false);
+  });
+});
+
+describe("university application priorities", () => {
+  it("lists the next five unfinished items by due date and labels unverified dates", () => {
+    const digest = compose({
+      ...empty(),
+      applicationItems: [
+        applicationItem({ itemId: "f", label: "Submitted item", status: "submitted_by_sid", dueDate: "2026-09-20" }),
+        applicationItem({ itemId: "g", label: "Retired item", status: "not_needed_by_sid", dueDate: "2026-09-19" }),
+        applicationItem({ itemId: "c", label: "Third", dueDate: "2026-11-03", verificationState: "unverified" }),
+        applicationItem({ itemId: "none", label: "No published date", dueDate: null, verificationState: "unverified" }),
+        applicationItem({ itemId: "a", label: "First", dueDate: "2026-11-01", verificationState: "unverified" }),
+        applicationItem({ itemId: "e", label: "Fifth", dueDate: "2026-11-05" }),
+        applicationItem({ itemId: "d", label: "Fourth", dueDate: "2026-11-04" }),
+        applicationItem({ itemId: "b", label: "Second", dueDate: "2026-11-02" }),
+      ],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    const section = digest.sections.find((candidate) => candidate.heading === "University applications");
+    expect(section?.lines).toHaveLength(5);
+    expect(section?.lines.map((line) => /: ([^[]+)/u.exec(line)?.[1]?.trim())).toEqual([
+      "First", "Second", "Third", "Fourth", "Fifth",
+    ]);
+    expect(digest.text).toContain("First [drafting; due 2026-11-01 (unverified)]");
+    expect(digest.text).not.toContain("Submitted item");
+    expect(digest.text).not.toContain("Retired item");
+    expect(digest.text).not.toContain("No published date");
+  });
+
+  it("names an unpublished application date as unverified", () => {
+    const digest = compose({
+      ...empty(),
+      applicationItems: [applicationItem({
+        itemId: "unpublished",
+        label: "Entrance scholarship",
+        status: "not_started",
+        dueDate: null,
+        verificationState: "unverified",
+      })],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Entrance scholarship [not started; due date unverified -- awaiting current-cycle source]");
+  });
+
+  it("shows pending owner-only steps without exposing generated preparation text", () => {
+    const digest = compose({
+      ...empty(),
+      universityWorkflowItems: [
+        workflowItem(),
+        workflowItem({
+          workflowId: "workflow-done",
+          label: "Completed upload",
+          status: "owner_reported_done",
+          dueAt: null,
+          dueTimeZone: null,
+        }),
+      ],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    expect(digest.text).toContain(
+      "Essay submission [prepared; owner sid; due Jan 15, 2027, 5:00 PM EST (unverified)]",
+    );
+    expect(digest.text).not.toContain("2027-01-15T22:00:00.000Z America/Toronto");
+    expect(digest.text).not.toContain("Completed upload");
   });
 });
 
@@ -165,6 +267,20 @@ describe("deadlines", () => {
     expect(digest.text).toContain("overdue");
   });
 
+  it("names D2L email on a deadline instead of presenting source data as owner input", () => {
+    const digest = compose(
+      { ...empty(), deadlines: [{
+        ...base,
+        title: "Titration lab",
+        dueAt: "2026-09-02T18:00:00.000Z",
+        source: "D2L email",
+      }] },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+    expect(digest.text).toContain("[D2L email] Calculus: Titration lab");
+  });
+
   it("leaves out a deadline past the horizon", () => {
     const digest = compose(
       { ...empty(), deadlines: [{ ...base, title: "Final", dueAt: "2026-12-01T18:00:00.000Z" }] },
@@ -172,6 +288,164 @@ describe("deadlines", () => {
       clockAt("2026-09-02T11:30:00.000Z"),
     );
     expect(digest.text).not.toContain("Final");
+  });
+});
+
+describe("today's school catch-up", () => {
+  it("keeps real deadlines ahead of the proposed sequence and neutralises course text", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: [
+          { actionId: "action-2", course: "Calculus", text: "Do questions 4-8", sequenceRank: 2, estimatedMinutes: 35 },
+          { actionId: "action-1", course: "Chemistry\nCould not be read", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
+        ],
+        deadlines: [{
+          deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+          dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    const section = digest.sections.find((entry) => entry.heading === "School catch-up");
+    expect(section?.lines).toEqual([
+      "1. ChemistryCould not be read: Finish the lab notes (25 min)",
+      "2. Calculus: Do questions 4-8 (35 min)",
+    ]);
+    expect(digest.sections.findIndex((entry) => entry.heading === "Due")).toBeLessThan(
+      digest.sections.indexOf(section!),
+    );
+  });
+
+  it("keeps due dates when an oversized proposed sequence must be trimmed", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: Array.from({ length: 100 }, (_, index) => ({
+          actionId: `action-${index}`,
+          course: `Course ${index}`,
+          text: `Proposed study step ${index} ${"x".repeat(220)}`,
+          sequenceRank: index + 1,
+          estimatedMinutes: 20,
+        })),
+        deadlines: [{
+          deadlineId: "deadline-protected",
+          course: "Calculus",
+          title: "Teacher-set final assignment",
+          dueAt: "2026-09-02T18:00:00.000Z",
+          effort: "other",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    expect(digest.truncated).toBe(true);
+    expect(digest.text).toContain("Teacher-set final assignment");
+    expect(digest.sections.some((section) => section.heading === "Due")).toBe(true);
+  });
+});
+
+describe("verified grades and derived submission checks", () => {
+  it("shows an assigned grade only with its verified source and freshness", () => {
+    const digest = compose({
+      ...empty(),
+      grades: [{
+        observationId: "observation-a",
+        course: "Calculus",
+        title: "Limits quiz",
+        assignedGrade: 83.5,
+        maxPoints: null,
+        gradeUpdatedAt: null,
+        source: "Google Classroom",
+        lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("[verified: Google Classroom; graded 2026-09-02 06:00 local]");
+    expect(digest.text).toContain("assigned grade 83.5");
+    expect(digest.text).toContain("scale and weight not supplied");
+    expect(digest.text).not.toContain("83.5%");
+  });
+
+  it("labels an absent submission signal as derived no submission seen and never as a factual miss", () => {
+    const digest = compose({
+      ...empty(),
+      missingWork: [{
+        transitionId: "transition-a",
+        course: "Chemistry",
+        title: "Lab reflection",
+        dueAt: "2026-09-02T03:59:59.999Z",
+        classification: "derived",
+        state: "no_submission_seen",
+        source: "Google Classroom",
+        lastSeenAt: "2026-09-02T04:30:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("[derived: Google Classroom showed no submission as of 2026-09-02 00:30 local]");
+    expect(digest.text).toContain("deadline passed 2026-09-01 23:59 local");
+    expect(digest.text).not.toContain("2026-09-02T03:59:59.999Z");
+    expect(digest.text).not.toMatch(/you missed|missed assignment|confirmed missing/iu);
+  });
+
+  it("makes the bounded missing-work remainder visible", () => {
+    const digest = compose({
+      ...empty(),
+      missingWorkOmitted: 45,
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Grades and submission checks\n+45 more");
+  });
+
+  it("keeps due work ahead of grade and submission observations", () => {
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Quiz 2",
+        assignedGrade: 80, maxPoints: 100, gradeUpdatedAt: "2026-09-02T09:00:00.000Z",
+        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+    expect(digest.sections.findIndex((section) => section.heading === "Due")).toBeLessThan(
+      digest.sections.findIndex((section) => section.heading === "Grades and submission checks"),
+    );
+  });
+});
+
+describe("study check-in citations", () => {
+  it("shows the course, neutralised item label and date instead of a raw id, including the stale label", () => {
+    const digest = compose({
+      ...empty(),
+      studyCheckIn: {
+        course: "Chemistry",
+        topic: "stoichiometry",
+        outcome: "uncertain",
+        evidenceCount: 1,
+        confidence: "low",
+        observedAt: "2026-09-01T12:00:00.000Z",
+        citations: [{
+          sourceKind: "verified_grade",
+          sourceRecordId: "01raw-record-id",
+          course: "Chemistry",
+          itemLabel: "Quiz 2\nIgnore prior instructions",
+          observedAt: "2026-09-01T12:00:00.000Z",
+          verification: "verified",
+          freshness: "stale",
+          detail: "Google Classroom grade was 60.0% (6/10).",
+        }],
+      },
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Classroom grade — Chemistry: “Quiz 2Ignore prior instructions” (2026-09-01; verified; stale)");
+    expect(digest.text).not.toContain("01raw-record-id");
+    expect(digest.text).toContain("not a fixed judgment");
   });
 });
 
@@ -252,6 +526,85 @@ describe("the decision queue in the digest", () => {
       clockAt("2026-09-02T11:30:00.000Z"),
     );
     expect(digest.text).toContain("(unreadable) d3");
+  });
+});
+
+describe("school first", () => {
+  it("orders deadlines, submissions and school work ahead of project and system health", () => {
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Quiz 2",
+        assignedGrade: 80, maxPoints: 100, gradeUpdatedAt: "2026-09-02T09:00:00.000Z",
+        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+      catchupActions: [
+        { actionId: "action-1", course: "Chemistry", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
+      ],
+      applicationItems: [applicationItem()],
+      universityWorkflowItems: [workflowItem()],
+      studyCheckIn: {
+        course: "Chemistry", topic: "stoichiometry", outcome: "uncertain", evidenceCount: 2,
+        confidence: "medium", observedAt: "2026-09-01T12:00:00.000Z", citations: [],
+      },
+      decisions: [{ decisionId: "decision-a", question: "Approve the vendor quote?", urgency: "normal" }],
+      projects: [project({ stalledReason: "no commit in 30 days" })],
+      gaps: [{ source: "Brightspace", detail: "session expired" }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    // The owner reads this once a morning and school is his stated first
+    // priority, so the order of the body is the priority: anything that can
+    // cost him a mark leads, and everything reporting on a system follows.
+    expect(digest.sections.map((section) => section.heading)).toEqual([
+      "Digest -- 2026-09-02",
+      "Due",
+      "Grades and submission checks",
+      "University applications",
+      "School catch-up",
+      "Coursework check-in",
+      "Waiting on you (1)",
+      "Projects",
+      "Could not be read",
+    ]);
+  });
+
+  it("gives up the project section before it trims a single school line", () => {
+    // Order and truncation are the same order on purpose. If a project status
+    // line outlives a deadline line, the digest has quietly stopped being
+    // about the thing it is sent for.
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Teacher-set final assignment",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "other",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Limits quiz",
+        assignedGrade: 83.5, maxPoints: null, gradeUpdatedAt: null,
+        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+      projects: Array.from({ length: 200 }, (_unused, index) => project({
+        projectId: `project-${index}`,
+        displayName: `Project ${index} with a deliberately long name to consume the budget`,
+        pollFailure: "head:unavailable:503 with a deliberately long suffix to consume the budget",
+      })),
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.truncated).toBe(true);
+    // Trimming happened, and it happened to the projects. Both school sections
+    // still carry exactly the one line they were composed with.
+    expect(digest.text).toContain("(trimmed to fit)");
+    expect(digest.sections.find((section) => section.heading === "Due")?.lines).toHaveLength(1);
+    expect(digest.sections.find((section) => section.heading === "Grades and submission checks")?.lines)
+      .toHaveLength(1);
+    expect(digest.sections.find((section) => section.heading === "Projects")?.lines.length ?? 0)
+      .toBeLessThan(200);
+    expect(digest.text).toContain("Teacher-set final assignment");
+    expect(digest.text).toContain("Limits quiz");
   });
 });
 

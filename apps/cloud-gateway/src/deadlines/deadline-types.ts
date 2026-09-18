@@ -2,17 +2,17 @@
  * The deadline store's vocabulary: a source, a deadline, the revisions of a
  * deadline, a quiet window, and the shape a source hands to ingestion.
  *
- * Two sources feed this -- the Google Classroom API and an authenticated
- * Brightspace scrape -- and the plan is explicit that both are load-bearing,
- * because coverage is split by teacher rather than by course. Once ingested
- * they are the same thing: a due date with a lead time. Nothing below this
- * line asks where a deadline came from, which is what makes a third source
+ * Two sources feed this -- the Google Classroom API and Brightspace's private
+ * calendar-subscription feed -- and the plan is explicit that both are
+ * load-bearing, because coverage is split by teacher rather than by course.
+ * Once ingested they are the same thing: a due date with a lead time. Nothing
+ * below this line asks where a deadline came from, which makes a third source
  * cost nothing but an adapter.
  *
  * Everything that arrives from a source is untrusted text. A coursework title
- * is written by a teacher into a system we do not control, and a scraped page
- * is whatever HTML the vendor served that morning. This subsystem extracts
- * structured data from it and never treats it as an instruction: a title is
+ * is written by a teacher into a system we do not control, and a provider
+ * response is whatever text the vendor served that morning. This subsystem
+ * extracts structured data from it and never treats it as an instruction: a title is
  * matched against a fixed keyword table, bound into SQL as a parameter, and
  * stored. It is never composed into a model prompt as though the owner had
  * said it, and nothing here builds a request, a path, or a regular expression
@@ -141,10 +141,9 @@ export interface DeadlineSource {
   readonly active: boolean;
   readonly lastSuccessAt: string | null;
   /**
-   * The last failure, kept until the next success. A source that has been
-   * failing silently for a week reads downstream as "nothing due", which is
-   * the failure the plan names by name; this pair is how anything downstream
-   * can tell the two apart.
+   * The last health gap, kept until an ordinary success. A source that has
+   * been failing or returning a bounded partial result reads downstream as
+   * "nothing due" without this pair, which is the failure the plan names.
    */
   readonly lastFailure: string | null;
   readonly lastFailureAt: string | null;
@@ -175,6 +174,14 @@ export interface Deadline {
   readonly remindedAt: string | null;
 }
 
+/** One bounded open deadline with enough source health to label a study signal. */
+export interface StudyDeadlineCandidate {
+  readonly deadline: Deadline;
+  readonly sourceKind: DeadlineSourceKind;
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
 /** One version of a deadline as it was seen. Append-only; the table refuses UPDATE and DELETE. */
 export interface DeadlineRevision {
   readonly revisionId: string;
@@ -198,13 +205,9 @@ export interface QuietWindow {
 }
 
 /**
- * What a source hands to ingestion.
- *
- * The Brightspace scraper is not built here -- it needs a real authenticated
- * browser session and lives in the local agent, because this board publishes
- * no API and no iCal feed. This is the interface it will feed, and it carries
- * no HTML, no page, no URL and no cookie: a scraper that has already reduced a
- * page to these fields has nothing left to smuggle through.
+ * What a source hands to ingestion. The Brightspace adapter reduces the
+ * private iCalendar response to this shape before storage. It carries no feed
+ * URL, response body, HTML, cookie, or browser session across the boundary.
  */
 export interface RawDeadlineItem {
   readonly externalId: string;

@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DeadlineRepository,
+  STUDY_DEADLINE_ROW_LIMIT,
   deadlineContentHash,
   truncateFailure,
 } from "../../src/deadlines/deadline-repository.js";
@@ -39,6 +40,29 @@ describe("DeadlineRepository", () => {
       ...overrides,
     });
   }
+
+  it("ensures a stable scheduled source idempotently without reactivating an owner-disabled source", async () => {
+    await resetDeadlineTables();
+    const first = await repository.ensureSource({
+      sourceId: "google-classroom",
+      kind: "classroom",
+      label: "Google Classroom",
+      now: MONDAY,
+      active: false,
+    });
+    const second = await repository.ensureSource({
+      sourceId: "google-classroom",
+      kind: "classroom",
+      label: "Renamed by code",
+      now: TUESDAY,
+      active: true,
+    });
+
+    expect(first.sourceId).toBe("google-classroom");
+    expect(second).toEqual(first);
+    expect(second.active).toBe(false);
+    expect(await repository.listSources()).toHaveLength(1);
+  });
 
   it("writes a new deadline and its first version together, so the history starts where the deadline does", async () => {
     const result = await upsert();
@@ -154,6 +178,36 @@ describe("DeadlineRepository", () => {
     expect(recovered?.lastSuccessAt).toBe("2026-09-09T12:00:00.000Z");
   });
 
+  it("does not let an overlapping older sweep move source health backwards", async () => {
+    await repository.recordSourceSuccess(sourceId, WEDNESDAY, "source_items_truncated:4");
+
+    await expect(repository.recordSourceSuccess(sourceId, TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: "source_items_truncated:4",
+      lastFailureAt: WEDNESDAY.toISOString(),
+    });
+  });
+
+  it("does not let an overlapping older failure replace newer source health", async () => {
+    await repository.recordSourceSuccess(sourceId, WEDNESDAY);
+
+    await expect(repository.recordSourceFailure(sourceId, "older sweep failed", TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: null,
+      lastFailureAt: null,
+    });
+
+    await repository.recordSourceFailure(sourceId, "new failure", WEDNESDAY);
+    await expect(repository.recordSourceFailure(sourceId, "older retry", TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: "new failure",
+      lastFailureAt: WEDNESDAY.toISOString(),
+    });
+  });
+
   it("bounds a failure reason so the write reporting a fault cannot be aborted by it", async () => {
     const scraped = `<html>${"x".repeat(4000)}</html>`;
     expect(truncateFailure(scraped).length).toBe(512);
@@ -171,6 +225,45 @@ describe("DeadlineRepository", () => {
 
     const next = await repository.listDueWithin({ from: "2026-09-12T00:00:00.000Z", to: "2026-09-13T00:00:00.000Z" });
     expect(next.map((deadline) => deadline.externalId)).toEqual(["c"]);
+  });
+
+  it("bounds study candidates to open near-due rows ordered soonest-first from now", async () => {
+    await repository.recordSourceSuccess(sourceId, MONDAY);
+    let cancelledId = "";
+    for (let index = 0; index < STUDY_DEADLINE_ROW_LIMIT + 2; index += 1) {
+      const created = await upsert({
+        externalId: `study-${String(index).padStart(2, "0")}`,
+        dueAt: minutesAfter(TUESDAY, index + 1).toISOString(),
+        now: TUESDAY,
+      });
+      if (index === 0) cancelledId = created.deadline.externalId;
+    }
+    await upsert({
+      externalId: "past-for-study",
+      dueAt: minutesAfter(TUESDAY, -1).toISOString(),
+      now: TUESDAY,
+    });
+    await upsert({
+      externalId: "too-far-for-study",
+      dueAt: minutesAfter(TUESDAY, 73 * 60).toISOString(),
+      now: TUESDAY,
+    });
+    await repository.cancelOpenByExternalId(sourceId, cancelledId, TUESDAY);
+    await repository.recordSourceFailure(sourceId, "classroom_temporarily_unavailable", TUESDAY);
+
+    const candidates = await repository.listStudyCandidates(TUESDAY);
+
+    expect(candidates).toHaveLength(STUDY_DEADLINE_ROW_LIMIT);
+    expect(candidates.every((candidate) => candidate.deadline.status === "open")).toBe(true);
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain("past-for-study");
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain(cancelledId);
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain("too-far-for-study");
+    expect(candidates[0]).toMatchObject({
+      deadline: { externalId: "study-01" },
+      sourceKind: "classroom",
+      sourceLastSuccessAt: MONDAY.toISOString(),
+      sourceLastFailure: "classroom_temporarily_unavailable",
+    });
   });
 
   it("filters a window by effort, which is how exam windows are found without reading every deadline", async () => {

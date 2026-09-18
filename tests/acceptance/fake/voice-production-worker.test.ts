@@ -4,7 +4,9 @@ import worker from "../../../apps/cloud-gateway/src/index.js";
 import type { Env } from "../../../apps/cloud-gateway/src/env.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import { applyVoiceRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
+  applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
+import { FAKE_OWNER_PASSPHRASE, seedFakeOwnerPassphrase } from "./voice-access-system.js";
 
 const ACCOUNT = `AC${"6".repeat(32)}`;
 const CALL = `CA${"4".repeat(32)}`;
@@ -20,6 +22,7 @@ describe("production Worker voice and Telegram composition", () => {
   let creditFails: boolean;
   beforeEach(async () => {
     await applyVoiceRuntimeMigration();
+    await applyVoiceOwnerDeliveryMigration();
     const clock = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").first<{ now: string }>();
     now = new Date(clock!.now); requests = []; sends = []; dials = []; clients = []; creditFails = false;
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
@@ -59,6 +62,7 @@ describe("production Worker voice and Telegram composition", () => {
         VALUES (1, 'principal:owner', 'identity:voice', ?)`).bind(now.toISOString()),
       env.DB.prepare("UPDATE outbound_runtime_controls SET enabled = 1, quiet_starts_at = NULL, quiet_ends_at = NULL"),
     ]);
+    await seedFakeOwnerPassphrase("principal:owner", "identity:voice", now.toISOString());
   });
   afterEach(async () => {
     for (const client of clients) client.close();
@@ -66,10 +70,12 @@ describe("production Worker voice and Telegram composition", () => {
       await evictDurableObject(env.CALL_SESSION.get(env.CALL_SESSION.idFromName(row.session_id)), { webSockets: "close" });
     }
     await env.DB.prepare("DELETE FROM provider_events").run();
-    await clearOutboundCallAttemptsForTest(); await clearConversationDataForTest(); await clearVoiceAccessDataForTest();
+    await clearOwnerCallStepUpDataForTest(); await clearOutboundCallAttemptsForTest();
+    await clearConversationDataForTest(); await clearOwnerPassphraseDataForTest(); await clearVoiceAccessDataForTest();
     await env.DB.batch([env.DB.prepare("DELETE FROM capacity_alert_crossings"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
-      env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM policy_decisions"), env.DB.prepare("DELETE FROM principals")]);
+      env.DB.prepare("DELETE FROM device_keys"), env.DB.prepare("DELETE FROM channel_identities"),
+      env.DB.prepare("DELETE FROM policy_decisions"), env.DB.prepare("DELETE FROM principals")]);
     vi.restoreAllMocks(); vi.useRealTimers();
   });
 
@@ -108,7 +114,10 @@ describe("production Worker voice and Telegram composition", () => {
     const frames: unknown[] = []; socket.addEventListener("message", (event) => { frames.push(JSON.parse(String(event.data))); });
     socket.send(JSON.stringify({ type: "setup", sessionId: `VX${"5".repeat(32)}`, accountSid: ACCOUNT,
       callSid: CALL, direction: "inbound", customParameters: { relayNonce: session!.relay_nonce } }));
+    await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("pre_auth"));
+    socket.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
+    vi.advanceTimersByTime(2_001);
     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worker question", lang: "en-US", last: true }));
     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.", last: false }));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(1);

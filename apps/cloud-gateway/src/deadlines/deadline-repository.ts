@@ -41,12 +41,15 @@ import {
   type DeadlineSourceKind,
   type DeadlineStatus,
   type QuietWindow,
+  type StudyDeadlineCandidate,
 } from "./deadline-types.js";
 
 const MAXIMUM_IDENTIFIER_CHARACTERS = 256;
 const MAXIMUM_TITLE_CHARACTERS = 512;
 /** The `last_failure` CHECK caps this; exceeding it aborts the write that was reporting the failure. */
 export const MAXIMUM_FAILURE_CHARACTERS = 512;
+export const STUDY_DEADLINE_ROW_LIMIT = 24;
+export const STUDY_DEADLINE_NEAR_DUE_HOURS = 72;
 
 /** One re-read is enough to resolve a concurrent writer; a second means something else is wrong. */
 const UPSERT_ATTEMPTS = 2;
@@ -95,6 +98,12 @@ interface QuietWindowRow {
   readonly ends_at: string;
   readonly created_at: string;
   readonly cancelled_at: string | null;
+}
+
+interface StudyDeadlineRow extends DeadlineRow {
+  readonly source_kind: string;
+  readonly source_last_success_at: string | null;
+  readonly source_last_failure: string | null;
 }
 
 function toDeadline(row: DeadlineRow): Deadline {
@@ -255,6 +264,28 @@ export class DeadlineRepository {
     return created;
   }
 
+  /**
+   * Create one source with a stable id, or return the row already carrying it.
+   * Scheduled jobs are retried and overlap during deploys, so bootstrap must be
+   * idempotent rather than a read-then-insert race. An existing id with a
+   * different kind is corruption or an ownership collision and is refused.
+   */
+  async ensureSource(input: CreateDeadlineSourceInput & { readonly sourceId: string }): Promise<DeadlineSource> {
+    const sourceId = requireText(input.sourceId, "deadline_source_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const label = requireText(input.label, "deadline_source_label", MAXIMUM_TITLE_CHARACTERS);
+    if (!DEADLINE_SOURCE_KINDS.includes(input.kind)) throw new TypeError("deadline_source_kind_invalid");
+    const createdAt = toInstant(new Date(input.now.getTime()));
+    await this.#database.prepare(
+      `INSERT INTO deadline_sources (source_id, kind, label, active, last_success_at, last_failure, last_failure_at, created_at)
+       VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)
+       ON CONFLICT(source_id) DO NOTHING`,
+    ).bind(sourceId, input.kind, label, input.active === false ? 0 : 1, createdAt).run();
+    const source = await this.readSource(sourceId);
+    if (source === null) throw new Error("deadline_source_write_failed");
+    if (source.kind !== input.kind) throw new Error("deadline_source_kind_conflict");
+    return source;
+  }
+
   async readSource(sourceId: string): Promise<DeadlineSource | null> {
     const row = await this.#database.prepare("SELECT * FROM deadline_sources WHERE source_id = ?")
       .bind(sourceId).first<DeadlineSourceRow>();
@@ -270,23 +301,30 @@ export class DeadlineRepository {
   }
 
   /**
-   * A sweep worked. The failure pair is cleared in the same statement that
-   * records the success, because the CHECK ties `last_failure` and
-   * `last_failure_at` together and leaving a stale failure beside a fresh
-   * success is precisely the ambiguity the pair exists to remove.
+   * A sweep worked. An ordinary success clears the failure pair in the same
+   * statement. A bounded partial success may instead retain one fixed health
+   * gap so the digest cannot misreport an incomplete source as complete. The
+   * timestamp guards keep an overlapping older sweep from replacing newer
+   * source health after its slower writes finally arrive.
    */
-  async recordSourceSuccess(sourceId: string, now: Date): Promise<boolean> {
+  async recordSourceSuccess(sourceId: string, now: Date, healthGap: string | null = null): Promise<boolean> {
     const at = toInstant(new Date(now.getTime()));
+    const boundedGap = healthGap === null ? null : truncateFailure(healthGap);
     const result = await this.#database.prepare(
-      "UPDATE deadline_sources SET last_success_at = ?, last_failure = NULL, last_failure_at = NULL WHERE source_id = ?",
-    ).bind(at, sourceId).run();
+      `UPDATE deadline_sources
+       SET last_success_at = ?, last_failure = ?, last_failure_at = ?
+       WHERE source_id = ?
+         AND (last_success_at IS NULL OR last_success_at <= ?)
+         AND (last_failure_at IS NULL OR last_failure_at <= ?)`,
+    ).bind(at, boundedGap, boundedGap === null ? null : at, sourceId, at, at).run();
     return result.meta.changes > 0;
   }
 
   /**
    * A sweep failed. `last_success_at` is deliberately not touched: how long it
    * has been broken is the part that decides whether this is a blip or the
-   * reason the digest has been quiet all week.
+   * reason the digest has been quiet all week. The timestamp guards keep an
+   * overlapping older failure from replacing newer source health.
    *
    * The reason is truncated rather than refused. It reaches here from a caught
    * exception, and an exception message can carry a scraped page, so it is
@@ -298,8 +336,11 @@ export class DeadlineRepository {
     const at = toInstant(new Date(now.getTime()));
     const bounded = truncateFailure(failure);
     const result = await this.#database.prepare(
-      "UPDATE deadline_sources SET last_failure = ?, last_failure_at = ? WHERE source_id = ?",
-    ).bind(bounded, at, sourceId).run();
+      `UPDATE deadline_sources SET last_failure = ?, last_failure_at = ?
+       WHERE source_id = ?
+         AND (last_success_at IS NULL OR last_success_at <= ?)
+         AND (last_failure_at IS NULL OR last_failure_at <= ?)`,
+    ).bind(bounded, at, sourceId, at, at).run();
     return result.meta.changes > 0;
   }
 
@@ -347,6 +388,24 @@ export class DeadlineRepository {
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
+    // The common hourly path is one statement per unchanged item. Reading
+    // first and then touching last_seen_at tripled the D1 cost of a steady
+    // school feed before the caller even computed disappearances.
+    const unchanged = await this.#database.prepare(
+      `UPDATE deadlines
+       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
+       WHERE source_id = ? AND external_id = ? AND content_hash = ?
+       RETURNING *`,
+    ).bind(observedAt, observedAt, sourceId, externalId, contentHash).first<DeadlineRow>();
+    if (unchanged !== null) {
+      return Object.freeze({
+        outcome: "unchanged" as const,
+        deadline: toDeadline(unchanged),
+        revisionId: null,
+        previous: null,
+      });
+    }
+
     for (let attempt = 0; attempt < UPSERT_ATTEMPTS; attempt += 1) {
       const existing = await this.#readRow(sourceId, externalId);
 
@@ -387,12 +446,9 @@ export class DeadlineRepository {
       }
 
       if (existing.content_hash === contentHash) {
-        await this.#database.prepare(
-          "UPDATE deadlines SET last_seen_at = ? WHERE deadline_id = ? AND last_seen_at <= ?",
-        ).bind(observedAt, existing.deadline_id, observedAt).run();
         return Object.freeze({
           outcome: "unchanged" as const,
-          deadline: await this.#requireDeadline(existing.deadline_id),
+          deadline: toDeadline(existing),
           revisionId: null,
           previous: null,
         });
@@ -432,6 +488,20 @@ export class DeadlineRepository {
     throw new Error("deadline_upsert_contended");
   }
 
+  /** Close only an explicit upstream cancellation; absence alone stays recoverable. */
+  async cancelOpenByExternalId(sourceId: string, externalId: string, now: Date): Promise<Deadline | null> {
+    const requiredSourceId = requireText(sourceId, "deadline_source_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const requiredExternalId = requireText(externalId, "deadline_external_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const observedAt = toInstant(new Date(now.getTime()));
+    const row = await this.#database.prepare(
+      `UPDATE deadlines
+       SET status = 'cancelled', last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
+       WHERE source_id = ? AND external_id = ? AND status = 'open'
+       RETURNING *`,
+    ).bind(observedAt, observedAt, requiredSourceId, requiredExternalId).first<DeadlineRow>();
+    return row === null ? null : toDeadline(row);
+  }
+
   /** Deadlines due in `[from, to)`. Half-open so consecutive digest windows neither overlap nor skip. */
   async listDueWithin(input: ListDueWithinInput): Promise<readonly Deadline[]> {
     const from = instantOf(input.from, "deadline_window_from");
@@ -448,6 +518,38 @@ export class DeadlineRepository {
        ORDER BY due_at, deadline_id`,
     ).bind(...statuses, from, to, ...(efforts ?? [])).all<DeadlineRow>();
     return Object.freeze(result.results.map(toDeadline));
+  }
+
+  /** A small study-only window of unfinished work due soonest from now. */
+  async listStudyCandidates(nowValue: Date): Promise<readonly StudyDeadlineCandidate[]> {
+    const now = new Date(nowValue.getTime());
+    toInstant(now);
+    const to = new Date(now.getTime() + STUDY_DEADLINE_NEAR_DUE_HOURS * 3_600_000);
+    const result = await this.#database.prepare(`SELECT d.*,
+        s.kind AS source_kind, s.last_success_at AS source_last_success_at,
+        s.last_failure AS source_last_failure
+      FROM deadlines d
+      JOIN deadline_sources s ON s.source_id = d.source_id AND s.active = 1
+      WHERE d.status = 'open' AND d.due_at >= ?1 AND d.due_at < ?2
+      ORDER BY d.due_at, d.deadline_id
+      LIMIT ${STUDY_DEADLINE_ROW_LIMIT}`)
+      .bind(toInstant(now), toInstant(to)).all<StudyDeadlineRow>();
+    return Object.freeze(result.results.map((row) => {
+      if (!DEADLINE_SOURCE_KINDS.includes(row.source_kind as DeadlineSourceKind)) {
+        throw new TypeError("study_deadline_source_invalid");
+      }
+      if (row.source_last_success_at !== null) requireInstant(row.source_last_success_at, "study_deadline_source_time");
+      if (row.source_last_failure !== null) requireText(
+        row.source_last_failure, "study_deadline_source_failure", MAXIMUM_FAILURE_CHARACTERS,
+      );
+      const deadline = toDeadline(row);
+      return Object.freeze({
+        deadline,
+        sourceKind: row.source_kind as DeadlineSourceKind,
+        sourceLastSuccessAt: row.source_last_success_at,
+        sourceLastFailure: row.source_last_failure,
+      });
+    }));
   }
 
   /**

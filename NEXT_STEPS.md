@@ -4,6 +4,102 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+R7's reviewable v1.6 sequence is in
+[`docs/plan/2026-09-15-r7-assistant-manager-plan.md`](docs/plan/2026-09-15-r7-assistant-manager-plan.md).
+It is a planning artifact only and authorizes no build, OAuth consent, spend,
+migration or deploy.
+
+## School and university priority: R5 starts alongside R1 and R2
+
+Sid moved school and university support ahead of R3 and R4 on 2026-09-15. The
+reviewable scope is in
+[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md):
+conversational course/program intake, one catch-up plan per course, Classroom
+and Brightspace deadlines, grades and missing-work watch, the first study-coach
+slice, and the full university-application track. R5 deadline ingestion depends
+on the deployed R0 gateway, not on PC control; its evidence-based weak-spot
+memory integrates with R2 as that interface lands.
+
+The plan cleared in merged PR #41, Classroom hourly ingestion merged in PR #43,
+and the first conversational live-bot catch-up slice merged in PR #45 as
+`e0b5072`. The live bot can maintain one evidence-labelled card per course,
+replan the daily recovery sequence, and put today's actions in the morning
+digest. Its additive `0020_school_catchup.sql` remains an unapplied candidate
+pending the owner-controlled migration steps. PR #48 then merged as `1130694`
+with a bounded university program tracker in the same ordinary Telegram
+conversation: programs, requirements and dates are each labelled `verified` or
+`unverified`, and verified details retain their current official source and
+admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
+`0022_university_tracker.sql` remains an unapplied candidate; PR #46 is merged
+as `ebb757b` and owns `0021_voice_owner_delivery.sql`. PR #49 merged as `deea39c`
+with the Brightspace
+private iCalendar feed in the existing hourly poll, deadline tables and morning
+digest, plus PR #43 follow-ups F1 and F2.
+[PR #51](https://github.com/ksid1229-ops/jarvis/pull/51) is merged as `10d4cd7`
+and finishes build-sequence
+step 3 before the feed secret is set: bounded partial results, explicit
+parser/cancellation regressions, and a rate-limited owner-only plain-speech
+refresh path. No new migration is needed. Build-sequence step 4's first
+study-coach slice merged in
+[PR #53](https://github.com/ksid1229-ops/jarvis/pull/53): separate evidence-
+backed weak-area records, at most one quiet coursework check-in per day, cited
+quizzes and flashcards, and direct-owner-only correction and forget. Its
+additive `0023_study_coach.sql` remains unapplied and deliberately does not
+depend on the channel-neutral R2 owner-controls service. That merge starts R5A;
+the full proactive coach follows R2 memory and R5 deadlines, with regular
+coursework check-ins, weak spots learned from memory, grades and deadlines,
+automatic study material and spoken car quizzing, and unasked finding of free
+tools. Spending, account sign-ups and contact with another person still require
+Sid's explicit tap.
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) merged as `a38a637`
+and independently owns `0024_university_application_workflow.sql` for
+per-program application checklists, current-owner conversational updates,
+due-date verification labels, and the next unfinished application items in the
+morning digest. `0024_university_application_workflow.sql` remains an unapplied
+candidate. `0023` also remains unapplied. None of these slices
+authorizes OAuth consent, a secret operation, migration, deployment, school or
+university contact, purchase, sign-up, submission or live account access.
+
+## R2 cloud-memory runtime next
+
+[PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) merged as `0d659bf`
+with additive migration `0016_cloud_memory.sql`.
+[PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) merged as `f0bfbe9`
+with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
+slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
+`0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
+`0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`, open PR
+#52 reserves `0024_university_application_workflow.sql`, and PR #56 merged
+`0025_archive_literal_history.sql`. Draft
+[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) uses the next free
+name, `0026_memory_distillation.sql`. No migration after `0015` has been applied
+by this R2 work. The Sid-attended scratch remote-D1 proof remains mandatory
+before any production apply; follow the
+[migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
+
+[PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
+with the first runtime slice in
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md):
+the channel-neutral canonical D1 repository, exact source validation, atomic
+initial writes, canonical reads, root/inbox bootstrap and current-path-first
+topic resolution. It claims no migration and has no Telegram, voice, calls,
+provider, scheduler, Vectorize or archive-index composition.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
+with its channel-neutral owner-controls successor and no migration or channel
+wiring. [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) merged as
+`282f066` with the second slice: suppression-safe live/R2 literal coverage,
+exact provenance results and a bounded resumable exhaustive-search job.
+Migration `0025` is unapplied. Draft
+[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) builds slice 3 with a
+fake-provider hourly path, durable receipts, schema-reconciled counts and a
+cursor that advances only after the canonical item batch. Production remains
+provider-disabled until a paid provider, spend cap and real token/cost ledger
+receive separate approval. Although the
+service accepts `MAX_JOB_EVENTS = 16`, the 262,144-byte step budget and the
+32,768-byte per-event ceiling make eight events the real maximum per step.
+Slice 3 supplies a bounded fresh-attempt path; slice 4 remains responsible for
+Telegram recall and plain-speech controls without changing voice composition.
+
 ## R2 item 3: fact projection
 
 Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
@@ -26,7 +122,8 @@ This item added `0014_memory_projection.sql`, including projection tables,
 publication/abandonment guards and an FTS index. Local migration `0004` adds
 quarantine and restart-safe rejection recovery. Production applied 0014 before
 gateway deployment `28109492`; no cloud migration remains pending through 0015.
-Do not start the uploader while the node platform decision is on hold.
+Do not start the historical uploader; R2 no longer depends on a device
+projection or node.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -65,10 +162,9 @@ Do not start the uploader while the node platform decision is on hold.
 
 ## R1 is the next milestone
 
-Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-5.6 Sol at
-xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
-release gate rather than the usual xhigh. The cross-vendor gate holds -- the
-same model never builds and reviews the same work.
+Build it per the roadmap's section 7 and `docs/BUILDING.md`.
+Who builds and who reviews each milestone, including R1's max-depth review, is
+in `docs/BUILDING.md`.
 
 The R1 acceptance audit in `docs/AGENT_LOG.md` records the original gaps;
 the criteria remain in both calling plans and the live-smoke contract.
@@ -84,34 +180,62 @@ phone. Sid selected Option 1 in
 [`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
 the device-signed Windows CLI followed by an inbound activation call. No
 original sealed key was found on the intended home PC, so the required order is
-a separately reviewed Option 1 route deployed with its owner/HMAC configuration
-and the inbound webhook closed, then the reviewed owner-executed device-key
+the merged PR #31 Option 1 route deployed with its owner/HMAC configuration and
+the inbound webhook closed, then the reviewed owner-executed device-key
 replacement and non-disclosing preflight. First phone status must be `absent`.
 The production key change remains one owner-confirmed action at each live step.
 Twilio must be configured before the enrollment call. Setting the voice
 webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.
+The authenticated begin number-state oracle remains recorded in
+`KNOWN_ISSUES.md`.
 
-Sid selected PR #29's Option 1 for owner-phone enrollment using a new device
-key on his home PC. PR #30 is the separate owner runbook and exact SQL
-for replacing and proving the production key before revoking the orphaned row.
-PR #31 implements the device-signed Windows bootstrap and non-disclosing
-key-match preflight. It adds no migration and performs no provider operation;
-the later attended rollout must deploy and configure the route with inbound
-closed, finish the reviewed key replacement through its preflight, require
-status `absent`, configure Twilio, then set the webhook and make the signed
-inbound enrollment call. Setting the webhook
-makes inbound calling live even while outbound controls remain disabled. Do
-not start the live smoke until status freshly reports the owner phone active.
-Before any live call, Sid must choose how owner admission will address caller-
-ID spoofing; the signed Twilio webhook currently proves delivery by Twilio but
-does not attest the caller. The authenticated begin number-state oracle is also
-recorded in `KNOWN_ISSUES.md`; PR #31 does not silently change retry recovery.
+Sid has reversed the unconfirmed Caller-ID-risk assumption and requires a
+spoken passphrase before owner authority on every inbound and outbound call,
+three tries before the call ends, no persistent lockout, and a Passed-A waiver
+that is built but switched off. The reviewed design chooses three
+Worker-generated words from a 2,048-word list, durable per-session attempt
+ordinals, a 60-second alarm-backed window, no cross-call candidate rejection,
+and a reserved outbound-owner path.
+[PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) merged at `726b78b`
+with that documentation contract. Draft
+[PR #37](https://github.com/ksid1229-ops/jarvis/pull/37) implements only the
+first slice: migration `0017`, the versioned verifier, authenticated
+Worker-side generation and compare-and-swap rotation, guarded disable/new-version
+re-enable storage transitions, known-answer vectors, and the attended Windows
+CLI. R2 retains migration `0016`; Wrangler may apply it after `0017` because
+migration names, rather than numeric continuity, determine pending work. Call-session
+step-up, durable attempt ordinals, alarms, authority changes, recovery and
+notices remain later, separately reviewed PRs; inbound calling stays closed.
+
+For the attended phone enrollment, remove or redirect the inbound webhook
+immediately after status becomes `active`, rerun the read-only status command,
+and confirm `active` before leaving the window. Inbound opens again only after
+passphrase deployment and one attended spoken verification.
+
+After R1 calling and R2 memory, however hosted, are both live, run Sid's
+first-call onboarding session while parked, never while driving. A
+device-issued single-use challenge opens a setup-only segment with no owner
+authority. Deterministic handlers generate the owner verifier and write guest
+PIN records; Sid then speaks the generated phrase once through normal step-up.
+Only after those settings have durable receipts may Jarvis interview Sid and
+write owner-confirmed answers to memory. The interview is parked work and must
+not drive R1 or R2 implementation. Measure the shared R2 retriever against the
+4,000 ms first-audible gate and give voice retrieval a hard timeout that falls
+back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-`pnpm release:voice-gate` runs the fake prerequisite before auditing the five
-retained live records, and refuses release while those records are absent.
+The live-evidence contract now requires seven retained records, including
+`owner-step-up-refused` and the answered outbound
+`outbound-step-up-refused`, and rejects both the former six-record contract and
+the earlier PIN-free five-record schema.
+The initial release audit requires `passphrase_always` on every owner path and
+a verified inbound phrase; the dormant exact Passed-A waiver remains valid only
+as a per-record shape for a future optional record and cannot replace inbound.
+No owner authority is accepted without a successful step-up outcome. No
+retained live evidence exists yet, so this contract change does not itself
+support an R1 release claim.
 Fake success is not live acceptance. PR #23's review fixes at `695e762` are
 included in merged `main` through PR #25. Item 1's code merged through PR #25
 as `fd39301`. It composes the real Durable Object runtime and
@@ -178,15 +302,37 @@ installation is legitimate but rejected. Preserve the absolute-host security
 boundary and require package identity verification in that future fix; do
 not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
-## R2 platform hold
+## R2 cloud-memory design
 
-PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
-the subsequent owner-run Windows results are listed in HANDOFF. No further
-implementation is requested on #16. R2 item 4 is parked behind Sid's node
-platform decision: no Windows port and no further Linux implementation.
-He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.
-Keep the requirement that memory works with every PC off. R1 is cloud-side
-and does not depend on that decision.
+PR #13 and PR #16 are historical device-projection baselines; no further work
+is requested on them. The Linux home node is historical and R2 does not depend
+on it.
+
+Sid requires cloud memory that works with every PC off. D1 is authoritative for
+the event ledger, versioned memories, receipts and topic tree; FTS5 and
+Vectorize are rebuildable indexes, and full-history recall includes verified
+R2 archive segments. Obsidian remains a later optional one-way export outside
+R2.
+
+PRs #35, #36 and #38 established the pure policy and approved design. PR #39
+merged the `0016` schema, PR #42 merged the `0019` ingress guard, PR #44 merged
+the runtime-slice plan, and PR #47 merged the first uncomposed channel-neutral
+repository as `60ae90d`.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
+with the uncomposed owner-controls service. PR #56 merged the archive-complete
+literal index and exhaustive search without exposing either runtime writer to a
+channel. Draft [PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) adds the
+bounded automatic-distillation workflow and `0026` receipts behind a fake-
+provider seam; the production provider remains disabled and visible.
+Sid uses ordinary speech and text for remember, why, forget and lift actions;
+slash commands are at most hidden fallbacks. After one reviewed scratch-target
+setup, restore drills run automatically and alert Sid only on failure.
+
+Review PR #59 at Claude max against
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md)
+and the approved design before starting slice 4 Telegram integration. No live
+model comparison or provider activation runs without Sid's explicit approval.
+R1 and R5 remain independent cloud-side work.
 
 ## Next gate
 
@@ -232,20 +378,26 @@ between items, but production, secrets, merging and consequential actions
 remain his. After R0 passes, R1 requires Claude Opus 5 **max** review under
 BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
-## Built and unwired
+## Built and configuration-gated
 
-These have code and tests and nothing calls them yet.
+These have code and tests but still need owner configuration or a later slice.
 
-- **Google Classroom ingestion.** `classroom-client.ts` and
-  `deadline-ingestion.ts` exist; the hourly poll job does not call them,
-  because no deployment holds the Google OAuth credentials. Until it does,
-  `deadline_sources` has nothing writing to it and the deadline half of the
-  digest is empty rather than stale.
-- **The Brightspace scrape.** Deliberately not built. It needs a real browser
-  session and belongs in the local agent. `RawDeadlineItem` is the interface
-  it feeds.
-- **Deadline status.** Nothing sets `submitted`, `missed` or `cancelled`. The
-  grade and missing-work watch is what closes this.
+- **Google Classroom ingestion.** Merged PR #43 wires
+  `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
+  all three Google OAuth bindings. With no bindings it performs no Google call;
+  partial or failed configuration becomes visible source health in the digest.
+  Live configuration and deployment acceptance are not established, and Sid's
+  OAuth consent remains an owner-run step in
+  [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
+- **Brightspace calendar ingestion.** The current candidate reads only Sid's
+  private iCalendar subscription URL in the always-on gateway. Missing
+  configuration makes no request and says `Brightspace: not set up` in the
+  digest. It never logs in or reads a browser session. The owner setup and
+  live-verification boundary is in
+  [`docs/runbooks/brightspace-calendar-feed.md`](docs/runbooks/brightspace-calendar-feed.md).
+- **Deadline status.** Explicit Brightspace calendar cancellation closes the
+  matching deadline. Nothing sets `submitted` or `missed`; the grade and
+  missing-work watch is what closes those states.
 - **Decision expiry.** `listOpenQueue` filters lapsed items out of the queue,
   and nothing moves their status to `expired`. The drain job should sweep
   them.
@@ -259,9 +411,13 @@ the Twilio number and credentials. No live calling evidence exists yet.
 
 ## The two-stage Obsidian adapter
 
-Stage one is built -- see DECISIONS.md. The roadmap assigns completion of
-the adapter on the home node to R2 and defers the native bridge. Do not
-resume the old bridge plan as part of R0.
+Stage one is built -- see DECISIONS.md -- but its home-node completion plan is
+historical. Do not resume the adapter or native bridge in R0 or R2. The active
+D1 design preserves an Obsidian-compatible Markdown shape only for a later
+optional one-way export. Sid approved a future private-GitHub copy with tested
+exclusion of sensitive categories, but not its R2 build, repository creation,
+token, app install, paid plan or live push. Compatibility does not authorize an
+Obsidian client, sync path or editable vault.
 
 **The redactor comes first.** Vault observations are stored verbatim with no
 redaction, so building the cloud upload path before the redactor would ship

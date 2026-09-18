@@ -73,14 +73,250 @@ export interface ModelStreamTextInput {
   signal: AbortSignal;
 }
 
+/** One OpenAI-compatible function exposed to the owner Telegram agent. */
+export interface ModelFunctionDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+/** The provider keeps arguments as text until the permission boundary parses them. */
+export interface ModelFunctionCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
+export interface ModelFunctionResult {
+  readonly toolCallId: string;
+  readonly name: string;
+  readonly content: string;
+}
+
+export interface ModelAgentCompletionInput {
+  readonly correlationId: string;
+  readonly principalId: string;
+  readonly systemPrompt: string;
+  readonly userText: string;
+  readonly context: readonly ModelContextItem[];
+  readonly tools: readonly ModelFunctionDefinition[];
+  readonly previousToolCalls?: readonly ModelFunctionCall[];
+  readonly toolResults?: readonly ModelFunctionResult[];
+  readonly toolChoice: "auto" | "none";
+  readonly timeoutMs: number;
+  readonly maxOutputTokens: number;
+  readonly signal: AbortSignal;
+}
+
+export interface ModelAgentCompletion {
+  readonly content: string | null;
+  readonly toolCalls: readonly ModelFunctionCall[];
+  readonly finishReason: "stop" | "tool_calls";
+}
+
+export interface ModelAgentProvider {
+  completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion>;
+}
+
 export interface ModelCompleteJsonInput {
   correlationId: string;
   principalId: string;
-  purpose: "memory_distillation";
+  purpose: "memory_distillation" | "memory_consolidation";
   prompt: string;
   timeoutMs: number;
   maxOutputTokens: number;
   reasoningEffort: "high";
+}
+
+export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
+  type: "object",
+  additionalProperties: false,
+  required: ["proposals"],
+  properties: {
+    proposals: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
+        ],
+        properties: {
+          text: { type: "string" },
+          sourceEventIds: { type: "array", items: { type: "string" } },
+          sourceExcerpts: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["sourceEventId", "excerpt"],
+              properties: {
+                sourceEventId: { type: "string" },
+                excerpt: { type: "string" },
+              },
+            },
+          },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          sensitivity: { enum: ["normal", "sensitive"] },
+          topicPath: {
+            type: "array",
+            minItems: 1,
+            maxItems: 4,
+            items: {
+              type: "string",
+              minLength: 1,
+              maxLength: 64,
+              description: "One area name, no more than 64 UTF-8 bytes.",
+            },
+          },
+          filingConfidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+      },
+    },
+  },
+});
+
+export const MEMORY_EXTRACTION_JSON_EXAMPLE = JSON.stringify({
+  proposals: [{
+    text: "I play piano.",
+    sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+    sourceExcerpts: [{
+      sourceEventId: "01m1hh9h1yxaeyjgbhfzm4nnth",
+      excerpt: "I play piano.",
+    }],
+    confidence: 0.95,
+    sensitivity: "normal",
+    topicPath: ["Personal", "Music"],
+    filingConfidence: 0.92,
+  }],
+});
+
+export const MEMORY_EXTRACTION_JSON_CONTRACT =
+  `Return one JSON value matching this exact schema: ${MEMORY_EXTRACTION_JSON_SCHEMA} `
+  + `Example: ${MEMORY_EXTRACTION_JSON_EXAMPLE}`;
+
+export const MEMORY_CONSOLIDATION_JSON_SCHEMA = JSON.stringify({
+  type: "object",
+  additionalProperties: false,
+  required: ["proposals"],
+  properties: {
+    proposals: {
+      type: "array",
+      maxItems: 16,
+      items: {
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "topicId", "markdown", "sourceIds", "reason"],
+            properties: {
+              kind: { const: "note" },
+              topicId: { type: "string" },
+              markdown: { type: "string" },
+              sourceIds: { type: "array", minItems: 1, maxItems: 64, items: { type: "string" } },
+              reason: { type: "string" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "olderItemId", "newerItemId", "reason"],
+            properties: {
+              kind: { const: "supersession" },
+              olderItemId: { type: "string" },
+              newerItemId: { type: "string" },
+              reason: { type: "string" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "sourceTopicId", "targetTopicId", "reason"],
+            properties: {
+              kind: { const: "topic_merge" },
+              sourceTopicId: { type: "string" },
+              targetTopicId: { type: "string" },
+              reason: { type: "string" },
+            },
+          },
+        ],
+      },
+    },
+  },
+});
+
+export const MEMORY_CONSOLIDATION_JSON_CONTRACT =
+  `Return one JSON value matching this exact schema: ${MEMORY_CONSOLIDATION_JSON_SCHEMA}`;
+
+export interface ModelCompleteJsonUsage {
+  readonly priceId: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly reservedCostMicros: number;
+  readonly settledCostMicros: number;
+  readonly d1Statements: number;
+}
+
+export interface ModelCompleteJsonCompletion {
+  readonly value: unknown;
+  readonly usage: ModelCompleteJsonUsage;
+}
+
+const issuedCompleteJsonCompletions = new WeakSet<object>();
+
+/** Mints the only provider completion shape the workflow treats as billable. */
+export function issueModelCompleteJsonCompletion(
+  value: unknown,
+  usage: ModelCompleteJsonUsage,
+): ModelCompleteJsonCompletion {
+  const completion = Object.freeze({ value, usage: Object.freeze({ ...usage }) });
+  issuedCompleteJsonCompletions.add(completion);
+  return completion;
+}
+
+/** Fake providers may still return raw JSON; only minted production results carry usage. */
+export function snapshotModelCompleteJsonCompletion(value: unknown): ModelCompleteJsonCompletion | null {
+  if (value === null || typeof value !== "object" || !issuedCompleteJsonCompletions.has(value)
+    || !Object.isFrozen(value)) return null;
+  const completion = value as ModelCompleteJsonCompletion;
+  return Object.isFrozen(completion.usage) ? completion : null;
+}
+
+class ModelCompleteJsonSettledFailure extends Error {
+  constructor(
+    readonly failure: ProviderFailure,
+    readonly usage: ModelCompleteJsonUsage,
+  ) {
+    super(failure.message);
+    this.name = "ModelCompleteJsonSettledFailure";
+    Object.freeze(usage);
+    Object.freeze(this);
+  }
+}
+
+const issuedCompleteJsonSettledFailures = new WeakSet<object>();
+
+/** Carries the durable charge receipt when output validation fails after settlement. */
+export function issueModelCompleteJsonSettledFailure(
+  failure: ProviderFailure,
+  usage: ModelCompleteJsonUsage,
+): Error {
+  const issued = new ModelCompleteJsonSettledFailure(failure, { ...usage });
+  issuedCompleteJsonSettledFailures.add(issued);
+  return issued;
+}
+
+export function snapshotModelCompleteJsonSettledFailure(value: unknown): Readonly<{
+  failure: ProviderFailure;
+  usage: ModelCompleteJsonUsage;
+}> | null {
+  if (!(value instanceof ModelCompleteJsonSettledFailure)
+    || !issuedCompleteJsonSettledFailures.has(value)
+    || !Object.isFrozen(value)
+    || !Object.isFrozen(value.usage)
+    || snapshotProviderFailure(value.failure) === null) return null;
+  return Object.freeze({ failure: value.failure, usage: value.usage });
 }
 
 export interface ModelProvider {
@@ -92,6 +328,12 @@ export interface TelegramSendMessageInput {
   chatId: string;
   text: string;
   replyToMessageId?: number;
+  replyMarkup?: Readonly<{
+    inline_keyboard: readonly (readonly Readonly<{
+      text: string;
+      callback_data: string;
+    }>[])[];
+  }>;
   idempotencyKey: string;
 }
 

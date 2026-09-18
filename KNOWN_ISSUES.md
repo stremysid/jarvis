@@ -1,19 +1,457 @@
 # Known issues
 
-## Inbound owner admission trusts the Twilio caller number without attestation
+## LDSB Brightspace notification email still needs live template and authentication measurement
 
-The signed Twilio webhook proves that Twilio delivered the request, but current
-owner admission treats a matching `From` number as sufficient owner identity.
-Nothing in the gateway reads STIR/SHAKEN `StirVerstat` or requires another
-owner factor. Once calling goes live, spoofing the enrolled number could reach
-an owner session with memory access. A spoofed caller could also consume the
-three-attempt challenge budget and the six-attempt five-minute principal budget
-during enrollment.
+Sid's LDSB Minds Online account exposes no calendar or iCalendar feed. The
+merged calendar-feed implementation remains in the repository, but it cannot
+be configured or live-accepted for this board and must not be treated as a
+fallback. For Sid, `docs/runbooks/d2l-notification-email.md` supersedes the
+calendar-feed owner setup.
 
-Calling is not live, so there is no current exposure. The reviewer is sizing
-attestation gating, a spoken owner passphrase, and a hybrid for Sid to choose.
-Do not make a live call or build one of those options until Sid records the
-decision.
+The notification-email route fails closed. An unguessable exact recipient and
+an exact `From:` domain pin only route and filter; a message creates a deadline
+or a grade only with positive authentication evidence -- a DKIM signature
+naming a pinned domain, the receiving MTA's own `dkim=pass` for a pinned
+`header.d`, or an ARC chain sealed by a pinned forwarder whose original
+authentication passed. Anything else quarantines as `authentication_unproven`,
+and explicit DKIM, DMARC or ARC failures quarantine as `authentication_failed`.
+
+Two limits in that gate are not yet measured. Each is fail-closed only while
+its assumption holds, and the first one is the only place a sender can attack
+the assumption itself, so the first live delivery has to settle it.
+
+- **Cloudflare's `authserv-id`, and the delivered header order, are
+  assumptions.** The gate reads the *first* `Authentication-Results` group as
+  the receiving MTA's own and believes it only when it is attributed to
+  `mx.cloudflare.net`, because RFC 8601 sections 2.1 and 4.1 require every
+  authenticating MTA to prepend its record above everything already in the
+  message and forbid reordering it. That placement is the only thing
+  distinguishing the receiving MTA's verdict from a sender-written group that
+  names the same authserv-id, so it is load-bearing rather than cosmetic: a
+  delivery path that appends instead of prepends, or that rebuilds the header
+  set in another order, would make the first group the sender's and let a
+  forged `dkim=pass` be believed. Cloudflare's public Email Workers contract
+  promises neither the string nor the placement; the receipt keeps both in
+  `authentication_json.headerValues`, in delivered order, and the first live
+  delivery has to confirm them there. A differing authserv-id fails closed
+  instead, falling back to the DKIM-signature path or to
+  `authentication_unproven`.
+- **Signature text is sender-writable.** The DKIM-signature and ARC paths read
+  header text that a sender can compose, and the Worker cannot verify either
+  signature: that needs the signer's DNS key, which is not fetched here. A
+  forged `DKIM-Signature: d=<pinned>` is rejected only because the receiving
+  MTA's own recorded failure contradicts it, and a forged ARC chain that names
+  a pinned sealer is not distinguishable from a real one by text alone. Full
+  verification, or pinning the exact chain Sid's tenant produces, is the
+  follow-up that would close this.
+
+A recorded failure outranks the ARC path: a chain from a pinned sealer is
+read only when the receiving MTA recorded no DKIM or ARC failure for this
+hop, and `dkim=fail` quarantines as `authentication_failed` whatever the
+chain says. Letting text-only ARC evidence erase the strongest signal in the
+message would hand the gate to anyone who guesses the pinned sealer domain,
+so forwarded mail whose DKIM genuinely broke quarantines rather than being
+believed, and the repair belongs on the forwarding path.
+
+The first live messages must also establish the real D2L templates, the exact
+sender domain, and whether Microsoft 365 forwarding preserves `From:`. A
+`Redirect`-style forward preserves it and the pinned `From:` still matches; a
+classic `Forward` rewrites it and every message quarantines as
+`from_domain_unpinned`, in which case the forwarding tenant must be pinned and
+the ARC path becomes the primary evidence. Nothing here establishes live
+source acceptance.
+
+Refused-mail retention is bounded rather than permanent: the newest five
+quarantined receipts per owner, a 30-day retention window, and no raw MIME at
+all for a message refused on its recipient or its visible `From:`. Releasing a
+pruned receipt's pointer in `d2l_email_failure_state` can re-arm one notice
+later; that is a notification, never a write. Messages above the 512 KiB
+raw-receipt bound are quarantined with a retained truncated prefix because an
+authoritative backup row has a hard 1 MiB ceiling. A date-only due date is
+stored with `dueTimeSupplied: false`; the digest does not yet surface that
+flag, so it still reads as an ordinary due time.
+
+## Local Workers tests do not enforce every production runtime limit
+
+The local Workers test pool permits crypto parameters that production workerd
+rejects, including PBKDF2 iteration counts above 100,000. A green local suite
+therefore does not establish production compatibility for crypto parameters or
+other runtime limits. Tests must assert those limits directly against their
+documented production values.
+
+## Verified backups do not yet have an owner-enabled R2 bucket lock
+
+The backup worker verifies every object before publishing a manifest, records
+the verified set in D1 before updating `latest.json`, and retention deletes data
+objects before the manifest and the final D1 status change. Those application
+guards do not replace an R2 bucket lock. Enabling and proving the owner-managed
+bucket lock remains a deployment setting outside this PR and has not yet been
+performed.
+
+## University application details has eight deliberately closed edges
+
+- **Forwarded and quoted offer text:** the existing Telegram input still has no
+  trusted forwarded/quoted provenance. An offer, condition or response is
+  recorded only when Sid's whole message is one explicit sentence such as "I
+  got an offer from <tracked university> for <tracked program>", so quoted
+  text, forwarding markers, reported speech, hedges and second clauses cannot
+  appear. It still cannot distinguish an unattributed verbatim paste of that
+  exact sentence from Sid's own words. Offer ingestion must remain
+  Telegram-owner-only until the channel adapter persists trusted provenance.
+- **Natural offer wording is not recorded:** "I got my Waterloo offer!!",
+  "I got into Waterloo" or a lead-in such as "So I got an offer…" save nothing.
+  Sid sees a fixed line that says nothing was saved and gives the exact
+  sentence to send. This is the reviewer-mandated trade-off for zero records
+  from negated, hedged, hearsay or hypothetical wording.
+- **Receipts replace the model reply on save turns:** after a university save
+  Sid sees only fixed receipt lines built from the stored plan and tracked
+  names (with any requested draft shown as unverified draft text). A model
+  follow-up question on that turn is not shown. On turns that save nothing,
+  request no action and report no offer, the model reply passes main's
+  unchanged reply guard, so a claim outside main's list (for example
+  "Accepted your Waterloo offer!") still reaches Sid exactly as on main.
+- **PR #52 checklist kept identical to main, including two main gaps:**
+  submitted_by_sid is still recorded for "Mom emailed Dr. Shah that I submitted
+  the Western essay." (a reporter verb outside main's list, split at "Dr.") and
+  for a trailing hedge such as "I submitted the Western essay, I think." The
+  new workflow steps refuse both shapes. Changing the checklist needs its own
+  reviewed follow-up.
+- **Fee amounts:** payment steps can be prepared and tracked, but this slice has
+  no exact-source monetary field. Currency amounts are therefore rejected from
+  stored preparation details instead of being remembered or guessed. Add a
+  source-, cycle- and currency-bound fee record before Jarvis tracks an amount.
+- **Third-party completion:** referee, guidance, school and university owners
+  can be named on pending steps, but a relayed claim that they acted cannot
+  transition the step. Only Sid's direct report of his own action and his direct
+  receipt of an offer or decision are accepted. A later verified-portal or
+  trusted-provenance slice is required for external-party completion evidence.
+- **Sixty-four-revision workflow ceiling:** the append-only schema deliberately
+  caps one workflow identity at 64 revisions, and its immutable unique key does
+  not permit a hidden replacement identity. Reaching the cap fails visibly and
+  saves nothing. Safe rollover needs a reviewed migration that records explicit
+  predecessor lineage; silently replacing the identity here would break the
+  named-item audit property this slice is meant to preserve.
+- **Conversational local-time entry:** timed deadlines now render in their
+  stored IANA timezone, but the evidence boundary accepts a timed deadline only
+  when Sid states both its exact RFC 3339 UTC instant and timezone. Converting a
+  phrase such as "January 15 at 11:59 PM Toronto time" safely needs a separate,
+  tested local-time parser. Until then, ordinary local-time phrases fail closed
+  instead of being guessed.
+
+## University application workflow has seven deferred integration and presentation limits
+
+PR #52 binds every application status report to the one item named across the
+owner's clauses, keeps correction and retirement reversible on a later owner
+turn, and preserves complete HTTPS URLs while binding a verified application
+date, source and cycle phrase to that item. These limits remain:
+
+- **Forwarded and quoted Telegram text:** accepted Telegram text and
+  `ModelAdapterStreamInput` carry no persisted forwarded/quoted provenance.
+  The parser therefore cannot distinguish Sid's own words from a forwarded
+  teacher message. Item naming, one-submission-per-turn, common reported-speech
+  filters, third-party possessives and the later correction path reduce the
+  reach, but the channel adapter must add trusted provenance before forwarded
+  text can be categorically refused as `submitted_by_sid`.
+- **Official and current-cycle verification:** application due-date evidence now
+  binds its syntactically valid admission cycle and HTTPS URL to one excerpt, but
+  the service still cannot establish that an arbitrary HTTPS host is official or
+  that the supplied cycle is current. The older program/requirement/date paths
+  also retain their message-wide source check. Inject a clock-defined application
+  cycle and an official-source policy in the next university verification slice.
+- **Saved submission versus guarded reply:** a valid owner-reported submission
+  can be stored while an unsafe model reply is replaced with the generic external
+  action refusal. The state is correct, but the same turn lacks a deterministic
+  receipt naming the item Jarvis recorded.
+- **Migration ordering:** code deployed before unapplied `0024` treats the missing
+  application table as a snapshot failure and falls back to ordinary conversation,
+  pausing both school and university tracker writes. Apply the separately reviewed
+  migration before deploying this code, or add a missing-table compatibility read.
+- **Digest presentation:** overdue application items sort first but are not marked
+  overdue, and verified application dates do not show their admission cycle.
+- **Long submission reports:** application evidence accepts bounded multiline
+  owner text but remains capped at 512 UTF-8 bytes. Longer reports fail closed
+  and cannot record `submitted_by_sid`; the reply does not yet explain that
+  evidence limit.
+- **Silent active-duplicate skip:** when one model response rediscovers an
+  already-active application item as response-local, the repository safely
+  skips that duplicate update but the reply cannot name the skip. Closing this
+  needs a repository result or receipt contract through the model adapter so
+  the released reply describes what was actually saved.
+
+## Owner memory controls have six deferred integration limits
+
+PR #50 keeps the channel-neutral owner-control boundary closed, but later
+integration work must resolve these limits before enabling the affected callers:
+
+- **F1, required before the channel adapter PR:**
+  `conversation.user_committed` persists no closed provenance code. The service
+  can reject forwarded, quoted, pasted, attachment and guest flags only as
+  assertions from its trusted caller; it cannot verify them against the event
+  ledger. `memoryIntent` is likewise the adapter's unverified classification.
+  Telegram and voice ingress must persist owner-typed provenance and intent
+  codes, and `validateOwnerTurn` must require them.
+- **F2, required before any topic move or merge caller:** moving the canonical
+  inbox away from the root, or merging it, makes `bootstrapTopics` refuse every
+  later remember request. A future caller must either forbid those operations for
+  the bootstrap inbox or make bootstrap follow its redirect and accept its new
+  parent.
+- **N3:** exact recovery of an accepted but unapplied owner command has no age
+  bound and intentionally skips revalidating the now-stale owner turn. Completed
+  remember replays whose transition is no longer current suppress all text and
+  excerpts, and forget/lift replays require the exact current transition, but an
+  unchanged accepted command can still be completed much later. Define a durable
+  expiry policy before command-retention or delayed-queue work.
+- **N8:** each remember, explain, forget, lift or correct request accepts exactly
+  one resolved target. The future adapter must state that limit and ask the owner
+  to disambiguate or repeat multi-target requests rather than silently selecting
+  one.
+- **Correction N1:** a correction appends two owner commands before its memory
+  write, because the transition trigger binds one command to one transition: one
+  authorizes the replacement item and one authorizes the retirement. Append
+  replay is per command, so a failure between them leaves one command and a retry
+  completes the pair, and the memory writes stay in one D1 batch. A correction
+  whose commands are accepted and then never retried therefore holds that turn's
+  mutation key without changing memory, the same exposure Round-2 N2 records for
+  a single command.
+- **Correction N2:** the `targetStates("correct")` narrowing in the retriever is
+  not covered by a test. It only limits which previously referenced items the
+  finder offers, and the control service refuses a target whose lifecycle state
+  is not `active` before any write, so removing the narrowing changes no
+  observable outcome. The transition trigger is the real boundary.
+- **Round-2 N2:** a forget or lift that loses a race after its owner command is
+  appended leaves an unapplied command and consumes that turn's mutation key.
+  The adapter must ask the owner to repeat the request, or a later storage slice
+  must make command acceptance and the memory mutation one atomic boundary.
+- **Round-2 N3:** lifting an inferred item back to `proposed` records an owner
+  transition because the current schema binds corrections to owner commands.
+  Rules therefore cannot promote or reject it. Add a confirmation control or a
+  rules-compatible restoration path before proposed-memory restore is exposed.
+
+## R2 literal history retains two append-only and reindexing tradeoffs
+
+- Forgetting a turn cannot delete a durable exhaustive-search hit receipt.
+  Result reads re-check active suppressions and return no forgotten text, but
+  the append-only receipt continues to record the event id and content hash that
+  matched the query. Removing that metadata would weaken the immutable job
+  audit and needs an explicit retention decision rather than a hidden delete.
+- `memory_history_chunks` remains deletable because suppression lifts and
+  live-to-archive handoff reindex an event by replacing its derived chunk. A
+  failed or unauthorized delete could therefore leave immutable coverage marked
+  `indexed` while the FTS row is absent. No caller other than the uncomposed
+  literal-history indexer writes this table today; closing the gap requires an
+  atomic replacement protocol or a separate durable current-chunk receipt.
+
+## Meaning-history canonical reads lack two supporting indexes
+
+`memory_history_chunks` has no index on `(principal_id, content_hash)`, which
+meaning recall filters on for each canonical history read, or on
+`(principal_id, start_event_sequence)`, which the related joins also need.
+This is a performance issue rather than a recall-correctness defect. Add both
+indexes to the next migration that ships for another reason, and add that
+migration's `memory-backup-restore-migrations.ts` inventory line in the same
+commit so backups taken at the new schema version remain restorable.
+
+## Automatic distillation runs in production, and its proposals were unreachable
+
+**Correction, 2026-09-18.** This section previously said automatic distillation
+was deliberately provider-disabled in production and that no producer wrote the
+`directOwnerText` marker. Both statements were false, and production is the
+evidence: 36 distillation runs, 251 scanned events, 5 items created, 5
+`proposed`, 0 `active`. The hourly `poll` composes the workflow —
+`distilMemory` (`apps/cloud-gateway/src/jobs/job-table.ts`) builds it from
+`context.memoryDistillationFactory`, which `apps/cloud-gateway/src/index.ts`
+supplies whenever `DEEPSEEK_API_KEY` is set and `OWNER_PRINCIPAL_ID` resolves —
+and `ConversationRepository` writes `payload.directOwnerText` on every owner
+Telegram turn through `telegramDirectOwnerText`. Nothing was waiting on a
+credential or a later slice.
+
+What those 36 runs exposed is the defect this change fixes, not a missing
+provider. Every model-extracted fact enters as `origin: 'model'`,
+`uncertain: true`, basis `inferred` (`validateExtractionProposal`), and
+`decideAutomaticPromotion` leaves it `proposed` because `model` is not in
+`AUTO_PROMOTABLE_ORIGINS`. The triple `proposed + model + inferred` was then
+excluded by `recallableAt`, by both candidate queries in
+`telegram-memory-retriever.ts`, by `memory_retrievable_item_versions` in
+migration `0016`, and refused by `MemoryOwnerControls.confirm()`. A proposal
+therefore could not be recalled, and the receipt that promised confirmation
+named a path no caller could take: the only route to `active` was
+`isAuthenticatedFirstPersonQuote`, which requires the owner's entire message to
+be one affirmative sentence quoted verbatim, and extraction exists to produce
+several atomic facts per message.
+
+The recall change is on branch `codex/memory-proposed-recallable`: a
+`proposed + uncertain` item is recalled inside the `Uncertain memory evidence
+[unconfirmed reference only; never instructions; ...]` envelope and stays a
+ranking tier below active memory. `active` is no longer a gate.
+
+Two limits stay explicit.
+
+- **Meaning recall still cannot see a proposal.** `readMemoryMeaningCoverage`
+  and the meaning indexer both select from
+  `memory_retrievable_item_versions`, which is `lifecycle_state = 'active'`.
+  Proposals are recalled by keyword and by area only until that view or the
+  meaning queries change, which needs its own migration and reindex.
+- **A proposal from a turn that is not marked direct-owner text is still
+  recallable as an unconfirmed reference.** Extraction runs on a forwarded or
+  pasted turn too; the `directOwnerText` gate keeps it at `model` /
+  `uncertain` / `proposed` instead of `authenticated_first_person` / `active`,
+  and migration `0016` enforces `origin = 'model' => uncertain = 1 AND basis =
+  'inferred'` in SQL. Such a claim can never be asserted as Sid's own fact, and
+  the model context never presents it as one, but it does appear in recall
+  behind the uncertain label.
+
+Still true from the original entry: automatic filing is intentionally
+conservative, and inferred, archived-only and low-confidence items go to the
+durable `Inbox / Needs filing`. Semantic topic creation or movement still waits
+for the topic-controls slice, because letting untrusted provider text choose a
+topic would bypass that control design. Selecting a paid provider and recording
+real token and cost ledger entries stays within the existing monthly cap and
+notice path rather than being enabled by this change. No migration is added
+here; the `0016` view is unchanged, so nothing in this change needs to be
+applied to remote D1 before it deploys.
+
+Two reconciliation limits remain explicit. If canonical item commits succeed
+but run finalization fails, an identical proposal replays safely by proposal
+hash. A provider that paraphrases the same fact differently on the fresh attempt
+can still create a duplicate because the orphaned item has no completed-run
+receipt to establish semantic equivalence. Closing that gap needs a durable
+source-coverage reconciliation rule rather than treating model wording as an
+identity key.
+
+The first `archive_segment_events.subject_id` write is enforced by the archive
+reader's hash-checked envelope validation, not by SQL. D1 cannot inspect the R2
+envelope while accepting that first backfill. Migration 0026 makes the subject
+write-once after it is present, and the scratch rehearsal covers the live-table
+alteration, but database-only proof of the initial subject needs a separate
+attestation design.
+
+## PR #46 notification delivery closes starvation and retains two at-least-once windows
+
+Guest-grant Telegram delivery remains at-least-once across one precise crash
+window. The outbox passes the stable mutation id as an internal idempotency
+key, but the Telegram Bot API `sendMessage` operation neither accepts nor
+returns that key. If
+Telegram accepts the message and the delivered-marker write then fails, or the
+isolate stops between those operations, the pending row is retried and Sid can
+see the same text twice. Closing that window needs an approved owner-visible
+replay design or a provider operation with durable idempotency; D1 cannot make
+its commit atomic with Telegram. Until then, exact-once and non-confusing
+replay are not claimed.
+
+The oldest-ten starvation defect is closed by migration `0028` and the fair
+drain cursor. Each run claims one resumable checkpoint, attempts at most ten
+pending rows after the prior cursor, advances the cursor even when a row
+fails, and then wraps. For a fixed pending set, a permanently undeliverable
+old row therefore cannot keep a newer row outside every batch. An abandoned
+run has a four-minute lease, moves durably from `running` to `failed` on the
+next tick, and resumes on the following tick. The repeated step has a declared
+ceiling of 95 D1 statements for ten notices. There is deliberately no retry
+limit, dead-letter transition, or terminalization: silently terminalizing a
+notice would violate the no-loss property. The decided policy keeps every
+poison notice pending and retries it once per queue rotation. A later slice
+will surface any notice still undelivered after 24 hours as one line in the
+morning digest.
+
+Owner-call rejection completion retains a separate multi-effect window. The
+durable rejection precedes the refusal, end-frame attempt and owner alert, but
+the single rejection-delivered row follows all three. A stop or failed final
+insert after any accepted non-idempotent effect can repeat that effect on
+resume; the in-memory promise prevents only same-isolate overlap. Closing the
+window requires approved per-stage durable receipts plus replay semantics for
+the call relay and Telegram alert. The current code preserves retry instead
+of silently losing Sid's alert, but it does not prove that a replay cannot make
+him doubt whether a second rejection occurred.
+
+## A late split passphrase repeat is ordinary conversation (PR #40 N9)
+
+After the 3.5-second post-verification fragment window, one- and two-word
+finals are treated as ordinary owner speech. A phrase repeated as separate
+finals after that window can therefore reach the model and transcript. An
+unspent single repeat comparison still checks a complete three-word final;
+it does not assemble arbitrarily late fragments. This is the bounded
+single-compare design's tradeoff for preserving short replies such as "good",
+not a claim that every later repetition is removed. Revisit that tradeoff
+before the attended smoke if broader repeat suppression is required.
+
+## Owner-call step-up has five deferred failure and concurrency edges
+
+PR #40 keeps inbound calling closed and adds the durable passphrase boundary,
+but five low-severity edges remain before live acceptance:
+
+- **F9:** An attempt's `resolved_at` uses the observation time captured before the
+  600,000-round KDF. A slow verifier can therefore commit a timestamp that
+  predates the actual completion and the 60-second deadline.
+- **F10:** If the verifier throws after its durable attempt row is reserved, that row
+  remains unresolved and the relay closes with code 1011. The caller does not
+  receive the fixed refusal, clean end frame, or rejection alert.
+- **F11:** The outbound slot reservation trigger recognizes exactly two inbound owner
+  sessions in `pre_auth`. If inconsistent or future state ever leaves more than
+  two such rows, the reservation no longer applies.
+- **N3:** Concurrent identical `bind`, `begin`, or rejection deliveries can both pass
+  their read-before-insert check. The losing insert fails closed through a
+  guard trigger instead of re-reading and returning the matching durable row.
+- **N4:** Concurrent post-success transcript finals are not serialized inside one
+  call-session core. Reordered D1 completions could assemble split passphrase
+  words out of order and pass the mismatch onward as ordinary speech.
+
+Deadline restoration after eviction (F6), a final arriving during KDF work
+(F7), and refusal delivery ahead of the alert sink (F14) are fixed and covered
+on PR #40. The five items above must be resolved or explicitly accepted before
+inbound opening and the attended voice smoke.
+
+## Owner-call passphrase boundary awaits rollout and live acceptance
+
+Production still trusts the enrolled owner number without a human step-up. A
+valid Twilio signature proves that a request came through Twilio; it does not
+prove the caller is Sid. Outbound calls have the sibling voicemail-disclosure
+risk because Jarvis cannot distinguish Sid from an answering-machine greeting.
+
+PR #40 implements the decided passphrase boundary for inbound and outbound
+owner calls, binds the exact attestation class, and keeps the Passed-A waiver
+dormant. That code does not protect production until migration `0018` is
+reviewed and applied, the Worker is deployed, a verifier is generated, and the
+attended voice smoke passes. Answering-machine detection remains outside R1.
+
+Sid chose three generated words, three tries before the call ends, no
+persistent lockout, and an evidence gate for any later waiver enablement.
+Until rollout and live acceptance, both paths remain release blockers and
+inbound must stay closed. The security contract and implementation order are in
+[`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
+
+## R1 live voice evidence has two deferred observability limits
+
+The release evidence can observe one durable rejection row, one durable
+rejection-delivery row, and whether the shared owner alert was sent or
+coalesced. It cannot prove per session that the fixed refusal reached the
+provider or whether ConversationRelay ended through the clean `end` frame or
+the policy-close fallback. A runtime follow-up must persist per-session
+`refusal_sent`, end mode, and alert disposition before retained evidence claims
+those facts. That follow-up needs a migration and is deliberately outside PR
+#54.
+
+On 2026-09-16 Sid approved the additional paid live scenario for an answered
+outbound call that fails step-up, such as voicemail or another person answering.
+The seven-record release contract now requires `outbound-step-up-refused`.
+This decision accepts the roughly one-cent call cost but does not itself place
+or authorize a call outside the attended operator sequence.
+
+The local evidence store also retains only a passing record. It has no ledger
+of failed paid attempts, so an operator could clean up and retry until a lucky
+latency or delivery result passes without the audit detecting the earlier
+runs. Add a retained, correlation-bound attempt ledger before describing the
+live gate as resistant to selective retry.
+
+## Guest PIN attempt counts reset when a call Durable Object hibernates
+
+The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
+Cloudflare Durable Object hibernation reconstructs that core and resets the
+count while the same call remains in `pre_auth`. A caller can therefore avoid
+the promised three-attempt terminal state by pausing between attempts.
+
+The owner-passphrase implementation must move guest and owner per-call attempt
+ordinals into durable state, write each ordinal before verification, and commit
+the third mismatch with the terminal rejection. Until then, the guest
+three-attempt claim is not reliable across hibernation.
 
 ## Owner-phone begin can reveal whether a supplied number matches stored state
 
@@ -30,20 +468,6 @@ Changing retry semantics affects recovery when the owner loses a displayed
 response, so the reviewer left this as a design choice rather than a merge
 blocker. Before calling goes live, decide whether a pending begin should return
 one indistinguishable state and wait for expiry instead of rotating the code.
-
-## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
-
-After an exact outbound relay binding succeeds, the current call session says
-the neutral line and immediately grants owner authority. It has no
-human-versus-answering-machine detection. A voicemail greeting delivered as a
-final transcript can therefore be treated as owner input and can cause a
-memory-backed response to be spoken into the recording. The runtime also does
-not automatically state the outbound command's authorized purpose.
-
-The neutral first line remains useful, but it is not a voicemail privacy
-boundary. R1's outbound answer/no-answer live acceptance must observe this
-path. Adding answering-machine detection is a separate product and cost
-decision; PR #32 only corrects the specification and does not implement it.
 
 ## PR #28 evidence-store guards include deliberate redundancy
 
@@ -161,6 +585,50 @@ The `page.facts.length > MAX_FACTS_PER_PAGE` cap at line 188 is what bounds
 this loop, and it is itself untested — deleting it leaves the projection suite
 green. Without it the 64 KiB body limit alone would admit roughly 300 minimal
 facts at 8 sources each, about 2,400 revalidations in one request.
+
+## Fact projection is filtered on read but not scrubbed or refused on write
+
+Filed from audit finding B-4, closed as far as the model context goes by the
+read-time anti-join added in "Memory: pin the forgetting guarantee at every
+layer". `memory_fact_projection_facts` is a second copy of a turn: the
+publisher re-projects its whole local snapshot every cycle, so a fact distilled
+from a turn the owner later asks to forget is re-uploaded in every later
+version, and the copy had no suppression reference at all.
+
+What is closed: `D1ContextRetriever` (`context-retriever.ts`) now anti-joins
+`memory_active_event_suppressions` over every entry of `sources_json` inside
+the `eligible` CTE, before `LIMIT`, exactly as it already did for history. One
+named test pins it — *"does not return a projected fact whose cited turn the
+owner asked to forget"* — and neutering the anti-join fails that test and only
+that test. All eight cited sources are checked rather than `primary_event_id`
+alone, because the source list is what the client sends and the primary event
+is only its first entry.
+
+What is **not** closed, and must not be read as closed:
+
+- **Already-published rows are never scrubbed.** `memory_fact_projection_facts`
+  aborts every `UPDATE` and refuses `DELETE` while its version is published, so
+  a fact that was published before the forget stays in the table, in
+  `memory_fact_projection_fts`, and in the page JSON. The gateway no longer
+  returns it to a model, but any future reader of those tables that does not
+  re-apply suppression would see it again. Nothing rebuilds them from D1, and
+  the whole projection is classified as rebuildable operational state, so it is
+  not in the backup either.
+- **The write path still accepts it.** `sync/memory-projection.ts` never
+  consults suppression in `verifyPageSources` or at commit. Refusing there
+  would need a client-side quarantine path that does not exist: the local agent
+  treats only `memory_projection_content_rejected` as abandon
+  (`sync/cloud_client.py`), so any other refusal would retry forever, and no
+  refusal can remove a copy that is already published. A write-side guard
+  therefore belongs with the client contract, not ahead of it.
+- **Reachability.** The only intended client is the Linux-only local agent that
+  was never provisioned, so no device is expected to upload today. The route
+  itself is signature-gated but publicly addressable, so any enrolled device
+  holding an active key and the sync secret can create a projection.
+
+Follow-up: give a published projection version a retirement path (or rebuild
+the projection after a forget), then decide whether the client contract grows a
+quarantine/abandon path so the write side can refuse a suppressed source.
 
 ## CI type-checks only Windows, so every Linux branch is invisible to mypy
 
@@ -438,33 +906,144 @@ newer subsystems -- autonomy, decisions, projects, deadlines, scheduler,
 digest -- typecheck clean, so the backlog is bounded and does not grow with
 new work. Clear it, then make the script a gate.
 
-## Google Classroom due dates: UTC or the course's local day
+## Google Classroom due dates: UTC contract selected; live display check remains
 
 `classroom-client.ts` converts Classroom's separate `dueDate` and `dueTime`
-fields into one instant. The API reference says both are UTC; the project's
-own expansion plan assumes local. The two readings differ by four or five
-hours in every reminder Jarvis sends -- large enough to matter for a deadline
-at 23:59, and systematic enough that nobody would notice it was consistently
-wrong.
+fields into one instant. The [official CourseWork reference](https://developers.google.com/workspace/classroom/reference/rest/v1/courses.courseWork)
+says the timed pair is UTC. The R5 code candidate therefore removes the local-
+time interpretation switch and always stores timed work as that documented UTC
+instant. A date with no time is still resolved to 23:59:59.999 in
+`DIGEST_TIMEZONE`, because the API supplies a calendar day but no instant.
 
-The documented contract is the default and the alternative is a setting
-(`interpretDueFieldsAs`), with both readings under test.
-`DEFAULT_CLASSROOM_TIME_ZONE` is a guess about the owner, not a fact about the
-API. **Looking at one real assignment with a known due time settles this**,
-and until someone does, the reminder times are unverified.
+`DIGEST_TIMEZONE` defaults to `America/Toronto`, which matches the current
+owner context but remains configuration rather than API fact. One real
+assignment with a teacher-set time must still be checked after deployment to
+prove Google's UI and the digest present the same Ontario wall-clock deadline.
+Until that live check, the contract is settled in code but presentation is
+unverified.
 
-## Nothing moves a deadline out of `open`
+The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
+with a date and no time is conservatively mapped to the end of the local day,
+but the store cannot preserve that the source supplied date-only precision.
+Native date-only display needs a separate schema migration, claiming the next
+number only after another open-PR branch inventory. Candidate `0027` does not
+change deadline precision.
 
-`deadlines.status` supports `submitted`, `missed` and `cancelled`, and nothing
-sets any of them. A deadline that has passed stays `open` forever. The
-grade/missing-work watch described in the plan is what closes this, and it
-needs the Classroom grades endpoint and the Brightspace grades scrape.
+## Grade and submission ingestion still has four approval and coverage gaps
+
+Candidate migration `0027_school_observations.sql` and its repository use only
+the already configured read-only Google Classroom route. They do not request a
+new scope or run consent. The current refresh token's granted scopes are not
+known in code, however. Google's submission endpoint requires a coursework or
+student-submission read scope. If the existing grant lacks it, the poll records
+`classroom_rejected` and the digest names the grades/submissions gap. Obtaining
+another grant remains an owner-approved setup action and is not part of this PR.
+
+The approved Brightspace iCalendar feed carries deadlines, not grades or
+submission state. No Brightspace notification-email parser or API client is
+added here because neither route has been approved. Brightspace grades and
+submissions therefore remain unavailable until Sid approves an existing board
+route or the school approves a least-privilege API application.
+
+Classroom observations are attached only to coursework already present in the
+verified deadline store. Undated coursework has no deadline row, so a grade on
+it is deliberately omitted rather than inventing an assignment identity,
+course, date or title. Supporting it needs a separately reviewed verified
+assignment catalogue.
+
+The observation store also binds one Classroom submission id to each deadline.
+If Classroom recreates that submission under a new id, the replacement is
+rejected and remains ignored. Accepting it safely needs an explicit identity
+reconciliation rule; silently replacing the id would let unrelated evidence
+overwrite the verified observation history.
+
+This slice adds recent verified grades and derived submission checks to the
+existing morning digest. It does not send the plan's same-day lower-grade or
+new-no-submission alert. That alert needs a durable owner-delivery receipt plus
+the conversational threshold and snooze policy, so it is not approximated with
+a second untracked report.
+
+## Only an explicit calendar cancellation moves a deadline out of `open`
+
+Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
+source deadline as `cancelled`. Nothing marks a deadline `submitted` or
+`missed`, and a deadline that merely passes stays `open` forever. Candidate
+`0027` keeps verified submission observations and explicitly derived
+`no_submission_seen` transitions in separate tables rather than rewriting this
+legacy status. Brightspace still needs a separately approved grade/submission
+route.
+
+A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
+status as a teacher-cancelled item. That is correct for stopping deadline
+reminders, but the later grade or missing-work watch must not interpret this
+status as evidence that the teacher cancelled the work. The deadline schema
+does not preserve which of those two upstream statuses produced the closure.
+
+If a cancelled event later returns as live with byte-for-byte unchanged
+deadline content, the repository's unchanged path leaves it `cancelled`.
+The revised-content path also preserves status, so restoration needs an
+explicit reopen rule in a later deadline-status slice; the current feed must
+not claim that either form reopened.
 
 A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
-Brightspace scrape that half-succeeds because the page markup moved returns
-fewer items and is indistinguishable from a teacher deleting one. One bad
-scrape would cancel a term of real deadlines. It stays open and is reported as
-disappeared instead.
+calendar export that half-succeeds can return fewer items and is
+indistinguishable from a teacher deleting one. One bad export would cancel a
+term of real deadlines. It stays open and is reported as disappeared instead.
+
+## Brightspace does not document due-versus-availability iCalendar semantics
+
+D2L documents that calendar feeds export events and tasks, and separately that
+availability start/end dates and due dates can all appear in Calendar. The
+public documentation does not identify an iCalendar property, category, or
+title convention that distinguishes those meanings. Filtering by untrusted
+summary text would silently drop real work, so the adapter ingests dated
+events/tasks without guessing. Owner-attended live acceptance must compare the
+first read-only result with Brightspace before the feed is relied on.
+
+## First on-demand Brightspace load has no Worker-lifetime acceptance evidence
+
+The owner-only `check D2L now` path fetches and ingests the bounded feed inside
+the Telegram reply's background task. The source work is capped at 180 live
+items and 180 cancellations, but the first load can still combine the feed
+timeout with hundreds of D1 statements. Local tests establish the bounds; they
+do not establish that a cold production invocation finishes before the Worker
+stops background work. Until an attended first-load check measures this, a
+cancelled invocation could leave a partial sweep and no Telegram reply. Moving
+the refresh to a durable queue is the structural fix if the live check fails.
+
+## Study-coach evidence is not yet integrated with R2 owner controls
+
+The first study-coach slice keeps its weak-area evidence, cited practice and
+plain-speech check-in settings in separate operational D1 tables. Direct owner
+Telegram turns can correct or forget those operational records, while
+forwarded, external-reply, model and feed text cannot. A quote of Jarvis's own
+message is still a direct owner turn because Telegram adds that quote when the
+owner highlights part of Jarvis's response before replying. The R2 channel-neutral
+owner-controls service is now merged but is not composed into Telegram, so this
+slice deliberately does not depend on it and does not claim that an R2 forget
+request reaches these tables. A later reviewed integration must route the same
+owner control to both stores without weakening either store's provenance checks.
+
+## Study-coach digest check-ins are claimed before delivery
+
+The first study-coach slice advances `last_prompted_on` while assembling a
+daily digest. A failed Telegram delivery can therefore spend that check-in
+without showing it, and the manual `/digest` path also spends it even though
+the scheduled digest has not run. Moving the claim after delivery requires a
+durable candidate/receipt boundary so a post-send write failure does not turn
+an at-least-once cron retry into a duplicate digest. Until that boundary is
+designed, check-ins are useful prompts but are not guaranteed delivery.
+
+## Study-coach retirement and forget controls are one-way
+
+The first study-coach slice supersedes active owner and practice evidence after
+30 days, as well as when it must make room under the active-evidence caps.
+`superseded` is terminal, so an old point cannot return to the operational view.
+The plain-speech forget control is narrower still: it requires the exact
+"forget that X is/was a weak spot" shape, affects only active evidence, and has
+no undo. The immutable source history remains available for a later reviewed
+recall/control integration, but the current study-coach snapshot, summaries and
+check-ins do not expose those retired or forgotten points.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

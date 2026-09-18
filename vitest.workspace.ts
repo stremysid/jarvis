@@ -40,6 +40,7 @@ export default defineConfig({
       DEEPSEEK_API_KEY: "synthetic-runtime-key", DEEPSEEK_MODEL: "synthetic-runtime-model",
       TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
       GUEST_PIN_PEPPER_V1: Buffer.alloc(32, 12).toString("base64"),
+      OWNER_PASSPHRASE_PEPPER_V1: Buffer.alloc(32, 29).toString("base64"),
       IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
       CAPACITY_D1_BUDGET_BYTES: "1000000000", CAPACITY_R2_BUDGET_BYTES: "1000000000",
       CAPACITY_MODEL_ALLOCATION_USD: "20", CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",

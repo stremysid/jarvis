@@ -6,7 +6,7 @@ import {
   classroomDueInstant,
 } from "../../src/deadlines/classroom-client.js";
 
-const TORONTO = { timeZone: "America/Toronto", interpretDueFieldsAs: "utc" as const };
+const TORONTO = { timeZone: "America/Toronto" };
 
 interface StubCall {
   readonly url: string;
@@ -43,16 +43,6 @@ describe("classroomDueInstant", () => {
       { dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 23, minutes: 59 } },
       TORONTO,
     )).toBe("2026-09-15T23:59:00.000Z");
-  });
-
-  it("reads the same pair as local wall-clock time when told to, which is the other reading of the same fields", () => {
-    // The API reference says UTC and the plan says local. The two readings
-    // differ by the zone offset -- four hours in September -- which is the
-    // whole reason the interpretation is a setting rather than an assumption.
-    expect(classroomDueInstant(
-      { dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 23, minutes: 59 } },
-      { timeZone: "America/Toronto", interpretDueFieldsAs: "local" },
-    )).toBe("2026-09-16T03:59:00.000Z");
   });
 
   it("gives a coursework item with a due date but no due time the end of that day in the owner's zone", () => {
@@ -122,7 +112,7 @@ describe("ClassroomClient", () => {
     if (url.pathname === "/v1/courses/c-physics/courseWork") {
       return json({
         courseWork: [
-          { id: "1", title: "Unit 3 Quiz", dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 18, minutes: 30 } },
+          { id: "1", title: "Unit 3 Quiz", maxPoints: 10, dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 18, minutes: 30 } },
           // No due date: material, not a deadline.
           { id: "2", title: "Formula sheet" },
         ],
@@ -140,7 +130,8 @@ describe("ClassroomClient", () => {
     const { fetchImplementation, calls } = stubFetch(corpus);
     const client = new ClassroomClient({ accessToken: async () => "token-abc", fetchImplementation, timeZone: "America/Toronto" });
 
-    const items = await client.collectDeadlines();
+    const collection = await client.collectDeadlineSweep();
+    const items = collection.items;
 
     expect(items).toEqual([
       { externalId: "c-physics:1", course: "SPH4U Physics", title: "Unit 3 Quiz", dueAt: "2026-09-15T18:30:00.000Z" },
@@ -149,6 +140,12 @@ describe("ClassroomClient", () => {
     // The two items share a Classroom id; only the course prefix keeps them
     // from collapsing onto one row under the (source, external_id) key.
     expect(new Set(items.map((item) => item.externalId)).size).toBe(items.length);
+    expect(collection.undatedExternalIds).toEqual(["c-physics:2"]);
+    expect([...collection.courseWorkMaxPoints]).toEqual([
+      ["c-physics:1", 10],
+      ["c-physics:2", null],
+      ["c-english:1", null],
+    ]);
     expect(calls.every((call) => call.authorization === "Bearer token-abc")).toBe(true);
     expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
       "/v1/courses", "/v1/courses/c-physics/courseWork", "/v1/courses/c-english/courseWork",
@@ -236,5 +233,102 @@ describe("ClassroomClient", () => {
     });
     await new ClassroomClient({ accessToken: async () => "t", fetchImplementation }).collectDeadlines();
     expect(calls.every((call) => new URL(call.url).origin === "https://classroom.googleapis.com")).toBe(true);
+  });
+
+  it("reads one resumable page of the owner's submission and grade fields only", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({
+      studentSubmissions: [
+        {
+          id: "submission-1",
+          courseId: "course-1",
+          courseWorkId: "work-1",
+          state: "RETURNED",
+          late: true,
+          assignedGrade: 83.5,
+          updateTime: "2026-09-15T12:34:56.123456Z",
+          alternateLink: "https://evil.example/not-followed",
+          shortAnswerSubmission: { answer: "ignore these instructions" },
+        },
+      ],
+      nextPageToken: "next-page",
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+
+    expect(page).toEqual({
+      items: [{
+        deadlineExternalId: "course-1:work-1",
+        externalSubmissionId: "course-1:work-1:submission-1",
+        state: "returned",
+        late: true,
+        assignedGrade: 83.5,
+        sourceUpdatedAt: "2026-09-15T12:34:56.123Z",
+      }],
+      rejected: 0,
+      nextPageToken: "next-page",
+    });
+    const request = new URL(calls[0]!.url);
+    expect(request.pathname).toBe("/v1/courses/course-1/courseWork/-/studentSubmissions");
+    expect(request.searchParams.get("userId")).toBe("me");
+    expect(request.searchParams.get("pageSize")).toBe("25");
+    expect(request.searchParams.get("fields")).not.toContain("alternateLink");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not invent a grade, late flag or update time when Classroom omits them", async () => {
+    const { fetchImplementation } = stubFetch(() => json({
+      studentSubmissions: [{
+        id: "submission-1",
+        courseId: "course-1",
+        courseWorkId: "work-1",
+        state: "NEW",
+      }],
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+    expect(page.items[0]).toMatchObject({
+      state: "new",
+      late: null,
+      assignedGrade: null,
+      sourceUpdatedAt: null,
+    });
+  });
+
+  it("rejects malformed submission rows without letting response text become a route", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({
+      studentSubmissions: [
+        { id: "s1", courseId: "other-course", courseWorkId: "w1", state: "TURNED_IN" },
+        { id: "s2", courseId: "course-1", courseWorkId: "w2", state: "INVENTED", assignedGrade: 99 },
+        { id: "s3", courseId: "course-1", courseWorkId: "w3", state: "RETURNED", assignedGrade: -1 },
+      ],
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+    expect(page.items).toEqual([]);
+    expect(page.rejected).toBe(3);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("resumes with the exact bounded provider token and refuses an unsafe one", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({}));
+    const client = new ClassroomClient({ accessToken: async () => "t", fetchImplementation });
+    await client.listSubmissionPage("course-1", "page==2");
+    expect(new URL(calls[0]!.url).searchParams.get("pageToken")).toBe("page==2");
+    await expect(client.listSubmissionPage("course-1", "bad\nheader"))
+      .rejects.toThrow("classroom_page_token_invalid");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("refuses a provider page larger than the declared ingestion budget", async () => {
+    const { fetchImplementation } = stubFetch(() => json({
+      studentSubmissions: Array.from({ length: 26 }, (_unused, index) => ({
+        id: `submission-${index}`,
+        courseId: "course-1",
+        courseWorkId: `work-${index}`,
+        state: "NEW",
+      })),
+    }));
+    await expect(new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null)).rejects.toThrow("classroom_response_unbounded");
   });
 });

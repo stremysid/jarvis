@@ -76,13 +76,15 @@ All other string bindings are optional in `env.ts`, so they stay out of
 | Capability | Optional binding names to configure for that capability |
 |---|---|
 | Telegram text | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` |
-| Model responses | `DEEPSEEK_API_KEY`; `DEEPSEEK_MODEL` overrides the model |
+| Model responses | `DEEPSEEK_API_KEY`; `DEEPSEEK_MODEL` overrides the model; `DEEPSEEK_TELEGRAM_THINKING` is `enabled` or `disabled` and defaults to `disabled` for Telegram turns. Any other value uses that default and logs `deepseek_telegram_thinking_invalid` once |
+| Automatic memory extraction | `DEEPSEEK_API_KEY` and `OWNER_PRINCIPAL_ID`; `MEMORY_EXTRACTION_MODEL` defaults to `DEEPSEEK_MODEL`, then `deepseek-flash`; `MEMORY_EXTRACTION_MONTHLY_CAP_USD` accepts integer or decimal USD and defaults to the hard monthly cap `5` |
 | Device sync | `SYNC_CONTINUATION_SECRET` |
 | Scheduled jobs and digest | `OWNER_PRINCIPAL_ID`, `DIGEST_TIMEZONE` |
 | Gateway heartbeat | `WATCHDOG_HEARTBEAT_URL`, `WATCHDOG_HEARTBEAT_SECRET` |
 | Private repository polling | `GITHUB_TOKEN` with read-only access to tracked repositories |
-| R1 calling, deferred | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
-| Classroom ingestion, deferred | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` |
+| R1 calling, deferred | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
+| Classroom ingestion, owner setup after review | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`; see the [Google Classroom OAuth runbook](google-classroom-oauth.md) |
+| Brightspace calendar ingestion, owner setup after review | `BRIGHTSPACE_ICAL_URL`; see the [Brightspace calendar-feed runbook](brightspace-calendar-feed.md) |
 
 `OWNER_PRINCIPAL_ID` must identify the existing owner. `DIGEST_TIMEZONE`
 is the owner's IANA timezone, and `TELEGRAM_BOT_USERNAME` omits the `@`.
@@ -107,7 +109,50 @@ Verify the effective dashboard value too: deployment preserves existing vars.
 
 The gateway owns D1 migrations. The watchdog binds the same `jarvis`
 database and never applies migrations. The gateway also binds the
-`jarvis-archive` R2 bucket and `CALL_SESSION` Durable Object.
+`jarvis-archive` R2 bucket, the `jarvis-memory-backup` R2 bucket and
+`CALL_SESSION` Durable Object.
+
+Before the first deploy whose gateway config contains the `BACKUP` binding,
+the owner must create its separate production bucket once. Do this before
+the migration/deploy sequence below so Wrangler cannot publish a binding to
+a bucket that does not exist:
+
+```powershell
+& node $wrangler r2 bucket create jarvis-memory-backup --config $gateway --env ''
+```
+
+This is setup, not a recurring backup chore. Do not substitute `wrangler d1
+export`: production contains FTS5 virtual tables and the memory backup is the
+Worker's bounded logical export.
+
+## R2 meaning-search resource setup
+
+Run these one-time commands **before the first deployment whose gateway
+configuration contains the `AI` and `MEMORY_VECTORS` bindings**. Creating the
+index is an owner production action; the deploy script does not do it.
+
+```powershell
+& node $wrangler vectorize create jarvis-memory-bge-m3 --dimensions=1024 --metric=cosine --config $gateway --env ''
+& node $wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=principal --type=string --config $gateway --env ''
+```
+
+`principal` is the only metadata field used as a Vectorize query filter, so
+it is the only metadata index. Vectors also carry `itemKind`, `itemId`, and
+`contentHash` for canonical D1 re-reading; none of those fields contains
+memory text. If a later query filters another metadata field, create its
+metadata index before deploying that query.
+
+The hourly step processes at most 128 total Vectorize mutations. It makes at
+most one Workers AI embedding request. The effective request bounds are 100
+inputs and 32,768 UTF-8 bytes per input, so they cap a full batch at 3,276,800
+bytes; the 4,194,304-byte aggregate check is defensive and cannot bind while
+those limits hold. The step makes at most two Vectorize mutation requests (one
+delete and one upsert) and at most 264 D1 statements. A clean 5,000-event
+history backlog therefore takes 50 hourly runs, about 50 hours; stale deletions
+sharing those runs can extend that time. A failed mutation leaves the
+`embeddings` cursor unchanged and is retried on a later hourly run. Missing
+`AI` or `MEMORY_VECTORS` bindings log `memory_meaning_bindings_missing`;
+distillation, literal FTS, and replies continue without meaning search.
 
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation

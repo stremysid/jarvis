@@ -237,6 +237,13 @@ interface AuthorityRow {
   current_grant_version: number | null;
   current_access_document_hash: string | null;
   current_grant_status: string | null;
+  step_up_requirement: string | null;
+  step_up_attestation_class: string | null;
+  step_up_policy: string | null;
+  step_up_success_version: number | null;
+  current_owner_verifier_version: number | null;
+  current_owner_head_status: string | null;
+  current_owner_verifier_status: string | null;
 }
 
 interface SessionLineageRow {
@@ -543,6 +550,20 @@ function maskNumber(value: string): string {
   return `${visiblePrefix}${"*".repeat(value.length - visiblePrefix.length - 4)}${value.slice(-4)}`;
 }
 
+function pendingGuestGrantNotice(
+  database: D1Database,
+  mutationId: Ulid,
+  ownerPrincipalId: string,
+  createdAt: string,
+): D1PreparedStatement {
+  return database.prepare(`INSERT INTO guest_grant_notices (
+    mutation_id, owner_principal_id, status, claim_id, claim_expires_at,
+    provider_message_id, created_at, delivered_at
+  ) SELECT ?, ?, 'pending', NULL, NULL, NULL, ?, NULL
+    WHERE EXISTS (SELECT 1 FROM voice_access_grant_events WHERE event_id = ?)`)
+    .bind(mutationId, ownerPrincipalId, createdAt, mutationId);
+}
+
 function issueAuthority(row: Pick<AuthorityRow,
   "session_id" | "authority_kind" | "principal_id" | "identity_id" | "grant_id" | "grant_version"
   | "access_document_hash" | "authenticated_at" | "expires_at"
@@ -587,13 +608,26 @@ const AUTHORITY_SELECT = `SELECT
   principal.status AS principal_status, identity.status AS identity_status, identity.verified_at,
   current_grant.grant_version AS current_grant_version,
   current_grant.access_document_hash AS current_access_document_hash,
-  current_grant.status AS current_grant_status
+  current_grant.status AS current_grant_status,
+  step_up.requirement AS step_up_requirement,
+  step_up.attestation_class AS step_up_attestation_class,
+  step_up.policy AS step_up_policy,
+  step_up_success.verifier_version AS step_up_success_version,
+  owner_head.verifier_version AS current_owner_verifier_version,
+  owner_head.status AS current_owner_head_status,
+  owner_verifier.status AS current_owner_verifier_status
 FROM call_session_authorities authority
 JOIN call_sessions session ON session.session_id = authority.session_id
 JOIN principals principal ON principal.principal_id = authority.principal_id
 JOIN channel_identities identity ON identity.identity_id = authority.identity_id
 LEFT JOIN voice_owner_identity owner ON owner.singleton_id = 1
-LEFT JOIN voice_access_grants current_grant ON current_grant.grant_id = authority.grant_id`;
+LEFT JOIN voice_access_grants current_grant ON current_grant.grant_id = authority.grant_id
+LEFT JOIN owner_call_step_up_bindings step_up ON step_up.session_id = authority.session_id
+LEFT JOIN owner_call_step_up_successes step_up_success ON step_up_success.session_id = authority.session_id
+LEFT JOIN owner_passphrase_heads owner_head ON owner_head.singleton_id = 1
+LEFT JOIN owner_passphrase_verifiers owner_verifier
+  ON owner_verifier.owner_identity_id = owner_head.owner_identity_id
+  AND owner_verifier.verifier_version = owner_head.verifier_version`;
 
 const OWNER_MUTATION_AUTHORITY_GUARD = `EXISTS (
   SELECT 1
@@ -1040,12 +1074,15 @@ export class VoiceAccessRepository {
           nowIso,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("create");
     const eventResultIndex = fault === null ? 3 : 4;
+    const noticeResultIndex = fault === null ? 4 : 5;
     if (fault !== null) statements.splice(3, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ([0, 1, 2, eventResultIndex].some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
+    if ([0, 1, 2, eventResultIndex, noticeResultIndex]
+      .some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_write_failed");
     }
@@ -1120,12 +1157,15 @@ export class VoiceAccessRepository {
           grantId, nextVersion, accessDocumentHash,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("replace");
     const eventResultIndex = fault === null ? 1 : 2;
+    const noticeResultIndex = fault === null ? 2 : 3;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
@@ -1191,12 +1231,15 @@ export class VoiceAccessRepository {
           grantId, nextVersion, pinVerifier.saltBase64, pinVerifier.digestBase64,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("rotate");
     const eventResultIndex = fault === null ? 1 : 2;
+    const noticeResultIndex = fault === null ? 2 : 3;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
@@ -1254,13 +1297,16 @@ export class VoiceAccessRepository {
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso, grantId, nextVersion,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("revoke");
     const eventResultIndex = fault === null ? 2 : 3;
+    const noticeResultIndex = fault === null ? 3 : 4;
     if (fault !== null) statements.splice(2, 0, fault);
     const results = await this.#transactions.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1
-      || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+      || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
@@ -1357,7 +1403,19 @@ export class VoiceAccessRepository {
       return false;
     }
     if (row.authority_kind === "owner") {
-      return row.grant_id === null
+      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
+        && row.direction === "inbound"
+        && row.step_up_attestation_class === "passed_a"
+        && row.step_up_policy === "waive_on_passed_a"
+        && row.current_owner_verifier_version !== null
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active"
+        || row.step_up_requirement === "required"
+        && row.step_up_success_version !== null
+        && row.step_up_success_version === row.current_owner_verifier_version
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active";
+      return stepUpCurrent && row.grant_id === null
         && row.grant_version === null
         && row.access_document_hash === null
         && row.owner_principal_id === row.principal_id
@@ -1422,6 +1480,20 @@ export class VoiceAccessRepository {
     const row = await this.#existingAuthority(sessionId);
     if (row === null || row.phase !== "authenticated") throw new Error("call_authority_write_failed");
     return this.#nominalAuthority(row);
+  }
+
+  /** Per-session guest attempt ordinal, committed before the PIN KDF starts. */
+  async reserveGuestPinAttempt(sessionId: Ulid, now: Date): Promise<number> {
+    const capturedSessionId = ulid(sessionId);
+    const attemptedAt = dateIso(now);
+    const count = await this.#database.prepare(
+      "SELECT count(*) AS count FROM guest_call_pin_attempts WHERE session_id = ?",
+    ).bind(capturedSessionId).first<{ count: number }>();
+    const ordinal = (count?.count ?? 0) + 1;
+    if (ordinal > 3) throw new Error("authentication_budget_exhausted");
+    await this.#database.prepare(`INSERT INTO guest_call_pin_attempts (session_id, attempt_ordinal, attempted_at)
+      VALUES (?, ?, ?)`).bind(capturedSessionId, ordinal, attemptedAt).run();
+    return ordinal;
   }
 
   async mintGuestAuthority(input: MintGuestAuthorityInput): Promise<PersistedCallAuthority> {
@@ -1527,7 +1599,19 @@ export class VoiceAccessRepository {
       throw new Error("call_authority_stale");
     }
     if (authority.kind === "owner") {
-      if (row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
+      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
+        && row.direction === "inbound"
+        && row.step_up_attestation_class === "passed_a"
+        && row.step_up_policy === "waive_on_passed_a"
+        && row.current_owner_verifier_version !== null
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active"
+        || row.step_up_requirement === "required"
+        && row.step_up_success_version !== null
+        && row.step_up_success_version === row.current_owner_verifier_version
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active";
+      if (!stepUpCurrent || row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
         throw new Error("call_authority_stale");
       }
     } else if (
@@ -1538,5 +1622,24 @@ export class VoiceAccessRepository {
       throw new Error("call_authority_stale");
     }
     return input;
+  }
+
+  /** Waived caller-ID authority cannot change access grants without a phrase success receipt. */
+  async requireOwnerStepUpVerified(input: PersistedCallAuthority): Promise<void> {
+    if (input === null || typeof input !== "object" || !this.#issuedAuthorities.has(input) || input.kind !== "owner") {
+      throw new Error("call_authority_invalid");
+    }
+    const row = await this.#database.prepare(`SELECT success.session_id
+      FROM owner_call_step_up_successes success
+      JOIN owner_passphrase_heads head ON head.singleton_id = 1
+        AND head.owner_principal_id = success.owner_principal_id
+        AND head.owner_identity_id = success.owner_identity_id
+        AND head.verifier_version = success.verifier_version AND head.status = 'active'
+      JOIN owner_passphrase_verifiers verifier
+        ON verifier.owner_identity_id = head.owner_identity_id
+        AND verifier.verifier_version = head.verifier_version AND verifier.status = 'active'
+      WHERE success.session_id = ? AND success.owner_principal_id = ? AND success.owner_identity_id = ?`)
+      .bind(input.sessionId, input.principalId, input.identityId).first<{ session_id: string }>();
+    if (row === null) throw new Error("owner_step_up_required");
   }
 }

@@ -20,6 +20,8 @@ export interface DigestDeadline {
   readonly title: string;
   readonly dueAt: string;
   readonly effort: "quiz" | "test" | "exam" | "essay" | "project" | "other";
+  /** Fixed adapter label. Optional only for older fixture callers. */
+  readonly source?: "Google Classroom" | "Brightspace calendar" | "D2L email" | "Manual" | "Brightspace";
 }
 
 export interface DigestProject {
@@ -43,6 +45,93 @@ export interface DigestDecision {
   readonly urgency: "urgent" | "normal";
 }
 
+export interface DigestCatchupAction {
+  readonly actionId: string;
+  readonly course: string;
+  readonly text: string;
+  readonly sequenceRank: number;
+  readonly estimatedMinutes: number;
+}
+
+export interface DigestApplicationItem {
+  readonly itemId: string;
+  readonly university: string;
+  readonly programName: string;
+  readonly label: string;
+  readonly status: "not_started" | "drafting" | "ready" | "submitted_by_sid" | "not_needed_by_sid";
+  readonly dueDate: string | null;
+  readonly verificationState: "verified" | "unverified";
+}
+
+export interface DigestUniversityWorkflow {
+  readonly workflowId: string;
+  readonly university: string;
+  readonly programName: string;
+  readonly label: string;
+  readonly owner: "sid" | "referee" | "guidance" | "school" | "university";
+  readonly status:
+    | "prepared"
+    | "owner_reported_done"
+    | "owner_reported_not_done"
+    | "owner_reported_offered"
+    | "owner_reported_waitlisted"
+    | "owner_reported_rejected"
+    | "owner_reported_withdrawn"
+    | "owner_reported_pending"
+    | "owner_reported_satisfied"
+    | "owner_reported_unsatisfied"
+    | "owner_reported_accepted"
+    | "owner_reported_declined"
+    | "not_needed_by_sid";
+  readonly dueDate: string | null;
+  readonly dueAt: string | null;
+  readonly dueTimeZone: string | null;
+  readonly verificationState: "verified" | "unverified";
+}
+
+export interface DigestStudyCheckIn {
+  readonly course: string;
+  readonly topic: string;
+  readonly outcome: "uncertain" | "wrong";
+  readonly evidenceCount: number;
+  readonly confidence: "low" | "medium" | "high";
+  readonly observedAt: string;
+  readonly citations: readonly DigestStudySignalCitation[];
+}
+
+export interface DigestStudySignalCitation {
+  readonly sourceKind: "verified_grade" | "derived_missing_work" | "deadline" | "quiz_outcome" | "owner_report" | "course_context";
+  readonly sourceRecordId: string;
+  readonly course: string;
+  readonly itemLabel: string;
+  readonly observedAt: string;
+  readonly verification: "verified" | "derived" | "owner_reported" | "unverified";
+  readonly freshness: "current" | "stale";
+  readonly detail: string;
+}
+
+export interface DigestGradeObservation {
+  readonly observationId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly assignedGrade: number;
+  readonly maxPoints: number | null;
+  readonly gradeUpdatedAt: string | null;
+  readonly source: "Google Classroom" | "D2L email";
+  readonly lastSeenAt: string;
+}
+
+export interface DigestDerivedMissingWork {
+  readonly transitionId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly dueAt: string;
+  readonly classification: "derived";
+  readonly state: "no_submission_seen";
+  readonly source: "Google Classroom";
+  readonly lastSeenAt: string;
+}
+
 /**
  * A source that could not be read.
  *
@@ -57,10 +146,17 @@ export interface DigestGap {
 }
 
 export interface DigestInput {
+  readonly catchupActions: readonly DigestCatchupAction[];
+  readonly applicationItems: readonly DigestApplicationItem[];
+  readonly universityWorkflowItems?: readonly DigestUniversityWorkflow[];
   readonly deadlines: readonly DigestDeadline[];
+  readonly grades: readonly DigestGradeObservation[];
+  readonly missingWork: readonly DigestDerivedMissingWork[];
+  readonly missingWorkOmitted: number;
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];
   readonly gaps: readonly DigestGap[];
+  readonly studyCheckIn?: DigestStudyCheckIn | null;
 }
 
 export interface DigestSection {

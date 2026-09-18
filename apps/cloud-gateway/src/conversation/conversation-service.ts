@@ -141,6 +141,8 @@ interface CapturedMethod {
   readonly method: (...args: never[]) => unknown;
 }
 
+type ObserveAsyncOperation = <T>(operation: () => Promise<T>) => Promise<T>;
+
 type ConversationRepositoryPort = Pick<ConversationRepository,
   | "getOrCreateTurn"
   | "claimModelTurn"
@@ -180,6 +182,7 @@ export interface ConversationServiceDependencies {
   readonly redactor: RedactorContract;
   readonly now?: () => Date;
   readonly modelBudgets?: Readonly<Record<ConversationChannel, ModelBudget>>;
+  readonly observeStaging?: ObserveAsyncOperation;
 }
 
 type CapturedTurn = Readonly<ConversationHandleTurnInput>;
@@ -624,6 +627,8 @@ function resultFromTurn(turn: StoredConversationTurn): ConversationTurnResult | 
   }
 }
 
+const VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS = 750;
+
 /** Coordinates one durable model claim and one channel-specific, redacted delivery. */
 export class DefaultConversationService implements ConversationService {
   private readonly getOrCreateTurn: CapturedMethod;
@@ -642,9 +647,10 @@ export class DefaultConversationService implements ConversationService {
   private readonly outputRedactor: RedactorContract;
   private readonly clock: () => Date;
   private readonly modelBudgets: Readonly<Record<ConversationChannel, ModelBudget>>;
+  private readonly observeStaging: ObserveAsyncOperation;
 
   constructor(dependencies: ConversationServiceDependencies) {
-    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now", "modelBudgets"]);
+    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now", "modelBudgets", "observeStaging"]);
     const required = new Set(["repository", "model", "context", "dispatcher", "redactor"]);
     let descriptors: PropertyDescriptorMap;
     try { descriptors = Object.getOwnPropertyDescriptors(dependencies); }
@@ -695,6 +701,9 @@ export class DefaultConversationService implements ConversationService {
     const now = descriptors.now?.value ?? (() => new Date());
     if (typeof now !== "function") throw new TypeError("conversation_dependency_invalid");
     this.clock = now as () => Date;
+    const observeStaging = descriptors.observeStaging?.value ?? (async <T>(operation: () => Promise<T>) => operation());
+    if (typeof observeStaging !== "function") throw new TypeError("conversation_dependency_invalid");
+    this.observeStaging = observeStaging as ObserveAsyncOperation;
 
     const budgets = descriptors.modelBudgets?.value ?? DEFAULT_MODEL_BUDGETS;
     // Validated rather than trusted: a missing or non-positive deadline would
@@ -715,6 +724,43 @@ export class DefaultConversationService implements ConversationService {
       throw new TypeError("conversation_dependency_invalid");
     }
     this.modelBudgets = budgets as Readonly<Record<ConversationChannel, ModelBudget>>;
+  }
+
+  async #voiceContext(
+    input: Readonly<{ principalId: string; query: string; turnId: Ulid }>,
+  ): Promise<readonly RetrievedContext[]> {
+    type Retrieval = Readonly<{ kind: "retrieved"; value: unknown }>
+      | Readonly<{ kind: "failure" | "timeout" }>;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const retrieval = Promise.resolve()
+      .then(() => call<Promise<readonly RetrievedContext[]>>(this.contextRetrieve, Object.freeze({
+        principalId: input.principalId,
+        channel: "voice",
+        purpose: "conversation",
+        query: input.query,
+        maxTokens: 32_000,
+      })))
+      .then<Retrieval, Retrieval>(
+        (value) => Object.freeze({ kind: "retrieved", value }),
+        () => Object.freeze({ kind: "failure" }),
+      );
+    const deadline = new Promise<Retrieval>((resolve) => {
+      timeout = setTimeout(() => resolve(Object.freeze({ kind: "timeout" })), VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([retrieval, deadline]);
+    if (timeout !== undefined) clearTimeout(timeout);
+    const reason: "failure" | "timeout" | "invalid" = outcome.kind === "retrieved" ? "invalid" : outcome.kind;
+    if (outcome.kind === "retrieved") {
+      try { return snapshotContext(outcome.value); }
+      catch { /* Malformed retrieval is recorded as an invalid-context fallback. */ }
+    }
+    try {
+      console.warn("voice_context_retrieval_fallback", {
+        turnId: input.turnId,
+        reason,
+      });
+    } catch { /* Recording failure cannot turn a bounded fallback into a failed turn. */ }
+    return Object.freeze([]);
   }
 
   async handleTurn(input: ConversationHandleTurnInput): Promise<ConversationTurnResult> {
@@ -798,17 +844,25 @@ export class DefaultConversationService implements ConversationService {
     const capability = claim.capability;
     let context: readonly RetrievedContext[];
     try {
-      const contextValue = await call<Promise<readonly RetrievedContext[]>>(
-        this.contextRetrieve,
-        Object.freeze({
+      if (captured.channel === "voice") {
+        context = await this.#voiceContext({
           principalId: captured.principalId,
-          channel: captured.channel,
-          purpose: "conversation",
           query: userText.text,
-          maxTokens: 32_000,
-        }),
-      );
-      context = snapshotContext(contextValue);
+          turnId: captured.turnId,
+        });
+      } else {
+        const contextValue = await call<Promise<readonly RetrievedContext[]>>(
+          this.contextRetrieve,
+          Object.freeze({
+            principalId: captured.principalId,
+            channel: captured.channel,
+            purpose: "conversation",
+            query: userText.text,
+            maxTokens: 32_000,
+          }),
+        );
+        context = snapshotContext(contextValue);
+      }
     } catch {
       try {
         const stored = snapshotStoredTurn(await call<ReturnType<ConversationRepositoryPort["recordTurnFailed"]>>(
@@ -939,13 +993,15 @@ export class DefaultConversationService implements ConversationService {
     }
     let stagedValue: unknown;
     try {
-      stagedValue = await call<ReturnType<ConversationRepositoryPort["stageAssistantDelivery"]>>(this.stageAssistantDelivery, {
-        claim: capability,
-        text: finalText,
-        targetIdentityId: captured.targetIdentityId,
-        replyToMessageId: captured.replyToMessageId,
-        now: snapshotDate(this.clock()),
-      });
+      stagedValue = await this.observeStaging(
+        () => call<ReturnType<ConversationRepositoryPort["stageAssistantDelivery"]>>(this.stageAssistantDelivery, {
+          claim: capability,
+          text: finalText,
+          targetIdentityId: captured.targetIdentityId,
+          replyToMessageId: captured.replyToMessageId,
+          now: snapshotDate(this.clock()),
+        }),
+      );
     } catch {
       return Object.freeze({
         outcome: "model_outcome_unknown",

@@ -17,10 +17,14 @@
  */
 
 import type {
+  DigestApplicationItem,
+  DigestCatchupAction,
   Digest,
   DigestGap,
   DigestInput,
   DigestSection,
+  DigestStudySignalCitation,
+  DigestUniversityWorkflow,
 } from "./digest-types.js";
 
 /**
@@ -36,6 +40,7 @@ const MAX_EXCERPT_LINES = 3;
 
 const DEADLINE_HORIZON_DAYS = 7;
 const RETRO_HORIZON_DAYS = 7;
+const APPLICATION_ITEM_LIMIT = 5;
 
 /**
  * Quoted rather than plain. The prefix is what stops a line inside a
@@ -110,6 +115,23 @@ export function localDate(instant: Date, timeZone: string): string {
   return `${find("year")}-${find("month")}-${find("day")}`;
 }
 
+function localTimestamp(value: string, timeZone: string): string {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return neutraliseInline(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const find = (type: string): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${find("year")}-${find("month")}-${find("day")} ${find("hour")}:${find("minute")} local`;
+}
+
 /** Local weekday index, 0 = Sunday, or -1 when it could not be determined. */
 export function localWeekday(instant: Date, timeZone: string): number {
   const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" })
@@ -152,11 +174,141 @@ function deadlineSection(
   if (upcoming.length === 0) return null;
   return {
     heading: "Due",
-    lines: upcoming.map(({ deadline, hours }) =>
-      hours === null
-        ? `${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
-        : `${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`,
+    lines: upcoming.map(({ deadline, hours }) => {
+      const source = deadline.source === undefined ? "" : `[${deadline.source}] `;
+      return hours === null
+        ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
+        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`;
+    }),
+  };
+}
+
+function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection | null {
+  if (actions.length === 0) return null;
+  const ordered = [...actions].sort((left, right) =>
+    left.sequenceRank - right.sequenceRank || left.actionId.localeCompare(right.actionId));
+  return {
+    heading: "School catch-up",
+    lines: ordered.map((action) =>
+      `${action.sequenceRank}. ${neutraliseInline(action.course)}: ${neutraliseInline(action.text)} (${action.estimatedMinutes} min)`,
     ),
+  };
+}
+
+function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
+  const lines = [
+    ...input.grades.map((grade) => {
+      const scale = grade.maxPoints === null
+        ? `${String(grade.assignedGrade)} (scale and weight not supplied)`
+        : `${String(grade.assignedGrade)}/${String(grade.maxPoints)} (${(grade.assignedGrade / grade.maxPoints * 100).toFixed(1)}%)`;
+      const observedAt = grade.gradeUpdatedAt ?? grade.lastSeenAt;
+      // `verified:` is reserved for the API read, which sees the gradebook
+      // itself. A grade scraped out of a message is authenticated at best --
+      // it was never checked against the gradebook -- so it says who reported
+      // it instead of claiming a confirmation Jarvis did not perform.
+      const provenance = grade.source === "D2L email" ? "reported by D2L email" : `verified: ${grade.source}`;
+      return `[${provenance}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
+    }),
+    ...input.missingWork.map((item) =>
+      `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
+    ),
+    ...(input.missingWorkOmitted > 0 ? [`+${input.missingWorkOmitted} more`] : []),
+  ];
+  return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
+}
+
+function applicationStatus(status: DigestApplicationItem["status"]): string {
+  if (status === "not_started") return "not started";
+  if (status === "submitted_by_sid") return "submitted by Sid";
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  return status;
+}
+
+function workflowStatus(status: DigestUniversityWorkflow["status"]): string {
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  if (status.startsWith("owner_reported_")) return status.slice("owner_reported_".length).replaceAll("_", " ");
+  return status;
+}
+
+function timedWorkflowDeadline(instant: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).format(new Date(instant));
+}
+
+function applicationSection(
+  items: readonly DigestApplicationItem[],
+  workflowItems: readonly DigestUniversityWorkflow[],
+): DigestSection | null {
+  const ordered = [...items]
+    .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
+    .sort((left, right) => {
+      if (left.dueDate === null && right.dueDate !== null) return 1;
+      if (left.dueDate !== null && right.dueDate === null) return -1;
+      return (left.dueDate ?? "").localeCompare(right.dueDate ?? "") || left.itemId.localeCompare(right.itemId);
+    })
+    .slice(0, APPLICATION_ITEM_LIMIT);
+  const orderedWorkflow = [...workflowItems].filter((item) => ![
+    "owner_reported_done", "owner_reported_rejected", "owner_reported_withdrawn",
+    "owner_reported_satisfied", "owner_reported_accepted", "owner_reported_declined",
+    "not_needed_by_sid",
+  ].includes(item.status)).sort((left, right) => {
+    const leftDue = left.dueAt ?? left.dueDate;
+    const rightDue = right.dueAt ?? right.dueDate;
+    if (leftDue === null && rightDue !== null) return 1;
+    if (leftDue !== null && rightDue === null) return -1;
+    return (leftDue ?? "").localeCompare(rightDue ?? "") || left.workflowId.localeCompare(right.workflowId);
+  }).slice(0, APPLICATION_ITEM_LIMIT);
+  if (ordered.length === 0 && orderedWorkflow.length === 0) return null;
+  return {
+    heading: "University applications",
+    lines: [...ordered.map((item) => {
+      const due = item.dueDate === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
+    }), ...orderedWorkflow.map((item) => {
+      const dueValue = item.dueAt !== null && item.dueTimeZone !== null
+        ? timedWorkflowDeadline(item.dueAt, item.dueTimeZone)
+        : item.dueDate;
+      const due = dueValue === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(dueValue)} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${workflowStatus(item.status)}; owner ${item.owner}; ${due}]`;
+    })],
+  };
+}
+
+function studyCheckInSection(input: DigestInput): DigestSection | null {
+  const checkIn = input.studyCheckIn;
+  if (checkIn === undefined || checkIn === null) return null;
+  const count = `${checkIn.evidenceCount} evidence ${checkIn.evidenceCount === 1 ? "point" : "points"}`;
+  const caution = checkIn.evidenceCount === 1 ? "; not a fixed judgment" : "";
+  const sourceLabel = (kind: DigestStudySignalCitation["sourceKind"]): string => {
+    if (kind === "verified_grade") return "Classroom grade";
+    if (kind === "derived_missing_work") return "derived missing-work observation";
+    if (kind === "deadline") return "deadline";
+    if (kind === "quiz_outcome") return "quiz evidence";
+    if (kind === "owner_report") return "owner study note";
+    return "course-card evidence";
+  };
+  return {
+    heading: "Coursework check-in",
+    lines: [
+      `${neutraliseInline(checkIn.course)}: study target “${neutraliseInline(checkIn.topic)}” (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))}).`,
+      ...checkIn.citations.map((point, index) => {
+        const stale = point.freshness === "stale" ? "; stale" : "";
+        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} — ${neutraliseInline(point.course)}: “${neutraliseInline(point.itemLabel)}” (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
+      }),
+      "Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.",
+    ],
   };
 }
 
@@ -218,10 +370,15 @@ function render(sections: readonly DigestSection[]): string {
  * Fit the digest to the channel, dropping the least load-bearing content
  * first.
  *
+ * Least load-bearing is positional: `compose` builds school content first, so
+ * trimming from the end gives up a project status or a waiting question before
+ * it gives up a deadline. The body order and the truncation order are the same
+ * order on purpose; splitting them is how the two drift apart.
+ *
  * The gaps section is never dropped. A digest that silently omits "the
- * Brightspace scrape failed" reads exactly like a digest reporting a quiet
- * day, and the entire point of recording a failed source is that those two
- * must never look the same.
+ * Brightspace calendar feed failed" reads exactly like a digest reporting a
+ * quiet day, and the entire point of recording a failed source is that those
+ * two must never look the same.
  */
 function fit(
   sections: readonly DigestSection[],
@@ -265,9 +422,29 @@ export function compose(
 
   const gaps = gapSection(input.gaps);
   const candidates = [
+    // School first, most missable first. A dated obligation outranks undated
+    // study work; university applications carry dated December deadlines and
+    // this is a term-long priority; the day's catch-up and the study
+    // suggestion come next.
+    //
+    // This order is also the priority, because `fit` trims from the end. A
+    // deadline, a submission already not seen, or a grade must never be
+    // surrendered while a project status line is still in the message. Written
+    // down here because it was only ever implied by array position, and a
+    // section appended to the end would otherwise become the first thing
+    // trimmed.
     deadlineSection(input, now, horizon),
-    projectSection(input),
+    schoolObservationSection(input, options.timeZone),
+    applicationSection(input.applicationItems, input.universityWorkflowItems ?? []),
+    catchupSection(input.catchupActions),
+    studyCheckInSection(input),
+    // Everything the owner can act on in school is above this line. What
+    // follows is the queue of things waiting on him outside school, then how
+    // the projects and systems are doing.
     decisionSection(input),
+    projectSection(input),
+    // Protected from trimming -- see `fit`. A digest that cannot say a source
+    // is dead reads exactly like a quiet day.
     gaps,
   ].filter((section): section is DigestSection => section !== null);
 

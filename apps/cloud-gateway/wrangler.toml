@@ -21,6 +21,7 @@ required = [
 # Heartbeats: WATCHDOG_HEARTBEAT_URL, WATCHDOG_HEARTBEAT_SECRET.
 # DEEPSEEK_MODEL: model override. GITHUB_TOKEN: private project polling.
 # R1 calling: OWNER_PRINCIPAL_ID, IDENTITY_CHALLENGE_HMAC_KEY_VERSION,
+# OWNER_PASSPHRASE_PEPPER_V1,
 # PUBLIC_ORIGIN, TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID,
 # TWILIO_API_KEY_SECRET, TWILIO_AUTH_TOKEN, TWILIO_FROM_E164,
 # DEFAULT_GUEST_PIN (guest bootstrap).
@@ -30,6 +31,10 @@ required = [
 # No monetary defaults. Capacity alerts also require OWNER_PRINCIPAL_ID.
 # Classroom ingestion: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 # GOOGLE_REFRESH_TOKEN.
+# Brightspace calendar ingestion: BRIGHTSPACE_ICAL_URL.
+# School notification email: SCHOOL_EMAIL_INGEST_ADDRESS,
+# D2L_EMAIL_FROM_DOMAINS, and optionally D2L_EMAIL_ARC_SEALER_DOMAINS for the
+# forwarder tenants whose ARC seal may be believed.
 
 [exports.CallSession]
 type = "durable-object"
@@ -50,6 +55,8 @@ storage = "sqlite"
 # twice lets exactly one of the two match the target local hour; the router
 # discards the other. Which one matches changes at the daylight-saving
 # boundary, and neither the cron nor the router needs to know when that is.
+# The night pair also starts the memory backup at 19:30 local. Its bounded
+# continuation advances on the existing five-minute drain cadence.
 #
 # The list must match ROUTED_CRONS in src/scheduler/cron-router.ts. A cron
 # here that the router does not recognise runs nothing, deliberately: a
@@ -67,6 +74,17 @@ migrations_dir = "src/persistence/migrations"
 [[r2_buckets]]
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive"
+
+[ai]
+binding = "AI"
+
+[[vectorize]]
+binding = "MEMORY_VECTORS"
+index_name = "jarvis-memory-bge-m3"
+
+[[r2_buckets]]
+binding = "BACKUP"
+bucket_name = "jarvis-memory-backup"
 
 [[durable_objects.bindings]]
 name = "CALL_SESSION"
@@ -92,6 +110,10 @@ migrations_dir = "src/persistence/migrations"
 [[env.test.r2_buckets]]
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive-test"
+
+[[env.test.r2_buckets]]
+binding = "BACKUP"
+bucket_name = "jarvis-memory-backup-test"
 
 [[env.test.durable_objects.bindings]]
 name = "CALL_SESSION"

@@ -1,11 +1,44 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
+import { applyCloudMemoryMigration } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { createFakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
+  // The recalled-memory and separation cases below read model context through
+  // the shared retriever, which anti-joins memory_active_event_suppressions.
+  // Applied here rather than in createFakeCallingSystem, because that helper is
+  // shared with outbound-dispatch suites whose admission this migration
+  // disturbs. Only this file's tests exercise the retriever.
+  beforeAll(async () => {
+    await applyCloudMemoryMigration();
+  });
+
+  it("closes an evicted guest relay that sends another prompt after three wrong PINs", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const guest = await seedFakeGuest("a");
+      expect((await system.inbound(guest.caller)).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.pin(FAKE_PIN_B());
+      await call.pin(FAKE_PIN_B());
+      await call.pin(FAKE_PIN_B());
+
+      await expect(call.phase()).resolves.toBe("rejected");
+      await expect(env.DB.prepare(
+        "SELECT count(*) AS count FROM guest_call_pin_attempts WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.toEqual({ count: 3 });
+
+      await call.hibernate();
+      await call.prompt("prompt after rejected guest eviction");
+
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1008));
+    } finally { await system.cleanup(); }
+  }, 15_000);
+
   it("refuses a verified active identity with no grant before creating a relay or consuming PIN work", async () => {
     const system = await createFakeCallingSystem();
     try {

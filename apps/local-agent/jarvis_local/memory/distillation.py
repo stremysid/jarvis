@@ -24,6 +24,7 @@ later state as true.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -162,48 +163,59 @@ class DistillationCoordinator:
         raw: Any,  # noqa: ANN401 - untrusted model output; narrowing it is the job
         supplied: frozenset[str] | set[str],
     ) -> FactProposal | None:
-        if not isinstance(raw, dict):
-            return None
-        if FORBIDDEN_PROPOSAL_KEYS & set(raw):
-            # The model tried to act rather than observe.
-            return None
-
-        text = raw.get("text")
-        if not isinstance(text, str) or not text.strip():
-            return None
-        if not representable_fact_text(text):
-            return None
-
-        sources = raw.get("sourceEventIds")
-        if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES_PER_FACT:
-            # A fact with no provenance is an assertion with no evidence.
-            return None
-        if any(not isinstance(source, str) for source in sources):
-            return None
-        if not set(sources) <= set(supplied):
-            # Cites something we did not submit.
-            return None
-
-        confidence = raw.get("confidence", 1.0)
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-            return None
-        if not 0.0 <= float(confidence) <= 1.0:
-            return None
-
-        sensitivity = (
-            Sensitivity.SENSITIVE if raw.get("sensitivity") == "sensitive" else Sensitivity.NORMAL
-        )
-
-        return FactProposal(
+        return validate_extraction_proposal(
+            raw,
+            supplied,
             principal_id=self.principal_id,
-            text=text.strip(),
-            # Always MODEL. The response does not get a say: this is precisely
-            # the boundary that keeps an inference from promoting itself.
-            origin=FactOrigin.MODEL,
-            source_event_ids=tuple(sources),
-            sensitivity=sensitivity,
-            confidence=float(confidence),
         )
+
+
+def validate_extraction_proposal(
+    raw: Any,  # noqa: ANN401 - untrusted model output; narrowing it is the job
+    supplied: frozenset[str] | set[str],
+    *,
+    principal_id: str,
+) -> FactProposal | None:
+    """Validate model output using the policy shared with the TypeScript gateway."""
+    if not isinstance(raw, dict):
+        return None
+    if FORBIDDEN_PROPOSAL_KEYS & set(raw):
+        return None
+
+    text = raw.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    if unicodedata.normalize("NFC", text) != text:
+        return None
+    if not representable_fact_text(text):
+        return None
+
+    sources = raw.get("sourceEventIds")
+    if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES_PER_FACT:
+        return None
+    if any(not isinstance(source, str) for source in sources):
+        return None
+    if not set(sources) <= set(supplied):
+        return None
+
+    confidence = raw.get("confidence", 1.0)
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        return None
+    if not 0.0 <= float(confidence) <= 1.0:
+        return None
+
+    sensitivity = (
+        Sensitivity.SENSITIVE if raw.get("sensitivity") == "sensitive" else Sensitivity.NORMAL
+    )
+    return FactProposal(
+        principal_id=principal_id,
+        text=text.strip(),
+        # Model output never gets to claim an origin that auto-promotes.
+        origin=FactOrigin.MODEL,
+        source_event_ids=tuple(sources),
+        sensitivity=sensitivity,
+        confidence=float(confidence),
+    )
 
 
 def promote_new_facts(facts: FactRepository, principal_id: str) -> list[Fact]:

@@ -64,6 +64,14 @@ class CloudProjectionRejectedError(CloudSyncError):
     """The gateway explicitly rejected projection content after authentication."""
 
 
+class CloudPassphraseStateChangedError(CloudSyncError):
+    """The active owner-passphrase version changed during compare-and-swap."""
+
+
+class CloudOwnerPassphraseMismatchError(CloudSyncError):
+    """The configured server owner does not match the authenticated device owner."""
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotCursor:
     """The snapshot a page came from, needed to acknowledge it."""
@@ -316,13 +324,27 @@ class HttpCloudClient:
                 raise CloudSyncError(f"gateway returned {type(decoded).__name__}, expected an object")
             return decoded
         except urllib.error.HTTPError as error:
-            if path == "/identity/owner-phone-enrollment" and error.code == 401:
+            if path in {"/identity/owner-phone-enrollment", "/identity/owner-passphrase"} and error.code == 401:
                 try:
                     rejected = json.loads(error.read(257).decode("utf-8"))
                 except (AttributeError, ValueError, UnicodeError, OSError):
                     rejected = None
                 if rejected == {"error": "signed_request_expired"}:
                     raise CloudRequestExpiredError("signed_request_expired") from error
+            if path == "/identity/owner-passphrase" and error.code == 409:
+                try:
+                    rejected = json.loads(error.read(257).decode("utf-8"))
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "owner_passphrase_state_changed"}:
+                    raise CloudPassphraseStateChangedError("owner_passphrase_state_changed") from error
+            if path == "/identity/owner-passphrase" and error.code == 403:
+                try:
+                    rejected = json.loads(error.read(257).decode("utf-8"))
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "owner_passphrase_owner_mismatch"}:
+                    raise CloudOwnerPassphraseMismatchError("owner_passphrase_owner_mismatch") from error
             if error.code in (401, 403):
                 raise CloudAuthError(f"gateway rejected the device: HTTP {error.code}") from error
             if path == ACK_PATH and error.code == 400:

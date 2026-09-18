@@ -1,5 +1,14 @@
 # Home node service
 
+> **Historical only — do not execute.** The Linux home node was a
+> planning-session implementation choice Sid never made. On 2026-09-14 he
+> required cloud memory that works with every PC off and delegated the storage
+> design; the reviewer selected D1 as the authoritative memory ledger and topic
+> tree. R2 and R3 do not depend on this node. This runbook and the existing
+> node code remain only as provenance and recovery reference; they do not
+> authorize provisioning, migration, deployment, secrets work or a Windows
+> port.
+
 This runbook installs the existing Python memory agent as one foreground Linux
 process supervised by systemd. It opens the archive and memory stores, pulls
 cloud events with the enrolled Ed25519 identity, submits distillation requests,

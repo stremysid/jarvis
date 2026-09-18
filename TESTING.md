@@ -54,15 +54,15 @@ pnpm --filter @jarvis/cloud-gateway typecheck:tests
 From `apps/local-agent`:
 
 ```bash
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run pytest -q
+uv run pytest -q
 ```
 
 ```bash
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run ruff check .
+uv run ruff check .
 ```
 
 ```bash
-& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run mypy jarvis_local
+uv run mypy jarvis_local
 ```
 
 All three must pass. Ruff runs with `ANN`, so **every function needs

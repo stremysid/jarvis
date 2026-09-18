@@ -13,7 +13,8 @@
  * follow, applied one level up.
  */
 
-import { compose, type DigestClock } from "../digest/digest-composer.js";
+import { compose, localDate, type DigestClock } from "../digest/digest-composer.js";
+import type { Env } from "../env.js";
 import type {
   Digest,
   DigestDeadline,
@@ -21,18 +22,46 @@ import type {
   DigestInput,
   DigestProject,
 } from "../digest/digest-types.js";
-import type { Deadline } from "../deadlines/deadline-types.js";
+import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/deadline-types.js";
+import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
+import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
+import type {
+  UniversityApplicationDigestItem,
+  UniversityWorkflowDigestItem,
+} from "../university/university-tracker-types.js";
+import type { StudyCheckIn } from "../school/study-coach-types.js";
+import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
 /** How far ahead the digest looks for deadlines. */
 const DEADLINE_HORIZON_DAYS = 7;
+/** Hourly sources get two missed firings before the third makes staleness visible. */
+const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
+/** A complete grades/submissions walk may span several hourly checkpoint slices. */
+const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
+/**
+ * How long a push source may be silent before the digest says so.
+ *
+ * D2L notification mail has no heartbeat: it either arrives or it does not,
+ * and a source that stops delivering looks exactly like a quiet term. A week
+ * is long enough not to nag between real notifications and short enough that
+ * a reset notification setting or a shadowed Email Routing rule surfaces
+ * while the assignment is still ahead.
+ */
+const PUSH_SOURCE_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface DigestSources {
+  readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
+  readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
+  readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
+  readDeadlineSources(): Promise<readonly DeadlineSource[]>;
+  readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
+  claimStudyCheckIn?(localDate: string, weekday: number, minuteOfDay: number): Promise<StudyCheckIn | null>;
 }
 
 export interface DigestDelivery {
@@ -44,6 +73,21 @@ export interface DigestJobDependencies {
   readonly delivery: DigestDelivery;
   readonly clock: DigestClock;
   readonly timeZone: string;
+  /** Fixed sources known to be absent from configuration at compose time. */
+  readonly unconfiguredDeadlineSources?: readonly Readonly<{
+    sourceId: string;
+    kind: DeadlineSourceKind;
+  }>[];
+  /**
+   * Push sources this deployment is configured to receive, whether or not
+   * anything has ever arrived.
+   *
+   * See `expectedPushSources` for why this cannot be read from the database.
+   */
+  readonly expectedPushSources?: readonly Readonly<{
+    sourceId: string;
+    kind: DeadlineSourceKind;
+  }>[];
   /**
    * Injected only so the failure path below can be exercised.
    *
@@ -57,8 +101,94 @@ export interface DigestJobDependencies {
   readonly assess?: typeof assessStaleness;
 }
 
+export function unconfiguredDeadlineSources(
+  env: Pick<Env, "BRIGHTSPACE_ICAL_URL" | "SCHOOL_EMAIL_INGEST_ADDRESS">,
+): readonly Readonly<{ sourceId: string; kind: DeadlineSourceKind }>[] {
+  const emailConfigured = (env.SCHOOL_EMAIL_INGEST_ADDRESS?.length ?? 0) > 0;
+  const calendarConfigured = (env.BRIGHTSPACE_ICAL_URL?.length ?? 0) > 0;
+  return !emailConfigured && !calendarConfigured
+    ? Object.freeze([Object.freeze({ sourceId: "d2l-notification-email", kind: "brightspace" as const })])
+    : Object.freeze([]);
+}
+
+/**
+ * Push sources this deployment is configured to receive.
+ *
+ * A polled source creates its own health row the first time it runs, so an
+ * absent row is a statement about the deployment. A push source never runs:
+ * its row is created inside the mail handler, by the first message that
+ * arrives. A feed that has never delivered anything therefore has no row for
+ * the digest to read, no gap for it to print, and no symptom at all -- a
+ * deleted Email Routing rule or a D2L notification setting switched off reads
+ * exactly like a quiet term, for as long as nobody notices the grades are
+ * missing. What the deployment is configured to receive has to be read from
+ * the configuration, because it is the one fact the first delivery creates.
+ *
+ * Configuration removed, rather than never installed, is
+ * `unconfiguredDeadlineSources`' case and is deliberately not repeated here.
+ */
+export function expectedPushSources(
+  env: Pick<Env, "SCHOOL_EMAIL_INGEST_ADDRESS">,
+): readonly Readonly<{ sourceId: string; kind: DeadlineSourceKind }>[] {
+  return (env.SCHOOL_EMAIL_INGEST_ADDRESS?.length ?? 0) > 0
+    ? Object.freeze([Object.freeze({ sourceId: "d2l-notification-email", kind: "brightspace" as const })])
+    : Object.freeze([]);
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function deadlineSourceName(source: Pick<DeadlineSource, "kind"> & Partial<Pick<DeadlineSource, "sourceId">>): string {
+  if (source.kind === "classroom") return "Google Classroom";
+  if (source.sourceId === "d2l-notification-email") return "D2L notification email";
+  if (source.kind === "brightspace") return "Brightspace";
+  return "Manual deadlines";
+}
+
+function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
+  if (!source.active || source.kind === "manual") return null;
+  if (source.sourceId === "d2l-notification-email") return pushSourceGap(source, observedAt);
+  let partialResult: string | null = null;
+  if (source.lastFailure !== null) {
+    const truncation = source.kind === "brightspace"
+      ? /^source_items_truncated:(\d+)$/u.exec(source.lastFailure)
+      : null;
+    if (truncation !== null) {
+      partialResult = `bounded sweep omitted ${truncation[1]} in-window entries; kept at most ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} live items and ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} cancellations`;
+    } else {
+      return source.lastFailure;
+    }
+  }
+  if (source.lastSuccessAt === null) return partialResult === null ? "has never synced" : `${partialResult}; has never synced`;
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) {
+    return partialResult === null
+      ? "last successful sync time is unreadable"
+      : `${partialResult}; last successful sync time is unreadable`;
+  }
+  if (age > DEADLINE_SOURCE_STALE_AFTER_MS) {
+    return partialResult === null ? "last successful sync is stale" : `${partialResult}; last successful sync is stale`;
+  }
+  return partialResult;
+}
+
+/**
+ * A push source cannot fail loudly, so silence is the only symptom it has.
+ *
+ * A recorded failure still wins: it names something specific, and the
+ * freshness line would only restate the same silence less usefully.
+ */
+function pushSourceGap(source: DeadlineSource, observedAt: Date): string | null {
+  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastSuccessAt === null) return "has never received a message";
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) return "last received time is unreadable";
+  return age > PUSH_SOURCE_STALE_AFTER_MS
+    ? `nothing received in ${String(PUSH_SOURCE_STALE_AFTER_MS / (24 * 60 * 60 * 1_000))} days`
+    : null;
 }
 
 /**
@@ -79,6 +209,70 @@ async function readOr<T>(
     gaps.push({ source, detail: describe(error) });
     return [];
   }
+}
+
+function missingStudyCoachTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:study|practice)_/iu.test(describe(error));
+}
+
+function missingSchoolObservationTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:observation_sync|assignment_observations|missing_work_transitions)/iu
+    .test(describe(error));
+}
+
+interface SchoolObservationRead {
+  readonly available: boolean;
+  readonly snapshot: SchoolObservationDigestSnapshot | null;
+}
+
+async function readSchoolObservationsOr(
+  read: (() => Promise<SchoolObservationDigestSnapshot>) | undefined,
+  gaps: DigestGap[],
+): Promise<SchoolObservationRead> {
+  if (read === undefined) return { available: false, snapshot: null };
+  try {
+    return { available: true, snapshot: await read() };
+  } catch (error) {
+    // Code may be deployed before additive candidate migration 0027. Until
+    // the tables exist, the older digest remains the live product.
+    if (missingSchoolObservationTable(error)) return { available: false, snapshot: null };
+    gaps.push({ source: "Google Classroom grades/submissions", detail: describe(error) });
+    return { available: true, snapshot: null };
+  }
+}
+
+async function readStudyCheckInOr(
+  read: () => Promise<StudyCheckIn | null>,
+  gaps: DigestGap[],
+): Promise<StudyCheckIn | null> {
+  try {
+    return await read();
+  } catch (error) {
+    // The Worker may be deployed before candidate migration 0023 is applied.
+    // Absence is not a failed read until the feature's tables exist.
+    if (!missingStudyCoachTable(error)) gaps.push({ source: "Study coach", detail: describe(error) });
+    return null;
+  }
+}
+
+function localSchedule(instant: Date, timeZone: string): { readonly weekday: number; readonly minuteOfDay: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const value = (type: Intl.DateTimeFormatPartTypes): string | undefined =>
+    parts.find((part) => part.type === type)?.value;
+  const weekdays = new Map(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => [day, index]));
+  const weekday = weekdays.get(value("weekday") ?? "");
+  const hour = Number(value("hour"));
+  const minute = Number(value("minute"));
+  if (weekday === undefined || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new TypeError("study_check_in_local_time_invalid");
+  }
+  return { weekday, minuteOfDay: hour * 60 + minute };
 }
 
 /**
@@ -122,13 +316,28 @@ function toDigestProject(
   };
 }
 
-function toDigestDeadline(deadline: Deadline): DigestDeadline {
+function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]): DigestDeadline {
+  const source = sources.find((candidate) => candidate.sourceId === deadline.sourceId);
+  const label: DigestDeadline["source"] = deadline.sourceId === "d2l-notification-email"
+    ? "D2L email"
+    : deadline.sourceId === "google-classroom"
+      ? "Google Classroom"
+      : deadline.sourceId === "brightspace-ical"
+        ? "Brightspace calendar"
+        : source?.kind === "manual"
+          ? "Manual"
+          : source?.kind === "brightspace"
+            ? "Brightspace"
+            : source?.kind === "classroom"
+              ? "Google Classroom"
+              : undefined;
   return {
     deadlineId: deadline.deadlineId,
     course: deadline.course,
     title: deadline.title,
     dueAt: deadline.dueAt,
     effort: deadline.effort,
+    ...(label === undefined ? {} : { source: label }),
   };
 }
 
@@ -138,15 +347,106 @@ export async function assembleDigest(
   dependencies: DigestJobDependencies,
 ): Promise<Digest> {
   const gaps: DigestGap[] = [];
+  const observedAt = new Date(dependencies.clock.now().getTime());
+  const observedClock: DigestClock = { now: () => new Date(observedAt.getTime()) };
 
   // Read every source before composing, and read them all even when the
   // first one fails. Short-circuiting would mean one broken source hides
   // whether the others are broken too.
-  const [deadlines, projects, decisions] = await Promise.all([
+  const today = localDate(observedAt, dependencies.timeZone);
+  const schedule = localSchedule(observedAt, dependencies.timeZone);
+  const [
+    catchupActions,
+    applicationItems,
+    workflowItems,
+    deadlines,
+    deadlineSources,
+    schoolRead,
+    projects,
+    decisions,
+    studyCheckIn,
+  ] = await Promise.all([
+    readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
+    readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
+    dependencies.sources.readWorkflowItems === undefined
+      ? Promise.resolve([])
+      : readOr("University application steps", () => dependencies.sources.readWorkflowItems?.() ?? Promise.resolve([]), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
+    readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
+    readSchoolObservationsOr(dependencies.sources.readSchoolObservations, gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
+    dependencies.sources.claimStudyCheckIn === undefined || kind !== "daily"
+      ? Promise.resolve(null)
+      : readStudyCheckInOr(() => dependencies.sources.claimStudyCheckIn!(
+        today, schedule.weekday, schedule.minuteOfDay,
+      ), gaps),
   ]);
+
+  const unconfigured = new Set((dependencies.unconfiguredDeadlineSources ?? [])
+    .map((source) => source.sourceId));
+  for (const expected of dependencies.unconfiguredDeadlineSources ?? []) {
+    if (expected.kind === "manual") continue;
+    const lastKnown = deadlineSources.find((source) => source.sourceId === expected.sourceId);
+    const detail = lastKnown === undefined
+      ? "not set up"
+      : lastKnown.lastSuccessAt === null
+        ? "configuration removed; no successful sync is available"
+        : `configuration removed; showing last-known deadlines from ${localDate(new Date(lastKnown.lastSuccessAt), dependencies.timeZone)}`;
+    gaps.push({ source: deadlineSourceName(expected), detail });
+  }
+
+  // A configured push source that has no health row at all has never received
+  // anything. It has to be said from the configuration rather than from the
+  // row, because the row is what the first delivery creates -- a feed that has
+  // never delivered is exactly the feed with nothing to read.
+  for (const expected of dependencies.expectedPushSources ?? []) {
+    if (unconfigured.has(expected.sourceId)) continue;
+    if (deadlineSources.some((source) => source.sourceId === expected.sourceId)) continue;
+    gaps.push({ source: deadlineSourceName(expected), detail: "has never received a message" });
+  }
+
+  // Keep the last known deadlines visible while saying that their source is
+  // failed or stale. Dropping the deadlines would turn a sync fault into
+  // "nothing due".
+  for (const source of deadlineSources) {
+    if (unconfigured.has(source.sourceId)) continue;
+    const detail = scheduledSourceGap(source, observedAt);
+    if (detail === null) continue;
+    // The stored label is source data. Gap source names are structural text in
+    // the composer, so select a fixed label from the validated kind instead.
+    gaps.push({ source: deadlineSourceName(source), detail });
+  }
+
+  // A school feed that has never delivered must say so, and that cannot be
+  // decided from a health row either. The row a completed Grades/submissions
+  // scan writes is created by the first sync attempt, so a deployment where
+  // Classroom was never set up has no row at all -- and the digest then simply
+  // omitted school, which is the one thing the owner ranks first. The
+  // observation reader being present is what says this deployment expects
+  // Classroom observations; the missing scan row is then a fact about the
+  // feed, not about the deployment. A source deliberately switched off is
+  // still not a silent one, so the inactive case keeps saying nothing.
+  const classroomSource = deadlineSources.find((source) => source.kind === "classroom");
+  const schoolSnapshot = schoolRead.snapshot;
+  if (schoolRead.available && schoolSnapshot !== null && classroomSource?.active !== false) {
+    const observationSource = schoolSnapshot.source;
+    if (observationSource === null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: "has never completed a submission scan" });
+    } else if (observationSource.lastFailure !== null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: observationSource.lastFailure });
+    } else if (observationSource.lastSuccessAt === null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: "has never completed a submission scan" });
+    } else {
+      const lastSuccess = Date.parse(observationSource.lastSuccessAt);
+      const age = observedAt.getTime() - lastSuccess;
+      if (!Number.isFinite(lastSuccess) || age < 0) {
+        gaps.push({ source: "Google Classroom grades/submissions", detail: "last completed scan time is unreadable" });
+      } else if (age > SCHOOL_OBSERVATION_STALE_AFTER_MS) {
+        gaps.push({ source: "Google Classroom grades/submissions", detail: "last completed scan is stale" });
+      }
+    }
+  }
 
   // Staleness is derived here rather than stored, because "stale" is a
   // statement about now and a stored flag would be a statement about whenever
@@ -154,7 +454,7 @@ export async function assembleDigest(
   const reports = new Map<string, ProjectStalenessReport>();
   try {
     const assess = dependencies.assess ?? assessStaleness;
-    for (const report of assess(projects, { now: () => dependencies.clock.now() })) {
+    for (const report of assess(projects, observedClock)) {
       reports.set(report.projectId, report);
     }
   } catch (error) {
@@ -164,7 +464,56 @@ export async function assembleDigest(
   }
 
   const input: DigestInput = {
-    deadlines: deadlines.map(toDigestDeadline),
+    catchupActions: catchupActions.map((action) => ({
+      actionId: action.actionId,
+      course: action.courseName,
+      text: action.text,
+      sequenceRank: action.sequenceRank,
+      estimatedMinutes: action.estimatedMinutes,
+    })),
+    applicationItems: applicationItems.map((item) => ({
+      itemId: item.itemId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      status: item.status,
+      dueDate: item.dueDate,
+      verificationState: item.verification.state,
+    })),
+    universityWorkflowItems: workflowItems.map((item) => ({
+      workflowId: item.workflowId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      dueDate: item.deadline.date,
+      dueAt: item.deadline.instant,
+      dueTimeZone: item.deadline.timeZone,
+      verificationState: item.deadline.verification.state,
+    })),
+    deadlines: deadlines.map((deadline) => toDigestDeadline(deadline, deadlineSources)),
+    grades: (schoolSnapshot?.grades ?? []).map((grade) => ({
+      observationId: grade.observationId,
+      course: grade.course,
+      title: grade.title,
+      assignedGrade: grade.assignedGrade,
+      maxPoints: grade.maxPoints,
+      gradeUpdatedAt: grade.gradeUpdatedAt,
+      source: grade.source === "d2l_notification_email" ? "D2L email" as const : "Google Classroom" as const,
+      lastSeenAt: grade.lastSeenAt,
+    })),
+    missingWork: (schoolSnapshot?.missingWork ?? []).map((item) => ({
+      transitionId: item.transitionId,
+      course: item.course,
+      title: item.title,
+      dueAt: item.dueAt,
+      classification: "derived" as const,
+      state: "no_submission_seen" as const,
+      source: "Google Classroom" as const,
+      lastSeenAt: item.lastSeenAt,
+    })),
+    missingWorkOmitted: schoolSnapshot?.missingWorkOmitted ?? 0,
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({
       decisionId: item.decisionId,
@@ -172,9 +521,27 @@ export async function assembleDigest(
       urgency: item.urgency,
     })),
     gaps,
+    studyCheckIn: studyCheckIn === null ? null : {
+      course: studyCheckIn.courseName,
+      topic: studyCheckIn.topic,
+      outcome: studyCheckIn.outcome,
+      evidenceCount: studyCheckIn.evidenceCount,
+      confidence: studyCheckIn.confidence,
+      observedAt: studyCheckIn.observedAt,
+      citations: studyCheckIn.citations.map((point) => ({
+        sourceKind: point.sourceKind,
+        sourceRecordId: point.sourceRecordId,
+        course: point.course,
+        itemLabel: point.itemLabel,
+        observedAt: point.observedAt,
+        verification: point.verification,
+        freshness: point.freshness,
+        detail: point.detail,
+      })),
+    },
   };
 
-  return compose(input, { kind, timeZone: dependencies.timeZone }, dependencies.clock);
+  return compose(input, { kind, timeZone: dependencies.timeZone }, observedClock);
 }
 
 export interface DigestJobResult {

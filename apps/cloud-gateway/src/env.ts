@@ -3,11 +3,20 @@ import type { CallSession } from "./index.js";
 export interface Env {
   DB: D1Database;
   ARCHIVE: R2Bucket;
+  /** Separate logical backups. Missing production wiring is handled as an alertable job failure. */
+  BACKUP?: R2Bucket;
   CALL_SESSION: DurableObjectNamespace<CallSession>;
+  /** Optional together: either missing keeps meaning indexing and recall disabled. */
+  AI?: Ai;
+  MEMORY_VECTORS?: Vectorize;
   OWNER_VOICE_IDENTITY_ID: string;
   GUEST_PIN_PEPPER_V1: string;
   AUTHENTICATION_BUDGET_PEPPER: string;
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
+  /** 32 random bytes, base64. Used only for the owner-passphrase verifier. */
+  OWNER_PASSPHRASE_PEPPER_V1?: string;
+  /** Dormant caller-attestation waiver policy. Missing remains passphrase_always. */
+  OWNER_CALLER_ID_POLICY?: string;
   /** Explicit rotation version shared by challenge issuance, inbound admission and confirmation. */
   IDENTITY_CHALLENGE_HMAC_KEY_VERSION?: string;
   DEFAULT_GUEST_PIN?: string;
@@ -73,6 +82,18 @@ export interface Env {
    */
   DEEPSEEK_MODEL?: string;
 
+  /** Memory extraction model. Defaults to DEEPSEEK_MODEL, then deepseek-flash. */
+  MEMORY_EXTRACTION_MODEL?: string;
+
+  /** Hard calendar-month extraction cap in USD. Defaults to 5. */
+  MEMORY_EXTRACTION_MONTHLY_CAP_USD?: string;
+
+  /**
+   * Telegram thinking mode. Defaults to disabled. Any value except enabled or
+   * disabled also uses the default and logs deepseek_telegram_thinking_invalid once.
+   */
+  DEEPSEEK_TELEGRAM_THINKING?: string;
+
   /** Explicit owner limits. Missing or malformed capacity configuration refuses admission. */
   CAPACITY_D1_BUDGET_BYTES?: string;
   CAPACITY_R2_BUDGET_BYTES?: string;
@@ -117,6 +138,27 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REFRESH_TOKEN?: string;
+
+  /**
+   * Sid's private Brightspace calendar-subscription URL. The URL itself is a
+   * bearer credential and belongs only in Worker secrets, never in logs,
+   * source, chat, or a browser-session scraper.
+   */
+  BRIGHTSPACE_ICAL_URL?: string;
+
+  /**
+   * Email Routing delivers only the configured unguessable capability address.
+   * The address and the comma-separated exact From-domain pin set are
+   * configuration, never source defaults. The pin only routes; a write needs
+   * the positive authentication evidence the handler demands.
+   *
+   * `D2L_EMAIL_ARC_SEALER_DOMAINS` is optional: it names the forwarder tenants
+   * whose ARC seal may be believed when the original DKIM no longer verifies,
+   * and leaving it unset simply disables that path.
+   */
+  SCHOOL_EMAIL_INGEST_ADDRESS?: string;
+  D2L_EMAIL_FROM_DOMAINS?: string;
+  D2L_EMAIL_ARC_SEALER_DOMAINS?: string;
 
   /**
    * The watchdog's heartbeat endpoint and its shared secret.

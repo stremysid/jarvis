@@ -26,18 +26,20 @@ import {
   validCreateInput,
 } from "./voice-access-fixture.js";
 
-async function counts(): Promise<{ principals: number; identities: number; grants: number; events: number }> {
-  const [principals, identities, grants, events] = await Promise.all([
+async function counts(): Promise<{ principals: number; identities: number; grants: number; events: number; notices: number }> {
+  const [principals, identities, grants, events, notices] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM principals").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grant_events").first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM guest_grant_notices").first<{ count: number }>(),
   ]);
   return {
     principals: principals?.count ?? -1,
     identities: identities?.count ?? -1,
     grants: grants?.count ?? -1,
     events: events?.count ?? -1,
+    notices: notices?.count ?? -1,
   };
 }
 
@@ -64,7 +66,7 @@ describe("VoiceAccessRepository", () => {
       status: "pending",
       capabilityIds: ["conversation.basic"],
     });
-    expect(await counts()).toEqual({ principals: 2, identities: 2, grants: 1, events: 1 });
+    expect(await counts()).toEqual({ principals: 2, identities: 2, grants: 1, events: 1, notices: 1 });
 
     await expect(repository.createGuestGrant(validCreateInput(ownerAuthority)))
       .resolves.toMatchObject({ grantId: GRANT_ID, grantVersion: 1, status: "pending" });
@@ -91,7 +93,7 @@ describe("VoiceAccessRepository", () => {
       ownerIdentityId: OWNER_IDENTITY_ID,
       now: NOW,
     })).rejects.toThrow("owner_authority_required");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("recomputes the canonical capability document before creating a grant", async () => {
@@ -99,7 +101,7 @@ describe("VoiceAccessRepository", () => {
       ...validCreateInput(ownerAuthority),
       accessDocumentHash: "f".repeat(64) as Sha256Hex,
     })).rejects.toThrow("voice_access_document_invalid");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("rejects a capability document carrying another guest's resource scope", async () => {
@@ -134,7 +136,7 @@ describe("VoiceAccessRepository", () => {
       resourceScopes: foreign.resourceScopes,
       accessDocumentHash: foreign.accessDocumentHash,
     })).rejects.toThrow("voice_access_document_invalid");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("rehydrates a scoped grant only under the same reconstructed target ownership configuration", async () => {
@@ -321,6 +323,8 @@ describe("VoiceAccessRepository", () => {
     })).resolves.toBeNull();
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grant_events")
       .first<{ count: number }>())?.count).toBe(4);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM guest_grant_notices")
+      .first<{ count: number }>())?.count).toBe(4);
   });
 
   it("mints immutable owner authority and rejects stale guest authority", async () => {
@@ -341,6 +345,12 @@ describe("VoiceAccessRepository", () => {
       .bind(`VX${"6".repeat(32)}`, now, now, secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(secondSessionId).run();
+    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
+      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
+      lifecycle_generation, requirement, attestation_class, policy, created_at
+    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`)
+      .bind(secondSessionId, `CA${"6".repeat(32)}`, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now)
+      .run();
     const binding: RelayBinding = {
       callSid: `CA${"6".repeat(32)}`,
       principalId: OWNER_PRINCIPAL_ID,
@@ -359,6 +369,24 @@ describe("VoiceAccessRepository", () => {
     await expect(repository.requireCurrentAuthority(minted, NOW)).resolves.toEqual(minted);
     await expect(repository.requireCurrentAuthority({ ...minted }, NOW))
       .rejects.toThrow("call_authority_invalid");
+
+    const verifierGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
+      .first<{ sql: string }>();
+    if (verifierGuard === null) throw new Error("owner_passphrase_verifier_guard_missing");
+    await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
+    await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+      SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`).bind(now).run();
+    try {
+      await expect(repository.rehydrateAuthority({ sessionId: secondSessionId, binding, now: NOW }))
+        .rejects.toThrow("call_authority_invalid");
+      await expect(repository.requireCurrentAuthority(minted, NOW))
+        .rejects.toThrow("call_authority_stale");
+    } finally {
+      await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+        SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();
+      await env.DB.prepare(verifierGuard.sql).run();
+    }
 
     await repository.createGuestGrant(validCreateInput(ownerAuthority));
     await env.DB.prepare(`UPDATE voice_access_grants SET status = 'active', activated_at = ?, updated_at = ?

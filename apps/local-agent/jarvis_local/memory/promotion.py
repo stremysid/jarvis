@@ -13,6 +13,8 @@ behaviour and is not projected to the cloud until confirmed.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from jarvis_local.memory.facts import (
@@ -22,6 +24,7 @@ from jarvis_local.memory.facts import (
     FactState,
     with_state,
 )
+from jarvis_local.memory.projection_policy import has_fact_text_controls
 
 # Deliberately an allowlist. An origin added later defaults to staying
 # proposed rather than silently inheriting promotion.
@@ -31,6 +34,145 @@ AUTO_PROMOTABLE_ORIGINS: frozenset[FactOrigin] = frozenset(
         FactOrigin.DETERMINISTIC_OBSERVATION,
     }
 )
+
+_FIRST_PERSON_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_])(?:i(?:['\N{RIGHT SINGLE QUOTATION MARK}](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])",
+    re.IGNORECASE | re.ASCII,
+)
+_FIRST_PERSON_UNTRUSTED_FRAMING = (
+    re.compile(r"(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(
+        r"(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could)(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(
+        r"(?<![A-Za-z0-9_])would(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))"
+        r"(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(
+        r"(?<![A-Za-z0-9_])i['\N{RIGHT SINGLE QUOTATION MARK}]d"
+        r"(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(r"(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(
+        r"(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['\N{RIGHT SINGLE QUOTATION MARK}]t)\s+know"
+        r"(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(r"(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])", re.I | re.ASCII),
+)
+_SENTENCE_PUNCTUATION = frozenset(".!?")
+_ASCII_WHITESPACE = frozenset(" \t\r\n\f\v")
+# Unknown interior periods fail closed to model/uncertain; this small list
+# preserves ordinary owner statements such as "I am renovating St. Remy."
+_PERIOD_ABBREVIATIONS = frozenset({"dr", "jr", "mr", "mrs", "ms", "prof", "sr", "st"})
+
+
+def _previous_non_whitespace(text: str, offset: int) -> int:
+    index = offset - 1
+    while index >= 0 and text[index] in _ASCII_WHITESPACE:
+        index -= 1
+    return index
+
+
+def _is_allowed_interior_period(text: str, offset: int) -> bool:
+    previous = text[offset - 1] if offset > 0 else None
+    following = text[offset + 1] if offset + 1 < len(text) else None
+    if (
+        previous is not None
+        and following is not None
+        and previous.isascii()
+        and previous.isdigit()
+        and following.isascii()
+        and following.isdigit()
+    ):
+        return True
+    preceding_word = re.search(r"([A-Za-z]+)$", text[:offset])
+    return (
+        preceding_word is not None
+        and preceding_word.group(1).lower() in _PERIOD_ABBREVIATIONS
+    )
+
+
+def _contains_second_sentence(quote: str, *, quote_has_terminator: bool) -> bool:
+    body_end = len(quote) - 1 if quote_has_terminator else len(quote)
+    for offset, character in enumerate(quote[:body_end]):
+        if character in "!?":
+            return True
+        if character == "." and not _is_allowed_interior_period(quote, offset):
+            return True
+    return False
+
+
+def _is_whole_trusted_sentence(source_text: str, quote: str, offset: int) -> bool:
+    end = offset + len(quote)
+    before = _previous_non_whitespace(source_text, offset)
+    if before >= 0 and source_text[before] not in _SENTENCE_PUNCTUATION:
+        return False
+
+    immediate_before = source_text[offset - 1] if offset > 0 else None
+    immediate_after = source_text[end] if end < len(source_text) else None
+    if immediate_before is not None and re.fullmatch(r"[A-Za-z0-9_]", immediate_before):
+        return False
+    if immediate_after is not None and re.fullmatch(r"[A-Za-z0-9_]", immediate_after):
+        return False
+
+    quote_terminator = quote[-1]
+    terminator: str | None
+    if quote_terminator in _SENTENCE_PUNCTUATION:
+        terminator = quote_terminator
+        if immediate_after is not None and immediate_after not in _ASCII_WHITESPACE:
+            return False
+    elif immediate_after is None:
+        terminator = None
+    elif immediate_after in _SENTENCE_PUNCTUATION:
+        terminator = immediate_after
+    else:
+        return False
+
+    if _contains_second_sentence(
+        quote,
+        quote_has_terminator=quote_terminator in _SENTENCE_PUNCTUATION,
+    ):
+        return False
+    if terminator == "?" or "?" in quote:
+        return False
+    return not any(pattern.search(quote) for pattern in _FIRST_PERSON_UNTRUSTED_FRAMING)
+
+
+def is_authenticated_first_person_quote(
+    *,
+    quote: str,
+    source_text: str,
+    authenticated_owner: bool,
+) -> bool:
+    """Accept only one complete, unframed first-person owner sentence."""
+    if not authenticated_owner:
+        return False
+    normalized_quote = unicodedata.normalize("NFC", quote).strip()
+    normalized_source = unicodedata.normalize("NFC", source_text).strip()
+    if not normalized_quote or has_fact_text_controls(normalized_quote):
+        return False
+    if _FIRST_PERSON_TOKEN.search(normalized_quote) is None:
+        return False
+
+    source_is_whole_quote = normalized_source == normalized_quote or (
+        len(normalized_source) == len(normalized_quote) + 1
+        and normalized_source.startswith(normalized_quote)
+        and normalized_source[-1] in _SENTENCE_PUNCTUATION
+    )
+    return source_is_whole_quote and _is_whole_trusted_sentence(
+        normalized_source,
+        normalized_quote,
+        0,
+    )
+
+
+def is_uncertain_origin(origin: FactOrigin) -> bool:
+    """Model inference is explicitly uncertain until Sid confirms it."""
+    return origin is FactOrigin.MODEL
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,10 +194,10 @@ class PromotionEngine:
     def promote(self, fact: Fact) -> Fact:
         """Return the fact in the state it is entitled to.
 
-        A superseded fact is never revived: a correction already replaced it,
-        and re-promoting it would resurrect the claim Sid corrected.
+        Only a proposed fact is eligible for automatic promotion. Active facts
+        stay active, and superseded facts are never revived.
         """
-        if fact.state is FactState.SUPERSEDED:
+        if fact.state is not FactState.PROPOSED:
             return fact
         target = FactState.ACTIVE if self.is_auto_promotable(fact) else FactState.PROPOSED
         return self._apply(fact, target)

@@ -20,6 +20,7 @@
 import type { AutonomyMode } from "../../autonomy/autonomy-types.js";
 import type { DecisionItem } from "../../decisions/decision-types.js";
 import { buildDecisionKeyboard, type TelegramInlineKeyboardMarkup } from "../../decisions/telegram-keyboard.js";
+import type { ScheduledRunRecord } from "../../scheduler/scheduled-run-repository.js";
 import { COMMAND_HELP, parseToggle, type CommandName } from "./telegram-commands.js";
 
 /** One message to send back. A command may produce several. */
@@ -41,12 +42,16 @@ export interface CommandContext {
     queue(principalId: string): Promise<readonly DecisionItem[]>;
   };
   readonly scheduler?: {
-    recent(job: string, limit: number): Promise<readonly {
-      runKey: string;
-      startedAt: string;
-      finishedAt: string | null;
-      failure: string | null;
-    }[]>;
+    /**
+     * Which jobs exist, as a value rather than a literal in this file. The
+     * three names that used to be written here were the reason a failing
+     * nightly backup could not appear on `/status` at all.
+     */
+    jobs(): readonly string[];
+    recent(job: string, limit: number): Promise<readonly ScheduledRunRecord[]>;
+  };
+  readonly memoryMeaningCoverage?: {
+    read(): Promise<Readonly<{ eligible: number; indexed: number; missing: number }>>;
   };
   readonly quietWindows?: {
     open(reason: "manual", from: Date, to: Date): Promise<void>;
@@ -55,6 +60,10 @@ export interface CommandContext {
   readonly runDigestNow?: () => Promise<string>;
   /** Bound to the accepted event; neither the parser nor caller chooses a destination. */
   readonly calls?: { request(): Promise<string> };
+  /** Bound to the accepted Telegram receipt; this command cannot re-enable step-up. */
+  readonly ownerStepUp?: {
+    disable(): Promise<"disabled" | "already_disabled" | "unconfigured" | "private_chat_required">;
+  };
   readonly now: () => Date;
 }
 
@@ -86,21 +95,47 @@ async function status(context: CommandContext): Promise<readonly CommandReply[]>
   if (context.scheduler === undefined) {
     lines.push("Scheduler: not configured");
   } else {
-    for (const job of ["drain", "poll", "digest"]) {
+    // The list comes from the deployment, not from this file. Writing the
+    // names here is how the nightly backup came to be missing from the one
+    // screen whose whole job is reporting that something is wrong.
+    for (const job of context.scheduler.jobs()) {
       const [last] = await context.scheduler.recent(job, 1);
       if (last === undefined) {
         // Never having run is a different fact from having run and failed,
         // and the difference is what tells a fresh deployment from a broken
         // one.
         lines.push(`${job}: never run`);
-      } else if (last.failure !== null) {
+        continue;
+      }
+      const tail = last.detail === null || last.detail.length === 0 ? "" : ` -- ${last.detail}`;
+      if (last.failure !== null) {
         lines.push(`${job}: FAILED at ${last.startedAt.slice(11, 16)} -- ${last.failure}`);
       } else if (last.finishedAt === null) {
         lines.push(`${job}: started ${last.startedAt.slice(11, 16)}, never finished`);
+      } else if (last.completion === "not_measured") {
+        // The job is wired up and holds no configuration, so it reached the
+        // end having done nothing. "ok" here would be the status screen
+        // certifying work that never happened -- the exact defect this
+        // reporting exists to catch.
+        lines.push(`${job}: NOT SET UP at ${last.finishedAt.slice(11, 16)}${tail}`);
+      } else if (last.completion === "degraded") {
+        // It ran, and part of what it is responsible for did not. Neither
+        // "ok" nor a failure, and saying either would be a lie with a
+        // consequence.
+        lines.push(`${job}: ok with caveat at ${last.finishedAt.slice(11, 16)}${tail}`);
       } else {
-        lines.push(`${job}: ok at ${last.finishedAt.slice(11, 16)}`);
+        // A clean success still shows its detail. Discarding the sentence a
+        // job returned is what made a successful-but-degraded run invisible.
+        lines.push(`${job}: ok at ${last.finishedAt.slice(11, 16)}${tail}`);
       }
     }
+  }
+
+  if (context.memoryMeaningCoverage === undefined) {
+    lines.push("Memory meaning: status unavailable");
+  } else {
+    const coverage = await context.memoryMeaningCoverage.read();
+    lines.push(`Memory meaning: ${coverage.indexed}/${coverage.eligible} indexed (${coverage.missing} missing)`);
   }
 
   return one(lines.join("\n"));
@@ -200,6 +235,24 @@ export async function runCommand(
         if (context.calls === undefined) return [unavailable("Calling")];
         try { return one(await context.calls.request()); }
         catch { return one("Could not confirm whether the call was placed. Check your phone before trying again."); }
+      case "disable-owner-step-up":
+        if (argument !== "--confirm") {
+          return one("Use /disable-owner-step-up --confirm exactly to disable spoken owner-call step-up.");
+        }
+        if (context.ownerStepUp === undefined) return [unavailable("Owner call step-up controls")];
+        try {
+          const outcome = await context.ownerStepUp.disable();
+          if (outcome === "private_chat_required") {
+            return one("Use /disable-owner-step-up --confirm in your private chat with Jarvis.");
+          }
+          if (outcome === "unconfigured") return one("Owner call step-up is not configured.");
+          if (outcome === "already_disabled") {
+            return one("Owner call step-up is already disabled. A new device-signed CLI generate is required to re-enable it.");
+          }
+          return one("Owner call step-up disabled. A new device-signed CLI generate is required to re-enable it.");
+        } catch {
+          return one("Owner call step-up could not be disabled. Its current state is unchanged or could not be confirmed.");
+        }
       case "shadow":
         return await shadow(argument, context);
       case "exam":

@@ -1,11 +1,191 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
+import type {
+  MemoryExtractionBudgetPort,
+  MemoryExtractionReservation,
+} from "../../src/memory/memory-extraction-budget.js";
 import {
+  DeepSeekAdapterError,
+  DeepSeekAgentProvider,
+  DeepSeekJsonProvider,
   DeepSeekModelAdapter,
   collectStream,
+  deepSeekFailureReason,
   MAX_MODEL_OUTPUT_TOKENS,
   MAX_MODEL_REQUEST_BYTES,
 } from "../../src/providers/deepseek-provider.js";
+import {
+  MEMORY_EXTRACTION_JSON_CONTRACT,
+  snapshotModelCompleteJsonCompletion,
+  snapshotModelCompleteJsonSettledFailure,
+  snapshotProviderFailure,
+} from "../../src/providers/provider-types.js";
+
+const API_KEY = "sk-test-key";
+
+function agentInput(overrides: Record<string, unknown> = {}) {
+  return {
+    correlationId: "01m1hh9h1yxaeyjgbhfzm4nnth",
+    principalId: "principal-a",
+    systemPrompt: "Return the owner-agent JSON contract.",
+    userText: "remember that math is my favourite",
+    context: [],
+    tools: [{
+      name: "memory_remember",
+      description: "Remember one grounded fact.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    toolChoice: "auto" as const,
+    timeoutMs: 20_000,
+    maxOutputTokens: 4_096,
+    signal: new AbortController().signal,
+    ...overrides,
+  };
+}
+
+function agentResponse(choice: unknown): Response {
+  return new Response(JSON.stringify({ choices: [choice] }), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("DeepSeekAgentProvider", () => {
+  it("pins non-thinking JSON function calling and parses an ordinary answer", async () => {
+    const content = JSON.stringify({ reply: "Hello.", claimedActions: [] });
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "stop",
+      message: { content },
+    }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+
+    await expect(provider.completeAgent(agentInput())).resolves.toEqual({
+      content,
+      toolCalls: [],
+      finishReason: "stop",
+    });
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+    expect(request).toMatchObject({
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      tool_choice: "auto",
+      stream: false,
+    });
+    expect(request.tools).toEqual([{
+      type: "function",
+      function: {
+        name: "memory_remember",
+        description: "Remember one grounded fact.",
+        parameters: { type: "object", additionalProperties: false, properties: {} },
+      },
+    }]);
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("parses tool calls and sends their exact results in the follow-up", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(agentResponse({
+        finish_reason: "tool_calls",
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "call_1",
+            type: "function",
+            function: { name: "memory_remember", arguments: "{}" },
+          }],
+        },
+      }))
+      .mockResolvedValueOnce(agentResponse({
+        finish_reason: "stop",
+        message: { content: JSON.stringify({ reply: "Done.", claimedActions: [] }) },
+      }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const first = await provider.completeAgent(agentInput());
+    expect(first).toMatchObject({
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call_1", name: "memory_remember", arguments: "{}" }],
+    });
+
+    await provider.completeAgent(agentInput({
+      previousToolCalls: first.toolCalls,
+      toolResults: [{ toolCallId: "call_1", name: "memory_remember", content: "{\"status\":\"completed\"}" }],
+      toolChoice: "none",
+    }));
+
+    const request = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string) as { messages: unknown[] };
+    expect(request.messages.slice(-2)).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "memory_remember", arguments: "{}" },
+        }],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "{\"status\":\"completed\"}" },
+    ]);
+  });
+
+  it("accepts tool calls accompanied by provider content without treating the content as authority", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "tool_calls",
+      message: {
+        content: "Sure, saving that now.",
+        tool_calls: [{
+          id: "call_with_content",
+          type: "function",
+          function: { name: "memory_remember", arguments: "{}" },
+        }],
+      },
+    }));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+
+    await expect(provider.completeAgent(agentInput())).resolves.toMatchObject({
+      content: null,
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call_with_content", name: "memory_remember", arguments: "{}" }],
+    });
+    expect(warning).toHaveBeenCalledWith("deepseek_agent_tool_content_ignored", { characters: 22 });
+    warning.mockRestore();
+  });
+
+  it("validates provider content that accompanies tool calls (R37)", async () => {
+    const provider = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => agentResponse({
+        finish_reason: "tool_calls",
+        message: {
+          content: { text: "not provider prose" },
+          tool_calls: [{
+            id: "call_bad_content",
+            type: "function",
+            function: { name: "memory_remember", arguments: "{}" },
+          }],
+        },
+      }),
+    });
+
+    await expect(provider.completeAgent(agentInput())).rejects.toThrow("agent_response_invalid");
+  });
+
+  it("refuses redirected and malformed tool responses", async () => {
+    const redirected = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => new Response(null, { status: 302 }),
+    });
+    await expect(redirected.completeAgent(agentInput())).rejects.toThrow("model_unavailable");
+
+    const malformed = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => agentResponse({
+        finish_reason: "tool_calls",
+        message: { content: null, tool_calls: [{ id: "bad id", type: "function", function: {} }] },
+      }),
+    });
+    await expect(malformed.completeAgent(agentInput())).rejects.toThrow("agent_response_invalid");
+  });
+});
 
 /**
  * The bounds matter more than the happy path.
@@ -17,7 +197,8 @@ import {
  * an edge case.
  */
 
-const API_KEY = "sk-test-key";
+const SYSTEM_PROMPT = "You are Jarvis, a private personal assistant. Answer briefly and directly. "
+  + "Use only the provided context and the user's message. If you do not know something, say so.";
 
 function sseResponse(chunks: readonly string[], { status = 200, errorBody = "" } = {}): Response {
   const encoder = new TextEncoder();
@@ -58,6 +239,82 @@ function adapterWith(fetchImplementation: typeof fetch): DeepSeekModelAdapter {
 }
 
 describe("DeepSeekModelAdapter", () => {
+  it.each([
+    ["an absent setting", undefined, "disabled"],
+    ["disabled", "disabled", "disabled"],
+    ["enabled", "enabled", "enabled"],
+  ] as const)("pins the exact Telegram body with %s", async (_label, setting, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: API_KEY,
+      fetchImplementation: fetcher,
+      telegramTurn: true,
+      ...(setting === undefined ? {} : { telegramThinking: setting }),
+    });
+    await collectStream(adapter.stream(input({ reasoningEffort: "high" })));
+
+    expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+      model: "deepseek-v4-pro",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: "hello" },
+      ],
+      stream: true,
+      thinking: { type: expected },
+      max_tokens: 65_536,
+    }));
+  });
+
+  it("defaults an invalid Telegram thinking setting to disabled and logs one fixed code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
+      const first = new DeepSeekModelAdapter({
+        apiKey: API_KEY, fetchImplementation: fetcher, telegramTurn: true, telegramThinking: "invalid-one",
+      });
+      new DeepSeekModelAdapter({
+        apiKey: API_KEY, fetchImplementation: fetcher, telegramTurn: true, telegramThinking: "invalid-two",
+      });
+      await collectStream(first.stream(input()));
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith("deepseek_telegram_thinking_invalid");
+      expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: "hello" },
+        ],
+        stream: true,
+        thinking: { type: "disabled" },
+        max_tokens: 65_536,
+      }));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps the exact voice request body byte-identical", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: API_KEY,
+      fetchImplementation: fetcher,
+      telegramTurn: true,
+      telegramThinking: "disabled",
+    });
+    await collectStream(adapter.stream(input({ channel: "voice", reasoningEffort: "high" })));
+
+    expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+      model: "deepseek-v4-pro",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: "hello" },
+      ],
+      stream: true,
+      reasoning_effort: "high",
+      max_tokens: 65_536,
+    }));
+  });
+
   it("puts an explicit total generation bound on the wire so hidden reasoning cannot exceed the reserve assumption", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
     await collectStream(adapterWith(fetcher).stream(input()));
@@ -176,7 +433,50 @@ describe("DeepSeekModelAdapter", () => {
     ).rejects.toThrow("model_unavailable");
   });
 
-  it("sends the pinned model and the requested reasoning effort", async () => {
+  it.each([
+    [400, "http_400"],
+    [401, "http_401"],
+    [402, "http_402"],
+    [403, "http_403"],
+    [429, "http_429"],
+    [500, "http_5xx"],
+    [599, "http_5xx"],
+    [404, "other"],
+  ] as const)("maps HTTP %i to the fixed %s log reason", async (status, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([], {
+      status,
+      errorBody: "private provider body",
+    }));
+    let observed: unknown;
+    try {
+      await collectStream(adapterWith(fetcher).stream(input()));
+    } catch (error) {
+      observed = error;
+    }
+    expect(observed).toBeInstanceOf(DeepSeekAdapterError);
+    expect(deepSeekFailureReason(observed)).toBe(expected);
+  });
+
+  it.each([
+    [new TypeError("connection refused"), "network"],
+    [new DOMException("request aborted", "AbortError"), "timeout"],
+  ] as const)("maps fetch failure to the fixed %s log reason", async (failure, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => { throw failure; });
+    let observed: unknown;
+    try {
+      await collectStream(adapterWith(fetcher).stream(input()));
+    } catch (error) {
+      observed = error;
+    }
+    expect(deepSeekFailureReason(observed)).toBe(expected);
+  });
+
+  it("maps local request validation and unknown adapter failures to fixed reasons", () => {
+    expect(deepSeekFailureReason(new RangeError("bad input"))).toBe("input_invalid");
+    expect(deepSeekFailureReason(new Error("unclassified"))).toBe("other");
+  });
+
+  it("keeps non-turn adapters on the existing reasoning effort body for sync routes", async () => {
     const fetchMock = vi.fn(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
     await collectStream(
       adapterWith(fetchMock as unknown as typeof fetch).stream(input({ reasoningEffort: "high" })),
@@ -185,6 +485,7 @@ describe("DeepSeekModelAdapter", () => {
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe("deepseek-v4-pro");
     expect(body.reasoning_effort).toBe("high");
+    expect(body).not.toHaveProperty("thinking");
     expect(body.stream).toBe(true);
   });
 
@@ -248,6 +549,254 @@ describe("DeepSeekModelAdapter", () => {
     const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     expect(url).not.toContain(API_KEY);
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${API_KEY}`);
+  });
+});
+
+const PRICE_ID = "01m1hh9h1yxaeyjgbhfzm4nntj" as Ulid;
+
+function extractionBudget(): MemoryExtractionBudgetPort & {
+  reserve: ReturnType<typeof vi.fn<MemoryExtractionBudgetPort["reserve"]>>;
+  settle: ReturnType<typeof vi.fn<MemoryExtractionBudgetPort["settle"]>>;
+  notifyCreditBlocked: ReturnType<typeof vi.fn<NonNullable<MemoryExtractionBudgetPort["notifyCreditBlocked"]>>>;
+} {
+  const reservation: MemoryExtractionReservation = Object.freeze({
+    reservationEntryId: "01m1hh9h1yxaeyjgbhfzm4nntk" as Ulid,
+    principalId: "principal-a",
+    runId: "01m1hh9h1yxaeyjgbhfzm4nnth" as Ulid,
+    priceId: PRICE_ID,
+    providerModelId: "deepseek:deepseek-flash",
+    reservedCostMicros: 1_000,
+    inputTokenCeiling: 131_584,
+    maxOutputTokens: 2_048,
+    reservedAt: "2026-09-16T12:00:00.000Z",
+    monthKey: "2026-09",
+    monthStartAt: "2026-09-01T04:00:00.000Z",
+    monthEndAt: "2026-10-01T04:00:00.000Z",
+  });
+  const reserve = vi.fn<MemoryExtractionBudgetPort["reserve"]>(async () => reservation);
+  const settle = vi.fn<MemoryExtractionBudgetPort["settle"]>(async (_reservation, usage) => Object.freeze({
+    ...usage,
+    priceId: PRICE_ID,
+    reservedCostMicros: 1_000,
+    settledCostMicros: 17,
+    d1Statements: 8,
+  }));
+  const notifyCreditBlocked = vi.fn<NonNullable<MemoryExtractionBudgetPort["notifyCreditBlocked"]>>(
+    async () => undefined,
+  );
+  return {
+    providerModelId: "deepseek:deepseek-flash",
+    prepare: async () => Object.freeze({
+      priceId: PRICE_ID,
+      providerModelId: "deepseek:deepseek-flash",
+      d1Statements: 1,
+    }),
+    reserve,
+    settle,
+    notifyCreditBlocked,
+  };
+}
+
+function jsonInput() {
+  return {
+    correlationId: "01m1hh9h1yxaeyjgbhfzm4nnth",
+    principalId: "principal-a",
+    purpose: "memory_distillation" as const,
+    prompt: "Return JSON proposals for this authenticated statement.",
+    timeoutMs: 20_000,
+    maxOutputTokens: 2_048,
+    reasoningEffort: "high" as const,
+  };
+}
+
+function jsonResponse(content: string, usage: unknown = {
+  prompt_tokens: 10,
+  completion_tokens: 5,
+  prompt_cache_hit_tokens: 4,
+  prompt_cache_miss_tokens: 6,
+}): Response {
+  return new Response(JSON.stringify({
+    choices: [{ finish_reason: "stop", message: { content } }],
+    usage,
+  }), { headers: { "content-type": "application/json" } });
+}
+
+describe("DeepSeekJsonProvider", () => {
+  it("uses bounded JSON mode with thinking disabled and returns settled usage", async () => {
+    const budget = extractionBudget();
+    const fetcher = vi.fn<typeof fetch>(async () => jsonResponse(JSON.stringify({ proposals: [] })));
+    const provider = new DeepSeekJsonProvider({
+      apiKey: API_KEY,
+      model: "deepseek-flash",
+      budget,
+      fetchImplementation: fetcher,
+    });
+
+    const raw = await provider.completeJson(jsonInput());
+    const completion = snapshotModelCompleteJsonCompletion(raw);
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+
+    expect(completion).toMatchObject({
+      value: [],
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 4,
+        reservedCostMicros: 1_000,
+        settledCostMicros: 17,
+      },
+    });
+    expect(request).toMatchObject({
+      model: "deepseek-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      temperature: 0,
+      max_tokens: 2_048,
+      stream: false,
+    });
+    expect(request.messages).toEqual([
+      {
+        role: "system",
+        content: `${MEMORY_EXTRACTION_JSON_CONTRACT} Do not include markdown or commentary.`,
+      },
+      { role: "user", content: jsonInput().prompt },
+    ]);
+    expect(request).not.toHaveProperty("reasoning_effort");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+    expect(budget.reserve).toHaveBeenCalledOnce();
+    expect(budget.settle).toHaveBeenCalledWith(expect.anything(), {
+      inputTokens: 10, outputTokens: 5, cacheReadTokens: 4,
+    });
+  });
+
+  it("refuses malformed provider usage with a fixed permanent code", async () => {
+    const provider = new DeepSeekJsonProvider({
+      apiKey: API_KEY,
+      model: "deepseek-flash",
+      budget: extractionBudget(),
+      fetchImplementation: async () => jsonResponse(JSON.stringify({ proposals: [] }), {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        prompt_cache_hit_tokens: 9,
+        prompt_cache_miss_tokens: 9,
+      }),
+    });
+
+    await expect(provider.completeJson(jsonInput())).rejects.toSatisfy((error: unknown) => {
+      const failure = snapshotProviderFailure(error);
+      return failure?.code === "provider_permanent_failure" && failure.category === "permanent_failure";
+    });
+  });
+
+  it("refuses an out-of-contract request before reserving or calling DeepSeek", async () => {
+    const budget = extractionBudget();
+    const fetcher = vi.fn<typeof fetch>();
+    const provider = new DeepSeekJsonProvider({
+      apiKey: API_KEY,
+      model: "deepseek-flash",
+      budget,
+      fetchImplementation: fetcher,
+    });
+
+    await expect(provider.completeJson({ ...jsonInput(), maxOutputTokens: 2_049 }))
+      .rejects.toSatisfy((error: unknown) => {
+        const failure = snapshotProviderFailure(error);
+        return failure?.code === "provider_permanent_failure" && failure.category === "invalid_request";
+      });
+    expect(budget.reserve).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [401, "provider_authentication_failure", "authentication"],
+    [402, "provider_authentication_failure", "authentication"],
+    [403, "provider_policy_denied", "policy_denied"],
+    [429, "provider_transient_failure", "rate_limited"],
+    [503, "provider_transient_failure", "temporarily_unavailable"],
+  ] as const)("maps HTTP %i without logging its body", async (status, code, category) => {
+    const logging = [
+      vi.spyOn(console, "log").mockImplementation(() => undefined),
+      vi.spyOn(console, "warn").mockImplementation(() => undefined),
+      vi.spyOn(console, "error").mockImplementation(() => undefined),
+    ];
+    try {
+      const budget = extractionBudget();
+      const provider = new DeepSeekJsonProvider({
+        apiKey: API_KEY,
+        model: "deepseek-flash",
+        budget,
+        fetchImplementation: async () => new Response("private provider detail", { status }),
+      });
+      await expect(provider.completeJson(jsonInput())).rejects.toSatisfy((error: unknown) => {
+        const failure = snapshotProviderFailure(error);
+        return failure?.code === code && failure.category === category;
+      });
+      expect(logging.every((spy) => spy.mock.calls.length === 0)).toBe(true);
+      expect(budget.notifyCreditBlocked).toHaveBeenCalledTimes(status === 402 ? 1 : 0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("aborts a JSON provider request at its declared timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+          once: true,
+        });
+      }));
+      const provider = new DeepSeekJsonProvider({
+        apiKey: API_KEY,
+        model: "deepseek-flash",
+        budget: extractionBudget(),
+        fetchImplementation: fetcher,
+      });
+      const pending = provider.completeJson({ ...jsonInput(), timeoutMs: 10 });
+      const assertion = expect(pending).rejects.toSatisfy((error: unknown) =>
+        snapshotProviderFailure(error)?.category === "timeout");
+      await vi.advanceTimersByTimeAsync(11);
+      await assertion;
+      expect(fetcher.mock.calls[0]?.[1]?.signal).toMatchObject({ aborted: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("carries the settled usage receipt when output validation fails after payment", async () => {
+    const provider = new DeepSeekJsonProvider({
+      apiKey: API_KEY,
+      model: "deepseek-flash",
+      budget: extractionBudget(),
+      fetchImplementation: async () => new Response(JSON.stringify({
+        choices: [{ finish_reason: "length", message: { content: "{}" } }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          prompt_cache_hit_tokens: 4,
+          prompt_cache_miss_tokens: 6,
+        },
+      }), { headers: { "content-type": "application/json" } }),
+    });
+
+    await expect(provider.completeJson(jsonInput())).rejects.toSatisfy((error: unknown) => {
+      const receipt = snapshotModelCompleteJsonSettledFailure(error);
+      return receipt?.failure.category === "output_limit"
+        && receipt.usage.settledCostMicros === 17;
+    });
+  });
+
+  it("refuses an oversized response before parsing it", async () => {
+    const provider = new DeepSeekJsonProvider({
+      apiKey: API_KEY,
+      model: "deepseek-flash",
+      budget: extractionBudget(),
+      fetchImplementation: async () => new Response("x".repeat(262_145), {
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    await expect(provider.completeJson({ ...jsonInput(), correlationId: newUlid() }))
+      .rejects.toSatisfy((error: unknown) => snapshotProviderFailure(error)?.category === "output_limit");
   });
 });
 
