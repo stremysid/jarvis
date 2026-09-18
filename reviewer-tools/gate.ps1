@@ -4,6 +4,7 @@
 
     Usage:
         pwsh -NoProfile -File gate.ps1 -Sha <sha> [-GateDir C:\Users\Sid\jarvis-pr39]
+                                            [-IsolationRuns 3] [-HeartbeatSeconds 60]
 
     Windows PowerShell, not bash: invoking the pnpm/npx shims from Git Bash on
     this machine dies with "'C:\Program' is not recognized" before anything
@@ -14,17 +15,41 @@
     ever running. Four hermes-runtime security tests (sbom-integrity-round2 x2,
     sbom-security-review3, source-lock) sat red on main for six days behind
     exactly that chain. This script runs every package even when an earlier one
-    fails, then re-runs each failing test FILE alone, because the suite is
-    load-sensitive and a failure under load is not the same claim as a failure.
+    fails, then re-runs each failing test FILE alone -IsolationRuns times,
+    because the suite is load-sensitive and a failure under load is not the
+    same claim as a failure.
 
-    Exit code 0 means: lint clean, typecheck clean, and every package passed
-    apart from load flakes and the known pre-existing failures below.
+    ONE isolated run is not evidence, and the first version of this script
+    learned that the expensive way. It re-ran each failing file once and called
+    a recurrence REAL; on its first complete run it reported three REAL
+    failures, and a reviewer re-running all three found all three were flakes
+    (two passed 44/44 alone, the third passed twice and failed once in three
+    isolated runs). The single re-run happened in the SAME loaded session as
+    the full run, so a load flake failed again under load and was promoted -
+    the control did not control for the variable it exists to control for.
+    Classification is therefore on the RATE over -IsolationRuns runs, and every
+    classified entry prints that rate.
+
+    Exit code 0 means: lint clean, typecheck clean, no failure reproduced in
+    EVERY one of the isolation runs, and nothing left unverified. Load flakes,
+    INTERMITTENT results and the known pre-existing failures below do not fail
+    the gate; only a failure that reproduced in every isolation run does. The
+    classification table in step 5 and the note at the verdict say why.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)][string] $Sha,
-    [string] $GateDir = 'C:\Users\Sid\jarvis-pr39'
+    [string] $GateDir = 'C:\Users\Sid\jarvis-pr39',
+    # How many times each failing FILE is re-run alone. One run cannot tell a
+    # load flake from a real failure at this suite's measured rate (roughly 2
+    # failures in 11 runs for one known file), so the default is 3 and the
+    # count is a parameter rather than a constant.
+    [ValidateRange(1, 20)][int] $IsolationRuns = 3,
+    # Seconds between "still running" lines while a command runs. 0 turns the
+    # heartbeat off. Silence and a hang look identical, and a package here has
+    # measured 824s and 1080s.
+    [ValidateRange(0, 3600)][int] $HeartbeatSeconds = 60
 )
 
 Set-StrictMode -Version Latest
@@ -52,27 +77,95 @@ $KnownPreExistingFailures = @(
 function Write-Usage {
     Write-Output @'
 Usage: pwsh -NoProfile -File gate.ps1 -Sha <sha> [-GateDir C:\Users\Sid\jarvis-pr39]
+                                        [-IsolationRuns 3] [-HeartbeatSeconds 60]
 
-  -Sha      commit under test; the gate copy is fetched and detached to it
-  -GateDir  git worktree with node_modules installed (default C:\Users\Sid\jarvis-pr39)
+  -Sha               commit under test; the gate copy is fetched and detached to it
+  -GateDir           git worktree with node_modules installed (default C:\Users\Sid\jarvis-pr39)
+  -IsolationRuns     times each failing file is re-run alone (default 3; the rate is the verdict)
+  -HeartbeatSeconds  seconds between "still running" lines, 0 to disable (default 60)
 '@
 }
 
+# Seconds below two minutes, minutes above it. A progress line is read at a
+# glance to tell "working" from "hung", and neither "0.0 min" nor "1080s" does
+# that.
+function Format-Elapsed {
+    param([Parameter(Mandatory)][timespan] $Elapsed)
+    if ($Elapsed.TotalSeconds -lt 120) { return ('{0:n0}s' -f $Elapsed.TotalSeconds) }
+    return ('{0:n1} min' -f $Elapsed.TotalMinutes)
+}
+
+# A long command in this thread prints nothing until it ends, and 13-18 minutes
+# of silence is indistinguishable from a hang - one review session killed a
+# working run for exactly that reason. With a heartbeat requested the command
+# runs in a second runspace inside this process and this thread keeps the
+# clock. Without one it runs here, which is cheaper and is what the short
+# commands want.
 function Invoke-Capture {
     param(
         [Parameter(Mandatory)][string]   $Exe,
         [Parameter(Mandatory)][string[]] $Arguments,
-        [Parameter(Mandatory)][string]   $WorkingDirectory
+        [Parameter(Mandatory)][string]   $WorkingDirectory,
+        [string] $Label,
+        [int]    $HeartbeatSeconds = 0
     )
-    Push-Location -LiteralPath $WorkingDirectory
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    if (-not $Label -or $HeartbeatSeconds -le 0) {
+        Push-Location -LiteralPath $WorkingDirectory
+        try {
+            $text = (& $Exe @Arguments 2>&1 | Out-String)
+            $exit = $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+        return [pscustomobject]@{ Output = $text; ExitCode = $exit; Elapsed = $watch.Elapsed }
+    }
+
+    # The result comes back through a ConcurrentQueue rather than a return
+    # value: the runspace is on another thread, and a lost result would read as
+    # "the run produced nothing", which is the one outcome this script must
+    # never invent.
+    $box = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
+    $shell = [powershell]::Create()
+    [void]$shell.AddScript({
+        param($Exe, $Arguments, $WorkingDirectory, $Box)
+        $ErrorActionPreference = 'Continue'
+        if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+        Set-Location -LiteralPath $WorkingDirectory
+        try {
+            $text = (& $Exe @Arguments 2>&1 | Out-String)
+            $Box.Enqueue([pscustomobject]@{ Output = $text; ExitCode = $LASTEXITCODE })
+        }
+        catch {
+            $Box.Enqueue([pscustomobject]@{ Output = "capture failed: $($_.Exception.Message)"; ExitCode = -1 })
+        }
+    }).AddArgument($Exe).AddArgument($Arguments).AddArgument($WorkingDirectory).AddArgument($box)
     try {
-        $text = (& $Exe @Arguments 2>&1 | Out-String)
-        $exit = $LASTEXITCODE
+        $handle = $shell.BeginInvoke()
+        $next = [double]$HeartbeatSeconds
+        while (-not $handle.AsyncWaitHandle.WaitOne(500)) {
+            $elapsed = $watch.Elapsed.TotalSeconds
+            if ($elapsed -ge $next) {
+                Write-Host ('  ... {0}: still running, {1} elapsed' -f $Label, (Format-Elapsed $watch.Elapsed))
+                $next += $HeartbeatSeconds
+            }
+        }
+        $shell.EndInvoke($handle)
+    }
+    catch {
+        Write-Host "  ! ${Label}: the capture runspace failed: $($_.Exception.Message)"
     }
     finally {
-        Pop-Location
+        $shell.Dispose()
     }
-    return [pscustomobject]@{ Output = $text; ExitCode = $exit }
+    $captured = $null
+    if (-not $box.TryDequeue([ref]$captured)) {
+        $captured = [pscustomobject]@{ Output = 'the capture runspace returned no result'; ExitCode = -1 }
+    }
+    return [pscustomobject]@{ Output = $captured.Output; ExitCode = $captured.ExitCode; Elapsed = $watch.Elapsed }
 }
 
 function Get-SummaryLine {
@@ -144,6 +237,19 @@ function Get-VitestFailures {
     return ,@($found.Values)
 }
 
+# Vitest names the same test two ways: bare in the tree, suite-qualified after
+# "FAIL <file> > ". The last " > " segment is the test's own name and the only
+# part that matches across both shapes. Comparing whole strings instead would
+# read one test reported in two shapes as two different tests, and the second
+# one - "the file is red but not with this name" - is classified as a failure
+# that reproduced.
+function Get-BareTestName {
+    param([Parameter(Mandatory)][string] $Name)
+    $separator = $Name.LastIndexOf(' > ')
+    if ($separator -ge 0) { return $Name.Substring($separator + 3) }
+    return $Name
+}
+
 # The same failing test appears twice - bare in the tree, suite-qualified in the
 # FAIL line - and counting it twice would inflate every list in the verdict. The
 # longest name seen for a test wins, because that is the one a reviewer can find
@@ -154,9 +260,7 @@ function Add-VitestFailure {
         [Parameter(Mandatory)][string] $File,
         [Parameter(Mandatory)][string] $Name
     )
-    $bare = $Name
-    $separator = $bare.LastIndexOf(' > ')
-    if ($separator -ge 0) { $bare = $bare.Substring($separator + 3) }
+    $bare = Get-BareTestName -Name $Name
     $key = $File + '::' + $bare
     if (-not $Found.Contains($key) -or $Name.Length -gt $Found[$key].Name.Length) {
         $Found[$key] = [pscustomobject]@{ File = $File; Name = $Name }
@@ -241,6 +345,7 @@ if (-not $pnpm -or -not $npx) { Stop-Loudly 'pnpm.cmd and npx.cmd must both be o
 
 $started = Get-Date
 Write-Host "gate: $GateDir  sha $Sha"
+Write-Host "gate: isolation $IsolationRuns run(s) per failing file, heartbeat ${HeartbeatSeconds}s"
 
 # ---------------------------------------------------------------------------
 # 1. Fetch, detach, and prove HEAD is the commit that was asked for. A gate
@@ -271,20 +376,20 @@ Write-Host "gate: detached at $short (verified)"
 # 2. Install exactly what the lockfile pins. Anything else is a different
 # dependency graph than the one being reviewed.
 # ---------------------------------------------------------------------------
-$install = Invoke-Capture -Exe $pnpm -Arguments @('install', '--frozen-lockfile') -WorkingDirectory $GateDir
+$install = Invoke-Capture -Exe $pnpm -Arguments @('install', '--frozen-lockfile') -WorkingDirectory $GateDir -Label 'pnpm install' -HeartbeatSeconds $HeartbeatSeconds
 if ($install.ExitCode -ne 0) {
     Write-Output $install.Output
     Stop-Loudly 'pnpm install --frozen-lockfile failed; nothing else can be trusted after that.'
 }
-Write-Host 'install: ok'
+Write-Host ('install: ok in {0}' -f (Format-Elapsed $install.Elapsed))
 
 # ---------------------------------------------------------------------------
 # 3. Lint and typecheck, recorded separately: they fail for different reasons
 # and a review entry has to say which one went red.
 # ---------------------------------------------------------------------------
-$lint = Invoke-Capture -Exe $pnpm -Arguments @('lint') -WorkingDirectory $GateDir
-$typecheck = Invoke-Capture -Exe $pnpm -Arguments @('typecheck') -WorkingDirectory $GateDir
-Write-Host "lint: exit $($lint.ExitCode)  typecheck: exit $($typecheck.ExitCode)"
+$lint = Invoke-Capture -Exe $pnpm -Arguments @('lint') -WorkingDirectory $GateDir -Label 'pnpm lint' -HeartbeatSeconds $HeartbeatSeconds
+$typecheck = Invoke-Capture -Exe $pnpm -Arguments @('typecheck') -WorkingDirectory $GateDir -Label 'pnpm typecheck' -HeartbeatSeconds $HeartbeatSeconds
+Write-Host ('lint: exit {0} in {1}   typecheck: exit {2} in {3}' -f $lint.ExitCode, (Format-Elapsed $lint.Elapsed), $typecheck.ExitCode, (Format-Elapsed $typecheck.Elapsed))
 
 # ---------------------------------------------------------------------------
 # 4. Every package, separately and unconditionally. No && chain: an earlier
@@ -298,8 +403,9 @@ $packageRuns = @(
 
 $results = New-Object System.Collections.Generic.List[object]
 foreach ($package in $packageRuns) {
-    Write-Host "run: $($package.Label)"
-    $run = Invoke-Capture -Exe $pnpm -Arguments @($package.Script) -WorkingDirectory $GateDir
+    Write-Host "run: $($package.Label) started $((Get-Date).ToString('HH:mm:ss'))"
+    $run = Invoke-Capture -Exe $pnpm -Arguments @($package.Script) -WorkingDirectory $GateDir -Label $package.Label -HeartbeatSeconds $HeartbeatSeconds
+    Write-Host ('run: {0}: exit {1} in {2}' -f $package.Label, $run.ExitCode, (Format-Elapsed $run.Elapsed))
     $parsed = Get-VitestFailures -Output $run.Output -PathPrefix $package.PathPrefix
     $summaryFailed = Get-SummaryFailedCount -Output $run.Output
     $results.Add([pscustomobject]@{
@@ -314,10 +420,22 @@ foreach ($package in $packageRuns) {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Flake classification. One re-run per failing file, alone. Load-sensitive
-# suite: failing under load and failing alone are different claims.
+# 5. Flake classification, on a RATE. Each failing file is re-run alone
+# -IsolationRuns times, and each test that failed in the full run is classified
+# by how many of those runs it failed in:
+#
+#     failed N/N    REAL          reproduced in every isolated run
+#     failed 0/N    load flake    reproduced in no isolated run
+#     0 < k < N     INTERMITTENT  neither claim is established; the rate is
+#                                 the evidence and is printed
+#
+# A single isolated run is not a control: it runs in the same loaded session as
+# the full run, so a load flake fails again for the same reason it failed the
+# first time. Counting runs is the whole fix; a binary here is what produced
+# the wrong verdict this rewrite exists to correct.
 # ---------------------------------------------------------------------------
 $real = New-Object System.Collections.Generic.List[object]
+$intermittent = New-Object System.Collections.Generic.List[object]
 $flakes = New-Object System.Collections.Generic.List[object]
 $known = New-Object System.Collections.Generic.List[object]
 $unverified = New-Object System.Collections.Generic.List[object]
@@ -334,26 +452,67 @@ foreach ($result in $results) {
     }
     foreach ($group in ($result.Failures | Group-Object File)) {
         $runner = Get-FileRunner -RelativePath $group.Name -Root $GateDir
-        Write-Host "flake check: $($group.Name) alone"
-        $rerun = Invoke-Capture -Exe $npx -Arguments ($runner.Arguments + @($runner.Path)) -WorkingDirectory $runner.WorkingDirectory
-        $aloneFailures = Get-VitestFailures -Output $rerun.Output
-        $noFiles = ($rerun.Output -match 'No test files found')
+        Write-Host "flake check: $($group.Name) alone x$IsolationRuns"
+        $aloneRuns = New-Object System.Collections.Generic.List[object]
+        for ($attempt = 1; $attempt -le $IsolationRuns; $attempt++) {
+            $rerun = Invoke-Capture -Exe $npx -Arguments ($runner.Arguments + @($runner.Path)) -WorkingDirectory $runner.WorkingDirectory `
+                                    -Label "$($group.Name) alone (run $attempt/$IsolationRuns)" -HeartbeatSeconds $HeartbeatSeconds
+            # No @() here: Get-VitestFailures already returns one array object,
+            # and wrapping it again makes a single-element array whose only
+            # element is the real list - which reads as "1 failure" on a clean
+            # run and makes the name match below throw.
+            $aloneFailures = Get-VitestFailures -Output $rerun.Output
+            $noFiles = [bool]($rerun.Output -match 'No test files found')
+            $aloneRuns.Add([pscustomobject]@{ Failures = $aloneFailures; ExitCode = $rerun.ExitCode; NoFiles = $noFiles })
+            $note = if ($noFiles) { 'no test files found' } else { "exit $($rerun.ExitCode), $(@($aloneFailures).Count) named failure(s)" }
+            Write-Host ('  run {0}/{1}: {2} in {3}' -f $attempt, $IsolationRuns, $note, (Format-Elapsed $rerun.Elapsed))
+        }
+        # A run that did not host the file says nothing about the failure, in
+        # either direction, so every test in it is left unverified rather than
+        # counted as a pass.
+        $hosted = @($aloneRuns | Where-Object { -not $_.NoFiles })
+        if ($hosted.Count -lt $IsolationRuns) {
+            foreach ($failure in $group.Group) {
+                $entry = [pscustomobject]@{ Package = $result.Label; File = $failure.File; Test = $failure.Name }
+                if (Test-KnownFailure -File $failure.File -Name $failure.Name) { $known.Add($entry); continue }
+                $entry | Add-Member -NotePropertyName Detail -NotePropertyValue `
+                    "$($IsolationRuns - $hosted.Count)/$IsolationRuns alone run(s) found no test files for this path"
+                $unverified.Add($entry)
+            }
+            continue
+        }
+        # A run that exited non-zero over an empty failure list is not a clean
+        # run either: something went wrong that named no test, and reading that
+        # as "passed alone" is how a broken run becomes a load flake.
+        $unclean = @($aloneRuns | Where-Object { @($_.Failures).Count -gt 0 -or $_.ExitCode -ne 0 })
         foreach ($failure in $group.Group) {
             $entry = [pscustomobject]@{ Package = $result.Label; File = $failure.File; Test = $failure.Name }
             if (Test-KnownFailure -File $failure.File -Name $failure.Name) { $known.Add($entry); continue }
-            if ($noFiles) {
-                $entry | Add-Member -NotePropertyName Detail -NotePropertyValue 're-run found no test files for this path'
-                $unverified.Add($entry)
-                continue
-            }
-            $recurred = $aloneFailures | Where-Object { $_.Name -eq $failure.Name }
-            if ($recurred) { $real.Add($entry) }
-            elseif (@($aloneFailures).Count -eq 0) { $flakes.Add($entry) }
-            else {
-                $entry | Add-Member -NotePropertyName Detail -NotePropertyValue 'file still fails alone, but not this test'
+            $bare = Get-BareTestName -Name $failure.Name
+            $recurrences = @($aloneRuns | Where-Object {
+                @($_.Failures | Where-Object { (Get-BareTestName -Name $_.Name) -eq $bare }).Count -gt 0
+            }).Count
+            $entry | Add-Member -NotePropertyName FailedRuns -NotePropertyValue $recurrences
+            $entry | Add-Member -NotePropertyName RunCount -NotePropertyValue $IsolationRuns
+            if ($recurrences -eq $IsolationRuns) {
                 $real.Add($entry)
             }
+            elseif ($recurrences -gt 0) {
+                $intermittent.Add($entry)
+            }
+            elseif ($unclean.Count -gt 0) {
+                # This test never reproduced, but the file was not clean in
+                # those runs. Calling it a load flake would assert a clean
+                # isolated run that did not happen.
+                $entry | Add-Member -NotePropertyName Detail -NotePropertyValue `
+                    "$($unclean.Count)/$IsolationRuns alone run(s) were red without naming this test"
+                $intermittent.Add($entry)
+            }
+            else {
+                $flakes.Add($entry)
+            }
         }
+        Write-Host ('flake check: {0}: {1}/{2} alone run(s) failed' -f $group.Name, $unclean.Count, $IsolationRuns)
     }
 }
 
@@ -364,6 +523,7 @@ $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('===== REVIEWER GATE =====')
 $lines.Add("sha            $short ($head)")
 $lines.Add("gate dir       $GateDir")
+$lines.Add("isolation      $IsolationRuns run(s) per failing file")
 $lines.Add("lint           $(if ($lint.ExitCode -eq 0) { 'PASS' } else { "FAIL (exit $($lint.ExitCode))" })")
 $lines.Add("typecheck      $(if ($typecheck.ExitCode -eq 0) { 'PASS' } else { "FAIL (exit $($typecheck.ExitCode))" })")
 foreach ($result in $results) {
@@ -373,12 +533,20 @@ foreach ($result in $results) {
     $lines.Add(('{0,-30} {1,-5} {2} files / {3} tests ({4} failed, {5} skipped)' -f `
         $result.Label, $verdict, $files.Total, $tests.Total, $tests.Failed, $tests.Skipped))
 }
-$lines.Add('-- REAL failures (still fail when the file is run alone) --')
+# Every classified line carries the rate. A name alone is what let one failed
+# isolated run read as a real failure for a whole review round.
+$lines.Add("-- REAL failures (failed in all $IsolationRuns isolation runs) --")
 if ($real.Count -eq 0) { $lines.Add('  (none)') }
-foreach ($entry in $real) { $lines.Add("  $($entry.File) > $($entry.Test)") }
-$lines.Add('-- load flakes (pass alone) --')
+foreach ($entry in $real) { $lines.Add("  $($entry.File) > $($entry.Test)  [failed $($entry.FailedRuns)/$($entry.RunCount) alone]") }
+$lines.Add('-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --')
+if ($intermittent.Count -eq 0) { $lines.Add('  (none)') }
+foreach ($entry in $intermittent) {
+    $detail = if ($entry.PSObject.Properties['Detail']) { "  $($entry.Detail)" } else { '' }
+    $lines.Add("  $($entry.File) > $($entry.Test)  [failed $($entry.FailedRuns)/$($entry.RunCount) alone]$detail")
+}
+$lines.Add("-- load flakes (passed in all $IsolationRuns isolation runs) --")
 if ($flakes.Count -eq 0) { $lines.Add('  (none)') }
-foreach ($entry in $flakes) { $lines.Add("  $($entry.File) > $($entry.Test)") }
+foreach ($entry in $flakes) { $lines.Add("  $($entry.File) > $($entry.Test)  [failed 0/$($entry.RunCount) alone]") }
 $lines.Add('-- known pre-existing (allowed to fail, must shrink) --')
 if ($known.Count -eq 0) { $lines.Add('  (none seen in this run)') }
 foreach ($entry in $known) { $lines.Add("  $($entry.File) > $($entry.Test)") }
@@ -392,7 +560,26 @@ $lines.Add(('time           {0:n1} min' -f ((Get-Date) - $started).TotalMinutes)
 $failed = ($lint.ExitCode -ne 0) -or ($typecheck.ExitCode -ne 0) -or
           ($real.Count -gt 0) -or ($unverified.Count -gt 0) -or ($errors.Count -gt 0) -or
           (@($results | Where-Object { $_.ExitCode -ne 0 -and -not $_.TestLine }).Count -gt 0)
-$lines.Add("verdict        $(if ($failed) { 'FAIL' } else { 'PASS' })")
+# The verdict is three-valued on purpose. A mixed isolation rate cannot be
+# reported as PASS - that claims a clean commit the runs did not show - and it
+# must not be reported as FAIL either, which is the defect this rewrite fixes:
+# one failure in N isolated runs promoted to a real failure sends a builder
+# after code that is not broken. INCONCLUSIVE is the honest third answer, and
+# the exit code stays 0 because it answers exactly one question - did anything
+# fail EVERY isolation run - and nothing did. An intermittent test can still be
+# a real defect; that is why it is named, rated and separated rather than
+# counted as a flake.
+$verdict = if ($failed) { 'FAIL' } elseif ($intermittent.Count -gt 0) { 'INCONCLUSIVE' } else { 'PASS' }
+$exitCode = if ($failed) { 1 } else { 0 }
+$exitWhy = if ($failed) {
+    "FAIL: $($real.Count) REAL failure(s), or lint/typecheck, or an unverified or incomplete run"
+} elseif ($intermittent.Count -gt 0) {
+    "INCONCLUSIVE: no failure reproduced in all $IsolationRuns runs; $($intermittent.Count) result(s) need more runs before they are called either (re-run with -IsolationRuns 10 to separate them)"
+} else {
+    "PASS: nothing failed every isolation run"
+}
+$lines.Add("verdict        $verdict")
+$lines.Add("exit code      $exitCode ($exitWhy)")
 $lines.Add('=========================')
 
 Write-Output ''
@@ -410,5 +597,4 @@ if ($failed) {
     if ($typecheck.ExitCode -ne 0) { Write-Output ''; Write-Output '### pnpm typecheck'; Write-Output $typecheck.Output }
 }
 
-if ($failed) { exit 1 }
-exit 0
+exit $exitCode

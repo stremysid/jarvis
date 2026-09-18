@@ -20,6 +20,7 @@ has spaces in its program paths.
 
 ```powershell
 pwsh -NoProfile -File gate.ps1 -Sha <sha> [-GateDir C:\Users\Sid\jarvis-pr39]
+                                    [-IsolationRuns 3] [-HeartbeatSeconds 60]
 ```
 
 What it does, in order:
@@ -33,16 +34,39 @@ What it does, in order:
 3. `pnpm lint` and `pnpm typecheck`, recorded separately.
 4. The three packages, **separately and unconditionally** - never `test:all`:
    `pnpm test`, then `pnpm test:runtime`, then `pnpm test:watchdog`. An earlier
-   failure never stops a later package from reporting.
-5. Flake classification. For every test FILE that reported a failure, the file
-   is re-run alone. A test that passes alone is a load flake; one that fails
-   alone is real. The suite is load-sensitive and the two are different claims.
+   failure never stops a later package from reporting. Each package prints when
+   it started, how long it took, and a heartbeat every `-HeartbeatSeconds`
+   while it runs, because a package here has measured 824s and 1080s and a
+   silent run and a hung one looked identical.
+5. Flake classification, **on a rate**. For every test FILE that reported a
+   failure, the file is re-run alone `-IsolationRuns` times (default 3), and
+   each failing test is classified by how many of those runs it failed in:
+
+   | Rate | Verdict |
+   |---|---|
+   | `failed N/N alone` | **REAL** - reproduced in every isolated run |
+   | `failed 0/N alone` | **load flake** - reproduced in none |
+   | `0 < k < N` | **INTERMITTENT** - neither claim is established |
+
+   Every classified line prints the rate; a bare REAL/flake binary is what
+   made the first version of this script report three REAL failures that a
+   reviewer then found were all flakes. A single isolated re-run is not a
+   control: it happens in the same loaded session as the full run, so a load
+   flake fails again for the same reason it failed the first time.
 6. One compact verdict block: sha, lint, typecheck, per-package file and test
-   counts, then the REAL failures, the load flakes, and the known pre-existing
-   failures, each named rather than counted.
+   counts, then the REAL failures, the INTERMITTENT results, the load flakes
+   and the known pre-existing failures, each named with its isolation rate
+   rather than counted, and the exit code printed with its reason.
 7. Exit 0 only when lint, typecheck and every package passed apart from load
-   flakes and the known pre-existing hermes-runtime failures. Otherwise
-   non-zero, and the output tails are printed.
+   flakes, INTERMITTENT results and the known pre-existing hermes-runtime
+   failures. Otherwise non-zero, and the output tails are printed. The verdict
+   is three-valued: `FAIL` when something failed every isolation run (or lint,
+   typecheck or an unverified run went red), `INCONCLUSIVE` when the only
+   unresolved results are intermittent, `PASS` otherwise. An intermittent
+   result exits 0 on purpose: the exit code answers exactly one question - did
+   anything fail EVERY isolated run - and a mixed rate does not answer it. It
+   is printed, named and rated rather than silently cleared, so nothing reads
+   as clean.
 
 The allowance is a named constant at the top of the file
 (`$KnownPreExistingFailures`), matched on file **and** test name. It must
