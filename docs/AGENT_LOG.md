@@ -3,6 +3,155 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 19:03 UTC — DeepSeek V4.1 Flash, memory correction: ready for review
+
+**Branch:** `codex/memory-correction`, from `origin/main` = `385c052`, rebased
+onto `4c3ec69`. **PR [#100](https://github.com/ksid1229-ops/jarvis/pull/100).**
+**Implementation head:** `49d80a2`. No migration added, so nothing to apply.
+
+Sid's requirement: *"if I want it to forget something or change something I
+should be able to just say hey my fav subject is now science. It's AI, it's
+smart enough to know this."* He is right, and the standing decision already
+says so — one model infers intent and calls tools, code handles permissions
+and receipts, no regex routers.
+
+### What was actually missing, checked rather than assumed
+
+- **No correction capability: true.** `MEMORY_CONTROL_INTENTS` was exactly
+  remember/forget/lift/confirm/explain, and the owner tool list had no
+  correction tool. A plain restatement stored a **second** active fact.
+- **`memory_item_links` had zero writers: true.** The only mention in `src/`
+  was a table-name string in `memory-backup.ts`. A probe run inserted a
+  memory and left the table at 0 rows.
+- **The parser claim is true but about uncomposed code.** `parseTelegramMemoryControl`
+  in `telegram-memory-language.ts` does require fixed phrasings, but its only
+  caller is `TelegramMemoryControlModelAdapter`, which **nothing in `src/`
+  composes** — production wires `OwnerTelegramAgentAdapter` in `index.ts`. The
+  phrasing gate that was actually live is `CONTROL_INTENT` in
+  `owner-telegram-agent.ts`: a probe showed the model choosing `memory_forget`
+  for *"scrap the spare key thing"* being refused purely because the excerpt
+  contained no forget/delete/remove/hide verb. That is the gate I removed.
+- **The negation bug is real, on the tool path.** The inline parser is safe by
+  anchoring (every negated form I tried returns null), but a probe run of
+  *"don't forget the memory about the spare key"* through the composed agent
+  returned **"Forgot 1 memory and hid 1 of 1 source turns"** and left the item
+  `forgotten`. `memory_confirm` had a negation guard; `memory_forget` did not.
+- **The repository already had a supersession mechanism, and it is the wrong
+  one here.** `memory_consolidation_change_receipts` (0032) carries
+  `change_kind = 'supersession'` and six hand-copied recall queries filter it,
+  but its insert guard requires a `memory_runs` row with `job = 'consolidation'`
+  and `outcome = 'running'`. An owner speaking cannot produce one, so using it
+  would have meant inventing a fake consolidation run.
+
+### What was built
+
+`memory_item_links`' shape **does** fit: source is the surviving wording,
+target is the retired one, and `authorizing_transition_id` is the surviving
+item's own transition — which is exactly what that table's insert guard
+demands. It now has its first writer.
+
+`MemoryOwnerControlsService.correct` writes three things in **one D1 batch**:
+the replacement item (active), an `active → superseded` transition on the
+earlier item, and the `supersedes` edge. Nothing is deleted: every version,
+source and transition stays in the ledger, and only the new wording stays
+current. The transition is authorized by its own `memory.owner_command`
+because the trigger binds one command to one transition, so a correction
+appends two commands; append replay is per command, and a retry completes
+either half.
+
+The recall side needed **no new code and no migration**: the shared view
+`memory_retrievable_item_versions` already gates on
+`lifecycle_state = 'active'`, and every other recall query does the same, so
+retiring the item removes it from recall on every path at once. The end-to-end
+test drives the real `TelegramMemoryRetriever` and finds one memory-evidence
+context: the new wording.
+
+Intent inference replaced the phrasing gate. `memory_correct` is a new owner
+tool; forget, restore, explain and correct no longer require a control verb in
+the excerpt. What code still owns: the excerpt must be a literal, word-bounded
+substring of Sid's **direct current** message, the item must be eligible, and
+negation now refuses a forget or a restore. `memory_confirm` keeps its
+affirmative-language requirement on purpose — it is the one control that
+promotes uncertain model text into confirmed recall, so its intent should not
+be merely inferred.
+
+Authority and receipts are unchanged in kind. A correction whose new wording
+Sid's sentence does not support is refused rather than promoted, because a
+correction has no confirmation step that could catch it later. The receipt
+names both wordings and says the earlier one is no longer current; when an
+active suppression hides a wording, that side is withheld the same way forget
+and lift already withhold it.
+
+### Mutation results — 13 planted, 12 caught, 1 survives
+
+Each mutation was applied to the source, its named test run, and the source
+restored. Caught: dropping the retirement transition; dropping the edge;
+splitting the retirement into a second batch; dropping the new-wording
+authority check; dropping the agent's direct-owner check; dropping the forget
+negation guard; dropping the restore negation guard; allowing a sensitivity
+downgrade; always repeating a suppressed wording; omitting the earlier wording
+from the receipt; restoring a control-verb phrasing gate in front of forget;
+re-checking the active state on a replay.
+
+**Survivor:** widening `targetStates("correct")` to every lifecycle state.
+It only narrows which previously referenced items the finder offers, and the
+control service refuses a non-`active` target before any write, so no
+observable outcome changes and no composed path can tell. The transition
+trigger is the real boundary. Recorded as **Correction N2** in
+`KNOWN_ISSUES.md`, with **Correction N1** for the two-command window.
+
+### Gates
+
+Final head `8308251`, rebased onto `4c3ec69`: `pnpm lint` 0, `pnpm typecheck` 0,
+`pnpm test` **199/199 files, 5322/5322 tests**. (The pre-rebase head `49d80a2`
+was 199/199 and 5315/5315; main's digest work adds the extra 7.)
+
+Getting there needed one detour worth recording. Early post-rebase runs failed
+in `owner-telegram-agent.test.ts` — a different test each time, never one this
+branch added, and every one of them passes in isolation. **That is
+pre-existing.** Measured by alternating the same 87 tests between unmodified
+`origin/main` and this branch in one time window: **main failed 3 of 8 runs,
+this branch 2 of 8**, with different tests failing each time on both sides. The
+failures are `outcome: 'delivery_unknown'` from the dispatcher catch in
+`ConversationService.deliver` — Telegram delivery, not memory. An earlier
+non-interleaved measurement made this branch look far worse (6 of 10);
+interleaving removed that, which is why the interleaved numbers are the ones to
+trust and why I stopped instead of chasing it. The reviewer recorded the same
+class of flake at 18:35 UTC (`call-session-do` and `voice-production-worker`
+hook timeouts).
+
+### If this deploys before the migrations it needs
+
+The correction path itself needs **no new migration**. It does need `0016`
+(items, versions, sources, transitions, `memory_item_state`, `memory_item_links`
+and the retrievable view), and the retriever it is tested against needs `0032`
+(`readLivingNotes` reads `memory_topic_note_heads`). Production is at `0015`,
+so `0016`–`0034` are all unapplied. Deploy this before them and **memory
+control fails entirely** — every path, not just correction: the missing tables
+surface as refusals and the retriever falls back to base context with no memory
+recall at all. That is pre-existing for the whole memory feature, not something
+this branch introduces.
+
+### One thing I found and did not fix
+
+The shared view `memory_retrievable_item_versions` (0016) carries **no**
+supersession clause, while six hand-copied call sites in
+`telegram-memory-retriever.ts` and `living-notes.ts` each carry their own
+`NOT EXISTS (… change_kind = 'supersession' …)`. So a consolidation-driven
+supersession leaves the item inside that view. Recall is still safe because the
+candidate queries filter separately, but `meaning-search`'s index/coverage/delete
+SQL and the visibility reads see a superseded item as retrievable. I verified
+this by reading the view and the call sites; I did not build a consolidation run
+to observe a user-visible effect, and fixing it needs a `DROP VIEW`/`CREATE VIEW`
+migration plus updates to the migration-inventory tests. Left for whoever owns
+the consolidation slice — it is not this branch's to change silently.
+
+Built by **DeepSeek V4.1 Flash in DeepSeek Harness at effort `max`**.
+
+— DeepSeek V4.1 Flash
+
+---
+
 ## 2026-09-18 18:49 UTC — DeepSeek V4.1 Flash (reasoningEffort: max), F1 + F2 + audit B-4 ready for Claude max review
 
 **Ready for Claude Opus 5 max review on `codex/forgetting-guarantee-pins`, PR #99, work head `80a4728`, branched from `385c052`.** This adds no feature. It makes the forgetting guarantee testable layer by layer, closes audit finding B-4 at read time, and records what B-4 still leaves open. No migration; `0033` and `0034` remain the only unapplied ones.
