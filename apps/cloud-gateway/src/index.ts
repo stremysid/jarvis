@@ -20,7 +20,7 @@ import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import type { AnswerDecisionResult, DecisionItem } from "./decisions/decision-types.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
-import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
+import { assembleDigest, unconfiguredDeadlineSources } from "./jobs/digest-job.js";
 import {
   CLASSROOM_SOURCE_ID,
   buildJobTable,
@@ -70,6 +70,7 @@ import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
+import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
@@ -396,6 +397,17 @@ function telegramSender(env: Env): ((chatId: string, text: string) => Promise<vo
   };
 }
 
+async function sendOwnerSchoolEmailNotice(env: Env, text: string): Promise<void> {
+  const principalId = env.OWNER_PRINCIPAL_ID;
+  const send = telegramSender(env);
+  if (principalId === undefined || principalId.length === 0 || send === null) {
+    throw new Error("school_email_owner_notice_unavailable");
+  }
+  const chatId = await new DeviceRepository(env.DB).findOwnerTelegramChat(principalId);
+  if (chatId === null) throw new Error("school_email_owner_notice_unavailable");
+  await send(chatId, text);
+}
+
 /** What the command handlers are allowed to reach. */
 function commandContext(env: Env, principalId: string): CommandContext {
   const clock = { now: () => new Date() };
@@ -480,7 +492,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
         delivery: { send: async () => undefined },
         clock,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds(env),
+        unconfiguredDeadlineSources: unconfiguredDeadlineSources(env),
       });
       return digest.text;
     },
@@ -689,6 +701,13 @@ export async function answerFromTap(
 }
 
 export default {
+  async email(message, env, ctx): Promise<void> {
+    await handleD2lNotificationEmail(message, env, {
+      sendOwnerText: (text) => sendOwnerSchoolEmailNotice(env, text),
+    });
+    void ctx;
+  },
+
   async fetch(request, env, ctx): Promise<Response> {
     const pathname = new URL(request.url).pathname;
     if (pathname === "/health") {

@@ -174,11 +174,12 @@ function deadlineSection(
   if (upcoming.length === 0) return null;
   return {
     heading: "Due",
-    lines: upcoming.map(({ deadline, hours }) =>
-      hours === null
-        ? `${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
-        : `${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`,
-    ),
+    lines: upcoming.map(({ deadline, hours }) => {
+      const source = deadline.source === undefined ? "" : `[${deadline.source}] `;
+      return hours === null
+        ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
+        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`;
+    }),
   };
 }
 

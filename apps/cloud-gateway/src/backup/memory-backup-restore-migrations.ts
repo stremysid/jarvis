@@ -29,6 +29,7 @@ import migration0028 from "../persistence/migrations/0028_guest_grant_notice_dra
 import migration0029 from "../persistence/migrations/0029_university_application_details.sql";
 import migration0030 from "../persistence/migrations/0030_study_coach_weak_spots.sql";
 import migration0031 from "../persistence/migrations/0031_memory_backup.sql";
+import migration0033 from "../persistence/migrations/0033_d2l_notification_email.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
 export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
@@ -63,4 +64,5 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0029_university_application_details.sql", sql: migration0029 }),
   Object.freeze({ name: "0030_study_coach_weak_spots.sql", sql: migration0030 }),
   Object.freeze({ name: "0031_memory_backup.sql", sql: migration0031 }),
+  Object.freeze({ name: "0033_d2l_notification_email.sql", sql: migration0033 }),
 ]);

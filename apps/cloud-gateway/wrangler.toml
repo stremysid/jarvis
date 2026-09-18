@@ -32,6 +32,8 @@ required = [
 # Classroom ingestion: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 # GOOGLE_REFRESH_TOKEN.
 # Brightspace calendar ingestion: BRIGHTSPACE_ICAL_URL.
+# School notification email: SCHOOL_EMAIL_INGEST_ADDRESS,
+# D2L_EMAIL_FROM_DOMAINS, GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS.
 
 [exports.CallSession]
 type = "durable-object"

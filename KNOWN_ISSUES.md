@@ -1,5 +1,33 @@
 # Known issues
 
+## LDSB Brightspace notification email still needs live template and authentication measurement
+
+Sid's LDSB Minds Online account exposes no calendar or iCalendar feed. The
+merged calendar-feed implementation remains in the repository, but it cannot
+be configured or live-accepted for this board and must not be treated as a
+fallback. For Sid, `docs/runbooks/d2l-notification-email.md` supersedes the
+calendar-feed owner setup.
+
+The notification-email route fails closed around an unguessable exact
+recipient and configured exact `From:` domains. It records the
+`Authentication-Results`, ARC, DKIM and Received-SPF headers that actually
+arrive, treats their absence as unknown, permits forwarded-SPF failure by
+itself, and quarantines explicit DKIM, DMARC or ARC failures. Cloudflare's
+public Email Workers contract exposes message headers but does not promise
+that any authentication result visible to the Worker is verified or define
+its provenance. A successful header is therefore evidence to measure, not an
+authority grant.
+
+After an approved deployment, capture the exact header names from real
+Microsoft 365-forwarded D2L and Classroom messages, compare their values with
+the original school-mail copies, and record the invariant before making any
+authentication header mandatory. The first live messages must also establish
+the real D2L templates and exact sender domains; current fixtures are synthetic.
+Messages above the 512 KiB raw-receipt bound are quarantined with a retained
+truncated prefix because an authoritative backup row has a hard 1 MiB ceiling.
+Until those checks pass, local tests establish only defensive parsing,
+quarantine and idempotency, not live source acceptance.
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd

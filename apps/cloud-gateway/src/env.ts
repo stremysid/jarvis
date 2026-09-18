@@ -147,6 +147,16 @@ export interface Env {
   BRIGHTSPACE_ICAL_URL?: string;
 
   /**
+   * Email Routing delivers only the configured unguessable capability address.
+   * The address and both comma-separated exact From-domain pin sets are
+   * configuration, never source defaults. Authentication headers remain
+   * measured evidence and do not replace either boundary.
+   */
+  SCHOOL_EMAIL_INGEST_ADDRESS?: string;
+  D2L_EMAIL_FROM_DOMAINS?: string;
+  GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS?: string;
+
+  /**
    * The watchdog's heartbeat endpoint and its shared secret.
    *
    * Deliberately a URL rather than a service binding: the watchdog is a
