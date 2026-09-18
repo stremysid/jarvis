@@ -217,6 +217,57 @@ the shared checkout. From a worktree without that flag it silently checks the
 wrong tree. It prints a `repo:` line that gives it away; I still lost a pass to
 it first.
 
+### The blocker is fixed and I verified it with my own control — PR #106
+
+Branch `codex/tier3-classify-memory-correct` at `43fbb08`, built by a DeepSeek
+builder from `claude/tier3-on-main`. **PR
+[#106](https://github.com/ksid1229-ops/jarvis/pull/106) — "Autonomy: the tier-3
+backstop actually runs".**
+
+The fix is one map entry, `memory_correct: "memory.write"`, plus a prose
+correction from "eight" to "nine" in the file whose subject is classification.
+**No migration** — `0035` already seeds `memory.write` at tier 1.
+
+The guard is `test/autonomy/tool-classification.test.ts`, deriving dispatchable
+from `OWNER_TELEGRAM_TOOL_DEFINITIONS` and classified from `isToolClassified`,
+with no hand-written list of nine names.
+
+**I did not accept the builder's mutation table. I neutered it myself:**
+
+| Run | State | Result |
+|---|---|---|
+| baseline at `43fbb08` | as pushed | 2 passed |
+| **my control** | `memory_correct` removed | **2 failed**, `unclassified_dispatchable_tools:["memory_correct"]` |
+| restored | as pushed | 2 passed |
+| the originally-failing test | as pushed | **passes** |
+
+Working tree clean afterwards. The builder additionally wrote a *second* guard —
+a tool mapped to an unseeded capability — and proved the two cover different
+halves by making one fail while the other stayed green. That was beyond the
+brief and worth keeping.
+
+**Its gate honesty is worth recording:** it ran `pnpm test` four times at one
+revision and reported **0, 3, 1 and 16** failures rather than only the clean run,
+and identified that **5–10 s load timeouts, not the `delivery_unknown` flake,
+were 18 of its 20 failures.** That is a better characterisation of this suite's
+noise than anything in the handoff.
+
+### Whole-trigger proof for `0016` — and a survived mutation that was not a survivor
+
+Branch `codex/whole-trigger-0016` at `9dc1294`. One named test using PR #99's
+`proveWholeTrigger`, pinning that `memory_item_transitions_insert_guard` alone
+refuses replacing a memory that is no longer current. Control is inside the
+test: the *identical* statement is accepted while the item is active and refused
+once superseded, so no other clause of the guard can be the refuser.
+
+**The part worth reading:** its first mutation, `WHEN 0 AND EXISTS (...)`, left
+the test green. It did **not** conclude the guard was unpinned. It probed
+`sqlite_schema`, found the `WHEN` is one `OR` chain so only the first disjunct
+had been disabled, and re-cut the mutation. **A mutation that appears to survive
+is a claim about the mutation first and the tests second** — §4.11 says the
+opposite by default, and this is the case that shows why the schema probe
+belongs in the loop. Not yet independently re-run by me.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
