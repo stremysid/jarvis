@@ -8,7 +8,10 @@ import type { CallRepository } from "../../../apps/cloud-gateway/src/persistence
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
+import { OwnerCallPinVerifier } from "../../../apps/cloud-gateway/src/security/owner-call-pin-verifier.js";
 import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
+import { AutonomyRepository } from "../../../apps/cloud-gateway/src/autonomy/autonomy-repository.js";
+import { AutonomyService } from "../../../apps/cloud-gateway/src/autonomy/autonomy-service.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../../apps/cloud-gateway/src/providers/fake-model-provider.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction.js";
 import {
@@ -29,6 +32,7 @@ import {
   OWNER_STEP_UP_VERIFIED,
   OwnerCallStepUpService,
 } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
+import { OwnerSensitiveActionService } from "../../../apps/cloud-gateway/src/voice/owner-sensitive-action.js";
 import {
   FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_OWNER_PASSPHRASE_PEPPER, FAKE_VOICE_REGISTRY,
 } from "./voice-access-system.js";
@@ -140,6 +144,15 @@ export class FakeRelaySessions {
       const ownerStepUp = new OwnerCallStepUpService(
         env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
       );
+      const autonomyRepository = new AutonomyRepository(env.DB);
+      const sensitiveAction = new OwnerSensitiveActionService({
+        database: env.DB,
+        tiers: autonomyRepository,
+        autonomy: new AutonomyService({ repository: autonomyRepository, now: this.now }),
+        pinVerifier: new OwnerCallPinVerifier(FAKE_OWNER_PASSPHRASE_PEPPER()),
+        passphraseVerifier: new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
+        now: this.now,
+      });
       const model = new FakeModelProvider(this.modelOptions);
       const authorityCountsAtVerified: number[] = [];
       const stepUpAlerts: InitializedRelay["stepUpAlerts"] = [];
@@ -160,6 +173,7 @@ export class FakeRelaySessions {
         guestAuthentication,
         ownerAccess,
         ownerStepUp,
+        sensitiveAction,
         ownerStepUpAlerts: { alert: async (input): Promise<void> => {
           await this.beforeOwnerStepUpAlert?.();
           stepUpAlerts.push(Object.freeze({

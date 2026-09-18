@@ -123,6 +123,13 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "university_workflow_revisions",
   "school_study_check_in_claims",
   "school_study_signal_controls",
+  "owner_call_pin_verifiers",
+  "owner_call_pin_rotation_commits",
+  "owner_call_pin_heads",
+  "owner_action_requests",
+  "owner_action_attempts",
+  "owner_action_reprompts",
+  "owner_action_authorisations",
 ] as const);
 
 /**

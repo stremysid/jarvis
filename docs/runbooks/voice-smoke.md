@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 passed max review, merged and deployed as gateway `28109492` after migration 0015. The merged owner runtime now requires the [spoken passphrase step-up](../superpowers/specs/2026-09-14-owner-call-passphrase-design.md), but that boundary does not protect production until its reviewed migrations and Worker revision are rolled out and an owner verifier is generated. Calling remains disabled until those steps, the Twilio configuration and the owner's explicit outbound activation are complete. The live command still needs an injected driver and an enrolled-operator evidence query.
+This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 passed max review, merged and deployed as gateway `28109492` after migration 0015. Owner admission is no longer gated: the merged runtime admits an owner call with no credential, and a spoken four-digit PIN or keypad entry is demanded only immediately before a sensitive action, per Sid's recorded decision on 2026-09-17. That boundary does not protect production until its reviewed migration (0034) and Worker revision are rolled out and an owner call PIN is generated. Calling remains disabled until those steps, the Twilio configuration and the owner's explicit outbound activation are complete. The live command still needs an injected driver and an enrolled-operator evidence query.
 
 ## Offline developer workflow
 
@@ -20,13 +20,13 @@ pnpm smoke:voice -- --scenario inbound
 
 The command must return `{"status":"skipped","reason":"live_execution_not_authorized"}`. It performs no network request, CLI call, evidence write, provider mutation, or paid action.
 
-The release gate runs its own failure-propagation tests, the fake calling matrix, and only then audits the seven fixed files under `tests/acceptance/live/evidence/`:
+The release gate runs its own failure-propagation tests, the fake calling matrix, and only then audits the eight fixed files under `tests/acceptance/live/evidence/`:
 
 ```powershell
 pnpm release:voice-gate
 ```
 
-A failed fake gate stops the sequence before the evidence audit. Missing, duplicate, malformed, unsafe, non-passed, or mixed-commit evidence also exits nonzero. All seven scenarios must carry the same exact `commitSha`. The evidence audit proves internal evidence-set coherence only; the later release layer must compare that SHA with the deployed release candidate. A fake pass or skipped developer smoke never satisfies live acceptance.
+A failed fake gate stops the sequence before the evidence audit. Missing, duplicate, malformed, unsafe, non-passed, or mixed-commit evidence also exits nonzero. All eight scenarios must carry the same exact `commitSha`. The evidence audit proves internal evidence-set coherence only; the later release layer must compare that SHA with the deployed release candidate. A fake pass or skipped developer smoke never satisfies live acceptance.
 
 ## Fake acceptance coverage and limits
 
@@ -34,11 +34,12 @@ A failed fake gate stops the sequence before the evidence audit. Missing, duplic
 
 | Requirement | Evidence exercised locally |
 |---|---|
-| Owner inbound and outbound step-up | Exact passphrase requirement and Passed-A classification, durable attempts, no authority/model/context before success, fixed rejection/end/alert handling, dormant inbound-only waiver, and outbound waiver refusal |
+| Ordinary owner admission | An owner call admitted with nothing asked, in both directions; the durable step-up bindings still written and never spent; no admission attempt, window, success or rejection |
 | Guest activation and isolation | Real four-digit verifier, pending-to-active grant, separate principal history, another guest's PIN refused |
 | Unknown and ungranted callers | Signed requests refused before relay initialization, PIN work or conversation |
 | Guest capabilities and changing grants | Capability/owner-operation contracts, revocation and PIN rotation before the next turn, cross-session proof rejection at the internal authority boundary |
 | PIN secrecy | No console records during successful or rejected DTMF entry (including individual digits); whole candidates absent from replies, frames, model context, events, grant events, provider events, call sessions, DO storage, conversation turns and attempt reservations |
+| Sensitive-action PIN | One authoritative tier-3 list; the spoken four digits, the keypad and the three-word phrase all accepted; a receipt authorising exactly the action it names inside a two-minute window; five attempts and four distinct re-prompts before refusal; the call left usable after a refusal |
 | Interruption and model timeout | Cancelled stream, no delivered-history claim, real 30-second total deadline, next turn usable |
 | No-answer and terminal callbacks | No redial, atomic receipt/state updates, exact provider binding, repeatable live cleanup |
 | Admission races and retention | Callback before/after initialization, real archive sealing/purge with the receipt retained |
@@ -73,6 +74,10 @@ enrollment, require that exact identity to be active and verified.
 The model/Telegram bindings, the canonical 32-byte guest-PIN,
 authentication-budget, identity-challenge and owner-passphrase peppers, and
 explicit `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` are required before dialing.
+The four-digit owner call PIN is stored under the same owner-passphrase pepper
+with its own domain prefix and a versioned, chained PBKDF2 verifier; the digits
+themselves are never stored. Generate and rotate it through the signed local
+CLI (`jarvis owner-call-pin generate`), not by writing a row.
 The key version must match challenge issuance. Configure the capacity values
 below, then apply only the approved migrations. The outbound control row starts
 disabled and requires the owner's separate activation step described below.
@@ -289,7 +294,7 @@ Retries are bounded by Twilio's voice webhook deadline (15 seconds); a prolonged
 
 All gates below must pass before an injected live driver may run:
 
-1. A recognized scenario: `inbound`, `unauthorized-caller`, `outbound-answer`, `outbound-no-answer`, `outbound-step-up-refused`, `owner-step-up-refused`, or `failure-callbacks`.
+1. A recognized scenario: `inbound`, `unauthorized-caller`, `outbound-answer`, `outbound-no-answer`, `owner-action-pin-accepted`, `owner-action-pin-refused`, `owner-action-keypad`, or `failure-callbacks`.
 2. `--execute-live` and the exact separate confirmation `--confirm-live I_AUTHORIZE_PAID_VOICE_SMOKE`.
 3. Local configuration names present: `JARVIS_CLOUD_BASE_URL`, `JARVIS_DEVICE_ID`, `JARVIS_DEVICE_KEY_PATH`, `JARVIS_PRINCIPAL_ID`, and `OWNER_VOICE_IDENTITY_ID`.
 4. `jarvis doctor` exit code `0`, obtained through the installed interactive local-agent workflow.
@@ -303,10 +308,10 @@ All gates below must pass before an injected live driver may run:
 The driver orders the exact preflight, one scenario execution and one aggregate
 evidence query, and binds all three to one scenario, correlation ID and deployed
 commit. The scenario-driver and enrolled-operator query interfaces both carry
-the seven-value scenario type, so neither refusal scenario can be substituted
-with a different call or aggregate query. The driver receives no credentials.
+the eight-value scenario type, so no scenario can be substituted with a
+different call or aggregate query. The driver receives no credentials.
 The store creates an exclusive temporary file (`0600` where POSIX modes apply),
-publishes it atomically under one of the seven fixed names and refuses to replace
+publishes it atomically under one of the eight fixed names and refuses to replace
 retained evidence. Run the explicit cleanup command before an authorized
 repeat. On Windows the redacted evidence inherits the checkout directory's
 ACL; the store does not claim POSIX mode bits enforce a Windows ACL.
@@ -320,59 +325,64 @@ entry or unreviewed local file from becoming paid-call authority.
 ## Redacted evidence contract
 
 Every accepted record is exact-key, scenario-discriminated JSON with
-`schemaVersion: "1.3"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a
+`schemaVersion: "1.4"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a
 lowercase 40-hex commit, ULID correlation/event identifiers, and UTC millisecond
 timestamps. Unknown keys are rejected, including phone numbers, provider SIDs,
 transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers,
 and provider bodies.
 
-Every owner-path record names `ownerStepUpOutcome` as `verified`, `refused`,
-`waived_passed_a`, or `not_started`, plus its prompt/attempt counts, the
-aggregate caller-ID attestation (`passed_a`, `other`, `absent`, or
-`not_applicable`), the caller-ID policy, and whether owner authority was
-granted. `verified` uses
-`authenticationMode: "owner_passphrase"`. `waived_passed_a` is valid only for
-an inbound exact `passed_a` observation while
-`ownerCallerIdPolicy: "waive_on_passed_a"` is on; it uses
-`authenticationMode: "owner_attested_waiver"` with zero phrase prompts and
-attempts. This per-record waiver shape is retained only for a future optional
-waiver record: it cannot replace the required inbound release record. The seven-
-record release audit requires `ownerCallerIdPolicy: "passphrase_always"` on
-every owner path and a `verified` inbound record. Outbound evidence mirrors the
-durable binding with `passphrase_always` and `callerIdAttestation:
-"not_applicable"`; it can never use the waiver. Any record with owner authority
-also requires `ownerStepUpBeforeFirstModelTurn: true`. The validator rejects a
-refused or malformed step-up paired with owner authority, and rejects the
-retired `owner_identity_pin_free` schema.
+An ordinary owner call asks for nothing. Every owner-path record therefore
+reports `authenticationMode: "owner_open_admission"`, `ownerStepUpOutcome:
+"not_started"`, zero step-up prompts and attempts, and
+`ownerStepUpBeforeFirstModelTurn: false`. The durable binding rows are still
+written by the inbound and outbound routes, and requiring the untouched shape
+is what makes a credential creeping back onto admission fail the audit.
+`ownerAuthorityGranted` follows the call: true for a conversation that reached
+the owner, false for the unanswered outbound call. The caller-ID attestation is
+still recorded (`passed_a`, `other`, `absent`, or `not_applicable`), is
+`not_applicable` for outbound records only, and never stands in for a
+credential. The release audit requires every owner-path record to agree on the
+recorded caller-ID policy, because a set recorded under two configurations is
+not one release. The validator rejects the retired `owner_identity_pin_free`
+and every-call `owner_passphrase` shapes.
 
-The inbound sample requires 20 authenticated turns, persistence and recall, a clean hangup, at least one interruption, p95 first-audible latency at or below 4,000 ms, and p95 interruption-stop latency at or below 1,500 ms. Inbound and answered-outbound evidence also pins Deepgram `nova-3-general`, Google `en-US-Journey-O`, the exact configured signed WSS representation, DTMF delivery, and callback-schema verification. Answered outbound must report a verified phrase even when the configured inbound caller-ID policy permits Passed-A waiver.
+The action scenarios are the only records that carry a credential question, and
+they share one shape: `actionCapability` naming the tier-3 capability the call
+session authorised, `actionExplanationSpoken: true` (the plain-spoken account
+of what is being authorised), `actionPinPromptCount`, `actionAttemptCount`,
+`actionMethod` (`spoken_pin` or `keypad`), `actionCredentialUsed` (`call_pin`,
+or `owner_passphrase` when the three-word phrase carried it, and null when
+nothing did), `actionAuthorised`, `actionReceiptCount`, `actionReceiptConsumed`,
+`actionApplied`, `actionCallStillActive`, and `candidateInTranscript` /
+`candidateInLogs` / `candidateInStoredEvidence`, all three of which must be
+false. There is no field a candidate could occupy, so a recorded digit fails
+the record rather than passing quietly.
 
-The `outbound-no-answer` record reports `ownerStepUpOutcome: "not_started"`,
-zero step-up prompts and attempts, no owner authority, and zero model or
-personal-context reads. The `outbound-step-up-refused` record proves one
-outbound attempt was answered but not authenticated. It requires a neutral
-pre-authentication greeting, `ownerStepUpOutcome: "refused"`, three complete
-wrong candidates, zero to two non-candidate re-prompts, no purpose disclosure
-or private message, and zero authenticated turns, owner authority, model
-requests or personal-context reads. `not_started` is invalid for this answered
-call because the step-up prompt ran. Like the inbound refusal, it requires
-exactly one durable rejection row, one rejection-delivery row and a sent owner
-alert.
+The `owner-action-pin-accepted` record is an ordinary owner call in progress
+with one prompt, one to five attempts and exactly one receipt: issued, consumed
+by the action it named, and applied while the call stayed active. The
+`owner-action-keypad` record is the same contract carried by DTMF. The
+`owner-action-pin-refused` record requires five complete candidates, four
+distinct re-prompts, `actionAuthorised: false`, zero receipts, a spoken
+refusal, and the call still active with `postRefusalTurns` of the caller
+talking afterwards. That last field is the point of the scenario: a failure
+must never end the call, so a run that hung up cannot produce passing evidence.
+A refusal that ends the call, or one where the operator could not ask again, is
+a failed paid scenario requiring stop and review before any retry.
 
-The `owner-step-up-refused` record is an inbound owner-path call with three
-complete wrong candidates, zero to two non-candidate
-re-prompts, `ownerStepUpPromptCount` equal to three plus that re-prompt count,
-and `ownerStepUpRejectionReason: "attempts_exhausted"`. It requires exactly one
-durable rejection row, exactly one rejection-delivery row, and
-`ownerAlertDisposition: "sent"`, with zero authenticated turns, model requests,
-personal-context reads or owner authority. Start each refusal scenario at least
-15 minutes after any earlier owner rejection so its alert cannot be coalesced.
-A refusal ending through a third re-prompt (`reprompts_exhausted`) or the
-60-second window (`deadline_expired`) is invalid evidence, must be re-run at
-additional provider cost, and is a failed paid scenario requiring stop and
-review before any retry.
-A Passed-A call under an enabled waiver cannot satisfy this refusal scenario
-because that call would skip the phrase.
+No record may contain the digits, in any field. The allowed forms are the four
+digits spoken in any ordinary grouping ("four two seven one", "forty-two
+seventy-one", separated by pauses) and the same four pressed on the keypad; both
+normalise to the same candidate. An operator who observes a candidate in any
+transcript, log, receipt or event stops the smoke and does not retain that
+record.
+
+The inbound sample requires 20 authenticated turns, persistence and recall, a clean hangup, at least one interruption, p95 first-audible latency at or below 4,000 ms, and p95 interruption-stop latency at or below 1,500 ms. Inbound and answered-outbound evidence also pins Deepgram `nova-3-general`, Google `en-US-Journey-O`, the exact configured signed WSS representation, DTMF delivery, and callback-schema verification. Answered outbound must report the same open-admission shape as inbound, with a `not_applicable` attestation and no credential question.
+
+The `outbound-no-answer` record reports no credential question at all:
+`ownerStepUpOutcome: "not_started"`, zero step-up prompts and attempts, no
+owner authority, and zero model or personal-context reads. No action scenario
+may be reported for it: nothing was authorised because nothing was said.
 
 No provider playback acknowledgement has been proven. Evidence therefore accepts only `assistantOutputEvidence: "sent_to_provider_only"` with `assistantHistoryCommitted: false`; it must never claim delivery to the caller.
 
@@ -382,7 +392,7 @@ These fields validate Task 5 only. They do not assert route wiring, call-session
 
 ## Operator sequence and rollback boundary
 
-With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the seven required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation. The current store has no retained failed-attempt ledger, so a failed paid scenario remains a stop-and-review event rather than permission to retry until one run passes.
+With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the eight required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation. The current store has no retained failed-attempt ledger, so a failed paid scenario remains a stop-and-review event rather than permission to retry until one run passes.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 
@@ -392,7 +402,7 @@ Remove only generated voice evidence with:
 pnpm clean:voice-smoke-evidence
 ```
 
-The cleanup command is local and explicit. It removes only the seven scenario JSON files; it does not touch credentials, provider state, deployments, databases, or unrelated operator notes.
+The cleanup command is local and explicit. It removes only the eight scenario JSON files; it does not touch credentials, provider state, deployments, databases, or unrelated operator notes.
 
 ## Deliberately not executed here
 

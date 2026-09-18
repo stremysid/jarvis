@@ -4,9 +4,9 @@ import worker from "../../../apps/cloud-gateway/src/index.js";
 import type { Env } from "../../../apps/cloud-gateway/src/env.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import { applyVoiceRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
-  applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
-  clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
-import { FAKE_OWNER_PASSPHRASE, seedFakeOwnerPassphrase } from "./voice-access-system.js";
+  applyOwnerSensitiveActionPinMigration, applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest,
+  clearOwnerPassphraseDataForTest, clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
+import { seedFakeOwnerPassphrase } from "./voice-access-system.js";
 
 const ACCOUNT = `AC${"6".repeat(32)}`;
 const CALL = `CA${"4".repeat(32)}`;
@@ -21,8 +21,12 @@ describe("production Worker voice and Telegram composition", () => {
   let now: Date;
   let creditFails: boolean;
   beforeEach(async () => {
+    // 0034 owns the owner-admission boundary. Without it this fixture keeps the
+    // 0018 lineage trigger that demanded a step-up success the owner path no longer
+    // writes, and admission aborts instead of reaching conversation.
     await applyVoiceRuntimeMigration();
     await applyVoiceOwnerDeliveryMigration();
+    await applyOwnerSensitiveActionPinMigration();
     const clock = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").first<{ now: string }>();
     now = new Date(clock!.now); requests = []; sends = []; dials = []; clients = []; creditFails = false;
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
@@ -114,10 +118,8 @@ describe("production Worker voice and Telegram composition", () => {
     const frames: unknown[] = []; socket.addEventListener("message", (event) => { frames.push(JSON.parse(String(event.data))); });
     socket.send(JSON.stringify({ type: "setup", sessionId: `VX${"5".repeat(32)}`, accountSid: ACCOUNT,
       callSid: CALL, direction: "inbound", customParameters: { relayNonce: session!.relay_nonce } }));
-    await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("pre_auth"));
-    socket.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
+    // The owner is admitted by setup alone, so the first prompt is a real turn.
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
-    vi.advanceTimersByTime(2_001);
     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worker question", lang: "en-US", last: true }));
     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.", last: false }));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(1);

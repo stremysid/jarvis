@@ -1,0 +1,78 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/voice-production-socket.test.ts tests/acceptance/fake/voice-production-worker.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pin-r1
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts (3 tests | 2 failed) 5352ms
+     × uses default composition for two socket turns across real eviction 2077ms
+     × fails closed on an unreadable balance after a successful real-socket turn 1740ms
+ ❯ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts (17 tests | 1 failed) 14042ms
+     × authenticates ingress and forwards an actual upgraded socket to default composition 2136ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > uses default composition for two socket turns across real eviction
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > fails closed on an unreadable balance after a successful real-socket turn
+AssertionError: expected 'failed' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "failed"
+
+ ❯ tests/acceptance/fake/voice-production-socket.test.ts:116:8
+    114|     // Setup alone admits an owner. A guest still waits for their PIN.
+    115|     await vi.waitFor(async () => expect((await repository.getCallSessi…
+    116|       .toBe(stored.binding.accessKind === "owner" ? "active" : "pre_au…
+       |        ^
+    117|     return { repository, stored, frames, closes,
+    118|       prompt: (voicePrompt: string) => client!.send(JSON.stringify({ t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > authenticates ingress and forwards an actual upgraded socket to default composition
+AssertionError: expected 'failed' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "failed"
+
+ ❯ tests/acceptance/fake/voice-production-worker.test.ts:118:115
+
+    116|       callSid: CALL, direction: "inbound", customParameters: { relayNo…
+    117|     // The owner is admitted by setup alone, so the first prompt is a …
+    118|     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT …
+       |                                                                                                                   ^
+    119|     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worke…
+    120|     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text…
+ Test Files  2 failed (2)
+      Tests  3 failed | 17 passed (20)
+   Start at  00:01:42
+   Duration  17.80s (transform 2.22s, setup 0ms, import 5.00s, tests 19.39s, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+

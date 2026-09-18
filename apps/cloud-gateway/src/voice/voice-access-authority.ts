@@ -410,9 +410,6 @@ export class VoiceAccessAuthorityService {
       if (!authority.capabilityIds.includes(capabilityId as GuestCapabilityId)) throw new Error("capability_denied");
     }
     await this.#repository.requireCurrentAuthority(issued.persisted, now);
-    if (authority.kind === "owner" && capabilityId === "access.manage") {
-      await this.#repository.requireOwnerStepUpVerified(issued.persisted);
-    }
     const current = this.#issued.get(authority);
     if (current !== issued || current.value !== authority) invalidAuthority();
     return authority;

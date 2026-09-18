@@ -32,6 +32,7 @@ import universityApplicationDetailsSql from "../../src/persistence/migrations/00
 import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
 import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
 import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
+import ownerSensitiveActionPinSql from "../../src/persistence/migrations/0034_owner_sensitive_action_pin.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -52,6 +53,7 @@ let universityApplicationDetailsMigrated: Promise<void> | undefined;
 let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
 let memoryBackupMigrated: Promise<void> | undefined;
 let memoryLivingNotesMigrated: Promise<void> | undefined;
+let ownerSensitiveActionPinMigrated: Promise<void> | undefined;
 
 export { splitMigration };
 
@@ -265,6 +267,26 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await memoryLivingNotesMigrated;
 }
 
+/**
+ * Applies the sensitive-action PIN, the action-scoped receipt and the moved
+ * owner-admission boundary. 0033 belongs to the school email work and is not
+ * on this branch, so this file is the only 0034 candidate.
+ *
+ * It hangs off the voice chain, not the memory chain: 0034 reads
+ * capability_tiers and autonomy_evaluations from 0008 and 0017's passphrase
+ * head. Reaching further would install 0015's runtime controls and admission
+ * triggers into the isolated voice fixtures that deliberately replace those
+ * controls with their own fakes, and those fixtures' frozen clock cannot
+ * satisfy a trigger that reads D1's real clock.
+ */
+export async function applyOwnerSensitiveActionPinMigration(): Promise<void> {
+  await applyOwnerCallStepUpMigration();
+  ownerSensitiveActionPinMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0034_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
+  ]);
+  await ownerSensitiveActionPinMigrated;
+}
+
 const allCloudGatewayMigrations = Object.freeze([
   ...voiceAccessBaseMigrations,
   voiceAccessBoundariesMigration,
@@ -287,6 +309,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
   { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
   { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+  { name: "0034_owner_sensitive_action_pin.sql", queries: splitMigration(ownerSensitiveActionPinSql) },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
@@ -357,6 +380,10 @@ export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void>
 /** Test-only reset that preserves and restores every production backup guard. */
 export async function clearMemoryBackupDataForTest(): Promise<void> {
   await applyMemoryLivingNotesMigration();
+  // The export walks every table MEMORY_BACKUP_TABLES classifies, and the
+  // memory chain does not reach the voice-side 0034. Without it the fixture is
+  // missing seven classified tables and every backup run fails closed.
+  await applyOwnerSensitiveActionPinMigration();
   const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
     WHERE type = 'trigger' AND name LIKE 'memory_backup_%'`)
     .all<{ name: string; sql: string }>();
@@ -441,6 +468,25 @@ export async function clearOwnerPassphraseDataForTest(): Promise<void> {
     await env.DB.prepare("DELETE FROM owner_passphrase_verifiers").run();
   } finally {
     for (const guard of installed.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/** Test-only reset for append-only call-PIN and action-receipt state. */
+export async function clearOwnerSensitiveActionDataForTest(): Promise<void> {
+  await applyOwnerSensitiveActionPinMigration();
+  const tables = [
+    "owner_action_authorisations", "owner_action_reprompts", "owner_action_attempts",
+    "owner_action_requests", "owner_call_pin_heads", "owner_call_pin_rotation_commits",
+    "owner_call_pin_verifiers",
+  ] as const;
+  const guards = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND tbl_name IN (${tables.map(() => "?").join(", ")})`,
+  ).bind(...tables).all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  try {
+    for (const table of tables) await env.DB.prepare(`DELETE FROM ${table}`).run();
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
   }
 }
 

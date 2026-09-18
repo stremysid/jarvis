@@ -27,6 +27,12 @@ import {
 } from "./inbound-auth.js";
 import { parseOwnerAccessIntent, type OwnerAccessDraft } from "./owner-access-intent.js";
 import { OwnerAccessService, type OwnerPinSelection, type PreparedOwnerAccessProposal } from "./owner-access-service.js";
+import {
+  OWNER_ACTION_PIN_PROMPT,
+  OWNER_ACTION_REFUSED,
+  type OwnerSensitiveActionService,
+  type OwnerActionSubmit,
+} from "./owner-sensitive-action.js";
 import { FourDigitPinCapture, normalizeSpokenPin } from "./pin-capture.js";
 import { createProductionCallSessionCore } from "./production-runtime.js";
 import {
@@ -58,6 +64,26 @@ type RelayDtmfEvent = Extract<RelayEvent, { type: "dtmf" }>;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const ACCOUNT_SID = /^AC[0-9A-Fa-f]{32}$/u;
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
+
+/** The one sensitive capability the call session can currently perform. */
+const OWNER_ACCESS_CAPABILITY = "access.manage";
+
+/**
+ * The sentence spoken before the PIN is asked for, and the summary stored on
+ * the question. It names the kind of change and never the caller's number:
+ * that number would then sit in the question row and be read back during an
+ * incident, which is the second copy of the archive the autonomy summary rule
+ * forbids, and Sid already said which caller he means.
+ */
+function ownerAccessSummary(draft: OwnerAccessDraft): string {
+  switch (draft.kind) {
+    case "add": return "Allow a new caller to reach Jarvis.";
+    case "replace_permissions": return "Change what an allowed caller may do.";
+    case "rotate_pin": return "Give an allowed caller a new number.";
+    case "revoke": return "Remove an allowed caller.";
+    case "list": return "Read out who can reach Jarvis.";
+  }
+}
 const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const ACTIVATION_RESPONSE = /^\d{6}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -627,6 +653,12 @@ type CallInteraction =
   | Readonly<{ kind: "conversation" }>
   | Readonly<{ kind: "owner_access_pin"; proposal: PreparedOwnerAccessProposal }>
   | Readonly<{
+    kind: "owner_sensitive_action";
+    requestId: Ulid;
+    explanation: string;
+    draft: OwnerAccessDraft;
+  }>
+  | Readonly<{
     kind: "owner_access_confirmation";
     proposal: PreparedOwnerAccessProposal;
     pinSelection: OwnerPinSelection | null;
@@ -642,6 +674,7 @@ export interface CallSessionCoreSetup {
   readonly activation?: PhoneActivationChallengeConfirmer | null;
   readonly ownerAccess?: OwnerAccessService | null;
   readonly ownerStepUp?: OwnerCallStepUpService | null;
+  readonly sensitiveAction?: OwnerSensitiveActionService | null;
   readonly ownerStepUpAlerts?: OwnerStepUpAlertSink | null;
   readonly ownerStepUpAlarm?: OwnerStepUpAlarmPort | null;
   readonly conversation?: ConversationService | null;
@@ -675,6 +708,7 @@ export class CallSessionCore {
   readonly #activation: PhoneActivationChallengeConfirmer | null;
   readonly #ownerAccess: OwnerAccessService | null;
   readonly #ownerStepUp: OwnerCallStepUpService | null;
+  readonly #sensitiveAction: OwnerSensitiveActionService | null;
   readonly #ownerStepUpAlerts: OwnerStepUpAlertSink | null;
   readonly #ownerStepUpAlarm: OwnerStepUpAlarmPort | null;
   readonly #conversation: ConversationService | null;
@@ -687,6 +721,7 @@ export class CallSessionCore {
   #setupHandledInThisInstance = false;
   readonly #guestPin = new FourDigitPinCapture();
   readonly #ownerAccessPin = new FourDigitPinCapture();
+  readonly #ownerActionPin = new FourDigitPinCapture();
   #activationDigits = "";
   #activationAttempted = false;
   #ownerStepUpFragments: string[] = [];
@@ -722,6 +757,11 @@ export class CallSessionCore {
         && !(input.ownerAccess instanceof OwnerAccessService)
       || input.ownerStepUp !== undefined && input.ownerStepUp !== null
         && typeof input.ownerStepUp.verifyCandidate !== "function"
+      || input.sensitiveAction !== undefined && input.sensitiveAction !== null
+        && (typeof input.sensitiveAction.begin !== "function"
+          || typeof input.sensitiveAction.submitSpoken !== "function"
+          || typeof input.sensitiveAction.submitKeypad !== "function"
+          || typeof input.sensitiveAction.consume !== "function")
       || input.ownerStepUpAlerts !== undefined && input.ownerStepUpAlerts !== null
         && typeof input.ownerStepUpAlerts.alert !== "function"
       || input.ownerStepUpAlarm !== undefined && input.ownerStepUpAlarm !== null
@@ -739,6 +779,7 @@ export class CallSessionCore {
     this.#activation = input.activation ?? null;
     this.#ownerAccess = input.ownerAccess ?? null;
     this.#ownerStepUp = input.ownerStepUp ?? null;
+    this.#sensitiveAction = input.sensitiveAction ?? null;
     this.#ownerStepUpAlerts = input.ownerStepUpAlerts ?? null;
     this.#ownerStepUpAlarm = input.ownerStepUpAlarm ?? null;
     this.#conversation = input.conversation ?? null;
@@ -905,42 +946,13 @@ export class CallSessionCore {
           );
         }
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
-        if (this.#ownerStepUp === null || this.#ownerStepUpAlarm === null) {
-          throw new Error("owner_step_up_unavailable");
-        }
-        const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
-        if (binding === null) throw new Error("owner_step_up_binding_missing");
-        if (binding.requirement === "waived_passed_a") {
-          try {
-            await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
-          } catch (error) {
-            if (!(error instanceof Error) || error.message !== "owner_step_up_unavailable") throw error;
-            this.#interaction = Object.freeze({ kind: "owner_step_up" });
-            const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
-            if (state.rejectionReason === null) throw error;
-            await this.#rejectOwnerStepUp(observedAt, true);
-            return;
-          }
-          await this.#mintWaivedOwner(observedAt);
-        } else if (binding.requirement === "required") {
-          let window;
-          try { window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt); }
-          catch (error) {
-            if (!(error instanceof Error) || error.message !== "owner_step_up_disabled") throw error;
-            this.#interaction = Object.freeze({ kind: "owner_step_up" });
-            await this.#rejectOwnerStepUp(observedAt, true);
-            return;
-          }
-          this.#ownerStepUpDeadlineAt = window.deadlineAt;
-          this.#interaction = Object.freeze({ kind: "owner_step_up" });
-          await this.#ownerStepUpAlarm.arm({
-            sessionId: this.#session.sessionId, lifecycleGeneration: 1,
-            kind: "window", deadlineAt: window.deadlineAt,
-          });
-          if (enteredPreAuthentication) await this.#relay.sendNeutralText(OWNER_STEP_UP_PROMPT);
-        } else {
-          throw new Error("owner_step_up_binding_invalid");
-        }
+        // Owner admission asks for nothing. Sid's decision on 2026-09-17 was
+        // that an always-on gate costs more than it buys, and the credential
+        // now attaches to the sensitive action instead (see
+        // `#beginOwnerAccess`). The step-up rows are still written by the
+        // inbound and outbound bindings, because the three-word phrase remains
+        // a valid credential at the action, but nothing consults them here.
+        await this.#admitOwner(observedAt);
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
         this.#interaction = Object.freeze({ kind: "guest_pin" });
         if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
@@ -948,7 +960,8 @@ export class CallSessionCore {
     }
   }
 
-  async #mintWaivedOwner(observedAt: Date): Promise<void> {
+  /** Straight to conversation: the caller speaks first and nothing is asked. */
+  async #admitOwner(observedAt: Date): Promise<void> {
     if (this.#authorityService === null) throw new Error("owner_authority_unavailable");
     this.#authority = await this.#authorityService.mintOwner({
       sessionId: this.#session.sessionId,
@@ -998,7 +1011,14 @@ export class CallSessionCore {
       this.#ownerAccess?.invalidate(interaction.proposal);
       this.#interaction = Object.freeze({ kind: "conversation" });
     }
+    if (interaction.kind === "owner_sensitive_action") {
+      // The question is left to expire rather than cancelled here: this runs
+      // from a synchronous cleanup path, and a question that is abandoned
+      // still counts against the call's five attempts either way.
+      this.#interaction = Object.freeze({ kind: "conversation" });
+    }
     this.#ownerAccessPin.clear();
+    this.#ownerActionPin.clear();
   }
 
   async #beginOwnerAccess(draft: OwnerAccessDraft, observedAt: Date): Promise<void> {
@@ -1006,6 +1026,38 @@ export class CallSessionCore {
       throw new Error("owner_access_unavailable");
     }
     this.#clearOwnerAccessState();
+    if (this.#sensitiveAction !== null) {
+      const gate = await this.#sensitiveAction.begin({
+        sessionId: this.#session.sessionId,
+        principalId: this.#session.binding.principalId,
+        identityId: this.#session.binding.identityId,
+        capability: OWNER_ACCESS_CAPABILITY,
+        summary: ownerAccessSummary(draft),
+      });
+      if (gate.kind === "prompt") {
+        this.#interaction = Object.freeze({
+          kind: "owner_sensitive_action",
+          requestId: gate.requestId,
+          explanation: gate.explanation,
+          draft,
+        });
+        await this.#relay.sendNeutralText(`${gate.explanation} ${OWNER_ACTION_PIN_PROMPT}`);
+        return;
+      }
+      if (gate.kind === "exhausted") {
+        await this.#relay.sendNeutralText(gate.speech);
+        return;
+      }
+      if (gate.kind === "unavailable") throw new Error("owner_sensitive_action_unavailable");
+    }
+    await this.#applyOwnerAccessDraft(draft, observedAt);
+  }
+
+  /** Runs the draft that a live receipt has already authorised. */
+  async #applyOwnerAccessDraft(draft: OwnerAccessDraft, observedAt: Date): Promise<void> {
+    if (this.#ownerAccess === null || this.#authorityService === null || this.#authority?.kind !== "owner") {
+      throw new Error("owner_access_unavailable");
+    }
     await this.#authorityService.authorize(this.#authority, "access.manage", observedAt);
     const proposal = await this.#ownerAccess.prepare({
       ownerAuthority: this.#authority,
@@ -1047,6 +1099,56 @@ export class CallSessionCore {
       pinSelection,
     });
     await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+  }
+
+  async #submitOwnerAction(text: string, observedAt: Date): Promise<void> {
+    if (this.#interaction.kind !== "owner_sensitive_action" || this.#sensitiveAction === null) return;
+    const interaction = this.#interaction;
+    if (text === "cancel" || text === "stop") {
+      await this.#sensitiveAction.cancel(interaction.requestId);
+      this.#interaction = Object.freeze({ kind: "conversation" });
+      this.#ownerActionPin.clear();
+      await this.#relay.sendNeutralText("Cancelled. Nothing was changed.");
+      return;
+    }
+    const result = await this.#sensitiveAction.submitSpoken(interaction.requestId, text);
+    await this.#settleOwnerAction(interaction, result, observedAt);
+  }
+
+  async #submitOwnerActionKeypad(digits: Uint8Array, observedAt: Date): Promise<void> {
+    if (this.#interaction.kind !== "owner_sensitive_action" || this.#sensitiveAction === null) {
+      digits.fill(0);
+      return;
+    }
+    const interaction = this.#interaction;
+    const result = await this.#sensitiveAction.submitKeypad(interaction.requestId, digits);
+    await this.#settleOwnerAction(interaction, result, observedAt);
+  }
+
+  /**
+   * A refusal or an expiry returns to conversation -- never to a closed call,
+   * because a mis-heard digit is far likelier than an attacker and the caller
+   * must be able to ask again. An authorisation spends its receipt before the
+   * change runs, so it covers this draft and not the rest of the call.
+   */
+  async #settleOwnerAction(
+    interaction: Extract<CallInteraction, { kind: "owner_sensitive_action" }>,
+    result: OwnerActionSubmit,
+    observedAt: Date,
+  ): Promise<void> {
+    if (result.kind === "reprompt") {
+      await this.#relay.sendNeutralText(result.speech);
+      return;
+    }
+    this.#interaction = Object.freeze({ kind: "conversation" });
+    this.#ownerActionPin.clear();
+    if (result.kind === "authorised") {
+      if (this.#sensitiveAction === null) throw new Error("owner_sensitive_action_unavailable");
+      await this.#sensitiveAction.consume(result.authorisationId);
+      await this.#applyOwnerAccessDraft(interaction.draft, observedAt);
+      return;
+    }
+    await this.#relay.sendNeutralText(result.speech);
   }
 
   async #confirmOwnerAccess(text: string, observedAt: Date): Promise<void> {
@@ -1419,6 +1521,10 @@ export class CallSessionCore {
     }
     if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
     if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
+      if (this.#interaction.kind === "owner_sensitive_action") {
+        await this.#submitOwnerAction(promptText, this.#now());
+        return;
+      }
       const draft = parseOwnerAccessIntent(promptText);
       if (draft !== null) {
         await this.#beginOwnerAccess(draft, this.#now());
@@ -1522,6 +1628,16 @@ export class CallSessionCore {
         pinSelection: Object.freeze({ kind: "explicit", digits }),
       });
       await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+      return;
+    }
+    if (this.#session.phase === "active" && this.#interaction.kind === "owner_sensitive_action") {
+      // The keypad is accepted at any point, which is the whole reason a
+      // spoken attempt that fails only ever re-prompts.
+      const status = this.#ownerActionPin.pushDtmf(event.digit);
+      if (status !== "complete") return;
+      const digits = this.#ownerActionPin.take();
+      if (digits === null) throw new Error("owner_action_pin_capture_failed");
+      await this.#submitOwnerActionKeypad(digits, this.#now());
       return;
     }
     if (

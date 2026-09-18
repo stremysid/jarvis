@@ -370,6 +370,10 @@ describe("VoiceAccessRepository", () => {
     await expect(repository.requireCurrentAuthority({ ...minted }, NOW))
       .rejects.toThrow("call_authority_invalid");
 
+    // Revoking the stored passphrase must not kill a live owner call. The
+    // 2026-09-17 decision attaches that credential to the sensitive action and
+    // re-reads it there, so rehydration deliberately survives; the action is
+    // what refuses, not the conversation.
     const verifierGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
       WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
       .first<{ sql: string }>();
@@ -379,9 +383,8 @@ describe("VoiceAccessRepository", () => {
       SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`).bind(now).run();
     try {
       await expect(repository.rehydrateAuthority({ sessionId: secondSessionId, binding, now: NOW }))
-        .rejects.toThrow("call_authority_invalid");
-      await expect(repository.requireCurrentAuthority(minted, NOW))
-        .rejects.toThrow("call_authority_stale");
+        .resolves.toMatchObject({ sessionId: secondSessionId, kind: "owner" });
+      await expect(repository.requireCurrentAuthority(minted, NOW)).resolves.toEqual(minted);
     } finally {
       await env.DB.prepare(`UPDATE owner_passphrase_verifiers
         SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();

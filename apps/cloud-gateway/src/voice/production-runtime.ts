@@ -11,7 +11,10 @@ import { DeepSeekModelAdapter, DEFAULT_MODEL } from "../providers/deepseek-provi
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
+import { OwnerCallPinVerifier } from "../security/owner-call-pin-verifier.js";
 import { OwnerPassphraseVerifier } from "../security/owner-passphrase-verifier.js";
+import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
+import { AutonomyService } from "../autonomy/autonomy-service.js";
 import { Redactor } from "../security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../sync/identity-challenge.js";
 import { decodeCanonicalBase64, DeviceRequestVerifier } from "../sync/signed-request.js";
@@ -25,6 +28,7 @@ import { OwnerAccessService } from "./owner-access-service.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
 import { D1OwnerStepUpAlertSink, OwnerCallStepUpService } from "./owner-call-step-up.js";
+import { OwnerSensitiveActionService } from "./owner-sensitive-action.js";
 
 function configured(value: unknown, pattern: RegExp): string {
   if (typeof value !== "string" || !pattern.test(value)) throw new TypeError("voice_runtime_configuration_invalid");
@@ -62,6 +66,7 @@ export function createProductionCallSessionCore(
   const conversations = new ConversationRepository(env.DB, events);
   const access = new VoiceAccessRepository(env.DB);
   const registry = new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });
+  const autonomyRepository = new AutonomyRepository(env.DB);
 
   // These issuers hold nominal proofs in instance-local maps. A second equivalent
   // instance cannot validate the first instance's proof or owner authority.
@@ -73,6 +78,18 @@ export function createProductionCallSessionCore(
   const ownerStepUp = new OwnerCallStepUpService(
     env.DB, new OwnerPassphraseVerifier(configuration.ownerPassphrasePepper, "v1"),
   );
+  // Both owner credentials are configured here and both are only consulted
+  // when a sensitive action asks for one. The PIN verifier is built over the
+  // same pepper under its own domain prefix, so the credential spaces do not
+  // share a comparison.
+  const sensitiveAction = new OwnerSensitiveActionService({
+    database: env.DB,
+    tiers: autonomyRepository,
+    autonomy: new AutonomyService({ repository: autonomyRepository, now }),
+    pinVerifier: new OwnerCallPinVerifier(configuration.ownerPassphrasePepper),
+    passphraseVerifier: new OwnerPassphraseVerifier(configuration.ownerPassphrasePepper, "v1"),
+    now,
+  });
   const ownerStepUpAlerts = new D1OwnerStepUpAlertSink(
     env.DB, new TelegramRestProvider({ botToken: configuration.telegramToken }),
   );
@@ -119,6 +136,7 @@ export function createProductionCallSessionCore(
     repository: calls,
     authority: authorities,
     guestAuthentication, ownerAccess, activation, conversation, ownerStepUp, ownerStepUpAlerts,
+    sensitiveAction,
     ownerStepUpAlarm: input.ownerStepUpAlarm,
     relay: input.relay,
     ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization

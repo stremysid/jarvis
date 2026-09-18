@@ -13,7 +13,10 @@ export interface Env {
   GUEST_PIN_PEPPER_V1: string;
   AUTHENTICATION_BUDGET_PEPPER: string;
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
-  /** 32 random bytes, base64. Used only for the owner-passphrase verifier. */
+  /**
+   * 32 random bytes, base64. Peppers the owner-passphrase verifier and, under
+   * the call PIN's own HMAC domain prefix, the four-digit call PIN verifier.
+   */
   OWNER_PASSPHRASE_PEPPER_V1?: string;
   /** Dormant caller-attestation waiver policy. Missing remains passphrase_always. */
   OWNER_CALLER_ID_POLICY?: string;

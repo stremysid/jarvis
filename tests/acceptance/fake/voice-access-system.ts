@@ -1,7 +1,9 @@
 import { env } from "cloudflare:test";
 import { newUlid, type GuestCapabilityId, type Sha256Hex } from "../../../packages/contracts/src/index.js";
 import { OwnerPassphraseRepository } from "../../../apps/cloud-gateway/src/persistence/owner-passphrase-repository.js";
+import { OwnerCallPinRepository } from "../../../apps/cloud-gateway/src/persistence/owner-call-pin-repository.js";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
+import { OwnerCallPinVerifier } from "../../../apps/cloud-gateway/src/security/owner-call-pin-verifier.js";
 import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
 
@@ -10,6 +12,9 @@ export const FAKE_GUEST_PEPPER = () => new Uint8Array(32).fill(12);
 export const FAKE_BUDGET_PEPPER = () => new Uint8Array(32).fill(13);
 export const FAKE_OWNER_PASSPHRASE = "ablaze abrasion abrasive";
 export const FAKE_OWNER_PASSPHRASE_PEPPER = () => new Uint8Array(32).fill(29);
+export const FAKE_OWNER_CALL_PIN_DIGITS = () => Uint8Array.from([52, 50, 55, 49]);
+/** The same four digits as text, spelled out of the byte array so no PIN literal sits in source. */
+export const FAKE_OWNER_CALL_PIN = (): string => String.fromCharCode(...FAKE_OWNER_CALL_PIN_DIGITS());
 export const FAKE_PIN_A = () => Uint8Array.from([52, 56, 50, 55]);
 export const FAKE_PIN_B = () => Uint8Array.from([49, 51, 53, 55]);
 export const FAKE_VOICE_REGISTRY = () => new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });
@@ -41,6 +46,40 @@ export async function seedFakeOwnerPassphrase(
     ownerPrincipalId: principalId, ownerIdentityId: identityId,
     expectedVerifierVersion: null, record,
     commitId: "01m2eeeeeeeeeeeeeeeeeee001", committedAt,
+  });
+}
+
+/**
+ * The four-digit call PIN the moved gate asks for, enrolled through the same
+ * guarded rotation the CLI uses. It shares the passphrase pepper -- the two
+ * credentials are separated by their domain prefix -- so a fixture does not
+ * need a second secret.
+ */
+export async function seedFakeOwnerCallPin(
+  principalId = "principal:owner",
+  identityId = "identity:voice",
+  committedAt = NOW,
+): Promise<void> {
+  const deviceId = "device:fake-owner-call-pin";
+  const keyId = "key:fake-owner-call-pin";
+  const fingerprint = "6".repeat(64) as Sha256Hex;
+  await env.DB.prepare(`INSERT INTO device_keys (
+    device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
+    algorithm, status, device_label, bootstrap_metadata_hash, created_at
+  ) VALUES (?, ?, ?, ?, ?, 1, 'ed25519', 'active', 'fake owner call pin', ?, ?)`)
+    .bind(deviceId, principalId, keyId, `${"B".repeat(43)}=`, fingerprint, "5".repeat(64), committedAt).run();
+  const record = await new OwnerCallPinVerifier(
+    FAKE_OWNER_PASSPHRASE_PEPPER(), () => new Uint8Array(16).fill(9),
+  ).create(identityId, 1, FAKE_OWNER_CALL_PIN_DIGITS());
+  await new OwnerCallPinRepository(env.DB).rotate({
+    verified: {
+      deviceId, principalId, keyId, keyFingerprint: fingerprint, keyGeneration: 1,
+      audience: "jarvis-local-agent", issuedAt: committedAt, nonce: "fake",
+      bodyHash: "9".repeat(64) as Sha256Hex, body: {},
+    },
+    ownerPrincipalId: principalId, ownerIdentityId: identityId,
+    expectedPinVersion: null, record,
+    commitId: "01m2eeeeeeeeeeeeeeeeeee002", committedAt,
   });
 }
 

@@ -1,0 +1,3383 @@
+$ vitest --config vitest.workspace.ts run
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pin-r1
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/backup/memory-backup-job.test.ts (3 tests | 3 failed) 1629ms
+     × the backup job starts the Toronto-date nightly set 939ms
+     × the drain job advances a running backup after the nightly job returns 338ms
+     × a backup continuation failure does not stop the drain's decision-queue work 351ms
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/backup/memory-backup.test.ts (26 tests | 20 failed) 12248ms
+     × exports a consistent cut and excludes events appended after the immutable mark 840ms
+     × keeps numeric event cursors ordered across '9 to 10' at the default page size 342ms
+     × keeps numeric event cursors ordered across '99 to 100' at the default page size 362ms
+     × keeps numeric event cursors ordered across '9,999 to 10,000' at the default page size 349ms
+     × processes several export pages in one invocation within its fixed step budget 820ms
+     × allows only the exact restore runtime tables in a later backup 374ms
+     × treats _cf_KV and an invented _cf_FUTURE as Cloudflare bookkeeping rather than unclassified tables 354ms
+     × keeps unchanged nightly row counts stable and limits scheduled runs to the last 48 hours 436ms
+     × records rows deleted after the cut as a manifest shortfall 349ms
+     × pages WITHOUT ROWID sources from an ordinal range and indexed primary-key lookups 729ms
+     × writes the manifest after every data object and advertises it only after read-back 350ms
+     × marks a set verified in D1 before writing latest and repairs a failed pointer write 1410ms
+     × keeps a verified result when retention fails and retries objects before manifest and D1 status 356ms
+     × alerts once when the newest verified set is older than thirty-six hours 364ms
+     × never advertises a staging set whose previously written object was tampered 451ms
+     × retries a transient R2 read without discarding the multi-step run 503ms
+     × cleans a failed staging prefix before claiming the next night's run 422ms
+     × resumes from the durable cursor in a later invocation 442ms
+     × alerts once for a missing binding and records only the fixed code 418ms
+     × treats a second run on the same Toronto date as the same verified set 423ms
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/persistence/voice-access-repository.test.ts (9 tests | 1 failed) 16068ms
+     × mints immutable owner authority and rejects stale guest authority 1507ms
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 8 failed) 21418ms
+     × keeps bind, begin, and expiry retries idempotent with guarded inserts 1659ms
+     × pins the 60-second window guard and window immutability 2574ms
+     × pins attempt reservation, one-way resolution, and deletion guards 1692ms
+     × pins success provenance plus immutable success receipts 1945ms
+     × pins reprompt order, exhaustion, immutability, and deletion 1892ms
+     × pins rejection provenance, terminalization, immutability, and deletion 1679ms
+     × pins repeat-check timing, one-way resolution, and deletion 1691ms
+     × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 2376ms
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pin-r1/apps/cloud-gateway/src/voice/call-session-do.ts:512:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pin-r1/apps/cloud-gateway/src/voice/call-session-do.ts:1985:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pin-r1/apps/cloud-gateway/src/voice/call-session-do.ts:1975:18)
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts (10 tests | 8 failed) 73506ms
+     × downloads and hashes each verified object once before later restore steps use the durable cache 4386ms
+     × restores 5,000 rows through bounded operator steps without reading an R2 object twice 19031ms
+     × restores a guest call whose voice grant is more than one page earlier 11347ms
+     × restores a merged topic whose redirect target is more than one page later 10691ms
+     × restores post-initial rows and rebuilds every excluded memory projection 7878ms
+     × resumes after triggers were dropped and keeps every continuation well below the D1 query limit 7909ms
+     × refuses incompatible or changed sets before any new DDL at every resumable boundary 3783ms
+     × refuses an unclassified live trigger before the restore creates or drops anything 3545ms
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+▲ [WARNING] Processing apps\cloud-gateway\wrangler.toml configuration:
+
+  
+    - "env.test" environment configuration
+      - "vectorize" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "vectorize" is not inherited by environments.
+        Please add "vectorize" to "env.test".
+      - "ai" exists at the top level, but not on "env.test".
+        This is not what you probably want, since "ai" is not inherited by environments.
+        Please add "ai" to "env.test".
+
+
+Using secrets defined in process.env
+ ❯ |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts (3 tests | 2 failed) 4816ms
+     × uses default composition for two socket turns across real eviction 1737ms
+     × fails closed on an unreadable balance after a successful real-socket turn 1643ms
+ ❯ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts (17 tests | 1 failed) 13552ms
+     × authenticates ingress and forwards an actual upgraded socket to default composition 1772ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 43 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > uses default composition for two socket turns across real eviction
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > fails closed on an unreadable balance after a successful real-socket turn
+AssertionError: expected 'failed' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "failed"
+
+ ❯ tests/acceptance/fake/voice-production-socket.test.ts:116:8
+    114|     // Setup alone admits an owner. A guest still waits for their PIN.
+    115|     await vi.waitFor(async () => expect((await repository.getCallSessi…
+    116|       .toBe(stored.binding.accessKind === "owner" ? "active" : "pre_au…
+       |        ^
+    117|     return { repository, stored, frames, closes,
+    118|       prompt: (voicePrompt: string) => client!.send(JSON.stringify({ t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/43]⎯
+
+ FAIL  |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > authenticates ingress and forwards an actual upgraded socket to default composition
+AssertionError: expected 'failed' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "failed"
+
+ ❯ tests/acceptance/fake/voice-production-worker.test.ts:118:115
+    116|       callSid: CALL, direction: "inbound", customParameters: { relayNo…
+    117|     // The owner is admitted by setup alone, so the first prompt is a …
+    118|     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT …
+       |                                                                                                                   ^
+    119|     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worke…
+    120|     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-job.test.ts > memory backup job wiring > the backup job starts the Toronto-date nightly set
+AssertionError: expected { ok: false, …(1) } to match object { ok: true }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "ok": true,
++   "ok": false,
+  }
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup-job.test.ts:46:21
+     44|     if (backup === undefined) throw new Error("backup job missing");
+     45|     const outcome = await backup();
+     46|     expect(outcome).toMatchObject({ ok: true });
+       |                     ^
+     47|     expect(await env.DB.prepare(`SELECT run_date, status FROM memory_b…
+     48|       WHERE run_date = '2026-09-16'`).first()).toEqual({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-job.test.ts > memory backup job wiring > the drain job advances a running backup after the nightly job returns
+Error: backup run missing
+ ❯ apps/cloud-gateway/test/backup/memory-backup-job.test.ts:67:50
+     65|       FROM memory_backup_runs WHERE run_date = '2026-09-16'`)
+     66|       .first<{ current_table_index: number; next_object_number: number…
+     67|     if (before === null || after === null) throw new Error("backup run…
+       |                                                  ^
+     68|     expect(after.current_table_index > before.current_table_index
+     69|       || after.next_object_number > before.next_object_number).toBe(tr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-job.test.ts > memory backup job wiring > a backup continuation failure does not stop the drain's decision-queue work
+AssertionError: expected { ok: true, …(1) } to deeply equal { ok: false, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "failure": "memory_backup_binding_missing",
+-   "ok": false,
++   "detail": "0 open; guest notices not configured; no memory backup continuation",
++   "ok": true,
+  }
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup-job.test.ts:98:21
+     96|     const outcome = await drain();
+     97|     expect(decisionQueueRead).toBe(true);
+     98|     expect(outcome).toEqual({ ok: false, failure: "memory_backup_bindi…
+       |                     ^
+     99|   });
+    100| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > downloads and hashes each verified object once before later restore steps use the durable cache
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ cacheVerifiedMemoryBackupSet apps/cloud-gateway/src/backup/memory-backup-restore.ts:664:5
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:656:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > restores 5,000 rows through bounded operator steps without reading an R2 object twice
+AssertionError: {"error":"memory_backup_restore_target_not_fresh:capability_tiers"}: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:729:55
+    727|       );
+    728|       result = await response.json() as Record<string, unknown>;
+    729|       expect(response.status, JSON.stringify(result)).toBe(200);
+       |                                                       ^
+    730|       if (result.outcome === "complete") {
+    731|         steps += 1;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > restores a guest call whose voice grant is more than one page earlier
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ initializeRestoreProgress apps/cloud-gateway/src/backup/memory-backup-restore.ts:849:3
+ ❯ continueVerifiedMemoryBackupRestore apps/cloud-gateway/src/backup/memory-backup-restore.ts:981:8
+ ❯ restoreVerifiedMemoryBackupRows apps/cloud-gateway/src/backup/memory-backup-restore.ts:1100:21
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:775:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > restores a merged topic whose redirect target is more than one page later
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ initializeRestoreProgress apps/cloud-gateway/src/backup/memory-backup-restore.ts:849:3
+ ❯ continueVerifiedMemoryBackupRestore apps/cloud-gateway/src/backup/memory-backup-restore.ts:981:8
+ ❯ restoreVerifiedMemoryBackupRows apps/cloud-gateway/src/backup/memory-backup-restore.ts:1100:21
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:797:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > restores post-initial rows and rebuilds every excluded memory projection
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ initializeRestoreProgress apps/cloud-gateway/src/backup/memory-backup-restore.ts:849:3
+ ❯ continueVerifiedMemoryBackupRestore apps/cloud-gateway/src/backup/memory-backup-restore.ts:981:8
+ ❯ restoreVerifiedMemoryBackupRows apps/cloud-gateway/src/backup/memory-backup-restore.ts:1100:21
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:881:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > resumes after triggers were dropped and keeps every continuation well below the D1 query limit
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ initializeRestoreProgress apps/cloud-gateway/src/backup/memory-backup-restore.ts:849:3
+ ❯ continueVerifiedMemoryBackupRestore apps/cloud-gateway/src/backup/memory-backup-restore.ts:981:8
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:949:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > refuses incompatible or changed sets before any new DDL at every resumable boundary
+Error: memory_backup_restore_target_not_fresh:capability_tiers
+ ❯ assertFreshRestoreTarget apps/cloud-gateway/src/backup/memory-backup-restore.ts:281:34
+    279|     const count = (counts[index]?.results[0] as { row_count?: number }…
+    280|     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRAT…
+    281|     if (count !== allowed) throw new Error(`memory_backup_restore_targ…
+       |                                  ^
+    282|   }
+    283|   for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS…
+ ❯ assertRestoreTargetPreflight apps/cloud-gateway/src/backup/memory-backup-restore.ts:298:3
+ ❯ initializeRestoreProgress apps/cloud-gateway/src/backup/memory-backup-restore.ts:849:3
+ ❯ continueVerifiedMemoryBackupRestore apps/cloud-gateway/src/backup/memory-backup-restore.ts:981:8
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:1037:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup-restore.test.ts > verified memory backup restore > refuses an unclassified live trigger before the restore creates or drops anything
+AssertionError: expected [Function] to throw error matching /trigger_classification_invalid/u but got 'memory_backup_restore_target_not_fres…'
+
+- Expected:
+/trigger_classification_invalid/u
+
++ Received:
+"memory_backup_restore_target_not_fresh:capability_tiers"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup-restore.test.ts:1075:8
+    1073|       restoreId: manifest.runId,
+    1074|       jobs: { rebuildHistory: async () => undefined, rebuildVectors: a…
+    1075|     })).rejects.toThrow(/trigger_classification_invalid/u);
+       |        ^
+    1076|     expect(counter.sql.filter((sql) => /^(?:ALTER|CREATE|DROP)\s/iu.te…
+    1077|     expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > exports a consistent cut and excludes events appended after the immutable mark
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:202:27
+    200|     const backup = service({ pageRowLimit: 1 });
+    201|     const first = await backup.runNightly(runDate);
+    202|     expect(first.outcome).toBe("pending");
+       |                           ^
+    203|
+    204|     await appendEvents(3);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > keeps numeric event cursors ordered across '9 to 10' at the default page size
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > keeps numeric event cursors ordered across '99 to 100' at the default page size
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > keeps numeric event cursors ordered across '9,999 to 10,000' at the default page size
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:235:29
+    233|     await insertEventsAt(sequences);
+    234|     const { outcome } = await driveBackup(service());
+    235|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+    236|     expect(await exportedEventSequences()).toEqual(sequences);
+    237|   }, 120_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > processes several export pages in one invocation within its fixed step budget
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:242:56
+    240|     await appendEvents(64);
+    241|     const backup = service();
+    242|     expect((await backup.runNightly(runDate)).outcome).toBe("pending");
+       |                                                        ^
+    243|     expect(await env.DB.prepare(`SELECT cursor_key FROM memory_backup_…
+    244|       WHERE run_date = ?`).bind(runDate).first()).toEqual({ cursor_key…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > allows only the exact restore runtime tables in a later backup
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:288:61
+    286|     }
+    287|     try {
+    288|       expect((await service().runNightly(runDate)).outcome).toBe("pend…
+       |                                                             ^
+    289|     } finally {
+    290|       for (const table of [...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES].r…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > treats _cf_KV and an invented _cf_FUTURE as Cloudflare bookkeeping rather than unclassified tables
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:318:29
+    316|       { name: "_cf_FUTURE", sql: "CREATE TABLE _cf_FUTURE (id INTEGER …
+    317|     ], injected) }));
+    318|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+    319|     expect(injected).toEqual(["_cf_KV", "_cf_FUTURE"]);
+    320|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > keeps unchanged nightly row counts stable and limits scheduled runs to the last 48 hours
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:343:68
+    341|     for (let night = 1; night <= 4; night += 1) {
+    342|       const date = `2026-09-${String(night).padStart(2, "0")}`;
+    343|       expect((await driveBackup(service(), date)).outcome.outcome).toB…
+       |                                                                    ^
+    344|       const run = await env.DB.prepare("SELECT run_id FROM memory_back…
+    345|         .bind(date).first<{ run_id: string }>();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > records rows deleted after the cut as a manifest shortfall
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:374:27
+    372|     const backup = service({ stepsPerInvocation: 2 });
+    373|     const first = await backup.runNightly(runDate);
+    374|     expect(first.outcome).toBe("pending");
+       |                           ^
+    375|     await env.DB.prepare("DELETE FROM scheduled_runs WHERE job = 'poll…
+    376|     expect((await finishBackup(service(), first)).outcome).toBe("verif…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > pages WITHOUT ROWID sources from an ordinal range and indexed primary-key lookups
+AssertionError: expected { outcome: { …(2) }, invocations: 1 } to match object { outcome: { outcome: 'verified' } }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "outcome": {
+-     "outcome": "verified",
++     "outcome": "failed",
+    },
+  }
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:428:54
+    426|       },
+    427|     }) as D1Database;
+    428|     expect(await driveBackup(service({ database }))).toMatchObject({ o…
+       |                                                      ^
+    429|     expect(await env.DB.prepare(`SELECT key_1, key_2 FROM memory_backu…
+    430|       WHERE table_name = 'memory_literal_search_jobs'`).first()).toEqu…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > writes the manifest after every data object and advertises it only after read-back
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:460:29
+    458|     const backup = service({ bucket, pageRowLimit: 1 });
+    459|     const outcome = await finishBackup(backup, await backup.runNightly…
+    460|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+    461|
+    462|     const manifestIndex = writes.findIndex((key) => key.endsWith("/man…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > marks a set verified in D1 before writing latest and repairs a failed pointer write
+AssertionError: expected 'idle' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "idle"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:500:27
+    498|       first = await backup.continueActive(runDate);
+    499|     }
+    500|     expect(first.outcome).toBe("pending");
+       |                           ^
+    501|     expect(await env.DB.prepare(
+    502|       "SELECT status FROM memory_backup_runs WHERE run_date = ?",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > keeps a verified result when retention fails and retries objects before manifest and D1 status
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:516:68
+    514|     for (let day = 1; day <= 15; day += 1) {
+    515|       const date = `2026-09-${String(day).padStart(2, "0")}`;
+    516|       expect((await driveBackup(service(), date)).outcome.outcome).toB…
+       |                                                                    ^
+    517|     }
+    518|     const notices: string[] = [];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > alerts once when the newest verified set is older than thirty-six hours
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:593:93
+    591|   it("alerts once when the newest verified set is older than thirty-si…
+    592|     const oldInstant = new Date("2026-09-14T00:00:00.000Z");
+    593|     expect((await driveBackup(service({ now: oldInstant }), "2026-09-1…
+       |                                                                                             ^
+    594|     const notices: string[] = [];
+    595|     const stale = service({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > never advertises a staging set whose previously written object was tampered
+Error: staging object missing
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:614:37
+    612|     const staged = (await backupBucket.list({ prefix: "memory-backup/s…
+    613|       .find((object) => object.key.includes("/staging/"));
+    614|     if (staged === undefined) throw new Error("staging object missing"…
+       |                                     ^
+    615|     await backupBucket.put(staged.key, "tampered");
+    616|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > retries a transient R2 read without discarding the multi-step run
+AssertionError: expected { outcome: { …(2) }, invocations: 1 } to match object { outcome: { outcome: 'verified' } }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "outcome": {
+-     "outcome": "verified",
++     "outcome": "failed",
+    },
+  }
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:641:61
+    639|       delete: (...args) => backupBucket.delete(...args),
+    640|     };
+    641|     expect(await driveBackup(service({ bucket, notices }))).toMatchObj…
+       |                                                             ^
+    642|       outcome: { outcome: "verified" },
+    643|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > cleans a failed staging prefix before claiming the next night's run
+Error: staging object missing
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:654:37
+    652|     const staged = (await backupBucket.list({ prefix: "memory-backup/s…
+    653|       .find((object) => object.key.includes("/staging/"));
+    654|     if (staged === undefined) throw new Error("staging object missing"…
+       |                                     ^
+    655|     await backupBucket.put(staged.key, "tampered");
+    656|     for (let step = 0; step < 30 && outcome.outcome === "pending"; ste…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > resumes from the durable cursor in a later invocation
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:677:62
+    675|     await appendEvents(3);
+    676|     const firstService = service({ pageRowLimit: 1, stepsPerInvocation…
+    677|     expect((await firstService.runNightly(runDate)).outcome).toBe("pen…
+       |                                                              ^
+    678|     const first = await env.DB.prepare(
+    679|       "SELECT cursor_key, next_object_number FROM memory_backup_runs W…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > alerts once for a missing binding and records only the fixed code
+AssertionError: expected { outcome: 'failed', …(1) } to deeply equal { outcome: 'failed', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "code": "memory_backup_binding_missing",
++   "code": "memory_backup_operation_failed",
+    "outcome": "failed",
+  }
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:695:46
+    693|     const notices: string[] = [];
+    694|     const backup = service({ bucket: undefined, notices });
+    695|     expect(await backup.runNightly(runDate)).toEqual({
+       |                                              ^
+    696|       outcome: "failed",
+    697|       code: "memory_backup_binding_missing",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/memory-backup.test.ts > nightly verified memory backup > treats a second run on the same Toronto date as the same verified set
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/memory-backup.test.ts:712:84
+    710|     await appendEvents(1);
+    711|     const backup = service();
+    712|     expect((await finishBackup(backup, await backup.runNightly(runDate…
+       |                                                                                    ^
+    713|     const latestBefore = await (await backupBucket.get(MEMORY_BACKUP_L…
+    714|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > keeps bind, begin, and expiry retries idempotent with guarded inserts
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:108:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins the 60-second window guard and window immutability
+AssertionError: promise resolved "{ success: true, meta: { …(8) }, …(1) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "meta": {
++     "changed_db": false,
++     "changes": 0,
++     "duration": 0,
++     "last_row_id": 1,
++     "rows_read": 2,
++     "rows_written": 0,
++     "served_by": "miniflare.db",
++     "size_after": 1224704,
++   },
++   "results": [],
++   "success": true,
+  }
+
+ ❯ expectUpdateAndDeleteRejected apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:34:45
+     32| ): Promise<void> {
+     33|   if (!/^[a-z0-9_]+$/u.test(table)) throw new Error("unsafe_test_table…
+     34|   await expect(env.DB.prepare(update).run()).rejects.toThrow(updateErr…
+       |                                             ^
+     35|   await expect(env.DB.prepare(`DELETE FROM ${table}`).run()).rejects.t…
+     36| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:143:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins attempt reservation, one-way resolution, and deletion guards
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:153:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins success provenance plus immutable success receipts
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:170:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins reprompt order, exhaustion, immutability, and deletion
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:195:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins rejection provenance, terminalization, immutability, and deletion
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:212:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins repeat-check timing, one-way resolution, and deletion
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ openPreAuth apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:23:30
+     21|   const call = await system.openRelay();
+     22|   await call.setup();
+     23|   expect(await call.phase()).toBe("pre_auth");
+       |                              ^
+     24|   return { system, call };
+     25| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:230:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys
+Error: D1_ERROR: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:283:7
+    281|       system.advanceTime(2_001);
+    282|       const repeatReservedAt = "2026-08-30T12:00:02.001Z";
+    283|       await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_chec…
+       |       ^
+    284|         session_id, lifecycle_generation, verifier_version, reserved_a…
+    285|       ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(successful.sessionId, r…
+
+Caused by: Error: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:283:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/43]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/voice-access-repository.test.ts > VoiceAccessRepository > mints immutable owner authority and rejects stale guest authority
+AssertionError: promise resolved "{ …(9) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "accessDocumentHash": null,
++   "authenticatedAt": "2026-08-30T12:00:00.000Z",
++   "expiresAt": "2026-08-30T12:30:00.000Z",
++   "grantId": null,
++   "grantVersion": null,
++   "identityId": "identity:voice-owner",
++   "kind": "owner",
++   "principalId": "principal:voice-owner",
++   "sessionId": "01k3w1t4000000000000000520",
+  }
+
+ ❯ apps/cloud-gateway/test/persistence/voice-access-repository.test.ts:381:101
+    379|       SET status = 'revoked', status_changed_at = ? WHERE status = 'ac…
+    380|     try {
+    381|       await expect(repository.rehydrateAuthority({ sessionId: secondSe…
+       |                                                                                                     ^
+    382|         .rejects.toThrow("call_authority_invalid");
+    383|       await expect(repository.requireCurrentAuthority(minted, NOW))
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/43]⎯
+
+
+ Test Files  7 failed | 193 passed (200)
+      Tests  43 failed | 5155 passed (5198)
+   Start at  23:45:00
+   Duration  229.43s (transform 52.81s, setup 0ms, import 825.18s, tests 1169.30s, environment 14ms)
+
+[ELIFECYCLE] Test failed. See above for more details.

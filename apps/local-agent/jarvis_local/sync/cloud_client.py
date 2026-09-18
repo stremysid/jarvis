@@ -72,6 +72,14 @@ class CloudOwnerPassphraseMismatchError(CloudSyncError):
     """The configured server owner does not match the authenticated device owner."""
 
 
+class CloudOwnerCallPinStateChangedError(CloudSyncError):
+    """The active owner call PIN version changed during compare-and-swap."""
+
+
+class CloudOwnerCallPinMismatchError(CloudSyncError):
+    """The configured server owner does not match the authenticated device owner."""
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotCursor:
     """The snapshot a page came from, needed to acknowledge it."""
@@ -324,7 +332,10 @@ class HttpCloudClient:
                 raise CloudSyncError(f"gateway returned {type(decoded).__name__}, expected an object")
             return decoded
         except urllib.error.HTTPError as error:
-            if path in {"/identity/owner-phone-enrollment", "/identity/owner-passphrase"} and error.code == 401:
+            if (
+                path in {"/identity/owner-phone-enrollment", "/identity/owner-passphrase", "/identity/owner-call-pin"}
+                and error.code == 401
+            ):
                 try:
                     rejected = json.loads(error.read(257).decode("utf-8"))
                 except (AttributeError, ValueError, UnicodeError, OSError):
@@ -338,6 +349,20 @@ class HttpCloudClient:
                     rejected = None
                 if rejected == {"error": "owner_passphrase_state_changed"}:
                     raise CloudPassphraseStateChangedError("owner_passphrase_state_changed") from error
+            if path == "/identity/owner-call-pin" and error.code == 409:
+                try:
+                    rejected = json.loads(error.read(257).decode("utf-8"))
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "owner_call_pin_state_changed"}:
+                    raise CloudOwnerCallPinStateChangedError("owner_call_pin_state_changed") from error
+            if path == "/identity/owner-call-pin" and error.code == 403:
+                try:
+                    rejected = json.loads(error.read(257).decode("utf-8"))
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "owner_call_pin_owner_mismatch"}:
+                    raise CloudOwnerCallPinMismatchError("owner_call_pin_owner_mismatch") from error
             if path == "/identity/owner-passphrase" and error.code == 403:
                 try:
                     rejected = json.loads(error.read(257).decode("utf-8"))

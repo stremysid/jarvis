@@ -1403,19 +1403,10 @@ export class VoiceAccessRepository {
       return false;
     }
     if (row.authority_kind === "owner") {
-      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
-        && row.direction === "inbound"
-        && row.step_up_attestation_class === "passed_a"
-        && row.step_up_policy === "waive_on_passed_a"
-        && row.current_owner_verifier_version !== null
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active"
-        || row.step_up_requirement === "required"
-        && row.step_up_success_version !== null
-        && row.step_up_success_version === row.current_owner_verifier_version
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active";
-      return stepUpCurrent && row.grant_id === null
+      // No credential is re-read here. The owner step-up that admission used
+      // to require moved to the sensitive action on 2026-09-17, and the
+      // receipt that satisfies it is checked at the action, not at every turn.
+      return row.grant_id === null
         && row.grant_version === null
         && row.access_document_hash === null
         && row.owner_principal_id === row.principal_id
@@ -1599,19 +1590,7 @@ export class VoiceAccessRepository {
       throw new Error("call_authority_stale");
     }
     if (authority.kind === "owner") {
-      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
-        && row.direction === "inbound"
-        && row.step_up_attestation_class === "passed_a"
-        && row.step_up_policy === "waive_on_passed_a"
-        && row.current_owner_verifier_version !== null
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active"
-        || row.step_up_requirement === "required"
-        && row.step_up_success_version !== null
-        && row.step_up_success_version === row.current_owner_verifier_version
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active";
-      if (!stepUpCurrent || row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
+      if (row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
         throw new Error("call_authority_stale");
       }
     } else if (
@@ -1624,22 +1603,4 @@ export class VoiceAccessRepository {
     return input;
   }
 
-  /** Waived caller-ID authority cannot change access grants without a phrase success receipt. */
-  async requireOwnerStepUpVerified(input: PersistedCallAuthority): Promise<void> {
-    if (input === null || typeof input !== "object" || !this.#issuedAuthorities.has(input) || input.kind !== "owner") {
-      throw new Error("call_authority_invalid");
-    }
-    const row = await this.#database.prepare(`SELECT success.session_id
-      FROM owner_call_step_up_successes success
-      JOIN owner_passphrase_heads head ON head.singleton_id = 1
-        AND head.owner_principal_id = success.owner_principal_id
-        AND head.owner_identity_id = success.owner_identity_id
-        AND head.verifier_version = success.verifier_version AND head.status = 'active'
-      JOIN owner_passphrase_verifiers verifier
-        ON verifier.owner_identity_id = head.owner_identity_id
-        AND verifier.verifier_version = head.verifier_version AND verifier.status = 'active'
-      WHERE success.session_id = ? AND success.owner_principal_id = ? AND success.owner_identity_id = ?`)
-      .bind(input.sessionId, input.principalId, input.identityId).first<{ session_id: string }>();
-    if (row === null) throw new Error("owner_step_up_required");
-  }
 }

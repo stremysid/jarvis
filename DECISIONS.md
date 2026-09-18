@@ -4,6 +4,44 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## A spoken four-digit PIN gates sensitive actions, not the call (2026-09-17, owner decision)
+
+Sid's recorded decision on 2026-09-17 replaces the three-word spoken passphrase
+on every owner call:
+
+- An ordinary owner call has no verification at all. He rings Jarvis and talks
+  immediately.
+- A spoken four-digit PIN is required only immediately before a sensitive
+  action: spending money, sending anything as Sid (message, email, booking),
+  deleting, changing security or autonomy settings, and reading out a memory
+  marked sensitive (health, money, grades, friends and family).
+- Spoken digits are the primary input and keypad DTMF is an equally valid
+  alternative. Four digits are easier to recognise than three words, and he
+  cannot touch the phone while driving.
+- Recognition is forgiving: clear re-prompts, at least five attempts, a plain
+  spoken explanation of what is being authorised, and no hang-up on failure.
+  A failed attempt is far more likely to be a mis-hearing than an attack.
+
+The same person's own assistant is the context, and the threat being mitigated
+is caller-ID spoofing reaching his memory. His judgement, recorded, is that an
+always-on gate costs more than it buys; a sensitive action with no proof of
+identity is not acceptable either. The credential is therefore demanded at the
+action, authorises that action alone through a short receipt window, and is
+never a blanket upgrade of the call. The three-word phrase stays valid as an
+alternative credential because he already holds it; it is not deleted.
+
+**Correction.** The every-call passphrase was a previous chat's interpretation
+of "okay add a phrase", not Sid's instruction. The 2026-09-14 owner-call
+passphrase design under `docs/superpowers/specs/` and the answered-outbound
+refusal decision below describe that superseded model. The refusal scenario
+they added is replaced by the accepted, refused and keypad sensitive-action
+scenarios, and outbound evidence now records the ordinary open-admission shape.
+
+Sensitive is one list rather than two: a capability is sensitive because
+`capability_tiers` says tier 3, which is the same row the Telegram side already
+consults for "outward actions always ask". This decision does not itself apply
+migration 0034, deploy, generate a PIN, or change any secret.
+
 ## Applied migration text was rewritten for fresh-database replay (2026-09-16, reviewer decision)
 
 Production applied migrations `0001`, `0002` and `0006` with trigger guards in
@@ -30,7 +68,8 @@ message. Its outcome is `refused` because step-up started and failed;
 
 This expands the reviewed evidence contract. It does not itself authorize a
 call, open inbound calling, enable outbound controls, deploy, change secrets or
-bypass the attended operator gates.
+bypass the attended operator gates. Superseded on 2026-09-17: the every-call
+passphrase is replaced by a four-digit PIN demanded only at a sensitive action.
 
 ## School and university are the next product priority (2026-09-15, owner decision)
 
@@ -162,6 +201,11 @@ transcripts, model context, events, logs, call records, and Durable Object
 storage. Twilio and the configured speech-to-text processor necessarily see
 the spoken candidate before Jarvis receives it; the product must state that
 limit rather than claim end-to-end secrecy.
+
+Superseded on 2026-09-17 by the owner decision above: the gate moved from
+admission to the sensitive action, and an ordinary owner call now asks for
+nothing at all. The three-word phrase stays valid as one of the two accepted
+credentials at the action; the admission rule stated here no longer holds.
 
 ## Capacity admission stops at the configured limit (2026-09-13, owner decision)
 

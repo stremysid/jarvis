@@ -12,25 +12,23 @@ import {
   OWNER_PASSPHRASE_WORD_LIST_VERSION,
   OWNER_PASSPHRASE_WORDS,
 } from "../../../apps/cloud-gateway/src/security/owner-passphrase-word-list.js";
-import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
-import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
-import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
-import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
-import { VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
 import {
-  OWNER_STEP_UP_FORMAT_PROMPT,
-  OWNER_STEP_UP_HANDOFF_DATA,
-  OWNER_STEP_UP_PROMPT,
-  OWNER_STEP_UP_REJECTED,
-  OWNER_STEP_UP_RETRY_PROMPT,
-  OWNER_STEP_UP_VERIFIED,
-} from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
+  OWNER_ACTION_AUTHORISED,
+  OWNER_ACTION_EXPIRED,
+  OWNER_ACTION_PIN_PROMPT,
+  OWNER_ACTION_REFUSED,
+  OWNER_ACTION_REPROMPT_SPEECH,
+} from "../../../apps/cloud-gateway/src/voice/owner-sensitive-action.js";
 import { OUTBOUND_VOICEMAIL_MESSAGE } from "../../../apps/cloud-gateway/src/voice/outbound.js";
 import {
   createFakeCallingSystem as createBaseFakeCallingSystem,
   type FakeCallingSystem,
 } from "./voice-call-system.js";
-import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
+import {
+  FAKE_OWNER_CALL_PIN,
+  FAKE_OWNER_CALL_PIN_DIGITS,
+  FAKE_OWNER_PASSPHRASE,
+} from "./voice-access-system.js";
 import type { FakeRelayCall } from "./voice-relay-system.js";
 
 interface KnownAnswerVectors {
@@ -328,371 +326,211 @@ async function d1Evidence(): Promise<readonly unknown[]> {
   return rows;
 }
 
-describe("owner-call passphrase security contract", () => {
+describe("owner-call sensitive-action credential contract", () => {
   it.each([
-    OWNER_STEP_UP_PROMPT,
-    OWNER_STEP_UP_RETRY_PROMPT,
-    OWNER_STEP_UP_FORMAT_PROMPT,
-    OWNER_STEP_UP_VERIFIED,
-    OWNER_STEP_UP_REJECTED,
     OUTBOUND_VOICEMAIL_MESSAGE,
+    OWNER_ACTION_PIN_PROMPT,
+    OWNER_ACTION_AUTHORISED,
+    OWNER_ACTION_REFUSED,
+    OWNER_ACTION_EXPIRED,
+    ...Object.values(OWNER_ACTION_REPROMPT_SPEECH),
   ])("keeps fixed speech outside the complete-candidate language: %j", (speech) => {
     expect(() => canonicalizeOwnerPassphrase(speech)).toThrow("owner_passphrase_candidate_invalid");
   });
 
-  it.each(["inbound", "outbound"] as const)(
-    "keeps an %s owner in pre-auth with no authority, context, model, or owner command before a match",
-    async (direction) => {
-      const system = await createFakeCallingSystem();
-      try {
-        const call = await openOwnerCall(system, direction);
-        expect(await call.phase()).toBe("pre_auth");
-        expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-        await call.prompt("allow +14165550111 with conversation");
-        expect(await call.phase()).toBe("pre_auth");
-        expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-        expect(await call.modelRequests()).toEqual([]);
-        expect(await call.turns()).toEqual([]);
-        expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first())
-          .toEqual({ count: 0 });
-        expect(call.frames().map((frame) => frame.token)).not.toContainEqual(
-          expect.stringMatching(/enter four digits|access change/iu),
-        );
-      } finally { await system.cleanup(); }
-    },
-  );
-
-  it("refuses a direct owner-authority write before the matching step-up success receipt", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await expect(env.DB.prepare(`INSERT INTO call_session_authorities (
-        session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
-        access_document_hash, authenticated_at, expires_at
-      ) SELECT session_id, 'owner', principal_id, identity_id, NULL, NULL, NULL,
-        updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', provider_connected_at, '+1800 seconds')
-      FROM call_sessions WHERE session_id = ?`).bind(call.sessionId).run())
-        .rejects.toThrow("call_session_authority_requires_current_lineage");
-      expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-    } finally { await system.cleanup(); }
-  });
-
-  it.each(["inbound", "outbound"] as const)(
-    "requires a real successful verifier result and keeps every %s candidate representation out of named sinks",
-    async (direction) => {
-      const system = await createFakeCallingSystem();
-      const logs: unknown[] = [];
-      const spies = spyOnEveryConsoleMethod(logs);
-      const spoken = "ABLAZE,  ABRASION!  ABRASIVE.";
-      try {
-        const call = await openOwnerCall(system, direction);
-        const beforeCandidate = logs.length;
-        await call.prompt(spoken);
-        expect(logs.slice(beforeCandidate)).toEqual([]);
-        expect(await call.phase()).toBe("active");
-        expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
-        await expect(env.DB.prepare(
-          "SELECT count(*) AS count FROM owner_call_step_up_successes WHERE session_id = ?",
-        ).bind(call.sessionId).first()).resolves.toEqual({ count: 1 });
-        expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_VERIFIED)).toHaveLength(1);
-        expect(await call.modelRequests()).toEqual([]);
-        expect(await call.turns()).toEqual([]);
-
-        const digests = await digestForms(spoken, FAKE_OWNER_PASSPHRASE);
-        const surfaces = evidenceText([
-          logs,
-          call.frames(),
-          call.closeEvents(),
-          await call.modelRequests(),
-          await call.turns(),
-          await call.durableStorage(),
-          await call.durableSqlStorage(),
-          await d1Evidence(),
-        ]);
-        for (const secret of [
-          ...plaintextForms(spoken, FAKE_OWNER_PASSPHRASE),
-          ...digests,
-        ]) expect(surfaces).not.toContain(secret.toLowerCase());
-      } finally {
-        for (const spy of spies) spy.mockRestore();
-        await system.cleanup();
-      }
-    },
-    20_000,
-  );
-
-  it.each([
-    ["inbound", "4827"], ["inbound", "0000"], ["inbound", "1357"], ["inbound", "9999"],
-    ["outbound", "4827"], ["outbound", "0000"], ["outbound", "1357"], ["outbound", "9999"],
-  ] as const)("does not let %s keypad code %s authenticate an owner", async (direction, code) => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, direction);
-      await call.pin(new TextEncoder().encode(code));
-      expect(await call.phase()).toBe("pre_auth");
-      expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-      expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
-      expect(await call.modelRequests()).toEqual([]);
-    } finally { await system.cleanup(); }
-  }, 20_000);
-
-  it.each([undefined, "", "passphrase_always", "unknown_policy"])(
-    "keeps exact Passed-A behind the phrase when policy is %j",
+  it.each([undefined, "", "passphrase_always", "waive_on_passed_a", "unknown_policy"])(
+    "admits an inbound owner with caller-ID policy %j and asks for no credential",
     async (policy) => {
       const system = await createFakeCallingSystem({ ownerCallerIdPolicy: policy });
       try {
         const call = await openOwnerCall(system, "inbound", "TN-Validation-Passed-A");
-        expect(await call.phase()).toBe("pre_auth");
-        expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-        expect(call.frames().map((frame) => frame.token)).toContain(OWNER_STEP_UP_PROMPT);
+        expect(await call.phase()).toBe("active");
+        expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
+        // Nothing was verified at admission, so no step-up success was written.
+        await expect(env.DB.prepare(
+          "SELECT count(*) AS count FROM owner_call_step_up_successes WHERE session_id = ?",
+        ).bind(call.sessionId).first()).resolves.toEqual({ count: 0 });
+        const speech = call.frames().map((frame) => frame.token).join("\n");
+        expect(speech).not.toMatch(/passphrase|four digit/iu);
       } finally { await system.cleanup(); }
     },
+    20_000,
   );
 
-  it("keeps the dormant waiver exact, explicit, and inbound-only", async () => {
-    const exact = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
+  it.each(["inbound", "outbound"] as const)(
+    "answers an ordinary %s owner question with no credential and no action question",
+    async (direction) => {
+      const system = await createFakeCallingSystem();
+      try {
+        const call = await openOwnerCall(system, direction);
+        expect(await call.phase()).toBe("active");
+        await call.prompt("What is on my calendar?");
+        await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
+        expect((await call.modelRequests())[0]?.userText).toBe("What is on my calendar?");
+        await expect(env.DB.prepare("SELECT count(*) AS count FROM owner_action_requests").first())
+          .resolves.toEqual({ count: 0 });
+        await expect(env.DB.prepare("SELECT count(*) AS count FROM owner_action_attempts").first())
+          .resolves.toEqual({ count: 0 });
+      } finally { await system.cleanup(); }
+    },
+    20_000,
+  );
+
+  it("does not let an admission keypad code change anything or start a turn", async () => {
+    const system = await createFakeCallingSystem();
     try {
-      const call = await openOwnerCall(exact, "inbound", "TN-Validation-Passed-A");
+      const call = await openOwnerCall(system, "inbound");
+      await call.pin(new TextEncoder().encode("4827"));
       expect(await call.phase()).toBe("active");
       expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
-      expect(call.frames().map((frame) => frame.token)).not.toContain(OWNER_STEP_UP_PROMPT);
-    } finally { await exact.cleanup(); }
-
-    const variants: readonly (string | readonly string[] | undefined)[] = [
-      undefined,
-      "",
-      "TN-Validation-Passed-B",
-      "TN-Validation-Passed-C",
-      "TN-Validation-Failed-A",
-      "tn-validation-passed-a",
-      " TN-Validation-Passed-A",
-      "TN-Validation-Passed-A ",
-      "TN-Validation-Passed-A-Diverted",
-      "TN-Validation-Passed-A-Passthrough",
-    ];
-    for (const variant of variants) {
-      const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
-      try {
-        const call = await openOwnerCall(system, "inbound", variant);
-        expect(await call.phase(), String(variant)).toBe("pre_auth");
-        expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-      } finally { await system.cleanup(); }
-    }
-
-    const duplicate = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
-    try {
-      expect((await duplicate.inbound(undefined, [
-        "TN-Validation-Passed-A", "TN-Validation-Passed-A",
-      ])).status).toBe(403);
-      expect(duplicate.initializations()).toHaveLength(0);
-    } finally { await duplicate.cleanup(); }
-
-    const outbound = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
-    try {
-      const call = await openOwnerCall(outbound, "outbound");
-      expect(await call.phase()).toBe("pre_auth");
-      expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
-    } finally { await outbound.cleanup(); }
-  }, 60_000);
-
-  it("refuses the Passed-A waiver when the current verifier is no longer active", async () => {
-    const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
-    let verifierGuardSql: string | null = null;
-    try {
-      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
-      const active = await system.openRelay();
-      await active.setup();
-      expect(await active.phase()).toBe("active");
-
-      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
-      const pending = await system.openRelay();
-      verifierGuardSql = (await env.DB.prepare(`SELECT sql FROM sqlite_schema
-        WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
-        .first<{ sql: string }>())?.sql ?? null;
-      if (verifierGuardSql === null) throw new Error("owner_passphrase_verifier_guard_missing");
-      await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
-      await env.DB.prepare(`UPDATE owner_passphrase_verifiers
-        SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`)
-        .bind("2099-01-01T00:00:01.000Z").run();
-
-      await active.prompt("What is on my calendar?");
-      await vi.waitFor(() => expect(active.closeCodes()).toContain(1011));
-      expect(await active.modelRequests()).toEqual([]);
-      await pending.setup();
-      await vi.waitFor(() => expect(pending.closeCodes()).toContain(1011));
-      expect(await ownerAuthorityCount(pending.sessionId)).toBe(0);
-      await expect(env.DB.prepare(`INSERT INTO call_session_authorities (
-        session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
-        access_document_hash, authenticated_at, expires_at
-      ) SELECT session_id, 'owner', principal_id, identity_id, NULL, NULL, NULL,
-        updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', provider_connected_at, '+1800 seconds')
-      FROM call_sessions WHERE session_id = ?`).bind(pending.sessionId).run())
-        .rejects.toThrow("call_session_authority_requires_current_lineage");
-      await pending.terminate("failed");
-    } finally {
-      if (verifierGuardSql !== null) {
-        await env.DB.prepare(`UPDATE owner_passphrase_verifiers SET status = 'active', status_changed_at = created_at
-          WHERE status = 'revoked'`).run();
-        await env.DB.prepare(verifierGuardSql).run();
-      }
-      await system.cleanup();
-    }
-  }, 20_000);
-
-  it("does not let the dormant caller-ID waiver authorize access management without a phrase", async () => {
-    const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
-    try {
-      const call = await openOwnerCall(system, "inbound", "TN-Validation-Passed-A");
-      const stored = await new CallRepository(env.DB, new EventRepository(env.DB)).getCallSession(call.sessionId);
-      if (stored === null) throw new Error("owner_call_fixture_missing");
-      const authorities = new VoiceAccessAuthorityService(
-        new VoiceAccessRepository(env.DB),
-        new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
-      );
-      const authority = await authorities.rehydrate({
-        sessionId: stored.sessionId,
-        binding: stored.binding,
-        now: FUTURE_TEST_NOW,
-      });
-
-      await expect(authorities.authorize(authority, "access.manage", FUTURE_TEST_NOW))
-        .rejects.toThrow("owner_step_up_required");
-      await expect(authorities.authorize(authority, "conversation.basic", FUTURE_TEST_NOW))
-        .resolves.toBe(authority);
-    } finally { await system.cleanup(); }
-  });
-
-  it("suppresses the first post-success phrase repeat before any transcript or model call", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      expect(await call.phase()).toBe("active");
-      await call.prompt("This final arrives inside the repeat guard.");
-      expect(await call.modelRequests()).toEqual([]);
-      system.advanceTime(2_001);
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      expect(await call.modelRequests()).toEqual([]);
-      expect(await call.turns()).toEqual([]);
-      await expect(env.DB.prepare(
-        "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
-      ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "matched" });
-      await call.prompt("What is on my calendar?");
-      expect(await call.modelRequests()).toHaveLength(1);
-    } finally { await system.cleanup(); }
-  });
-
-  it("assembles and suppresses a split post-success phrase repeat before any sink", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      system.advanceTime(2_001);
-      await call.prompt("ablaze");
-      expect(await call.modelRequests()).toEqual([]);
-      await call.prompt("abrasion abrasive");
-
-      expect(await call.modelRequests()).toEqual([]);
-      expect(await call.turns()).toEqual([]);
-      await expect(env.DB.prepare(
-        "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
-      ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "matched" });
-      const surfaces = evidenceText([
-        call.frames(), await call.modelRequests(), await call.turns(),
-        await call.durableStorage(), await call.durableSqlStorage(), await d1Evidence(),
-      ]);
-      for (const word of FAKE_OWNER_PASSPHRASE.split(" ")) expect(surfaces).not.toContain(word);
-    } finally { await system.cleanup(); }
-  }, 20_000);
-
-  it("passes a nonmatching first candidate-shaped final through as ordinary owner speech", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      system.advanceTime(2_001);
-      const ordinary = "ablaze abrasion active";
-      await call.prompt(ordinary);
-
-      expect(await call.modelRequests()).toEqual([
-        expect.objectContaining({ userText: ordinary }),
-      ]);
-      await expect(env.DB.prepare(
-        "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
-      ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "mismatched" });
-    } finally { await system.cleanup(); }
-  });
-
-  it("stops buffering short word-list replies after the bounded split-repeat window", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      system.advanceTime(2_001);
-      await call.prompt("good");
-      expect(await call.modelRequests()).toEqual([]);
-
-      system.advanceTime(5_000);
-      await call.prompt("good");
-      expect(await call.modelRequests()).toEqual([
-        expect.objectContaining({ userText: "good" }),
-      ]);
-    } finally { await system.cleanup(); }
-  }, 20_000);
-
-  it("assembles split finals, discards fixed echoes, and clears partial fragments on interruption", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.prompt(OWNER_STEP_UP_PROMPT);
-      await call.prompt("ablaze");
-      await call.interrupt();
-      expect(await call.phase()).toBe("pre_auth");
+      expect(await system.ownerActionAttempts(call.sessionId)).toBe(0);
       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
-      expect(await call.phase()).toBe("active");
+      expect(await call.modelRequests()).toEqual([]);
+      expect(await call.turns()).toEqual([]);
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
-  it("uses clean ConversationRelay end plus callback Hangup after exactly three mismatches", async () => {
+  it("opens one action question, takes the keypad PIN, and keeps every digit out of every sink", async () => {
     const system = await createFakeCallingSystem();
     const logs: unknown[] = [];
     const spies = spyOnEveryConsoleMethod(logs);
-    const wrongCandidates = [
-      "cabbage cackle cactus", "caddy cadillac cadmium", "camisole canister canopy",
-    ] as const;
     try {
       const call = await openOwnerCall(system, "inbound");
-      const beforeCandidates = logs.length;
-      for (const wrong of wrongCandidates) await call.prompt(wrong);
-      expect(await call.phase()).toBe("rejected");
-      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
-      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
-      expect(call.closeCodes()).toEqual([]);
-      expect(call.stepUpAlerts()).toHaveLength(1);
+      const beforeCandidate = logs.length;
+      await call.prompt("allow +14165550111 with conversation");
+      expect(await call.phase()).toBe("active");
+      expect(call.frames().map((frame) => frame.token)).toContainEqual(
+        expect.stringContaining(OWNER_ACTION_PIN_PROMPT),
+      );
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first())
+        .resolves.toEqual({ count: 0 });
+
+      await call.pin(FAKE_OWNER_CALL_PIN_DIGITS());
+      await call.pin(new TextEncoder().encode("2468"));
+      await call.prompt("confirm");
+
+      const grant = await env.DB.prepare(`SELECT grant_row.status, identity.provider_subject
+        FROM voice_access_grants grant_row
+        JOIN channel_identities identity ON identity.identity_id = grant_row.identity_id`)
+        .first<{ status: string; provider_subject: string }>();
+      expect(grant).toEqual({ status: "pending", provider_subject: "+14165550111" });
+
+      // The receipt names what was authorised, by which credential, and is spent.
+      const receipt = await env.DB.prepare(`SELECT capability, credential, consumed_at
+        FROM owner_action_authorisations WHERE session_id = ?`).bind(call.sessionId)
+        .first<{ capability: string; credential: string; consumed_at: string | null }>();
+      expect(receipt).toEqual({
+        capability: "access.manage", credential: "call_pin", consumed_at: expect.any(String),
+      });
+
+      expect(logs.slice(beforeCandidate)).toEqual([]);
       const surfaces = evidenceText([
-        logs.slice(beforeCandidates),
+        logs.slice(beforeCandidate),
         call.frames(),
         call.closeEvents(),
-        call.stepUpAlerts(),
         await call.modelRequests(),
         await call.turns(),
         await call.durableStorage(),
         await call.durableSqlStorage(),
         await d1Evidence(),
       ]);
-      const candidateDigests = await digestForms(...wrongCandidates);
-      for (const secret of [...plaintextForms(...wrongCandidates), ...candidateDigests]) {
-        expect(surfaces).not.toContain(secret.toLowerCase());
-      }
-      const callback = await system.sendRelayEnded(
-        call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA,
-      );
-      expect(callback.status).toBe(200);
-      expect(await callback.text()).toBe("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
+      for (const secret of [
+        ...plaintextForms(FAKE_OWNER_CALL_PIN()),
+        ...plaintextForms("2468"),
+        ...await digestForms(FAKE_OWNER_CALL_PIN(), "2468"),
+      ]) expect(surfaces).not.toContain(secret.toLowerCase());
     } finally {
       for (const spy of spies) spy.mockRestore();
       await system.cleanup();
     }
+  }, 30_000);
+
+  it("accepts the three-word phrase at the action and keeps every word out of every sink", async () => {
+    const system = await createFakeCallingSystem();
+    const logs: unknown[] = [];
+    const spies = spyOnEveryConsoleMethod(logs);
+    try {
+      const call = await openOwnerCall(system, "inbound");
+      await call.prompt("allow +14165550111 with conversation");
+      const beforeCandidate = logs.length;
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      await call.pin(new TextEncoder().encode("2468"));
+      await call.prompt("confirm");
+
+      await expect(env.DB.prepare("SELECT status FROM voice_access_grants").first())
+        .resolves.toEqual({ status: "pending" });
+      await expect(env.DB.prepare(
+        "SELECT credential FROM owner_action_authorisations WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.toEqual({ credential: "owner_passphrase" });
+
+      expect(logs.slice(beforeCandidate)).toEqual([]);
+      const surfaces = evidenceText([
+        logs.slice(beforeCandidate),
+        call.frames(),
+        call.closeEvents(),
+        await call.modelRequests(),
+        await call.turns(),
+        await call.durableStorage(),
+        await call.durableSqlStorage(),
+        await d1Evidence(),
+      ]);
+      for (const secret of [
+        ...plaintextForms(FAKE_OWNER_PASSPHRASE),
+        ...await digestForms(FAKE_OWNER_PASSPHRASE),
+      ]) expect(surfaces).not.toContain(secret.toLowerCase());
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      await system.cleanup();
+    }
+  }, 30_000);
+
+  it("refuses after five wrong PINs, keeps the call open, and lets the caller keep talking", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const call = await openOwnerCall(system, "inbound");
+      await call.prompt("allow +14165550111 with conversation");
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await call.pin(new TextEncoder().encode("0000"));
+      }
+
+      expect(call.frames().map((frame) => frame.token)).toContainEqual(
+        expect.stringContaining(OWNER_ACTION_REFUSED),
+      );
+      expect(call.closeCodes()).toEqual([]);
+      expect(await call.phase()).toBe("active");
+      expect(await system.ownerActionAttempts(call.sessionId)).toBe(5);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first())
+        .resolves.toEqual({ count: 0 });
+
+      // A mis-heard digit is likelier than an attacker, so a spent budget
+      // refuses the action and nothing else.
+      await call.prompt("What is on my calendar?");
+      await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
+    } finally { await system.cleanup(); }
+  }, 30_000);
+
+  it("asks again for a second action instead of reusing the first authorisation", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const call = await openOwnerCall(system, "inbound");
+      await call.prompt("allow +14165550111 with conversation");
+      await call.pin(FAKE_OWNER_CALL_PIN_DIGITS());
+      await call.pin(new TextEncoder().encode("2468"));
+      await call.prompt("confirm");
+      await expect(env.DB.prepare("SELECT status FROM voice_access_grants").first())
+        .resolves.toEqual({ status: "pending" });
+
+      await call.prompt("allow +14165550112 with conversation");
+      const questions = call.frames().filter((frame) => frame.token.includes(OWNER_ACTION_PIN_PROMPT));
+      expect(questions).toHaveLength(2);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first())
+        .resolves.toEqual({ count: 1 });
+
+      await call.pin(FAKE_OWNER_CALL_PIN_DIGITS());
+      await call.pin(new TextEncoder().encode("1357"));
+      await call.prompt("confirm");
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first())
+        .resolves.toEqual({ count: 2 });
+    } finally { await system.cleanup(); }
   }, 30_000);
 });

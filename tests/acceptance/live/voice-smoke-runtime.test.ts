@@ -11,7 +11,7 @@ const CORRELATION_ID = "01j00000000000000000000000";
 const OTHER_CORRELATION_ID = "01j00000000000000000000002";
 
 const inboundEvidence = Object.freeze({
-  schemaVersion: "1.3",
+  schemaVersion: "1.4",
   generatorVersion: "0.1.0",
   status: "passed",
   scenario: "inbound",
@@ -23,14 +23,14 @@ const inboundEvidence = Object.freeze({
   terminalState: "completed",
   eventIds: ["01j00000000000000000000001", "01j00000000000000000000004"],
   authenticatedTurns: 20,
-  authenticationMode: "owner_passphrase",
-  ownerStepUpOutcome: "verified",
-  ownerStepUpPromptCount: 1,
-  ownerStepUpAttemptCount: 1,
+  authenticationMode: "owner_open_admission",
+  ownerStepUpOutcome: "not_started",
+  ownerStepUpPromptCount: 0,
+  ownerStepUpAttemptCount: 0,
   callerIdAttestation: "other",
   ownerCallerIdPolicy: "passphrase_always",
   ownerAuthorityGranted: true,
-  ownerStepUpBeforeFirstModelTurn: true,
+  ownerStepUpBeforeFirstModelTurn: false,
   interruptions: 1,
   firstAudibleMs: Array<number>(20).fill(3_000),
   interruptionStopMs: [900],
@@ -56,46 +56,68 @@ const inboundEvidence = Object.freeze({
   },
 });
 
-const ownerStepUpRefusedEvidence = Object.freeze({
-  schemaVersion: "1.3",
+/**
+ * The action scenarios are ordinary owner calls: the call was admitted with
+ * no credential, and the four digits were demanded only for the action being
+ * described. The refused record is the one that proves a failure never ended
+ * the call, so it is the one that carries `postRefusalTurns`.
+ */
+const OWNER_ACTION_EVIDENCE = {
+  schemaVersion: "1.4",
   generatorVersion: "0.1.0",
   status: "passed",
-  scenario: "owner-step-up-refused",
-  manifestKey: "owner_step_up_refused",
   commitSha: COMMIT_SHA,
   correlationId: CORRELATION_ID,
   startedAt: "2026-08-29T12:00:00.000Z",
   endedAt: "2026-08-29T12:01:00.000Z",
-  terminalState: "rejected",
+  terminalState: "completed",
   eventIds: ["01j00000000000000000000003"],
-  authenticatedTurns: 0,
-  authenticationMode: "owner_passphrase",
-  ownerStepUpOutcome: "refused",
-  ownerStepUpPromptCount: 3,
-  ownerStepUpAttemptCount: 3,
-  ownerStepUpRepromptCount: 0,
-  ownerStepUpRejectionReason: "attempts_exhausted",
+  authenticatedTurns: 12,
+  authenticationMode: "owner_open_admission",
+  ownerAuthorityGranted: true,
+  ownerStepUpOutcome: "not_started",
+  ownerStepUpPromptCount: 0,
+  ownerStepUpAttemptCount: 0,
+  ownerStepUpBeforeFirstModelTurn: false,
   callerIdAttestation: "other",
   ownerCallerIdPolicy: "passphrase_always",
-  ownerAuthorityGranted: false,
-  modelRequests: 0,
-  personalContextReads: 0,
-  rejectionRowCount: 1,
-  rejectionDeliveryRowCount: 1,
-  ownerAlertDisposition: "sent",
+  actionCapability: "contact.third_party",
+  actionExplanationSpoken: true,
+  actionPinPromptCount: 1,
+  actionAttemptCount: 1,
+  actionMethod: "spoken_pin",
+  actionCredentialUsed: "call_pin",
+  actionAuthorised: true,
+  actionReceiptCount: 1,
+  actionReceiptConsumed: true,
+  actionApplied: true,
+  actionCallStillActive: true,
+  candidateInTranscript: false,
+  candidateInLogs: false,
+  candidateInStoredEvidence: false,
+};
+
+const ownerActionPinRefusedEvidence = Object.freeze({
+  ...OWNER_ACTION_EVIDENCE,
+  scenario: "owner-action-pin-refused",
+  manifestKey: "owner_action_pin_refused",
+  actionPinPromptCount: 5,
+  actionAttemptCount: 5,
+  actionCredentialUsed: null,
+  actionAuthorised: false,
+  actionReceiptCount: 0,
+  actionReceiptConsumed: false,
+  actionApplied: false,
+  actionRepromptCount: 4,
+  actionRefusalSpoken: true,
+  postRefusalTurns: 3,
 });
 
-const outboundStepUpRefusedEvidence = Object.freeze({
-  ...ownerStepUpRefusedEvidence,
-  scenario: "outbound-step-up-refused",
-  manifestKey: "outbound_step_up_refused",
-  callerIdAttestation: "not_applicable",
-  callAttempts: 1,
-  recipientAnswered: true,
-  recipientAuthenticated: false,
-  neutralGreetingBeforeAuthentication: true,
-  purposeDisclosed: false,
-  privateMessageLeft: false,
+const ownerActionKeypadEvidence = Object.freeze({
+  ...OWNER_ACTION_EVIDENCE,
+  scenario: "owner-action-keypad",
+  manifestKey: "owner_action_keypad",
+  actionMethod: "keypad",
 });
 
 const completePreflight = Object.freeze({
@@ -132,7 +154,7 @@ describe("injected live voice-smoke driver", () => {
     ]);
   });
 
-  it("injects and verifies the refused owner step-up through the scenario and enrolled-operator adapters", async () => {
+  it("injects and verifies the refused sensitive action through the scenario and enrolled-operator adapters", async () => {
     const observed: unknown[] = [];
     const driver = createVoiceSmokeDriver({
       preflight: async (scenario) => {
@@ -141,27 +163,27 @@ describe("injected live voice-smoke driver", () => {
       },
       execute: async (request) => {
         observed.push(["execute", request]);
-        return { schemaVersion: "1.0", scenario: "owner-step-up-refused", correlationId: CORRELATION_ID };
+        return { schemaVersion: "1.0", scenario: "owner-action-pin-refused", correlationId: CORRELATION_ID };
       },
       queryEvidence: async (request) => {
         observed.push(["query", request]);
-        return ownerStepUpRefusedEvidence;
+        return ownerActionPinRefusedEvidence;
       },
     });
 
-    await expect(driver.run("owner-step-up-refused")).resolves.toEqual(ownerStepUpRefusedEvidence);
+    await expect(driver.run("owner-action-pin-refused")).resolves.toEqual(ownerActionPinRefusedEvidence);
     expect(observed).toEqual([
-      ["preflight", "owner-step-up-refused"],
-      ["execute", { scenario: "owner-step-up-refused", deployedCommitSha: COMMIT_SHA }],
+      ["preflight", "owner-action-pin-refused"],
+      ["execute", { scenario: "owner-action-pin-refused", deployedCommitSha: COMMIT_SHA }],
       ["query", {
-        scenario: "owner-step-up-refused",
+        scenario: "owner-action-pin-refused",
         deployedCommitSha: COMMIT_SHA,
         correlationId: CORRELATION_ID,
       }],
     ]);
   });
 
-  it("injects and verifies the answered outbound refusal through the scenario and enrolled-operator adapters", async () => {
+  it("injects and verifies the keypad-authorised action through the scenario and enrolled-operator adapters", async () => {
     const observed: unknown[] = [];
     const driver = createVoiceSmokeDriver({
       preflight: async (scenario) => {
@@ -170,20 +192,20 @@ describe("injected live voice-smoke driver", () => {
       },
       execute: async (request) => {
         observed.push(["execute", request]);
-        return { schemaVersion: "1.0", scenario: "outbound-step-up-refused", correlationId: CORRELATION_ID };
+        return { schemaVersion: "1.0", scenario: "owner-action-keypad", correlationId: CORRELATION_ID };
       },
       queryEvidence: async (request) => {
         observed.push(["query", request]);
-        return outboundStepUpRefusedEvidence;
+        return ownerActionKeypadEvidence;
       },
     });
 
-    await expect(driver.run("outbound-step-up-refused")).resolves.toEqual(outboundStepUpRefusedEvidence);
+    await expect(driver.run("owner-action-keypad")).resolves.toEqual(ownerActionKeypadEvidence);
     expect(observed).toEqual([
-      ["preflight", "outbound-step-up-refused"],
-      ["execute", { scenario: "outbound-step-up-refused", deployedCommitSha: COMMIT_SHA }],
+      ["preflight", "owner-action-keypad"],
+      ["execute", { scenario: "owner-action-keypad", deployedCommitSha: COMMIT_SHA }],
       ["query", {
-        scenario: "outbound-step-up-refused",
+        scenario: "owner-action-keypad",
         deployedCommitSha: COMMIT_SHA,
         correlationId: CORRELATION_ID,
       }],
@@ -327,8 +349,8 @@ describe("local voice-smoke evidence store", () => {
     await expect(store.exists("inbound.json")).resolves.toBe(false);
     await writeFile(join(directory, "inbound.json"), "retained\n", "utf8");
     await expect(store.exists("inbound.json")).resolves.toBe(true);
-    await expect(store.exists("owner-step-up-refused.json")).resolves.toBe(false);
-    await expect(store.exists("outbound-step-up-refused.json")).resolves.toBe(false);
+    await expect(store.exists("owner-action-pin-refused.json")).resolves.toBe(false);
+    await expect(store.exists("owner-action-keypad.json")).resolves.toBe(false);
     await expect(store.exists("operator-notes.txt")).rejects.toThrow(/^unsafe_evidence_path$/u);
   });
 

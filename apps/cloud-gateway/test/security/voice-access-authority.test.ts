@@ -154,7 +154,6 @@ describe("VoiceAccessAuthorityService", () => {
 
     expect(() => service.snapshot({ ...owner })).toThrow("call_authority_invalid");
     await expect(service.authorize(owner, "conversation.basic", NOW)).resolves.toBe(owner);
-    await expect(service.authorize(owner, "access.manage", NOW)).rejects.toThrow("owner_step_up_required");
     await expect(service.mintOwner({
       sessionId: OWNER_RUNTIME_SESSION,
       binding: Object.freeze({ ...relayBinding, relayNonce: `${"9".repeat(42)}A` }),
@@ -165,6 +164,24 @@ describe("VoiceAccessAuthorityService", () => {
 
     service.invalidate(owner);
     await expect(service.authorize(owner, "conversation.basic", NOW)).rejects.toThrow("call_authority_invalid");
+  });
+
+  /**
+   * The credential that used to be demanded here moved to the sensitive
+   * action, so what this asserts is the absence of a call-level gate: an
+   * ordinary owner authority reaches the access-management capability, and
+   * the PIN or phrase is checked by the action receipt instead.
+   */
+  it("lets a current owner reach access management with no call credential", async () => {
+    await seedOwnerAuthority(env.DB, repository);
+    const relayBinding = ownerBinding();
+    await seedPreAuthSession(OWNER_RUNTIME_SESSION, relayBinding);
+    const owner = await service.mintOwner({ sessionId: OWNER_RUNTIME_SESSION, binding: relayBinding, now: NOW });
+
+    await expect(service.authorize(owner, "access.manage", NOW)).resolves.toBe(owner);
+    await expect(env.DB.prepare(
+      "SELECT count(*) AS count FROM owner_call_step_up_successes WHERE session_id = ?",
+    ).bind(OWNER_RUNTIME_SESSION).first()).resolves.toEqual({ count: 0 });
   });
 
   it("rechecks nominal issuance after durable authorization yields", async () => {

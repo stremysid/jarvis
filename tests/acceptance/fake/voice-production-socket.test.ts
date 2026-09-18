@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
-  applyVoiceOwnerDeliveryMigration, clearConversationDataForTest, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
+  applyOwnerSensitiveActionPinMigration, applyVoiceOwnerDeliveryMigration, clearConversationDataForTest,
+  clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
@@ -31,8 +32,12 @@ describe("production voice through the real DO stub and socket", () => {
   const stub = () => env.CALL_SESSION.get(env.CALL_SESSION.idFromName(sessionId));
 
   beforeEach(async () => {
+    // 0034 owns the owner-admission boundary. Without it this fixture keeps the
+    // 0018 lineage trigger that demanded a step-up success the owner path no longer
+    // writes, and admission aborts instead of reaching conversation.
     await applyVoiceRuntimeMigration();
     await applyVoiceOwnerDeliveryMigration();
+    await applyOwnerSensitiveActionPinMigration();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     requests = []; credit = "15"; creditFails = false; modelBodies = []; sessionId = newUlid();
@@ -111,12 +116,9 @@ describe("production voice through the real DO stub and socket", () => {
     client.addEventListener("close", (event) => { closes.push(event.code); });
     client.send(JSON.stringify({ type: "setup", sessionId: PROVIDER_SESSION_ID, accountSid: ACCOUNT_SID,
       callSid: CALL_SID, direction: "inbound", customParameters: { relayNonce: stored.binding.relayNonce } }));
-    await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("pre_auth"));
-    if (stored.binding.accessKind === "owner") {
-      client.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
-      await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("active"));
-      vi.advanceTimersByTime(2_001);
-    }
+    // Setup alone admits an owner. A guest still waits for their PIN.
+    await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase)
+      .toBe(stored.binding.accessKind === "owner" ? "active" : "pre_auth"));
     return { repository, stored, frames, closes,
       prompt: (voicePrompt: string) => client!.send(JSON.stringify({ type: "prompt", voicePrompt, lang: "en-US", last: true })),
       digit: (digit: number) => client!.send(JSON.stringify({ type: "dtmf", digit: String.fromCharCode(digit) })),

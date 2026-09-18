@@ -17,7 +17,9 @@ import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/ow
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import type { CallSessionInitialization, CallSessionTermination } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
 import { FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
-import { FAKE_OWNER_PASSPHRASE, FAKE_OWNER_PASSPHRASE_PEPPER } from "./voice-access-system.js";
+import {
+  FAKE_OWNER_PASSPHRASE, FAKE_OWNER_PASSPHRASE_PEPPER, seedFakeOwnerCallPin,
+} from "./voice-access-system.js";
 import type {
   DispatchPolicyCheck,
   OutboundCallRequest,
@@ -30,7 +32,9 @@ import {
   type OutboundSessionInitialization,
 } from "../../../apps/cloud-gateway/src/voice/outbound.js";
 import {
+  applyOwnerSensitiveActionPinMigration,
   applyOwnerCallStepUpMigration,
+  clearOwnerSensitiveActionDataForTest,
   clearOwnerCallStepUpDataForTest,
   clearOwnerPassphraseDataForTest,
   clearAuthenticationAttemptReservationsForTest,
@@ -67,6 +71,7 @@ class AllowPolicy implements PolicyEngineContract {
 
 async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
+  await clearOwnerSensitiveActionDataForTest();
   await clearOwnerCallStepUpDataForTest();
   await clearCallSessionsForTest();
   await clearAuthenticationAttemptReservationsForTest();
@@ -109,6 +114,7 @@ async function seedAuthorizedCommand(principalId: string, now: Date): Promise<vo
     ownerPrincipalId: principalId, ownerIdentityId: "identity:voice", expectedVerifierVersion: null,
     record, commitId: "01m2ccccccccccccccccccc001", committedAt: timestamp,
   });
+  await seedFakeOwnerCallPin(principalId, "identity:voice", timestamp);
 }
 
 function command(now: Date): OutboundCallCommand {
@@ -159,6 +165,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
   pinAttempts(): Promise<number>;
   conversationTurnCount(): Promise<number>;
   ownerStepUpAttempts(sessionId: Ulid): Promise<number>;
+  ownerActionAttempts(sessionId: Ulid): Promise<number>;
   advanceTime(milliseconds: number): void;
   sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string, handoffData?: string): Promise<Response>;
   terminations(): readonly CallSessionTermination[];
@@ -178,6 +185,7 @@ export async function createFakeCallingSystem(input: {
 } = {}): Promise<FakeCallingSystem> {
   const now = new Date(input.now ?? NOW);
   await applyOwnerCallStepUpMigration();
+  await applyOwnerSensitiveActionPinMigration();
   await clearFixture();
   await seedAuthorizedCommand(input.ownerPrincipalId ?? "principal:owner", now);
   const policy = new AllowPolicy(now);
@@ -330,6 +338,11 @@ export async function createFakeCallingSystem(input: {
       .first<{ count: number }>())?.count ?? 0,
     ownerStepUpAttempts: async (sessionId: Ulid) => (await env.DB.prepare(
       "SELECT count(*) AS count FROM owner_call_step_up_attempts WHERE session_id = ?",
+    ).bind(sessionId).first<{ count: number }>())?.count ?? 0,
+    ownerActionAttempts: async (sessionId: Ulid) => (await env.DB.prepare(
+      `SELECT count(*) AS count FROM owner_action_attempts attempt
+       JOIN owner_action_requests request ON request.request_id = attempt.request_id
+       WHERE request.session_id = ?`,
     ).bind(sessionId).first<{ count: number }>())?.count ?? 0,
     advanceTime: (milliseconds: number) => { now.setTime(now.valueOf() + milliseconds); },
     twilioRequests: () => twilio.requests,

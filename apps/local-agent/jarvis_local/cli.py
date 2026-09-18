@@ -27,6 +27,7 @@ from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
 from jarvis_local.node import run_node
+from jarvis_local.owner_call_pin import run_owner_call_pin
 from jarvis_local.owner_passphrase import run_owner_passphrase
 from jarvis_local.phone_enrollment import run_phone_enrollment
 from jarvis_local.transport.cli_protocol import OK, QUEUED, CliCommand
@@ -72,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
     passphrase_commands = owner_passphrase.add_subparsers(dest="owner_passphrase_operation", required=True)
     passphrase_commands.add_parser("status", help="report the active verifier version without revealing words")
     passphrase_commands.add_parser("generate", help="generate and display a new Worker-created phrase once")
+
+    owner_call_pin = subcommands.add_parser(
+        "owner-call-pin",
+        help="create, rotate, or inspect the four-digit PIN verifier for sensitive actions",
+    )
+    call_pin_commands = owner_call_pin.add_subparsers(dest="owner_call_pin_operation", required=True)
+    call_pin_commands.add_parser("status", help="report the active PIN version without revealing digits")
+    call_pin_commands.add_parser("generate", help="generate and display four new digits once")
 
     node = subcommands.add_parser("node", help="run the Linux home node in the foreground")
     node.add_argument("--socket-path", type=Path)
@@ -178,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_phone_enrollment(JarvisLocalConfig.from_environment(), arguments.phone_operation)
     if arguments.command == "owner-passphrase":
         return run_owner_passphrase(JarvisLocalConfig.from_environment(), arguments.owner_passphrase_operation)
+    if arguments.command == "owner-call-pin":
+        return run_owner_call_pin(JarvisLocalConfig.from_environment(), arguments.owner_call_pin_operation)
     if arguments.command == "node":
         return run_node(JarvisLocalConfig.from_environment(), socket_path=arguments.socket_path)
     if arguments.command in CONTROL_SUBCOMMANDS:
