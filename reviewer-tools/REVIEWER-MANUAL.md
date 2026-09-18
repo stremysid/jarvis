@@ -211,7 +211,12 @@ Finding IDs:
   git push origin HEAD:refs/heads/<branch>
   cd - && git worktree remove --force <scratch>/wt
   ```
-- The same pattern pushes to `claude/reviewer-tools`. That branch is never merged and holds tools, specs, probes, reports and notes.
+- The same pattern pushes to `claude/reviewer-tools`. It holds tools, specs, probes, reports and notes.
+  **CORRECTED 2026-09-18: this said the branch "is never merged". That is no longer
+  true.** PR #104 merged a curated 22-file subset of `claude/reviewer-gate-tools`
+  to `main` -- the five scripts, this manual and the mutation specs -- leaving the
+  ~1,380 files of per-PR session scratch on the branch. The scripts now live on
+  `main`; the scratch still does not.
 
 ### Paste message for a Codex chat
 - **First line:** `Claude reviewed PR #N at <sha>: <verdict>. The full review is the newest entry in docs/AGENT_LOG.md on your branch.` Name any report in `reviewer-tools/` too.

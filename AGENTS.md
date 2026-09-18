@@ -159,3 +159,35 @@ time. The same shape had already happened with the D2L calendar feed.
 
 **Sid is the message bus between chats that cannot talk to each other.** Every
 fact that only lives in one chat is a question he has to answer again.
+
+
+## A reviewer-authored PR gets an independent pass before it merges
+
+The cross-vendor rule -- one vendor builds, a different vendor reviews -- holds
+everywhere in this project **except where the reviewer is the author**, and that
+exception was never written down or argued for. It just happened.
+
+**Measured, 2026-09-18:** PR #104 was opened and merged **fourteen seconds
+apart**, 2,215 lines, by the session that curated it. PRs #101-#104 (3,661 lines)
+merged with no recorded verdict. The same session later committed a fix directly
+to #106, a PR it was clearing. Each was disclosed in the PR body or the log.
+**Disclosure is not independence.** A reader who trusts the cross-vendor rule has
+no way to know it was suspended unless they read the prose.
+
+**The rule.** A PR whose content the reviewer authored -- tooling, curation,
+documentation corrections, a fix written onto someone else's branch -- gets an
+**independent read-only auditor pass before merge**, launched with
+`reviewer-tools/dsh-audit.ps1`. The auditor cannot run tests, so its findings are
+suspects, not convictions; that is enough. It reads the diff with no stake in it.
+
+This costs nothing in throughput: the auditor runs in parallel while the reviewer
+works on something else. It is far cheaper than a second reviewing vendor and it
+closes the actual gap, which is that nobody but the author has looked.
+
+**It does not apply** to merging a PR a different vendor built, which the
+reviewer has always been allowed to do at the exact reviewed head.
+
+**Where a one-word fix on a PR under review is genuinely the right call** -- a
+comment that would otherwise be applied to production wrong -- make it, and say
+in the commit message that the cross-vendor line was crossed and why. Do not let
+the exception become invisible.
