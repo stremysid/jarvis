@@ -3,6 +3,83 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 22:28 UTC — DeepSeek V4.1 Flash, classroom-email-parse: STOPPED before writing parser code, because no realistic Classroom sample exists
+
+**The first line is the whole headline: no source file was changed, and there is no parser to review.** The build brief carries its own stop condition — "If you cannot obtain a realistic Classroom notification sample to work from, STOP and report exactly what sample you need -- guessing at the format and shipping tests built on a guessed fixture is worse than nothing, because it would look like coverage." I cannot obtain one, so this entry is the deliverable, and §4 is the ask.
+
+**Effort level: ambiguous, and I will not name one cleanly.** `~/.dsh/settings.yaml` configures this session's model (`deepseek-flash`, provider `deepseek-official`) at `reasoningEffort: max`; the environment also carries `CLAUDE_EFFORT=xhigh`, which belongs to the session that launched this one. The configured value is the better evidence and it is still a default, not a measurement.
+
+**Branch:** `codex/classroom-email-parse`, from `origin/main` at `5a8acf3`. Worktree left in place at `C:\Users\Sid\jarvis-classroom`. No migration, and none needed.
+
+### 1. The gap is real, and confirmed as asked
+
+`grep -i classroom` over `d2l-email-parser.ts`, `d2l-email-handler.ts` and `d2l-email-authenticity.ts` returns **zero matches**. The parser's only entry point is `parseD2lEmail`, and every branch is built from D2L/Brightspace vocabulary. A Classroom notification reaches the handler and falls out at `unrecognised` — `template_unknown` if it happens to carry the labelled fields, `school_item_fields_missing` if it does not. `classroom-client.ts` is the dead REST route and is unrelated; it was not touched.
+
+### 2. Why no code was written
+
+Two unknowns, and one artifact resolves both.
+
+**(a) The template.** The parser's authority model is "only labelled fields in the newest visible section carry authority", and it is assembled from literal label vocabulary — `Course`/`Class`, `Assignment`/`Activity`/`Content`/`Item`/`Title`, `Due`/`Due Date`/`Deadline`, `Grade`/`Score`/`Mark`. I do not know Google's labels, its section order, or whether the due date appears as labelled text at all rather than behind a button. A fixture I invented would test my guess about Google, not Google — which is the outcome the brief names as worse than nothing.
+
+**(b) What the forward leaves of the authenticity signal.** The brief calls this the highest-risk part. It is, and the answer is not knowable from this repository. See §3.
+
+### 3. What the authenticity check proves after a forward — the finding the brief asked for
+
+**On the forwarding path the brief describes — "Outlook web forward" — a forward can destroy the authenticity signal outright, and nothing in this repository establishes whether it does.**
+
+The existing gate (`d2l-email-authenticity.ts`) requires *positive* evidence naming a pinned signer: the receiving MTA's `dkim=pass` for a pinned `header.d`, a `DKIM-Signature` naming a pinned domain, or a pinned ARC seal. All of its strength rests on the signed domain being **the school platform's own**.
+
+A forward splits into two mechanisms with opposite consequences, and the brief's wording does not say which applies:
+
+| | Automatic M365 forwarding (SRS) | Classic Outlook "Forward" |
+|---|---|---|
+| `5322.From` | preserved | rewritten to Sid's own address |
+| Original DKIM | intact — SRS rewrites only the envelope | **destroyed** — the body is recomposed, so the body hash no longer matches |
+| Evidence left | Google's own signature | the forwarder tenant's signature only |
+
+**The repo models the left column and has recorded the right one as unsettled.** `d2l-email-handler.test.ts:109` sets `envelopeFrom: forwarder@school-tenant.onmicrosoft.com` while the pinned `From:` stays `notifications.minds-online.example`, and entry N3 settled the SRS case from Microsoft's documentation. `KNOWN_ISSUES.md:56-62` says the other column is still open, in the repo's own words: "a classic `Forward` rewrites it and every message quarantines as `from_domain_unpinned`, in which case the forwarding tenant must be pinned and the ARC path becomes the primary evidence."
+
+If Classroom's path is that second column, then:
+
+- pinning a **Google** domain fails closed on every message at `from_domain_unpinned` — which is *safe*, but the feature does nothing; and
+- pinning the **forwarder** domain makes the check prove only *"Sid's own mail tenant relayed this."* It does **not** prove Google Classroom authored it. If the forward is an automatic rule, anything addressed to the school mailbox is relayed, so any stranger who can email Sid's school address obtains a genuine DKIM pass for the pinned forwarder domain. That is PR #91's B1 — "a stranger who learns the address can write a deadline into Sid's real school data" — walking back in through a new door, this time with a pin the attacker can legitimately get signed mail under.
+
+So, plainly: **after a classic forward the check proves the forwarder relayed the message and nothing about who wrote it.** The pinned-signer design does not survive it.
+
+One further consequence worth writing down before anyone wires it: reusing `D2L_EMAIL_FROM_DOMAINS` for Classroom senders **widens the set of senders allowed to author D2L-shaped events**, because the parser picks the event kind from content, not from the sender. If the two sources are merged into one pin list, a message from a pinned Classroom domain carrying D2L's labels parses as a D2L event. Separate pin lists are the safer shape.
+
+### 4. Exactly what is needed
+
+One real Google Classroom notification email, in two forms. Together they settle both unknowns in §2.
+
+1. **Pre-forward, raw source** — from the school Outlook mailbox, "Save as" → `.eml` (or View → View message source). This gives the real `From:`, `Reply-To:`, `Return-Path:`, `DKIM-Signature: d=`, `Authentication-Results`, and the body template with its actual labels.
+2. **Post-forward, as the gateway received it** — the same message at the capability address. The gateway already stores this and the runbook already has the read-only query (`docs/runbooks/d2l-notification-email.md`, acceptance section): `authentication_json.headerValues` holds the delivered `Authentication-Results`, `DKIM-Signature` and `ARC-*` in delivered order, and `header_names_json` holds the names. **That one row answers which column of the table in §3 Sid's mail is in.**
+
+Scrub both before they come near this repository: the capability address, Sid's own addresses and the school-mailbox local part. **Domains, header names and body text are what the parser needs; local parts are not.**
+
+These two are separable. If (2) does not exist because the route is not deployed yet, (1) alone is enough to build and test the parser, leaving the sender pin at the documented deny-all `untrusted.invalid` rather than guessing it — the authenticity conclusion would then stay open, and should be recorded as open.
+
+### 5. Gates — real numbers, and they are *baseline* numbers
+
+Nothing was changed, so these measure `origin/main` at `5a8acf3`, not this task. They are reported as exactly that.
+
+- `pnpm lint` — **exit 0**
+- `pnpm typecheck` — **exit 0**
+- `pnpm test` — run twice, **not green either time, and the failures move**:
+  - run 1: `Test Files 3 failed | 196 passed (199)`, `Tests 3 failed | 5339 passed (5342)`
+  - run 2: `Test Files 10 failed | 189 passed (199)`, `Tests 12 failed | 5330 passed (5342)`
+  - `owner-telegram-agent.test.ts` and `telegram-memory.test.ts` failed in both runs; the acceptance voice files failed only under the heavier second run. This is load-dependent and matches the brief's warning about a roaming flake. **Nobody should read it as a regression from this branch: no commit here touches a source file.**
+
+### 6. What this did not cover
+
+- No parser, no fixtures, no tests, no migration. `0035` was not touched; the approach above needs no migration if the existing deadline/observation shapes are reused as the brief requires.
+- The Classroom template vocabulary, the sender addresses, and the localisation variation are all still unknown. The brief's constraint that sender identification "must not be a single hardcoded string" cannot be met honestly until the real set is known; I will not enumerate a guessed list and call it coverage.
+- No live mail, forwarding rule, deployment, D1 write or secret was touched. No credential was sought, and the dead REST route was left alone as instructed.
+
+**Next rung: none.** This is blocked on an artifact, not on reasoning, so escalating the model would not help. Obtain the `.eml` in §4 and the build is small and ordinary.
+
+---
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
