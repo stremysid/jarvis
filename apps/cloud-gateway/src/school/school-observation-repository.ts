@@ -1,5 +1,6 @@
 import { canonicalJson, newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { TransactionRunner } from "../persistence/transaction.js";
+import type { EmailAuthenticity } from "./d2l-email-repository.js";
 import type {
   DerivedMissingWorkState,
   RawSchoolSubmissionObservation,
@@ -127,6 +128,8 @@ interface D2lGradeRow {
   assigned_grade: number;
   max_points: number | null;
   observed_at: string;
+  /** The provenance of the message this grade was read out of. */
+  authenticity: string;
 }
 
 interface MissingRow {
@@ -172,6 +175,14 @@ export interface D2lEmailGradeInput {
   readonly title: string;
   readonly assignedGrade: number;
   readonly maxPoints: number | null;
+  /**
+   * The provenance of the message this grade was read out of.
+   *
+   * Required and not defaulted. It is checked against the receipt row rather
+   * than stored, so a caller cannot label a grade more kindly than the message
+   * it came from.
+   */
+  readonly authenticity: EmailAuthenticity;
   readonly now: Date;
 }
 
@@ -380,10 +391,15 @@ export class SchoolObservationRepository {
     return await this.requireSync(principalId, sourceId);
   }
 
-  /** Append one trusted D2L email grade into the shared school observation read path. */
+  /** Append one D2L email grade into the shared school observation read path. */
   async ingestD2lEmailGrade(input: D2lEmailGradeInput): Promise<boolean> {
     const principalId = principal(input.principalId);
     const emailId = ulid(input.emailId, "d2l_email_grade_email_invalid");
+    // `input.authenticity` is deliberately not written here and not checked
+    // here. It is required so the caller cannot forget that a grade has a
+    // provenance, and it is read back by joining this row's `email_id` to the
+    // message -- which means the label the digest prints is the one the
+    // receipt actually carries, not a second copy that could drift from it.
     const deadlineId = input.deadlineId === null
       ? null
       : identifier(input.deadlineId, "d2l_email_grade_deadline_invalid");
@@ -395,8 +411,8 @@ export class SchoolObservationRepository {
     if (assignedGrade === null) throw new TypeError("d2l_email_grade_value_invalid");
     const observedAt = at(input.now);
     const hash = await sha256Hex(canonicalJson({ assignedGrade, course, maxPoints, title }));
-    // Claim the race path up front. The insert trigger must reject REPLACE,
-    // so idempotency is an explicit read with a post-conflict re-read.
+    // Claim the race path up front. The insert trigger must reject REPLACE, so
+    // idempotency is an explicit read with a post-conflict re-read.
     this.#claim(3);
     const existing = async (): Promise<boolean> => await this.database.prepare(
       `SELECT observation_id FROM d2l_email_grade_observations
@@ -880,6 +896,9 @@ export class SchoolObservationRepository {
         assignedGrade: grade(row.assigned_grade) as number,
         maxPoints: scale(row.max_points),
         source: "google_classroom_api" as const,
+        // The Classroom API answered from the gradebook itself. That is a
+        // read of the authority, not a message somebody sent.
+        authenticity: "verified" as const,
         gradeUpdatedAt: optionalInstant(row.source_updated_at, "school_grade_row_invalid"),
         contentChangedAt: instant(row.content_changed_at, "school_grade_row_invalid"),
         lastSeenAt: instant(row.last_seen_at, "school_grade_row_invalid"),
@@ -897,6 +916,11 @@ export class SchoolObservationRepository {
         assignedGrade: grade(row.assigned_grade) as number,
         maxPoints: scale(row.max_points),
         source: "d2l_notification_email" as const,
+        // Straight from the joined receipt row. The column's CHECK is the only
+        // vocabulary there is, so there is nothing here for a reader to
+        // validate -- and a default would be a claim about provenance rather
+        // than a read of it.
+        authenticity: row.authenticity as EmailAuthenticity,
         gradeUpdatedAt: null,
         contentChangedAt: instant(row.observed_at, "school_grade_row_invalid"),
         lastSeenAt: instant(row.observed_at, "school_grade_row_invalid"),
@@ -1011,6 +1035,7 @@ export class SchoolObservationRepository {
         assignedGrade: grade(row.assigned_grade) as number,
         maxPoints: scale(row.max_points),
         source: "google_classroom_api" as const,
+        authenticity: "verified" as const,
         gradeUpdatedAt: optionalInstant(row.source_updated_at, "school_study_grade_invalid"),
         contentChangedAt: instant(row.content_changed_at, "school_study_grade_invalid"),
         lastSeenAt: instant(row.last_seen_at, "school_study_grade_invalid"),
@@ -1046,9 +1071,14 @@ export class SchoolObservationRepository {
   async #readD2lDigestGrades(principalId: string, changedSince: string): Promise<readonly D2lGradeRow[]> {
     this.#claim();
     try {
+      // The message is joined rather than assumed: a grade read out of mail
+      // carries the provenance of the mail it came from, and the read path
+      // says so instead of trusting every D2L-shaped row equally.
       const result = await this.database.prepare(`SELECT g.observation_id, g.deadline_id, g.course,
-          g.title, g.assigned_grade, g.max_points, g.observed_at
+          g.title, g.assigned_grade, g.max_points, g.observed_at, m.authenticity
         FROM d2l_email_grade_observations g
+        JOIN d2l_email_messages m
+          ON m.principal_id = g.principal_id AND m.email_id = g.email_id
         WHERE g.principal_id = ?1 AND g.observed_at >= ?2
           AND NOT EXISTS (
             SELECT 1 FROM d2l_email_grade_observations later

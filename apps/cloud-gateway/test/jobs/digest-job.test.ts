@@ -181,8 +181,7 @@ type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources">
   readonly sources?: Partial<DigestSources>;
 };
 
-function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies {
-  const defaults: DigestJobDependencies = {
+function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies {  const defaults: DigestJobDependencies = {
     sources: {
       readCatchupActions: async () => [],
       readApplicationItems: async () => [],
@@ -472,8 +471,46 @@ describe("a source that will not answer", () => {
     );
   });
 
-  it("does not call a push source stale inside its silence window", async () => {
+  it("labels a deadline the school-mail source produced with the provenance of that mail", async () => {
     const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlines: async () => [deadline({
+          sourceId: "d2l-notification-email",
+          externalId: "d2l:chemistry-lab-4",
+          title: "Titration lab",
+          dueAt: "2026-09-03T03:59:00.000Z",
+          effort: "other",
+        })],
+        readEmailAuthenticity: async (externalIds) => {
+          // Only the ids the deadline source reported are asked about, so the
+          // mail table is never read for a deadline that never came from mail.
+          expect(externalIds).toEqual(["d2l:chemistry-lab-4"]);
+          return new Map([["d2l:chemistry-lab-4", "unverified"]]);
+        },
+      },
+    }));
+
+    expect(digest.text).toContain("[D2L email] Calculus: Titration lab");
+    expect(digest.text).toContain("unverified)");
+  });
+
+  it("names a missing school-mail provenance read as a gap instead of dropping it", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlines: async () => [deadline({
+          sourceId: "d2l-notification-email",
+          externalId: "d2l:chemistry-lab-4",
+        })],
+        readEmailAuthenticity: async () => { throw new Error("d2l_email_messages unreadable"); },
+      },
+    }));
+
+    // The deadline still appears -- it is real regardless of what the label
+    // read did -- and the failure is named rather than silently unlabelled.
+    expect(digest.text).toContain("School mail provenance: d2l_email_messages unreadable");
+  });
+
+  it("does not call a push source stale inside its silence window", async () => {    const digest = await assembleDigest("daily", deps({
       sources: {
         readDeadlineSources: async () => [deadlineSource({
           kind: "brightspace",

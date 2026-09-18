@@ -58,6 +58,16 @@ export interface DigestSources {
   readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
+  /**
+   * The provenance of the mail that produced each of these deadlines.
+   *
+   * A capability rather than a required read: deployments and fixtures without
+   * the school-email table simply have no email-derived deadlines to label, and
+   * a missing reader must not make the digest fail. Absent, deadlines print
+   * without a provenance label, which is the same thing that happens to a
+   * deadline no email produced.
+   */
+  readEmailAuthenticity?(externalIds: readonly string[]): Promise<ReadonlyMap<string, "verified" | "unverified">>;
   readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
@@ -316,7 +326,11 @@ function toDigestProject(
   };
 }
 
-function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]): DigestDeadline {
+function toDigestDeadline(
+  deadline: Deadline,
+  sources: readonly DeadlineSource[],
+  emailAuthenticity: ReadonlyMap<string, "verified" | "unverified">,
+): DigestDeadline {
   const source = sources.find((candidate) => candidate.sourceId === deadline.sourceId);
   const label: DigestDeadline["source"] = deadline.sourceId === "d2l-notification-email"
     ? "D2L email"
@@ -338,9 +352,14 @@ function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]
     dueAt: deadline.dueAt,
     effort: deadline.effort,
     ...(label === undefined ? {} : { source: label }),
+    // Present only when mail actually produced this deadline. `deadlines`
+    // deliberately knows nothing about provenance, so it is joined here, at
+    // the one place that composes what the owner reads.
+    ...(emailAuthenticity.has(deadline.externalId)
+      ? { emailAuthenticity: emailAuthenticity.get(deadline.externalId) }
+      : {}),
   };
 }
-
 /** Assemble the digest. Exported separately so it can be tested without a send. */
 export async function assembleDigest(
   kind: "daily" | "retro",
@@ -451,8 +470,7 @@ export async function assembleDigest(
   // Staleness is derived here rather than stored, because "stale" is a
   // statement about now and a stored flag would be a statement about whenever
   // it was last written.
-  const reports = new Map<string, ProjectStalenessReport>();
-  try {
+  const reports = new Map<string, ProjectStalenessReport>();  try {
     const assess = dependencies.assess ?? assessStaleness;
     for (const report of assess(projects, observedClock)) {
       reports.set(report.projectId, report);
@@ -462,6 +480,21 @@ export async function assembleDigest(
     // failed. Reporting the projects without it beats dropping both.
     gaps.push({ source: "Stalled-project detector", detail: describe(error) });
   }
+
+  // Provenance for the deadlines mail produced. Read for exactly the external
+  // ids the deadline source already reported, so an unrelated mail store is
+  // never consulted and the read stays bounded by the digest's own horizon.
+  const emailAuthenticity = dependencies.sources.readEmailAuthenticity === undefined
+    ? new Map<string, "verified" | "unverified">()
+    : await readOr(
+      "School mail provenance",
+      async () => [await dependencies.sources.readEmailAuthenticity!(
+        deadlines
+          .filter((deadline) => deadline.sourceId === "d2l-notification-email")
+          .map((deadline) => deadline.externalId),
+      )],
+      gaps,
+    ).then((results) => results[0] ?? new Map<string, "verified" | "unverified">());
 
   const input: DigestInput = {
     catchupActions: catchupActions.map((action) => ({
@@ -492,7 +525,7 @@ export async function assembleDigest(
       dueTimeZone: item.deadline.timeZone,
       verificationState: item.deadline.verification.state,
     })),
-    deadlines: deadlines.map((deadline) => toDigestDeadline(deadline, deadlineSources)),
+    deadlines: deadlines.map((deadline) => toDigestDeadline(deadline, deadlineSources, emailAuthenticity)),
     grades: (schoolSnapshot?.grades ?? []).map((grade) => ({
       observationId: grade.observationId,
       course: grade.course,
@@ -501,6 +534,7 @@ export async function assembleDigest(
       maxPoints: grade.maxPoints,
       gradeUpdatedAt: grade.gradeUpdatedAt,
       source: grade.source === "d2l_notification_email" ? "D2L email" as const : "Google Classroom" as const,
+      authenticity: grade.authenticity,
       lastSeenAt: grade.lastSeenAt,
     })),
     missingWork: (schoolSnapshot?.missingWork ?? []).map((item) => ({

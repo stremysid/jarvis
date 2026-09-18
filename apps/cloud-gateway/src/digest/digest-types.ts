@@ -22,6 +22,15 @@ export interface DigestDeadline {
   readonly effort: "quiz" | "test" | "exam" | "essay" | "project" | "other";
   /** Fixed adapter label. Optional only for older fixture callers. */
   readonly source?: "Google Classroom" | "Brightspace calendar" | "D2L email" | "Manual" | "Brightspace";
+  /**
+   * How far the mail that produced this deadline is proven, when mail did.
+   *
+   * Absent for a deadline no email produced: a Classroom sync or a manual
+   * entry has no email provenance to report, and inventing one would be worse
+   * than saying nothing. Present, it is printed -- a deadline read out of
+   * unverified mail must look like one everywhere the owner sees it.
+   */
+  readonly emailAuthenticity?: "verified" | "unverified";
 }
 
 export interface DigestProject {
@@ -118,6 +127,14 @@ export interface DigestGradeObservation {
   readonly maxPoints: number | null;
   readonly gradeUpdatedAt: string | null;
   readonly source: "Google Classroom" | "D2L email";
+  /**
+   * How far this grade's provenance is proven.
+   *
+   * A grade read out of a message is only as trustworthy as that message's
+   * authentication evidence, and the digest says which rather than printing a
+   * scraped number as a confirmed one.
+   */
+  readonly authenticity: "verified" | "unverified";
   readonly lastSeenAt: string;
 }
 

@@ -58,6 +58,7 @@ import type { ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
+import { D2lEmailRepository } from "../school/d2l-email-repository.js";
 import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import {
@@ -883,6 +884,20 @@ async function digest(
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
       readDeadlineSources: async () => deadlines.listSources(),
+      // School mail provenance for the deadlines the email source produced. A
+      // deployment without the table simply has none to label; the digest must
+      // not fail over a store it was never configured to have.
+      readEmailAuthenticity: async (externalIds) => {
+        try {
+          return await new D2lEmailRepository(context.env.DB)
+            .readAuthenticityBySourceExternalId(principalId, externalIds);
+        } catch (error) {
+          if (/no such table:\s*d2l_email_messages/iu.test(
+            error instanceof Error ? error.message : String(error),
+          )) return new Map();
+          throw error;
+        }
+      },
       readSchoolObservations: async () => {
         const now = new Date(context.clock.now().getTime());
         return observations.readDigestSnapshot({

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import PostalMime from "postal-mime";
 import { beforeAll, describe, expect, it } from "vitest";
+import { sha256Hex } from "../../../../packages/contracts/src/index.js";
 import type { Env } from "../../src/env.js";
 import {
   D2L_EMAIL_SOURCE_ID,
@@ -10,7 +11,8 @@ import {
 import { parseD2lEmail } from "../../src/school/d2l-email-parser.js";
 import {
   D2lEmailRepository,
-  MAXIMUM_RETAINED_QUARANTINED_RECEIPTS,
+  MAXIMUM_RETAINED_RAW_RECEIPTS,
+  RAW_RECEIPT_RETENTION_MS,
 } from "../../src/school/d2l-email-repository.js";
 import { SchoolObservationRepository } from "../../src/school/school-observation-repository.js";
 import { D2L_EMAIL_FIXTURES } from "../fixtures/d2l-email-fixtures.js";
@@ -188,15 +190,23 @@ describe("D2L notification email", () => {
     expect(row?.count).toBe(1);
   });
 
-  it("quarantines a forged From domain before it can create a deadline, grade, or memory", async () => {
+  it("reads a message from a forged From domain, labels it unverified, and creates no school state", async () => {
     const raw = withMessageId(fixture("assignment_due"), "forged-from")
       .replaceAll(PINNED_DOMAIN, "attacker.example");
     const beforeDeadlines = await env.DB.prepare("SELECT COUNT(*) AS count FROM deadlines")
       .first<{ count: number }>();
-    const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      // Nobody signed for this: the sender domain is the attacker's and no
+      // pinned signer passed, which is exactly the mail that used to be
+      // destroyed on arrival and is now read and labelled.
+      authenticationResults: "mx.cloudflare.net; spf=fail; dkim=none; dmarc=none",
+    }).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
     });
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
+    // The owner's decision: a sender nobody pinned is read, not destroyed. The
+    // label is what carries the doubt, and the write is still refused.
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    expect(result.authenticity).toBe("unverified");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM deadlines").first<{ count: number }>())?.count)
       .toBe(beforeDeadlines?.count);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM d2l_email_grade_observations")
@@ -205,13 +215,25 @@ describe("D2L notification email", () => {
       .bind(PRINCIPAL_ID).first<{ count: number }>())?.count).toBe(0);
   });
 
-  it("refuses a message whose sender domain is pinned for no integration at all", async () => {
+  it("reads a message whose sender domain is pinned for no integration at all", async () => {
     const raw = withMessageId(fixture("assignment_due"), "unpinned-integration")
       .replaceAll(PINNED_DOMAIN, "classroom.google.example");
-    const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+    const result = await handleD2lNotificationEmail(emailMessage(raw, {
+      // A Google Classroom notification signed by Google, from a domain nobody
+      // pinned for this integration.
+      authenticationResults: "mx.cloudflare.net; spf=pass; dkim=pass header.d=classroom.google.example; dmarc=pass",
+    }).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
     });
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
+    // It used to have its body discarded on arrival. It is now stored,
+    // labelled, and still creates nothing until its provenance is proven.
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    const receipt = await env.DB.prepare(`SELECT authenticity, length(raw_mime_base64) AS retained
+      FROM d2l_email_messages WHERE provider_message_id = ?`)
+      .bind(`<unpinned-integration@classroom.google.example>`)
+      .first<{ authenticity: string; retained: number }>();
+    expect(receipt?.authenticity).toBe("unverified");
+    expect(receipt?.retained ?? 0).toBeGreaterThan(0);
   });
 
   it("rejects a guessable school address before reading or trusting the message", async () => {
@@ -430,7 +452,7 @@ describe("D2L notification email", () => {
     expect(deadline).toEqual({ title: "Titration lab", status: "open" });
   });
 
-  it("sends one fixed owner notice after repeated authenticity failures and does not send one per message", async () => {
+  it("sends one notice for a run of unproven senders and does not call it a failure of Sid's setup", async () => {
     const sent: string[] = [];
     const owner = await isolatedEnv("authenticity-notice");
     for (let index = 0; index < 4; index += 1) {
@@ -442,7 +464,30 @@ describe("D2L notification email", () => {
       });
     }
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("repeatedly failed authenticity checks");
+    // A sender nobody pinned is now the expected shape of Sid's whole school
+    // inbox, so the one notice says what did not happen rather than sending him
+    // to check DNS for a fault that is not there.
+    expect(sent[0]).toContain("marked unverified");
+    expect(sent[0]).toContain("no deadline or grade is created");
+    expect(sent[0]).not.toContain("Check Email Routing");
+    expect(sent[0]).not.toContain(CAPABILITY_ADDRESS);
+  });
+
+  it("sends one notice when mail fails authentication outright", async () => {
+    const sent: string[] = [];
+    const owner = await isolatedEnv("failed-authentication-notice");
+    for (let index = 0; index < 4; index += 1) {
+      const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: Assignment due soon\r\nMessage-ID: <failed-${index}@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\nCourse: Chemistry\r\nAssignment: Lab ${index}\r\nAssignment ID: failed-${index}\r\nDue Date: September 26, 2026 at 11:59 PM\r\n`;
+      await handleD2lNotificationEmail(emailMessage(raw, {
+        authenticationResults: `mx.cloudflare.net; spf=fail; dkim=fail header.d=${PINNED_DOMAIN}; dmarc=fail`,
+      }).message, owner, {
+        now: () => new Date(NOW.getTime() + index * 1_000),
+        sendOwnerText: async (text) => { sent.push(text); },
+        logHeaderNames: () => undefined,
+      });
+    }
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("failed authenticity checks");
     expect(sent[0]).toContain("Check Email Routing");
     expect(sent[0]).not.toContain(CAPABILITY_ADDRESS);
   });
@@ -759,36 +804,84 @@ describe("D2L notification email", () => {
     expect(receipt).toEqual({ supplied: 0 });
   });
 
-  it("retains no raw MIME for a message refused on its visible sender", async () => {
+  it("retains and reads back the body of a message from an unpinned sender", async () => {
     const raw = `From: stranger <someone@evil.example>\r\nSubject: hello\r\n`
-      + "Message-ID: <no-raw-retention@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n";
+      + "Message-ID: <kept-body@evil.example>\r\nContent-Type: text/plain\r\n\r\nPlease read this paragraph.\r\n";
     const result = await handleD2lNotificationEmail(
       emailMessage(raw, { authenticationResults: null }).message,
       configuredEnv(),
       { now: () => NOW, logHeaderNames: () => undefined },
     );
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
-    const receipt = await env.DB.prepare(`SELECT length(raw_mime_base64) AS retained, length(raw_sha256) AS hashed
-      FROM d2l_email_messages WHERE provider_message_id = ?`)
-      .bind("<no-raw-retention@evil.example>").first<{ retained: number; hashed: number }>();
-    expect(receipt).toEqual({ retained: 0, hashed: 64 });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "authentication_unproven" });
+    const repository = new D2lEmailRepository(env.DB);
+    const receipt = await repository.readByIdentity(
+      PRINCIPAL_ID,
+      "message-id-sha256:kept-body",
+      await sha256Hex(raw),
+    );
+    expect(receipt).not.toBeNull();
+    expect(receipt?.authenticity).toBe("unverified");
+    // The exact bytes, read back through the repository rather than counted in
+    // the table: "retained" means the body is there to be read, and the old
+    // rule discarded precisely this message's body on arrival.
+    expect(Uint8Array.from(atob(receipt!.rawMimeBase64), (character) => character.charCodeAt(0)))
+      .toEqual(new TextEncoder().encode(raw));
+    expect(receipt?.authentication).toMatchObject({ authenticity: { trusted: false } });
   });
 
-  it("keeps only a bounded number of quarantined receipts for one owner", async () => {
-    const owner = await isolatedEnv("flood-cap");
+  it("keeps every receipt under a flood while bounding the raw bodies it retains", async () => {
+    const owner = await isolatedEnv("flood-bound");
+    const principalId = "principal:d2l-email-flood-bound";
+    const repository = new D2lEmailRepository(env.DB);
+    // Bodies seeded two months back; the newest one is written by the handler
+    // below. Nothing here is refused mail -- reading everything is what makes
+    // the old newest-five rule describe the wrong population.
+    const staleAt = new Date(NOW.getTime() - 60 * 24 * 60 * 60 * 1_000);
     for (let index = 0; index < 8; index += 1) {
-      const raw = `From: stranger <someone@evil.example>\r\nSubject: flood ${index}\r\n`
-        + `Message-ID: <flood-${index}@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding ${index}\r\n`;
-      await handleD2lNotificationEmail(
-        emailMessage(raw, { authenticationResults: null }).message,
-        owner,
-        { now: () => new Date(NOW.getTime() + index * 1_000), logHeaderNames: () => undefined },
-      );
+      const seeded = await repository.begin({
+        principalId,
+        ingestionKey: `message-id-sha256:seeded-${index}`,
+        rawSha256: `${index}`.padStart(64, "0"),
+        providerMessageId: `<seeded-${index}@evil.example>`,
+        headerNames: [],
+        authentication: {},
+        envelopeFromDomain: "evil.example",
+        fromDomain: "evil.example",
+        authenticity: "unverified",
+        eventKind: "unrecognised",
+        structured: {},
+        rawMimeBase64: btoa("padding"),
+        now: staleAt,
+      });
+      await repository.complete(principalId, seeded.receipt.emailId, {
+        status: "quarantined",
+        reason: "authentication_unproven",
+      }, new Date(staleAt.getTime() + 1_000));
     }
-    const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM d2l_email_messages
-      WHERE principal_id = ? AND status = 'quarantined'`)
-      .bind(`principal:d2l-email-flood-cap`).first<{ count: number }>();
-    expect(row?.count ?? 0).toBeLessThanOrEqual(MAXIMUM_RETAINED_QUARANTINED_RECEIPTS);
+    const raw = `From: stranger <someone@evil.example>\r\nSubject: flood\r\n`
+      + "Message-ID: <flood-current@evil.example>\r\nContent-Type: text/plain\r\n\r\ncurrent\r\n";
+    await handleD2lNotificationEmail(
+      emailMessage(raw, { authenticationResults: null }).message,
+      owner,
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    const counts = await env.DB.prepare(`SELECT COUNT(*) AS receipts,
+        COALESCE(SUM(CASE WHEN length(raw_mime_base64) > 0 THEN 1 ELSE 0 END), 0) AS bodies
+      FROM d2l_email_messages WHERE principal_id = ?`).bind(principalId)
+      .first<{ receipts: number; bodies: number }>();
+    // Every message is still a receipt -- the record that mail arrived is the
+    // thing that must not expire -- and only the bodies are bounded.
+    expect(counts?.receipts).toBe(9);
+    expect(counts?.bodies).toBeLessThanOrEqual(MAXIMUM_RETAINED_RAW_RECEIPTS);
+    expect(counts?.bodies).toBe(1);
+    const stale = await env.DB.prepare(`SELECT COUNT(*) AS count FROM d2l_email_messages
+      WHERE principal_id = ? AND raw_sha256 = ? AND raw_mime_base64 = ''`)
+      .bind(principalId, "0".padStart(64, "0")).first<{ count: number }>();
+    expect(stale?.count).toBe(1);
+    // And the retained hash still identifies the message whose body is gone.
+    const hashes = await env.DB.prepare(`SELECT COUNT(*) AS count FROM d2l_email_messages
+      WHERE principal_id = ? AND length(raw_sha256) = 64`).bind(principalId).first<{ count: number }>();
+    expect(hashes?.count).toBe(9);
   });
 
   it("deletes a quarantined receipt but never an ingested one", async () => {
@@ -807,49 +900,57 @@ describe("D2L notification email", () => {
       .rejects.toThrow("d2l_email_message_delete_forbidden");
   });
 
-  it("prunes a quarantined receipt that is past the retention window", async () => {
+  it("clears a raw body past the retention window and keeps its receipt", async () => {
     const repository = new D2lEmailRepository(env.DB);
-    await isolatedEnv("retention-window");
-    const principalId = "principal:d2l-email-retention-window";
-    const staleAt = new Date(NOW.getTime() - 40 * 24 * 60 * 60 * 1_000);
+    await isolatedEnv("raw-retention-window");
+    const principalId = "principal:d2l-email-raw-retention-window";
+    const staleAt = new Date(NOW.getTime() - RAW_RECEIPT_RETENTION_MS - 24 * 60 * 60 * 1_000);
     const stale = await repository.begin({
       principalId,
-      ingestionKey: "message-id-sha256:stale-quarantine",
+      ingestionKey: "message-id-sha256:stale-raw",
       rawSha256: "a".repeat(64),
-      providerMessageId: "<stale-quarantine@evil.example>",
+      providerMessageId: "<stale-raw@evil.example>",
       headerNames: [],
       authentication: {},
       envelopeFromDomain: "evil.example",
       fromDomain: "evil.example",
+      authenticity: "unverified",
       eventKind: "unrecognised",
       structured: {},
-      rawMimeBase64: "",
+      rawMimeBase64: btoa("stale padding"),
       now: staleAt,
     });
     await repository.complete(principalId, stale.receipt.emailId, {
       status: "quarantined",
-      reason: "from_domain_unpinned",
+      reason: "authentication_unproven",
     }, new Date(staleAt.getTime() + 1_000));
     const current = await repository.begin({
       principalId,
-      ingestionKey: "message-id-sha256:current-quarantine",
+      ingestionKey: "message-id-sha256:current-raw",
       rawSha256: "b".repeat(64),
-      providerMessageId: "<current-quarantine@evil.example>",
+      providerMessageId: "<current-raw@evil.example>",
       headerNames: [],
       authentication: {},
       envelopeFromDomain: "evil.example",
       fromDomain: "evil.example",
+      authenticity: "unverified",
       eventKind: "unrecognised",
       structured: {},
-      rawMimeBase64: "",
+      rawMimeBase64: btoa("current padding"),
       now: NOW,
     });
     await repository.complete(principalId, current.receipt.emailId, {
       status: "quarantined",
-      reason: "from_domain_unpinned",
+      reason: "authentication_unproven",
     }, NOW);
-    expect(await repository.pruneQuarantined(principalId, current.receipt.emailId, NOW)).toBeGreaterThan(0);
-    expect(await repository.read(principalId, stale.receipt.emailId)).toBeNull();
-    expect(await repository.read(principalId, current.receipt.emailId)).not.toBeNull();
+    expect(await repository.pruneRetainedRaw(principalId, current.receipt.emailId, NOW)).toBeGreaterThan(0);
+    // The old receipt survives with its hash and its label. Only the bytes it
+    // was retaining are gone, which is the whole of the bound.
+    const retained = await repository.read(principalId, stale.receipt.emailId);
+    expect(retained).not.toBeNull();
+    expect(retained?.rawMimeBase64).toBe("");
+    expect(retained?.rawSha256).toBe("a".repeat(64));
+    expect(retained?.authenticity).toBe("unverified");
+    expect((await repository.read(principalId, current.receipt.emailId))?.rawMimeBase64).toBe(btoa("current padding"));
   });
 });

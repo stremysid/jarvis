@@ -5,16 +5,42 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 
 /**
- * How many refused receipts survive per principal, and for how long.
+ * How much raw mail is kept per owner, and for how long.
  *
- * A quarantined receipt is bounded evidence for Sid, not a permanent record:
- * the sender is unauthenticated by definition, so retaining every delivery
- * lets anyone who learns the address fill the D1 database that also holds his
- * deadlines and memory. The newest five are enough to diagnose the last few
- * refusals; anything older than the window is prunable by the same path.
+ * These replace a newest-five / 30-day cap on *refused* receipts
+ * (`MAXIMUM_RETAINED_QUARANTINED_RECEIPTS` and `QUARANTINE_RETENTION_MS` were
+ * that rule). Reading everything means normal school mail now flows through
+ * this table, so the old numbers would have described the wrong population:
+ * five receipts is less than one school day, and pruning refused mail is no
+ * longer a goal at all -- the owner's decision is that it is read.
+ *
+ * What is actually finite is the raw MIME, which is up to 512 KiB per message
+ * against a 1 MiB backup-row ceiling. So the bound is on retained bodies:
+ * the newest 200 per owner and nothing older than 30 days, whichever bites
+ * first. Two hundred is deliberately "the term so far" -- a school week is
+ * roughly 25-50 messages once the whole inbox is routed here, so this is about
+ * a month of mail at the 30-day edge, and the age window is what normally
+ * prunes. A flood cannot exceed 200 bodies; normal mail never reaches the cap
+ * before the window retires it.
+ *
+ * What is never pruned is the receipt itself. The hash, the header names, the
+ * measured authentication record, the structured event, the authenticity
+ * level and the failure state all stay, so "this arrived and here is what was
+ * proven about it" survives the body. Only the bytes go.
  */
-export const MAXIMUM_RETAINED_QUARANTINED_RECEIPTS = 5;
-export const QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+export const MAXIMUM_RETAINED_RAW_RECEIPTS = 200;
+export const RAW_RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+
+/**
+ * How far the provenance of a message is trusted.
+ *
+ * `verified` means positive authentication evidence and nothing else -- see
+ * `d2l-email-authenticity.ts` and KNOWN_ISSUES.md. `unverified` is everything
+ * else: it is read, stored and usable, and anything derived from it is
+ * labelled unverified wherever the owner sees it. This mirrors the university
+ * tracker's `verified | unverified` rather than inventing a parallel scale.
+ */
+export type EmailAuthenticity = "verified" | "unverified";
 
 export type D2lEmailMessageStatus = "pending" | "ingested" | "quarantined";
 
@@ -28,6 +54,7 @@ interface MessageRow {
   readonly authentication_json: string;
   readonly envelope_from_domain: string | null;
   readonly from_domain: string | null;
+  readonly authenticity: string;
   readonly event_kind: string;
   readonly status: string;
   readonly quarantine_reason: string | null;
@@ -54,6 +81,8 @@ export interface D2lEmailMessageReceipt {
   readonly authentication: Readonly<Record<string, unknown>>;
   readonly envelopeFromDomain: string | null;
   readonly fromDomain: string | null;
+  /** Whether the message's provenance was proven or merely recorded. */
+  readonly authenticity: EmailAuthenticity;
   readonly eventKind: D2lEmailEventKind;
   readonly status: D2lEmailMessageStatus;
   readonly quarantineReason: string | null;
@@ -73,6 +102,8 @@ export interface BeginD2lEmailMessageInput {
   readonly authentication: Readonly<Record<string, unknown>>;
   readonly envelopeFromDomain: string | null;
   readonly fromDomain: string | null;
+  /** Whether the message's provenance was proven or merely recorded. */
+  readonly authenticity: EmailAuthenticity;
   readonly eventKind: D2lEmailEventKind;
   readonly structured: Readonly<Record<string, unknown>>;
   readonly rawMimeBase64: string;
@@ -118,6 +149,12 @@ function receipt(row: MessageRow): D2lEmailMessageReceipt {
   if (row.status !== "pending" && row.status !== "ingested" && row.status !== "quarantined") {
     throw new TypeError("d2l_email_message_row_invalid");
   }
+  // Fails closed on an unrecognised label rather than defaulting it. A row
+  // whose provenance cannot be read is exactly the row that must not be
+  // presented to the owner as verified.
+  if (row.authenticity !== "verified" && row.authenticity !== "unverified") {
+    throw new TypeError("d2l_email_message_row_invalid");
+  }
   return Object.freeze({
     principalId: row.principal_id,
     emailId: row.email_id,
@@ -128,6 +165,7 @@ function receipt(row: MessageRow): D2lEmailMessageReceipt {
     authentication: jsonObject(row.authentication_json, "d2l_email_authentication_invalid"),
     envelopeFromDomain: row.envelope_from_domain,
     fromDomain: row.from_domain,
+    authenticity: row.authenticity,
     eventKind: row.event_kind as D2lEmailEventKind,
     status: row.status,
     quarantineReason: row.quarantine_reason,
@@ -153,13 +191,13 @@ export class D2lEmailRepository {
       await this.database.prepare(`INSERT INTO d2l_email_messages (
         principal_id, email_id, ingestion_key, raw_sha256, provider_message_id,
         header_names_json, authentication_json, envelope_from_domain, from_domain,
-        event_kind, status, quarantine_reason, structured_json, raw_mime_base64,
+        authenticity, event_kind, status, quarantine_reason, structured_json, raw_mime_base64,
         received_at, processed_at, verification_notified_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, NULL, NULL)`)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, NULL, NULL)`)
         .bind(
           input.principalId, emailId, input.ingestionKey, input.rawSha256, input.providerMessageId,
           JSON.stringify(input.headerNames), JSON.stringify(input.authentication),
-          input.envelopeFromDomain, input.fromDomain, input.eventKind,
+          input.envelopeFromDomain, input.fromDomain, input.authenticity, input.eventKind,
           JSON.stringify(input.structured), input.rawMimeBase64, at(input.now),
         ).run();
     } catch (error) {
@@ -208,35 +246,55 @@ export class D2lEmailRepository {
   }
 
   /**
-   * Delete quarantined receipts that are beyond the cap or past the window.
+   * Clear raw MIME beyond the cap or the window, keeping every receipt.
    *
-   * Ingested receipts are never touched, and the migration's delete trigger
-   * refuses them explicitly: the whole point of the guard is that the evidence
-   * for real school data cannot be removed. Refused mail is the opposite --
-   * one stranger can produce it without limit, so it is the part that expires.
+   * This is the whole of the retention rule now. Refused mail is no longer the
+   * population that expires -- reading everything means normal school mail is
+   * what arrives, and the owner's decision is that it is read. Rows are never
+   * deleted: the hash, the measured authentication record, the structured
+   * event, the authenticity level and the failure state are the durable
+   * evidence, and they are small. Only the body, which is the part measured in
+   * hundreds of kilobytes, goes.
+   *
+   * Two exemptions, both deliberate:
+   *
+   * - The receipt in hand is never a candidate. It is the one this request is
+   *   still writing about, and a clock skew must not retire the body of the
+   *   message that is being ingested right now.
+   * - A receipt cited by a derived grade observation is never a candidate at
+   *   any age. The grade row's foreign key is RESTRICT and the body is the
+   *   message that grade was read out of, so retiring it would either fail or
+   *   force deleting the grade. These are bounded by grade volume, not by
+   *   mail volume, and a verified D2L grade message is one of the few pieces
+   *   of mail whose exact bytes are worth keeping.
+   *
+   * Failure-state pointers are released before a body is cleared, exactly as
+   * the old quarantine prune did, so a cleared body leaves no dangling claim.
    */
-  async pruneQuarantined(principalId: string, currentEmailId: string, now: Date): Promise<number> {
+  async pruneRetainedRaw(principalId: string, currentEmailId: string, now: Date): Promise<number> {
     const timestamp = at(now);
-    const cutoff = at(new Date(now.getTime() - QUARANTINE_RETENTION_MS));
-    // The receipt in hand is never a candidate: it is the one this request is
-    // still writing about, and a clock skew must not turn its own reference
-    // into a foreign-key failure.
+    const cutoff = at(new Date(now.getTime() - RAW_RECEIPT_RETENTION_MS));
     const victims = await this.database.prepare(`SELECT email_id FROM d2l_email_messages
-      WHERE principal_id = ? AND status = 'quarantined' AND email_id <> ?
+      WHERE principal_id = ? AND email_id <> ? AND length(raw_mime_base64) > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM d2l_email_grade_observations g
+          WHERE g.principal_id = d2l_email_messages.principal_id
+            AND g.email_id = d2l_email_messages.email_id
+        )
         AND (
-          processed_at < ?
+          received_at < ?
           OR email_id NOT IN (
             SELECT email_id FROM d2l_email_messages
-            WHERE principal_id = ? AND status = 'quarantined'
-            ORDER BY processed_at DESC, email_id DESC LIMIT ?
+            WHERE principal_id = ? AND length(raw_mime_base64) > 0
+            ORDER BY received_at DESC, email_id DESC LIMIT ?
           )
         ) LIMIT 200`)
-      .bind(principalId, currentEmailId, cutoff, principalId, MAXIMUM_RETAINED_QUARANTINED_RECEIPTS)
+      .bind(principalId, currentEmailId, cutoff, principalId, MAXIMUM_RETAINED_RAW_RECEIPTS)
       .all<{ email_id: string }>();
-    let deleted = 0;
+    let cleared = 0;
     for (const victim of victims.results) {
-      // The failure state points at refusals, so the pointer is released
-      // before the row goes: the foreign key stays RESTRICT, and the count is
+      // The failure state points at receipt ids, so the pointer is released
+      // before the body goes. The foreign key stays RESTRICT and the count is
       // what the next refusal is measured against, not the receipt it arrived
       // on. Spending the claim here can re-arm one later notice, never more.
       await this.database.prepare(`UPDATE d2l_email_failure_state
@@ -247,12 +305,62 @@ export class D2lEmailRepository {
         SET notice_claim_email_id = NULL, notice_sent_at = NULL, updated_at = ?
         WHERE principal_id = ? AND notice_claim_email_id = ?`)
         .bind(timestamp, principalId, victim.email_id).run();
-      const result = await this.database.prepare(`DELETE FROM d2l_email_messages
-        WHERE principal_id = ? AND email_id = ? AND status = 'quarantined'`)
+      const result = await this.database.prepare(`UPDATE d2l_email_messages
+        SET raw_mime_base64 = ''
+        WHERE principal_id = ? AND email_id = ? AND length(raw_mime_base64) > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM d2l_email_grade_observations g
+            WHERE g.principal_id = d2l_email_messages.principal_id
+              AND g.email_id = d2l_email_messages.email_id
+          )`)
         .bind(principalId, victim.email_id).run();
-      deleted += result.meta.changes;
+      cleared += result.meta.changes;
     }
-    return deleted;
+    return cleared;
+  }
+
+  /**
+   * The authenticity of the mail that produced each deadline, by external id.
+   *
+   * The digest joins a deadline back to its receipt this way rather than
+   * carrying a provenance column on `deadlines`: a deadline is a deadline
+   * whatever reported it, and the deadline store deliberately knows nothing
+   * about where one came from. A message id is chosen when several receipts
+   * name the same external id, because one proven delivery is positive
+   * evidence about the assignment even if a later unproven one repeated it.
+   *
+   * Ids with no receipt at all are absent from the result. A deadline that no
+   * email produced -- seeded, or from another source -- has no email
+   * provenance to report, and inventing one would be worse than saying
+   * nothing.
+   */
+  async readAuthenticityBySourceExternalId(
+    principalId: string,
+    externalIds: readonly string[],
+  ): Promise<ReadonlyMap<string, EmailAuthenticity>> {
+    if (externalIds.length === 0) return new Map();
+    const unique = [...new Set(externalIds)];
+    // `authenticity` is selected bare because it is part of the GROUP BY. Its
+    // column CHECK is the only vocabulary the value can have, so there is
+    // nothing to validate here -- and no MAX() whose aggregate type would have
+    // to be trusted to already be the label.
+    const result = await this.database.prepare(`SELECT json_extract(structured_json, '$.externalId') AS external_id,
+        authenticity
+      FROM d2l_email_messages
+      WHERE principal_id = ? AND event_kind IN ('assignment_due', 'assignment_updated')
+        AND json_extract(structured_json, '$.externalId') IN (${unique.map(() => "?").join(", ")})
+      GROUP BY json_extract(structured_json, '$.externalId'), authenticity`)
+      .bind(principalId, ...unique)
+      .all<{ external_id: string | null; authenticity: string }>();
+    const found = new Map<string, EmailAuthenticity>();
+    for (const row of result.results) {
+      if (row.external_id === null) continue;
+      // One proven delivery is positive evidence about the assignment even if
+      // an unproven one repeated it, so a verified group is never overwritten.
+      if (found.get(row.external_id) === "verified") continue;
+      found.set(row.external_id, row.authenticity as EmailAuthenticity);
+    }
+    return found;
   }
 
   async markVerificationNotified(principalId: string, emailId: string, now: Date): Promise<boolean> {

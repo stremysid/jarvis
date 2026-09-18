@@ -57,6 +57,16 @@ export interface SchoolGradeObservation {
   readonly assignedGrade: number;
   readonly maxPoints: number | null;
   readonly source: "google_classroom_api" | "d2l_notification_email";
+  /**
+   * How far the grade's provenance is proven.
+   *
+   * The Classroom API answers from the gradebook itself, so its observations
+   * are verified by construction. A grade read out of a message is only ever
+   * as trustworthy as the message's authentication evidence, and anything
+   * short of proven is `unverified` -- which the digest prints rather than
+   * presenting a scraped number as a confirmed one.
+   */
+  readonly authenticity: "verified" | "unverified";
   /** Provider update time when supplied; D2L email has no separate value. */
   readonly gradeUpdatedAt: string | null;
   readonly contentChangedAt: string;

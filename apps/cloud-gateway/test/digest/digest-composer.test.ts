@@ -360,6 +360,7 @@ describe("verified grades and derived submission checks", () => {
         maxPoints: null,
         gradeUpdatedAt: null,
         source: "Google Classroom",
+        authenticity: "verified",
         lastSeenAt: "2026-09-02T10:00:00.000Z",
       }],
     }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
@@ -368,6 +369,87 @@ describe("verified grades and derived submission checks", () => {
     expect(digest.text).toContain("assigned grade 83.5");
     expect(digest.text).toContain("scale and weight not supplied");
     expect(digest.text).not.toContain("83.5%");
+  });
+
+  it("marks a deadline read out of unverified mail as unverified in the digest", () => {
+    const digest = compose(
+      { ...empty(), deadlines: [{
+        deadlineId: "deadline-unverified",
+        course: "Calculus",
+        title: "Titration lab",
+        dueAt: "2026-09-02T18:00:00.000Z",
+        effort: "other",
+        source: "D2L email",
+        emailAuthenticity: "unverified",
+      }] },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    // The date and the caveat sit in the same parentheses on purpose: a reader
+    // skimming for a due date must not be able to take it and miss the label.
+    expect(digest.text).toContain("[D2L email] Calculus: Titration lab (in 7h, other, unverified)");
+  });
+
+  it("marks a deadline read out of verified mail as verified in the digest", () => {
+    const digest = compose(
+      { ...empty(), deadlines: [{
+        deadlineId: "deadline-verified",
+        course: "Calculus",
+        title: "Titration lab",
+        dueAt: "2026-09-02T18:00:00.000Z",
+        effort: "other",
+        source: "D2L email",
+        emailAuthenticity: "verified",
+      }] },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    expect(digest.text).toContain("[D2L email] Calculus: Titration lab (in 7h, other, verified)");
+  });
+
+  it("says nothing about mail provenance on a deadline no email produced", () => {
+    const digest = compose(
+      { ...empty(), deadlines: [{
+        deadlineId: "deadline-classroom",
+        course: "Calculus",
+        title: "Quiz 3",
+        dueAt: "2026-09-02T18:00:00.000Z",
+        effort: "quiz",
+        source: "Google Classroom",
+      }] },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    // Absent provenance is the honest answer here: no email produced this, so
+    // there is no email verdict to print and inventing one would be worse.
+    expect(digest.text).toContain("[Google Classroom] Calculus: Quiz 3 (in 7h, quiz)");
+    expect(digest.text).not.toContain("unverified)");
+    expect(digest.text).not.toContain("verified)");
+  });
+
+  it("marks a grade read out of unverified mail as unverified without calling it a verification", () => {
+    const digest = compose({
+      ...empty(),
+      grades: [{
+        observationId: "observation-unverified",
+        course: "Calculus",
+        title: "Limits quiz",
+        assignedGrade: 18,
+        maxPoints: 20,
+        gradeUpdatedAt: null,
+        source: "D2L email",
+        authenticity: "unverified",
+        lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain(
+      "[reported by D2L email (unverified); graded 2026-09-02 06:00 local] Calculus: Limits quiz — assigned grade 18/20 (90.0%)",
+    );
+    expect(digest.text).not.toContain("verified: D2L email");
   });
 
   it("labels an absent submission signal as derived no submission seen and never as a factual miss", () => {
@@ -410,7 +492,7 @@ describe("verified grades and derived submission checks", () => {
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Quiz 2",
         assignedGrade: 80, maxPoints: 100, gradeUpdatedAt: "2026-09-02T09:00:00.000Z",
-        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+        source: "Google Classroom", authenticity: "verified", lastSeenAt: "2026-09-02T10:00:00.000Z",
       }],
     }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
     expect(digest.sections.findIndex((section) => section.heading === "Due")).toBeLessThan(
@@ -540,7 +622,7 @@ describe("school first", () => {
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Quiz 2",
         assignedGrade: 80, maxPoints: 100, gradeUpdatedAt: "2026-09-02T09:00:00.000Z",
-        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+        source: "Google Classroom", authenticity: "verified", lastSeenAt: "2026-09-02T10:00:00.000Z",
       }],
       catchupActions: [
         { actionId: "action-1", course: "Chemistry", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
@@ -585,7 +667,7 @@ describe("school first", () => {
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Limits quiz",
         assignedGrade: 83.5, maxPoints: null, gradeUpdatedAt: null,
-        source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+        source: "Google Classroom", authenticity: "verified", lastSeenAt: "2026-09-02T10:00:00.000Z",
       }],
       projects: Array.from({ length: 200 }, (_unused, index) => project({
         projectId: `project-${index}`,

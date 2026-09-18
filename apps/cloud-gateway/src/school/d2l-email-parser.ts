@@ -43,6 +43,16 @@ export type ParsedD2lEmailEvent =
        */
       linkWithheld: boolean;
     }>
+  /**
+   * A message Jarvis read and did not recognise as one of the templates.
+   *
+   * The owner's school mail is routed here in full, so most deliveries are
+   * ordinary correspondence rather than a D2L notification. `reason` says
+   * which: `ordinary_mail` is a message that never reached for a template,
+   * and every other reason is a body that did and failed. That distinction is
+   * what stops a forwarded note from being reported to the owner as a broken
+   * D2L template.
+   */
   | Readonly<{ kind: "unrecognised"; reason: string }>;
 
 export interface D2lEmailParseInput {
@@ -322,6 +332,16 @@ function unrecognised(reason: string): ParsedD2lEmailEvent {
 }
 
 /**
+ * Labels that mark a body as an attempt at one of the templates read here.
+ *
+ * A body carrying one of these was meant to be a school notification and did
+ * not parse, which is worth telling the owner about. A body carrying none of
+ * them is simply mail, and calling it unreadable would be a lie about a
+ * message Jarvis read perfectly well.
+ */
+const SCHOOL_ITEM_LABELS = /^(?:course|class|assignment|activity|content|item|title|due|due date|deadline|grade|score|mark|code)\s*:/imu;
+
+/**
  * Reduce one MIME message to fixed school event fields.
  *
  * Only labelled fields in the newest visible section carry authority. Quoted
@@ -387,5 +407,10 @@ export async function parseD2lEmail(input: D2lEmailParseInput): Promise<ParsedD2
       : "assignment_due" as const;
     return Object.freeze({ kind, course, title, externalId, ...due });
   }
-  return unrecognised("template_unknown");
+  // Ordinary mail. The owner routes his whole school inbox here, so this is
+  // the common case rather than an anomaly: it is retained and readable, and
+  // its authenticity label -- not this reason -- is what says how far to trust
+  // it. Only a body that reached for a template and failed is a fault worth
+  // reporting as one.
+  return unrecognised(SCHOOL_ITEM_LABELS.test(body) ? "template_unknown" : "ordinary_mail");
 }

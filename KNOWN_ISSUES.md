@@ -71,6 +71,39 @@ authoritative backup row has a hard 1 MiB ceiling. A date-only due date is
 stored with `dueTimeSupplied: false`; the digest does not yet surface that
 flag, so it still reads as an ordinary due time.
 
+**Update, 2026-09-18 — every message is read, and provenance is a label.**
+The owner's whole school inbox auto-forwards to the ingest address, so this
+handler receives his entire school mail stream and the paragraph above no
+longer describes the population. Mail from a sender nobody pinned is no longer
+refused: it is retained, readable, and recorded as `unverified` on the receipt,
+and its body is discarded for exactly one reason — `recipient_mismatch`, which
+is mail not addressed to the ingest address at all. `authentication_unproven`
+now covers every unproven sender, so `from_missing` and `from_domain_unpinned`
+are no longer produced.
+
+The digest prints provenance wherever mail produced what it shows: a `D2L
+email` deadline renders as `(in 3d, other, unverified)` and a D2L grade as
+`reported by D2L email (unverified)`. Both are read back from the receipt the
+deadline or grade names, not stored on the deadline row. Existing limits that
+remain open:
+
+- A deadline or grade from unverified mail is *not* created at all — provenance
+  replaces refusal on retention, and `verified` still gates derived writes. The
+  label rendering is therefore exercised by fixtures and by any future change
+  that lets unverified mail write; nothing in production reaches the
+  `unverified` branch of those two renderings today.
+- The `emailAuthenticity` label reaches the owner through the digest text and
+  the `/digest` command, which is the same composer. It is not carried on any
+  separate Telegram or voice reply path, because no such path reads a deadline
+  or a grade directly.
+
+Retention is now a bound on retained raw bodies rather than on refused rows:
+the newest 200 bodies per owner and nothing older than 30 days, with the
+receipt, its hash, its measured authentication record and its authenticity
+kept permanently. A body a grade observation points at is never cleared at any
+age, because the grade's foreign key is RESTRICT and the body is the message
+the grade was read out of.
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd

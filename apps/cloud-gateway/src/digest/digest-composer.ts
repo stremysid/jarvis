@@ -176,9 +176,16 @@ function deadlineSection(
     heading: "Due",
     lines: upcoming.map(({ deadline, hours }) => {
       const source = deadline.source === undefined ? "" : `[${deadline.source}] `;
+      // A deadline no email produced says nothing about email provenance; one
+      // that an email did produce says what was proven about that email. The
+      // label is inside the same parentheses as the date so a reader cannot
+      // take the date and miss the caveat.
+      const provenance = deadline.emailAuthenticity === undefined
+        ? ""
+        : `, ${deadline.emailAuthenticity}`;
       return hours === null
-        ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
-        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`;
+        ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date${provenance})`
+        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort}${provenance})`;
     }),
   };
 }
@@ -205,8 +212,11 @@ function schoolObservationSection(input: DigestInput, timeZone: string): DigestS
       // `verified:` is reserved for the API read, which sees the gradebook
       // itself. A grade scraped out of a message is authenticated at best --
       // it was never checked against the gradebook -- so it says who reported
-      // it instead of claiming a confirmation Jarvis did not perform.
-      const provenance = grade.source === "D2L email" ? "reported by D2L email" : `verified: ${grade.source}`;
+      // it instead of claiming a confirmation Jarvis did not perform, and it
+      // says whether that report's provenance was proven.
+      const provenance = grade.source === "D2L email"
+        ? `reported by D2L email (${grade.authenticity})`
+        : `verified: ${grade.source}`;
       return `[${provenance}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
     }),
     ...input.missingWork.map((item) =>

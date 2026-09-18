@@ -205,7 +205,10 @@ describe("nightly verified memory backup", () => {
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
   const manifest = await readLatestManifest();
-  expect(manifest.databaseSchemaVersion).toBe("0034_scheduled_run_detail.sql");
+  // The newest applied migration, which the test schema now includes. It moves
+  // whenever a migration is added, and pinning it here is what makes the
+  // manifest's recorded schema version a real assertion rather than a echo.
+  expect(manifest.databaseSchemaVersion).toBe("0036_email_read_everything.sql");
   expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({

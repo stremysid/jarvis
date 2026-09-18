@@ -7,7 +7,7 @@ import {
   assessAuthenticity,
   type AuthenticityEvidence,
 } from "./d2l-email-authenticity.js";
-import { D2lEmailRepository, type D2lEmailMessageReceipt } from "./d2l-email-repository.js";
+import { D2lEmailRepository, type EmailAuthenticity, type D2lEmailMessageReceipt } from "./d2l-email-repository.js";
 import { parseD2lEmail, type ParsedD2lEmailEvent } from "./d2l-email-parser.js";
 import { SchoolObservationRepository } from "./school-observation-repository.js";
 
@@ -34,10 +34,11 @@ export interface D2lEmailHandlerResult {
   readonly outcome: "ingested" | "quarantined" | "duplicate";
   readonly eventKind: D2lEmailMessageReceipt["eventKind"];
   readonly quarantineReason: string | null;
+  /** What the caller may claim about this message's provenance. */
+  readonly authenticity: EmailAuthenticity;
   readonly deadlineOutcome: "created" | "revised" | "unchanged" | null;
   readonly gradeCreated: boolean;
 }
-
 interface D2lEmailConfiguration {
   readonly principalId: string;
   readonly ingestAddress: string;
@@ -273,12 +274,23 @@ function verificationText(event: Extract<ParsedD2lEmailEvent, { kind: "address_v
   return `D2L email address verification is waiting. Jarvis did not open the link.\n\n${values.join("\n")}`;
 }
 
-const REPEATED_FAILURE_NOTICE = "D2L notification email has repeatedly failed authenticity checks. The messages are quarantined, and no deadline, grade, or memory was created. Check Email Routing and the configured sender-domain pins.";
+const REPEATED_FAILURE_NOTICE = "D2L notification email has repeatedly failed authenticity checks. The messages are stored unverified, and no deadline or grade was created. Check Email Routing and the configured sender-domain pins.";
 // A parse failure is a statement about the templates Jarvis knows, not about
 // Sid's mail configuration: telling him to check DNS while a real assignment
 // quietly never appears is the failure this notice exists to avoid.
 const CONTENT_FAILURE_NOTICE = "D2L notification email has repeatedly arrived in a form Jarvis could not read, so no deadline or grade was created. Nothing in Email Routing or the sender pins needs checking; the message format may have changed.";
 const REFUSED_VERIFICATION_NOTICE = "A D2L email-address verification message was refused because it could not be proven to come from D2L. Jarvis did not open it and has no link to pass on. If you expected a verification mail, set the address in D2L itself.";
+/**
+ * Sent once when unproven mail starts arriving in a run.
+ *
+ * This is not an authentication failure notice and deliberately does not
+ * borrow its wording. A sender nobody pinned is now the expected shape of
+ * Sid's whole school inbox, so saying "check your DNS" about it would be
+ * advice about a fault that is not there. What he needs to know is the one
+ * consequence that is not visible from the message itself: nothing was
+ * created from it.
+ */
+const UNVERIFIED_MAIL_NOTICE = "School mail is arriving from senders that are not pinned, or without authentication evidence Jarvis can check. The messages are read and stored, marked unverified, and no deadline or grade is created from them.";
 
 /** Reasons that mean Sid's own mail configuration may be wrong. */
 const AUTHENTICITY_REASONS = new Set([
@@ -287,10 +299,28 @@ const AUTHENTICITY_REASONS = new Set([
 /** Reasons that describe the delivery itself, not anything Sid controls. */
 const DELIVERY_REASONS = new Set(["recipient_mismatch", "message_too_large", "mime_parse_failed"]);
 
+/**
+ * Parser reasons that mean a body reached for a template and failed.
+ *
+ * Everything the parser reports is one of these except `ordinary_mail`, which
+ * is a message that never claimed to be a notification. The distinction
+ * matters because the whole school inbox now routes here: without it, every
+ * forwarded note would be reported to Sid as a D2L template that changed.
+ */
+const TEMPLATE_FAILURE_REASONS = new Set([
+  "school_item_fields_missing", "grade_value_missing", "grade_value_invalid",
+  "due_date_missing", "due_date_invalid", "template_unknown",
+]);
+
 function failureNoticeText(receipt: D2lEmailMessageReceipt): string | null {
   if (receipt.eventKind === "address_verification") return REFUSED_VERIFICATION_NOTICE;
   if (receipt.quarantineReason === null || AUTHENTICITY_REASONS.has(receipt.quarantineReason)) {
-    return REPEATED_FAILURE_NOTICE;
+    // An unproven sender is the ordinary case once every message is routed
+    // here, so it gets its own line rather than being called a failure of
+    // Sid's setup.
+    return receipt.quarantineReason === "authentication_unproven" || receipt.quarantineReason === "from_domain_unpinned"
+      ? UNVERIFIED_MAIL_NOTICE
+      : REPEATED_FAILURE_NOTICE;
   }
   return DELIVERY_REASONS.has(receipt.quarantineReason) ? null : CONTENT_FAILURE_NOTICE;
 }
@@ -298,12 +328,19 @@ function failureNoticeText(receipt: D2lEmailMessageReceipt): string | null {
 /**
  * Reasons whose raw bytes are not retained.
  *
- * The envelope recipient and the visible `From:` are the two checks anyone on
- * the internet can fail or pass without knowing anything about D2L, so a
- * refusal there keeps the hash, the header names and the reason, and nothing
- * else. What is left is capped and expires (see the repository).
+ * One reason only, and it is not about the sender: `recipient_mismatch` is
+ * mail that was not addressed to the ingest address at all. Whatever it is,
+ * Jarvis was not the recipient, so retaining a copy would put a stranger's
+ * correspondence in the database that holds Sid's deadlines and memory. The
+ * hash, the header names and the reason stay; the bytes do not.
+ *
+ * `from_missing` and `from_domain_unpinned` were on this list and are not any
+ * more. Both describe the sender, and the owner's decision is that mail from
+ * any sender is read: discarding a Google Classroom notification because
+ * nobody pinned its domain is the behaviour this change removes. Their
+ * verdicts now set the authenticity label instead.
  */
-const RAW_WITHHELD_REASONS = new Set(["recipient_mismatch", "from_missing", "from_domain_unpinned"]);
+const RAW_WITHHELD_REASONS = new Set(["recipient_mismatch"]);
 
 function retainsRawMime(reason: string | null): boolean {
   return reason === null || !RAW_WITHHELD_REASONS.has(reason);
@@ -359,7 +396,14 @@ async function sendPendingVerification(
  * pinned signer, or a pinned ARC chain whose original authentication passed.
  * The configured capability recipient and the `From:` domain pin only route
  * and filter -- anyone on the internet can set a `From:` header, so neither
- * one authorises a write. Missing evidence is quarantine, never trust.
+ * one authorises a write.
+ *
+ * Every message is read, stored and labelled; the authenticity verdict decides
+ * what may be *derived*, not whether the body survives. `verified` mail may
+ * create a deadline or a grade and those records say so. Anything else is
+ * retained as an unverified receipt and creates nothing. `recipient_mismatch`
+ * is the one exception, and it is not a trust judgement: mail addressed to
+ * somebody else was never delivered to Jarvis at all.
  */
 export async function handleD2lNotificationEmail(
   message: ForwardableEmailMessage,
@@ -416,22 +460,29 @@ export async function handleD2lNotificationEmail(
     pinnedDomains: config.d2lDomains,
     arcSealerDomains: config.arcSealerDomains,
   });
+  // The label is the whole of what the authentication verdict now decides.
+  // `assessAuthenticity` is unchanged; its answer just stops gating the body.
+  const authenticity: EmailAuthenticity = evidence.trusted ? "verified" : "unverified";
   let quarantineReason: string | null = null;
   if (message.to.trim().toLowerCase() !== config.ingestAddress) quarantineReason = "recipient_mismatch";
   else if (raw.truncated) quarantineReason = "message_too_large";
   else if (parseFailed) quarantineReason = "mime_parse_failed";
   else if (authentication.state === "hard_fail") quarantineReason = "authentication_failed";
-  else if (parsedFromDomain === null) quarantineReason = "from_missing";
-  else if (!config.d2lDomains.has(parsedFromDomain)) quarantineReason = "from_domain_unpinned";
-  else if (!evidence.trusted) quarantineReason = "authentication_unproven";
-  // An authentic verification message is only refused when it has nothing
-  // relayable: a link somewhere other than a pinned D2L host, or neither a
-  // link nor a code. Either way Sid hears about it through a fixed notice
-  // that carries no content borrowed from the message.
+  // Below this line nothing is refused for being unproven. An unpinned or
+  // absent `From:` domain, and a message with no positive evidence at all, are
+  // read and stored as unverified receipts: no deadline or grade is derived
+  // from them, and their authenticity is recorded rather than assumed.
   else if (parsed.kind === "address_verification" && parsed.linkWithheld) quarantineReason = "verification_link_unpinned";
   else if (parsed.kind === "address_verification" && parsed.verificationUrl === null && parsed.verificationCode === null) {
     quarantineReason = "verification_value_missing";
   }
+  // The authenticity verdict comes before the parser's own reason: an
+  // unproven sender is the ordinary case once the whole inbox routes here, and
+  // a "the template changed" notice about a message Jarvis never had reason to
+  // read as a template would be wrong. A proven message that reached for a
+  // template and failed keeps its own reason and is reported as the fault it is.
+  else if (authenticity === "unverified") quarantineReason = "authentication_unproven";
+  else if (parsed.kind === "unrecognised" && TEMPLATE_FAILURE_REASONS.has(parsed.reason)) quarantineReason = parsed.reason;
   else if (parsed.kind === "unrecognised") quarantineReason = parsed.reason;
 
   const storedAuthentication: StoredAuthenticationRecord = Object.freeze({
@@ -448,6 +499,7 @@ export async function handleD2lNotificationEmail(
     authentication: storedAuthentication,
     envelopeFromDomain,
     fromDomain: parsedFromDomain,
+    authenticity,
     eventKind: parsed.kind,
     structured: structured(parsed, raw.truncated),
     rawMimeBase64: retainsRawMime(quarantineReason) ? base64(raw.bytes) : "",
@@ -464,6 +516,7 @@ export async function handleD2lNotificationEmail(
       outcome: "duplicate" as const,
       eventKind: begun.receipt.eventKind,
       quarantineReason: begun.receipt.quarantineReason,
+      authenticity: begun.receipt.authenticity,
       deadlineOutcome: null,
       gradeCreated: false,
     });
@@ -476,9 +529,9 @@ export async function handleD2lNotificationEmail(
       { status: "quarantined", reason: quarantineReason },
       now,
     );
-    // Pruned here, in the same request as the write that grew the table, so a
-    // stranger flooding the address cannot outrun the cap.
-    await repository.pruneQuarantined(config.principalId, quarantined.emailId, now);
+    // Pruned here, in the same request as the write that grew the table: a
+    // flood cannot outrun a bound that is enforced by the write itself.
+    await repository.pruneRetainedRaw(config.principalId, quarantined.emailId, now);
     await deadlines.recordSourceFailure(D2L_EMAIL_SOURCE_ID, quarantineReason, now);
     await repository.recordFailure(
       config.principalId,
@@ -491,6 +544,7 @@ export async function handleD2lNotificationEmail(
       outcome: "quarantined" as const,
       eventKind: quarantined.eventKind,
       quarantineReason,
+      authenticity: quarantined.authenticity,
       deadlineOutcome: null,
       gradeCreated: false,
     });
@@ -518,6 +572,7 @@ export async function handleD2lNotificationEmail(
       title: parsed.title,
       assignedGrade: parsed.assignedGrade,
       maxPoints: parsed.maxPoints,
+      authenticity,
       now,
     });
     await deadlines.recordSourceSuccess(D2L_EMAIL_SOURCE_ID, now);
@@ -533,6 +588,7 @@ export async function handleD2lNotificationEmail(
     outcome: "ingested" as const,
     eventKind: completed.eventKind,
     quarantineReason: null,
+    authenticity: completed.authenticity,
     deadlineOutcome,
     gradeCreated,
   });
