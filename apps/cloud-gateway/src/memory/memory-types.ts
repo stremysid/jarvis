@@ -174,6 +174,21 @@ export interface CommitInitialMemoryResult {
   readonly automaticFilingCreatedTopicCount?: number;
 }
 
+/**
+ * The retirement half of an owner correction. It must commit in the same batch
+ * as the replacement item: a correction that lands its replacement while the
+ * earlier wording stays current is the duplicate this path exists to prevent.
+ */
+export interface SupersedeMemoryItemInput {
+  /** The item whose wording the owner has replaced. It must still be active. */
+  readonly supersededItemId: Ulid;
+  readonly linkId: Ulid;
+  readonly supersedeTransitionId: Ulid;
+  readonly ownerAuthorizingEventId: Ulid;
+  readonly reason: string;
+  readonly policyVersion: string;
+}
+
 export interface BootstrapMemoryTopicsResult {
   readonly root: CanonicalTopicPathEntry;
   readonly inbox: CanonicalTopicPathEntry;
@@ -198,7 +213,7 @@ export interface AutomaticInboxRefilingResult {
   readonly failedItemCount: number;
 }
 
-export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain";
+export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain" | "correct";
 
 export interface MemoryOwnerTurnInput {
   readonly principalId: string;

@@ -39,7 +39,9 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
-const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>(["remember", "forget", "lift", "confirm", "explain"]);
+const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>([
+  "remember", "forget", "lift", "confirm", "explain", "correct",
+]);
 const REMEMBER_CONTROL_PREFIXES = [
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
@@ -105,6 +107,24 @@ export interface MemoryLiftReceipt {
 
 export interface ConfirmMemoryInput extends TargetedMemoryControlInput {
   readonly sourceExcerpt: string;
+}
+
+export interface CorrectMemoryInput extends TargetedMemoryControlInput {
+  readonly text: string;
+  readonly kind: MemoryKind;
+  readonly sensitivity: MemorySensitivity;
+  readonly sourceExcerpt?: string;
+  /** True only when the caller proved the new wording is drawn from Sid's own words. */
+  readonly normalizedFromSource?: boolean;
+}
+
+export interface MemoryCorrectionReceipt {
+  readonly item: CanonicalMemoryItem | MemoryTextSuppressedItem;
+  readonly supersededItemId: Ulid;
+  /** Null when an active suppression hides the earlier wording from this reply. */
+  readonly supersededText: string | null;
+  readonly receipt: string;
+  readonly replayed: boolean;
 }
 
 export interface MemoryConfirmReceipt {
@@ -277,6 +297,18 @@ function redactUnretrievableItem(
   return visibility.retrievable ? item : suppressMemoryText(item);
 }
 
+/**
+ * Whether a reply may repeat an item's wording. Retrievability is the wrong
+ * test here: retiring the earlier wording makes it unretrievable by design, and
+ * that is not a reason to refuse to say what Sid just replaced.
+ */
+function suppressionHides(visibility: Readonly<{
+  creationEventSuppressed: boolean;
+  suppressedSourceIds: readonly Ulid[];
+}>): boolean {
+  return visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0;
+}
+
 function decodeStoredCommand<T>(value: JsonValue, decode: (payload: JsonValue) => T): T {
   try {
     return decode(value);
@@ -392,6 +424,31 @@ function confirmedDecisionPayload(value: JsonValue): ReturnType<typeof confirmPa
     sourceId: inputUlid(payload.sourceId),
     copiedSourceIds: Object.freeze(payload.copiedSourceIds.map(inputUlid)),
     confirmationExcerpt: payload.confirmationExcerpt,
+  });
+}
+
+type DecodedSupersession = Readonly<{
+  supersededItemId: Ulid;
+  supersededVersionId: Ulid;
+  supersedeTransitionId: Ulid;
+  linkId: Ulid;
+}>;
+
+function supersessionPayload(value: JsonValue): DecodedSupersession {
+  const payload = record(value);
+  exactKeys(payload, ["operation", "targetId", "itemId", "versionId", "lifecycleState", "linkId"]);
+  // The owner-command trigger binds this exact shape to the retirement
+  // transition, so a payload that drifts from it can never authorize one.
+  if (payload.operation !== "item.transition" || payload.lifecycleState !== "superseded") refuse();
+  const supersededItemId = inputUlid(payload.itemId);
+  const linkId = inputUlid(payload.linkId);
+  const supersedeTransitionId = inputUlid(payload.targetId);
+  if (new Set([supersededItemId, linkId, supersedeTransitionId]).size !== 3) refuse();
+  return Object.freeze({
+    supersededItemId,
+    supersededVersionId: inputUlid(payload.versionId),
+    supersedeTransitionId,
+    linkId,
   });
 }
 
@@ -650,6 +707,206 @@ export class MemoryOwnerControlsService {
               : "Remembered 1 memory, but it is currently hidden by another forgotten memory from the same conversation turn."
           : "Remembered 1 memory. You can ask in ordinary language to forget it.",
         replayed,
+      });
+    });
+  }
+
+  /**
+   * Replaces one current memory with the wording Sid just stated. The earlier
+   * item keeps its versions, sources and transitions and gains a retirement
+   * transition plus a `supersedes` link, so the ledger stays append-only and
+   * only the new wording stays recallable.
+   */
+  async correct(input: CorrectMemoryInput): Promise<MemoryCorrectionReceipt> {
+    return this.safely(async () => {
+      const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, "correct");
+      const supersededItemId = exactSingleTarget(input.candidateItemIds);
+      const text = this.memory.validateItemText(input.text);
+      const kind = input.kind;
+      const sensitivity = input.sensitivity;
+      const normalizedFromSource = input.normalizedFromSource ?? false;
+      if (typeof normalizedFromSource !== "boolean" || !MEMORY_KINDS.has(kind)
+        || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
+      const requestedExcerpt = input.sourceExcerpt === undefined
+        ? null
+        : this.memory.validateItemText(input.sourceExcerpt);
+      const replacementHash = await this.requestHash("correct", ownerTurn, [
+        "replacement",
+        supersededItemId,
+        text,
+        kind,
+        sensitivity,
+        requestedExcerpt,
+        normalizedFromSource,
+      ]);
+      const supersessionHash = await this.requestHash("correct", ownerTurn, [
+        "supersession",
+        supersededItemId,
+      ]);
+      // The replacement transition and the retirement transition each need
+      // their own authorizing command: the trigger binds one command to one
+      // transition. They are separate appends so either can be replayed alone.
+      const replacementKey = commandKey(ownerTurn, "correct");
+      const supersessionKey = `${replacementKey}:supersede`;
+      const replacementExisting = await this.hasCommand(replacementKey, replacementHash);
+      const supersessionExisting = await this.hasCommand(supersessionKey, supersessionHash);
+      const replaying = replacementExisting && supersessionExisting;
+
+      const supersededBefore = await this.memory.readCurrentItem(ownerTurn.principalId, supersededItemId);
+      const supersededVisibility = await this.memory.readItemVisibility(
+        ownerTurn.principalId,
+        supersededItemId,
+      );
+      // Only an active wording can be retired, but a replay must not re-check a
+      // state the first attempt already moved. A replacement may never quietly
+      // downgrade the sensitivity Sid already had on this memory.
+      if (supersededBefore.lifecycle.state !== "active" && !replaying
+        || supersededBefore.version.sensitivity === "sensitive" && sensitivity === "normal") refuse();
+
+      let acceptedTurn: Readonly<{ text: string; suppressed: boolean }>;
+      let sourceExcerpt: string;
+      let replacementCommand: AppendedEvent;
+      let supersessionCommand: AppendedEvent;
+      if (replaying) {
+        replacementCommand = await this.appendCommand(ownerTurn, replacementKey, replacementHash, {
+          operation: "item.transition",
+          targetId: this.nextId(),
+        });
+        supersessionCommand = await this.appendCommand(ownerTurn, supersessionKey, supersessionHash, {
+          operation: "item.transition",
+          targetId: this.nextId(),
+        });
+        acceptedTurn = await this.memory.readAcceptedOwnerTurn(
+          ownerTurn,
+          replacementCommand.envelope.eventId,
+        );
+        sourceExcerpt = requestedExcerpt
+          ?? this.memory.validateItemText(acceptedTurn.text);
+        if (!isAuthorizedRememberText(
+          text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, false,
+        )) refuse();
+      } else {
+        acceptedTurn = Object.freeze({
+          text: await this.memory.validateOwnerTurn(ownerTurn, "correct"),
+          suppressed: false,
+        });
+        sourceExcerpt = requestedExcerpt
+          ?? this.memory.validateItemText(acceptedTurn.text);
+        // Sid's own words are the only authority for the new wording. Model
+        // paraphrase that his sentence does not support is refused rather than
+        // promoted, because a correction carries no confirmation step.
+        if (!isAuthorizedRememberText(
+          text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, false,
+        )) refuse();
+        const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
+        const supersedeTransitionId = this.nextId();
+        replacementCommand = await this.appendCommand(ownerTurn, replacementKey, replacementHash, {
+          operation: "item.transition",
+          targetId: this.nextId(),
+          itemId: this.nextId(),
+          versionId: this.nextId(),
+          lifecycleState: "active",
+          sourceId: this.nextId(),
+          placementId: this.nextId(),
+          placementEventId: this.nextId(),
+          topicId: topics.inbox.topicId,
+        });
+        supersessionCommand = await this.appendCommand(ownerTurn, supersessionKey, supersessionHash, {
+          operation: "item.transition",
+          targetId: supersedeTransitionId,
+          itemId: supersededItemId,
+          versionId: supersededBefore.version.versionId,
+          lifecycleState: "superseded",
+          linkId: this.nextId(),
+        });
+      }
+      const replacementPayload = decodeStoredCommand(replacementCommand.envelope.payload, rememberPayload);
+      const supersession = decodeStoredCommand(
+        supersessionCommand.envelope.payload,
+        supersessionPayload,
+      );
+      if (supersession.supersededItemId !== supersededItemId
+        || supersession.supersededVersionId !== supersededBefore.version.versionId) corrupt();
+      const replacementInput = Object.freeze<CommitInitialMemoryInput>({
+        principalId: ownerTurn.principalId,
+        itemId: replacementPayload.itemId,
+        kind,
+        creationEventId: ownerTurn.eventId,
+        creationEventSequence: ownerTurn.eventSequence,
+        version: {
+          versionId: replacementPayload.versionId,
+          text,
+          textHash: await sha256Hex(text),
+          basis: "stated",
+          origin: "authenticated_first_person",
+          uncertain: false,
+          sensitivity,
+          validFrom: null,
+          validTo: null,
+          extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
+          extractorModelId: null,
+        },
+        sources: [{
+          sourceId: replacementPayload.sourceId,
+          eventId: ownerTurn.eventId,
+          eventSequence: ownerTurn.eventSequence,
+          sourceLocation: "live",
+          r2SegmentId: null,
+          excerpt: sourceExcerpt,
+          excerptHash: await sha256Hex(sourceExcerpt),
+          channel: ownerTurn.channel,
+          occurredAt: ownerTurn.occurredAt,
+        }],
+        transition: {
+          transitionId: replacementPayload.transitionId,
+          lifecycleState: "active",
+          reason: "owner replaced an earlier memory wording",
+          policyVersion: MEMORY_CONTROL_POLICY_VERSION,
+          ownerAuthorizingEventId: replacementCommand.envelope.eventId,
+        },
+        placement: {
+          placementId: replacementPayload.placementId,
+          placementEventId: replacementPayload.placementEventId,
+          topicId: replacementPayload.topicId,
+          filingSource: "rule",
+          confidence: 0.4,
+          reason: "owner memory starts in the explicit inbox",
+        },
+      });
+      const result = replaying && acceptedTurn.suppressed
+        ? await this.memory.readInitialItemReplay(replacementInput)
+        : await this.memory.commitInitialItem(
+          replacementInput,
+          undefined,
+          Object.freeze({
+            supersededItemId,
+            linkId: supersession.linkId,
+            supersedeTransitionId: supersession.supersedeTransitionId,
+            ownerAuthorizingEventId: supersessionCommand.envelope.eventId,
+            reason: "owner replaced this wording",
+            policyVersion: MEMORY_CONTROL_POLICY_VERSION,
+          }),
+        );
+      if (result === null) refuse();
+      const visibility = await this.memory.readItemVisibility(
+        ownerTurn.principalId,
+        replacementPayload.itemId,
+      );
+      const replacementItem = redactUnretrievableItem(result.item, visibility);
+      // A suppressed source keeps that side's wording out of the reply, the same
+      // way forget, lift and explain already withhold text an owner cannot see.
+      const earlierWording = suppressionHides(supersededVisibility)
+        ? null
+        : supersededBefore.version.text;
+      const currentWording = replacementItem.version.text;
+      const hidden = "(hidden by an active suppression)";
+      return Object.freeze({
+        item: replacementItem,
+        supersededItemId,
+        supersededText: earlierWording,
+        receipt: `${earlierWording === null ? hidden : JSON.stringify(earlierWording)} is no longer current; the current wording is ${currentWording === null ? hidden : JSON.stringify(currentWording)}. Both wordings stay in the ledger.`,
+        replayed: replacementCommand.replayed || supersessionCommand.replayed || result.replayed,
       });
     });
   }

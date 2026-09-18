@@ -8,6 +8,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import {
   MemoryOwnerControlsService,
+  type CorrectMemoryInput,
   type RememberMemoryInput,
 } from "../../src/memory/memory-owner-controls.js";
 import {
@@ -23,6 +24,7 @@ import {
   MemoryRepositoryError,
   type CanonicalMemoryItem,
   type MemoryControlIntent,
+  type MemoryKind,
   type MemoryOwnerTurnInput,
   type MemoryRepositoryErrorCode,
 } from "../../src/memory/memory-types.js";
@@ -130,6 +132,117 @@ function rememberInput(turn: SeededTurn, text: string): RememberMemoryInput {
     text,
     kind: "preference",
     sensitivity: "normal",
+  });
+}
+
+function correctInput(
+  turn: SeededTurn,
+  text: string,
+  supersededItemId: Ulid,
+  options: Readonly<{
+    kind?: MemoryKind;
+    sensitivity?: "normal" | "sensitive";
+    sourceExcerpt?: string;
+    normalizedFromSource?: boolean;
+    ownerTurn?: MemoryOwnerTurnInput;
+  }> = {},
+): CorrectMemoryInput {
+  return Object.freeze({
+    ownerTurn: options.ownerTurn ?? turn.input,
+    candidateItemIds: Object.freeze([supersededItemId]),
+    text,
+    kind: options.kind ?? "preference",
+    sensitivity: options.sensitivity ?? "normal",
+    ...(options.sourceExcerpt === undefined ? {} : { sourceExcerpt: options.sourceExcerpt }),
+    ...(options.normalizedFromSource === undefined
+      ? {}
+      : { normalizedFromSource: options.normalizedFromSource }),
+  });
+}
+
+/** The exact gate every recall path shares: the retrievable-version view. */
+async function retrievableTexts(itemIds: readonly Ulid[]): Promise<readonly string[]> {
+  const placeholders = itemIds.map(() => "?").join(", ");
+  const rows = await env.DB.prepare(`SELECT text FROM memory_retrievable_item_versions
+    WHERE item_id IN (${placeholders}) ORDER BY text`).bind(...itemIds)
+    .all<{ text: string }>();
+  return rows.results.map((row) => row.text);
+}
+
+/**
+ * Records which statements share a D1 batch. A batch is the only transaction
+ * primitive here, so this is how a test can tell "committed together" from
+ * "committed one after the other".
+ */
+function trackingDatabase(database: D1Database): Readonly<{
+  readonly database: D1Database;
+  batchesContainingAll(needles: readonly string[]): number;
+}> {
+  const sqlByStatement = new WeakMap<object, string>();
+  const batches: string[][] = [];
+  // bind() returns a different statement object from the prepared one, and the
+  // repository always binds, so the bound object has to be recorded too.
+  const track = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => {
+    sqlByStatement.set(statement as object, sql);
+    const wrapped = new Proxy(statement as object, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (property === "bind" && typeof value === "function") {
+          return (...values: unknown[]) => track(
+            (value as (...args: unknown[]) => D1PreparedStatement).apply(target, values),
+            sql,
+          );
+        }
+        return typeof value === "function"
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as D1PreparedStatement;
+    // The repository stores and batches the wrapper, so both identities have to
+    // resolve to the same SQL.
+    sqlByStatement.set(wrapped as object, sql);
+    return wrapped;
+  };
+  const proxy = new Proxy(database as object, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (sql: string) => track((target as D1Database).prepare(sql), sql);
+      }
+      if (property === "batch") {
+        return (statements: readonly D1PreparedStatement[]) => {
+          batches.push(statements.map((statement) => sqlByStatement.get(statement as object) ?? ""));
+          return (target as D1Database).batch([...statements]);
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  }) as D1Database;
+  return Object.freeze({
+    database: proxy,
+    batchesContainingAll: (needles: readonly string[]) => batches.filter((batch) =>
+      needles.every((needle) => batch.some((sql) => sql.includes(needle)))).length,
+  });
+}
+
+async function currentState(itemId: Ulid): Promise<Readonly<{
+  lifecycleState: string;
+  versionNumber: number;
+  text: string;
+}>> {
+  const row = await env.DB.prepare(`SELECT state.lifecycle_state, version.version_number, version.text
+    FROM memory_item_state state
+    JOIN memory_item_versions version ON version.principal_id = state.principal_id
+      AND version.version_id = state.current_version_id
+    WHERE state.item_id = ?`).bind(itemId)
+    .first<{ lifecycle_state: string; version_number: number; text: string }>();
+  if (row === null) throw new Error("memory_owner_controls_item_missing");
+  return Object.freeze({
+    lifecycleState: row.lifecycle_state,
+    versionNumber: row.version_number,
+    text: row.text,
   });
 }
 
@@ -1198,5 +1311,380 @@ describe("MemoryOwnerControlsService", () => {
     })).resolves.toMatchObject({
       item: { lifecycle: { state: "active" }, version: { basis: "confirmed" } },
     });
+  });
+
+  it("supersedes the earlier wording when the owner restates a fact plainly, and recalls only the new one", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+
+    const corrected = await service.correct(correctInput(
+      correctionTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+    ));
+
+    expect(corrected.replayed).toBe(false);
+    expect(corrected.supersededItemId).toBe(remembered.item.itemId);
+    expect(corrected.item.itemId).not.toBe(remembered.item.itemId);
+    expect(corrected.item).toMatchObject({
+      lifecycle: { state: "active", actor: "owner" },
+      version: { text: "my fav subject is now science", basis: "stated", sensitivity: "normal" },
+    });
+    // Only the new wording is reviewable evidence, and the retired item is
+    // retired rather than deleted.
+    expect(await retrievableTexts([remembered.item.itemId, corrected.item.itemId]))
+      .toEqual(["my fav subject is now science"]);
+    expect(await currentState(remembered.item.itemId)).toEqual({
+      lifecycleState: "superseded",
+      versionNumber: 1,
+      text: "my favourite subject is math.",
+    });
+    const links = await env.DB.prepare(`SELECT source_item_id, target_item_id, link_type
+      FROM memory_item_links WHERE principal_id = ? AND target_item_id = ?`)
+      .bind(OWNER_ID, remembered.item.itemId)
+      .all<{ source_item_id: string; target_item_id: string; link_type: string }>();
+    expect(links.results).toEqual([{
+      source_item_id: corrected.item.itemId,
+      target_item_id: remembered.item.itemId,
+      link_type: "supersedes",
+    }]);
+  });
+
+  it("keeps every superseded version, source and transition in the ledger", async () => {
+    const sourceTurn = await seedTurn("Remember that my locker code is 4471.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my locker code is 4471."),
+    );
+    const correctionTurn = await seedTurn(
+      "my locker code is 9982 now",
+      { memoryIntent: "correct" },
+    );
+    await service.correct(correctInput(
+      correctionTurn,
+      "my locker code is 9982 now",
+      remembered.item.itemId,
+    ));
+
+    const counts = await Promise.all([
+      env.DB.prepare(`SELECT count(*) AS count FROM memory_item_versions
+        WHERE item_id = ? AND text = 'my locker code is 4471.'`).bind(remembered.item.itemId)
+        .first<{ count: number }>(),
+      env.DB.prepare("SELECT count(*) AS count FROM memory_item_sources WHERE item_id = ?")
+        .bind(remembered.item.itemId).first<{ count: number }>(),
+      env.DB.prepare(`SELECT count(*) AS count FROM memory_item_transitions
+        WHERE item_id = ? AND lifecycle_state = 'superseded'`)
+        .bind(remembered.item.itemId).first<{ count: number }>(),
+      env.DB.prepare("SELECT count(*) AS count FROM events WHERE event_id = ?")
+        .bind(sourceTurn.input.eventId).first<{ count: number }>(),
+    ]);
+    expect(counts.map((row) => row?.count)).toEqual([1, 1, 1, 1]);
+    const items = await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE item_id = ?")
+      .bind(remembered.item.itemId).first<{ count: number }>();
+    expect(items?.count).toBe(1);
+  });
+
+  it("names the earlier and the current wording in the correction receipt", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+
+    const corrected = await service.correct(correctInput(
+      correctionTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+    ));
+
+    expect(corrected.receipt).toContain("my fav subject is now science");
+    expect(corrected.receipt).toContain("my favourite subject is math.");
+    expect(corrected.receipt).toContain("no longer current");
+    expect(corrected.receipt).toContain("in the ledger");
+    expect(corrected.supersededText).toBe("my favourite subject is math.");
+  });
+
+  it("refuses a correction that claims wording Sid's own message does not contain", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+
+    await expectCode(service.correct(correctInput(
+      correctionTurn,
+      "my favourite subject is now chemistry",
+      remembered.item.itemId,
+    )), "memory_refused");
+
+    // A refused correction changes nothing at all, including the ledger.
+    expect(await currentState(remembered.item.itemId)).toMatchObject({
+      lifecycleState: "active",
+    });
+    expect(await retrievableTexts([remembered.item.itemId]))
+      .toEqual(["my favourite subject is math."]);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_item_links WHERE target_item_id = ?")
+      .bind(remembered.item.itemId).first<{ count: number }>()).toEqual({ count: 0 });
+  });
+
+  it("refuses a correction whose words arrive as forwarded or quoted third-party text", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+    const forwarded = Object.freeze({
+      ...correctionTurn.input,
+      forwarded: true,
+      quoted: true,
+    });
+
+    await expectCode(service.correct(correctInput(
+      correctionTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+      { ownerTurn: forwarded },
+    )), "memory_refused");
+
+    expect(await currentState(remembered.item.itemId)).toMatchObject({
+      lifecycleState: "active",
+      text: "my favourite subject is math.",
+    });
+  });
+
+  it("refuses to replace a sensitive memory with a normal one", async () => {
+    const sourceTurn = await seedTurn("Remember that my portal answer is a phrase.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(Object.freeze({
+      ownerTurn: sourceTurn.input,
+      text: "my portal answer is a phrase.",
+      kind: "fact",
+      sensitivity: "sensitive",
+    }));
+    const correctionTurn = await seedTurn(
+      "my portal answer is a different phrase",
+      { memoryIntent: "correct" },
+    );
+
+    await expectCode(service.correct(correctInput(
+      correctionTurn,
+      "my portal answer is a different phrase",
+      remembered.item.itemId,
+      { sensitivity: "normal" },
+    )), "memory_refused");
+    expect(await currentState(remembered.item.itemId)).toMatchObject({ lifecycleState: "active" });
+  });
+
+  it("replaces a sensitive memory when the correction keeps it sensitive", async () => {
+    const sourceTurn = await seedTurn("Remember that my portal answer is a phrase.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(Object.freeze({
+      ownerTurn: sourceTurn.input,
+      text: "my portal answer is a phrase.",
+      kind: "fact",
+      sensitivity: "sensitive",
+    }));
+    const correctionTurn = await seedTurn(
+      "my portal answer is a different phrase",
+      { memoryIntent: "correct" },
+    );
+
+    await expect(service.correct(correctInput(
+      correctionTurn,
+      "my portal answer is a different phrase",
+      remembered.item.itemId,
+      { sensitivity: "sensitive" },
+    ))).resolves.toMatchObject({
+      item: { version: { text: "my portal answer is a different phrase", sensitivity: "sensitive" } },
+    });
+  });
+
+  it("withholds an earlier wording that an active suppression hides", async () => {
+    const sharedTurn = await seedTurn("I prefer dark mode. I prefer compact menus.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const hidden = await service.remember(Object.freeze({
+      ownerTurn: sharedTurn.input,
+      text: "I prefer dark mode.",
+      kind: "preference",
+      sensitivity: "normal",
+      sourceExcerpt: "I prefer dark mode.",
+    }));
+    const sibling = await commitItemFromTurn(sharedTurn, "I prefer compact menus.");
+    const forgetTurn = await seedTurn(
+      "Forget my compact menu preference.",
+      { memoryIntent: "forget" },
+    );
+    await service.forget({ ownerTurn: forgetTurn.input, candidateItemIds: [sibling.itemId] });
+    // The shared turn is suppressed, so the sibling forget hides this item too
+    // even though its own lifecycle state is still active.
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_retrievable_item_versions WHERE item_id = ?")
+      .bind(hidden.item.itemId).first()).toEqual({ count: 0 });
+    const correctionTurn = await seedTurn(
+      "I prefer light mode now",
+      { memoryIntent: "correct" },
+    );
+
+    const corrected = await service.correct(correctInput(
+      correctionTurn,
+      "I prefer light mode now",
+      hidden.item.itemId,
+    ));
+
+    expect(corrected.supersededText).toBeNull();
+    expect(corrected.receipt).not.toContain("I prefer dark mode.");
+    expect(JSON.stringify(corrected)).not.toContain("I prefer dark mode.");
+    expect(corrected.receipt).toContain("I prefer light mode now");
+    expect(corrected.receipt).toContain("hidden by an active suppression");
+    expect(corrected.receipt).toContain("no longer current");
+  });
+
+  it("replays one correction without writing a second replacement or a second link", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+    const input = correctInput(
+      correctionTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+    );
+    const commandsBefore = await commandCount();
+
+    const first = await service.correct(input);
+    const replay = await service.correct(input);
+
+    expect(first.replayed).toBe(false);
+    expect(replay).toMatchObject({ replayed: true, supersededItemId: remembered.item.itemId });
+    expect(replay.item.itemId).toBe(first.item.itemId);
+    expect(await commandCount()).toBe(commandsBefore + 2);
+    const counts = await Promise.all([
+      env.DB.prepare("SELECT count(*) AS count FROM memory_item_links WHERE target_item_id = ?")
+        .bind(remembered.item.itemId).first<{ count: number }>(),
+      env.DB.prepare(`SELECT count(*) AS count FROM memory_item_transitions
+        WHERE item_id = ? AND lifecycle_state = 'superseded'`)
+        .bind(remembered.item.itemId).first<{ count: number }>(),
+      env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
+        .bind(OWNER_ID).first<{ count: number }>(),
+    ]);
+    expect(counts[0]?.count).toBe(1);
+    expect(counts[1]?.count).toBe(1);
+  });
+
+  it("commits the replacement item, the retirement transition and the edge in one D1 batch", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+    const tracked = trackingDatabase(env.DB);
+
+    await new MemoryOwnerControlsService(tracked.database, env.ARCHIVE).correct(correctInput(
+      correctionTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+    ));
+
+    // A D1 batch is the only transaction primitive here, so "the replacement is
+    // never live without its retirement" can only mean one batch holds all
+    // three writes. Split across two, a failure between them leaves two live
+    // wordings for one fact.
+    expect(tracked.batchesContainingAll([
+      "INTO memory_items ",
+      "INTO memory_item_transitions ",
+      "INTO memory_item_links ",
+    ])).toBe(1);
+  });
+
+  it("refuses to replace a memory that is no longer current", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const firstTurn = await seedTurn("my fav subject is now science", { memoryIntent: "correct" });
+    const first = await service.correct(correctInput(
+      firstTurn,
+      "my fav subject is now science",
+      remembered.item.itemId,
+    ));
+    const secondTurn = await seedTurn("my fav subject is now history", { memoryIntent: "correct" });
+
+    await expectCode(service.correct(correctInput(
+      secondTurn,
+      "my fav subject is now history",
+      remembered.item.itemId,
+    )), "memory_refused");
+
+    // Only one wording is ever current, and the earlier one cannot be replaced
+    // twice into a second live fact.
+    expect(await currentState(remembered.item.itemId)).toMatchObject({
+      lifecycleState: "superseded",
+    });
+    expect(await retrievableTexts([remembered.item.itemId, first.item.itemId]))
+      .toEqual(["my fav subject is now science"]);
+  });
+
+  it("rolls back a faulted correction batch so the earlier wording is never replaced alone", async () => {
+    const sourceTurn = await seedTurn("Remember that my favourite subject is math.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "my favourite subject is math."),
+    );
+    const correctionTurn = await seedTurn(
+      "my fav subject is now science",
+      { memoryIntent: "correct" },
+    );
+    const faulting = createMemoryRepositoryForTest(env.DB, {
+      batchFault: (operation) => operation === "commit"
+        ? env.DB.prepare("INSERT INTO memory_owner_controls_missing_fault_target(value) VALUES (1)")
+        : null,
+    });
+
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE, faulting).correct(
+      correctInput(correctionTurn, "my fav subject is now science", remembered.item.itemId),
+    ), "memory_unavailable");
+
+    // The replacement, the retirement transition and the edge land together or
+    // not at all; a half-applied correction is the duplicate this path forbids.
+    expect(await currentState(remembered.item.itemId)).toMatchObject({ lifecycleState: "active" });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_item_links WHERE target_item_id = ?")
+      .bind(remembered.item.itemId).first<{ count: number }>()).toEqual({ count: 0 });
+    expect(await retrievableTexts([remembered.item.itemId]))
+      .toEqual(["my favourite subject is math."]);
+
+    const recovered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).correct(
+      correctInput(correctionTurn, "my fav subject is now science", remembered.item.itemId),
+    );
+    expect(recovered.replayed).toBe(true);
+    expect(await currentState(remembered.item.itemId)).toMatchObject({ lifecycleState: "superseded" });
+    expect(await retrievableTexts([remembered.item.itemId, recovered.item.itemId]))
+      .toEqual(["my fav subject is now science"]);
   });
 });

@@ -20,7 +20,7 @@ import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import type { AnswerDecisionResult, DecisionItem } from "./decisions/decision-types.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
-import { assembleDigest, unconfiguredDeadlineSources } from "./jobs/digest-job.js";
+import { assembleDigest, expectedPushSources, unconfiguredDeadlineSources } from "./jobs/digest-job.js";
 import {
   CLASSROOM_SOURCE_ID,
   buildJobTable,
@@ -493,6 +493,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
         clock,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         unconfiguredDeadlineSources: unconfiguredDeadlineSources(env),
+        expectedPushSources: expectedPushSources(env),
       });
       return digest.text;
     },

@@ -43,6 +43,7 @@ import {
   type MemorySourceChannel,
   type MemorySourceLocation,
   type ResolvedMemoryTopic,
+  type SupersedeMemoryItemInput,
 } from "./memory-types.js";
 
 type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "append_source" | "forget" | "lift" | "confirm";
@@ -968,6 +969,31 @@ function withCapturedPlacement(
   return Object.freeze({ ...input, placement: Object.freeze({ ...placement }) });
 }
 
+interface CapturedSupersede {
+  readonly supersededItemId: Ulid;
+  readonly linkId: Ulid;
+  readonly supersedeTransitionId: Ulid;
+  readonly ownerAuthorizingEventId: Ulid;
+  readonly reason: string;
+  readonly policyVersion: string;
+}
+
+function captureSupersede(input: SupersedeMemoryItemInput): CapturedSupersede {
+  const supersededItemId = inputUlid(input.supersededItemId);
+  const linkId = inputUlid(input.linkId);
+  const supersedeTransitionId = inputUlid(input.supersedeTransitionId);
+  const ownerAuthorizingEventId = inputUlid(input.ownerAuthorizingEventId);
+  if (new Set([supersededItemId, linkId, supersedeTransitionId]).size !== 3) refuse();
+  return Object.freeze({
+    supersededItemId,
+    linkId,
+    supersedeTransitionId,
+    ownerAuthorizingEventId,
+    reason: safeInputText(input.reason, 512),
+    policyVersion: safeInputText(input.policyVersion, 128),
+  });
+}
+
 export class MemoryRepository {
   private readonly transactions: TransactionRunner;
   private readonly clock: () => Date;
@@ -1062,9 +1088,12 @@ export class MemoryRepository {
   async commitInitialItem(
     input: CommitInitialMemoryInput,
     onAutomaticFilingPreparation?: () => void,
+    supersede?: SupersedeMemoryItemInput,
   ): Promise<CommitInitialMemoryResult> {
     return this.safely(async () => {
       const captured = captureInput(input);
+      const correction = supersede === undefined ? null : captureSupersede(supersede);
+      if (correction !== null && correction.supersededItemId === captured.itemId) refuse();
       await this.validateHashes(captured);
       await this.requireActivePrincipal(captured.principalId);
       if (captured.automaticFiling !== null) onAutomaticFilingPreparation?.();
@@ -1097,6 +1126,12 @@ export class MemoryRepository {
           createdAt,
           transitionAt,
           placementAt,
+        ), ...correction === null ? [] : await this.supersedeStatements(
+          captured.principalId,
+          plan.input.itemId,
+          plan.input.transition.transitionId,
+          correction,
+          transitionAt,
         )];
         const fault = repositoryTestSeams.get(this)?.batchFault("commit", attempt) ?? null;
         if (fault !== null) statements.push(fault);
@@ -1917,7 +1952,7 @@ export class MemoryRepository {
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
       const intent = inputEnum(expectedIntent, new Set([
-        "remember", "forget", "lift", "confirm", "explain",
+        "remember", "forget", "lift", "confirm", "explain", "correct",
       ] as const));
       const flags = [
         input.forwarded,
@@ -1969,7 +2004,9 @@ export class MemoryRepository {
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
-      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "confirm", "explain"] as const));
+      inputEnum(input.memoryIntent, new Set([
+        "remember", "forget", "lift", "confirm", "explain", "correct",
+      ] as const));
       const flags = [
         input.forwarded,
         input.quoted,
@@ -3173,6 +3210,57 @@ export class MemoryRepository {
           placementAt,
         ),
     );
+    return statements;
+  }
+
+  /**
+   * Retires the earlier wording and records why. These statements ride the same
+   * batch as the replacement item on purpose: split into a second write, a
+   * failure between them leaves two live wordings for one fact, which is the
+   * state an owner correction exists to end.
+   */
+  private async supersedeStatements(
+    principalId: string,
+    replacementItemId: Ulid,
+    replacementTransitionId: Ulid,
+    correction: CapturedSupersede,
+    occurredAt: string,
+  ): Promise<D1PreparedStatement[]> {
+    const superseded = await this.readCurrentItemInternal(principalId, correction.supersededItemId);
+    // The transition guard permits active -> superseded and nothing else into
+    // this state, so an already-retired target must not consume a transition.
+    if (superseded.lifecycle.state !== "active") refuse();
+    const statements: D1PreparedStatement[] = [
+      this.database.prepare(`INSERT INTO memory_item_transitions (
+        transition_id, principal_id, item_id, transition_number, version_id,
+        lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+      ) VALUES (?, ?, ?, ?, ?, 'superseded', ?, 'owner', ?, ?, ?)`)
+        .bind(
+          correction.supersedeTransitionId,
+          principalId,
+          correction.supersededItemId,
+          superseded.lifecycle.transitionNumber + 1,
+          superseded.version.versionId,
+          correction.reason,
+          correction.policyVersion,
+          correction.ownerAuthorizingEventId,
+          occurredAt,
+        ),
+      // "source supersedes target", so the source is the surviving wording and
+      // the insert guard's authorizing transition has to be its own.
+      this.database.prepare(`INSERT INTO memory_item_links (
+        link_id, principal_id, source_item_id, target_item_id, link_type,
+        authorizing_transition_id, created_at
+      ) VALUES (?, ?, ?, ?, 'supersedes', ?, ?)`)
+        .bind(
+          correction.linkId,
+          principalId,
+          replacementItemId,
+          correction.supersededItemId,
+          replacementTransitionId,
+          occurredAt,
+        ),
+    ];
     return statements;
   }
 

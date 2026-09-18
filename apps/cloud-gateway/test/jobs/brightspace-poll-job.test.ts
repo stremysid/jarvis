@@ -265,8 +265,15 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent" });
+    // The gap is the school feed with nothing in it: this deployment holds no
+    // Classroom credentials and no scan has ever completed, so the digest now
+    // says so instead of reporting a quiet term. That is the point of the
+    // change; the Brightspace line below is what this test is about.
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 2 Project");
+    expect(String(send.mock.calls[0]?.[0])).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
     expect(String(send.mock.calls[0]?.[0])).not.toContain("not set up");
   });
 
@@ -288,8 +295,14 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    // Two gaps: the D2L feed is not set up at all, and the Classroom
+    // grades/submissions source has never completed a scan. Silence about
+    // either one reads as a quiet term.
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("D2L notification email: not set up");
+    expect(String(send.mock.calls[0]?.[0])).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
   });
 
   it("records removed configuration without contacting the feed", async () => {
@@ -412,7 +425,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "bounded sweep omitted 140 in-window entries; kept at most 180 live items and 180 cancellations",
     );

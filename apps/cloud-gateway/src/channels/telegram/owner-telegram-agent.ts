@@ -63,12 +63,15 @@ const CONTENT_STOP_WORDS = new Set([
   "you", "your", "yours",
 ]);
 const NORMALISATION_ALLOWLIST = new Set(["sid", "favourite"]);
-const CONTROL_INTENT = Object.freeze({
-  confirm: /\b(?:yes|confirm|correct|keep\s+it|that(?:['’]s|\s+is)\s+right)\b/iu,
-  forget: /\b(?:forget|delete|remove|hide)\b/iu,
-  lift: /\b(?:restore|unforget|bring\s+back|use\s+(?:it|that)\s+again|remember\s+(?:it|that)\s+again)\b/iu,
-  explain: /\b(?:why|explain|evidence|source|where\s+did|how\s+do\s+you\s+know)\b/iu,
-});
+/**
+ * Confirmation is the one memory control that still needs its own words. It
+ * promotes uncertain or model-inferred material into confirmed recall, so code
+ * requires affirmative language rather than trusting the inferred intent.
+ * Forget, restore, explain and correct act on memories Sid already stated;
+ * their intent is the model's to infer, and code keeps the authority check
+ * (his literal current words) plus the negation guard instead.
+ */
+const CONFIRMATION_LANGUAGE = /\b(?:yes|confirm|correct|keep\s+it|that(?:['’]s|\s+is)\s+right)\b/iu;
 
 export function ownerAgentTurnTimeoutMs(receivedAt: string, now = new Date()): number {
   const arrival = Date.parse(receivedAt);
@@ -99,6 +102,22 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
         evidenceClass: { enum: ["stated", "confirmed"] },
         previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096 },
+        kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
+        sensitivity: { enum: ["normal", "sensitive"] },
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "memory_correct",
+    description: "Replace one memory Sid already has with a new version he now states, when he says a fact, preference, plan, decision or relationship changed. Pass the id of the memory being replaced, the new wording drawn from his current message, and supportingExcerpt copied exactly from that message. The earlier memory stops being current and stays in the ledger; never use memory_remember for a change like this, because that leaves both wordings current.",
+    parameters: Object.freeze({
+      type: "object",
+      additionalProperties: false,
+      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"],
+      properties: {
+        itemId: { type: "string" },
+        newFact: { type: "string", minLength: 1, maxLength: 4096 },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
         sensitivity: { enum: ["normal", "sensitive"] },
       },
@@ -567,13 +586,12 @@ function modelInferenceDecisionQuestion(fact: string): string {
   return question;
 }
 
-function groundedControlExcerpt(
+function confirmationExcerpt(
   input: Readonly<ModelAdapterStreamInput>,
   value: unknown,
-  operation: keyof typeof CONTROL_INTENT,
 ): string {
   const excerpt = groundedExcerpt(input, value);
-  if (!CONTROL_INTENT[operation].test(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
+  if (!CONFIRMATION_LANGUAGE.test(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
   return excerpt;
 }
 
@@ -816,6 +834,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         return refusedTool(call, "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.");
       }
       if (call.name === "memory_remember") return this.remember(input, call);
+      if (call.name === "memory_correct") return this.correct(input, call);
       if (call.name === "memory_forget") return this.forget(input, call);
       if (call.name === "memory_restore") return this.restore(input, call);
       if (call.name === "memory_confirm") return this.confirm(input, call);
@@ -992,7 +1011,10 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         itemIds,
       );
     }
-    groundedControlExcerpt(input, args.supportingExcerpt, "forget");
+    groundedExcerpt(input, args.supportingExcerpt);
+    // "don't forget the memory about X" is a request to keep it. The model
+    // usually reads that correctly; this guard is what holds when it does not.
+    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     const item = await new MemoryRepository(this.dependencies.database)
       .readCurrentItem(input.principalId, itemIds[0]!);
     const result = await this.controls().forget({
@@ -1002,10 +1024,38 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     return successfulTool(call, memoryReceipt(result.receipt, item.version.text), itemIds);
   }
 
+  private async correct(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
+    const args = parseArguments(call, ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"]);
+    const itemId = safeUlid(args.itemId);
+    const newFact = safeText(args.newFact, 4_096);
+    const excerpt = groundedExcerpt(input, args.supportingExcerpt);
+    const kinds = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
+    const sensitivities = new Set<MemorySensitivity>(["normal", "sensitive"]);
+    if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
+      throw new TypeError("owner_agent_memory_arguments_invalid");
+    }
+    await this.requireEligibleItem(input, "correct", itemId);
+    const grounding = rememberGrounding(input, newFact, excerpt, null);
+    const result = await this.controls().correct({
+      ownerTurn: await this.ownerTurn(input, "correct"),
+      candidateItemIds: Object.freeze([itemId]),
+      text: newFact,
+      sourceExcerpt: excerpt,
+      normalizedFromSource: grounding.authoritative,
+      kind: args.kind as MemoryKind,
+      sensitivity: args.sensitivity as MemorySensitivity,
+    });
+    // The receipt already names both wordings, so it is not given a second
+    // "Memory:" suffix the way the single-wording mutations are.
+    return successfulTool(call, result.receipt, Object.freeze([result.item.itemId, itemId]));
+  }
+
   private async restore(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
-    groundedControlExcerpt(input, args.supportingExcerpt, "lift");
+    groundedExcerpt(input, args.supportingExcerpt);
+    // "I don't want to use that memory again" is not a restore request.
+    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     await this.requireEligibleItem(input, "lift", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const result = await this.controls().lift({
@@ -1018,7 +1068,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private async confirm(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
     const itemId = safeUlid(args.itemId);
-    const excerpt = groundedControlExcerpt(input, args.supportingExcerpt, "confirm");
+    const excerpt = confirmationExcerpt(input, args.supportingExcerpt);
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const stagedTargets = await this.dependencies.targets.findControlTargets({
@@ -1069,7 +1119,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private async explain(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
-    groundedControlExcerpt(input, args.supportingExcerpt, "explain");
+    groundedExcerpt(input, args.supportingExcerpt);
     await this.requireEligibleItem(input, "explain", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const explanation = await this.controls().explain({

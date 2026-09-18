@@ -134,7 +134,7 @@ export const TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS = Object.freeze({
   candidatesExamined: MAX_CONTROL_TARGETS,
 });
 
-export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain";
+export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain" | "correct";
 
 export interface TelegramMemoryTargetFinder {
   findControlTargets(input: Readonly<{
@@ -817,6 +817,9 @@ function targetStates(operation: TelegramMemoryTargetOperation): readonly Memory
   if (operation === "forget") return Object.freeze(["active", "proposed"]);
   if (operation === "lift") return Object.freeze(["forgotten"]);
   if (operation === "confirm") return Object.freeze(["proposed"]);
+  // Only a current wording can be replaced; the transition guard has no edge
+  // from any other state into 'superseded'.
+  if (operation === "correct") return Object.freeze(["active"]);
   return ALL_MEMORY_STATES;
 }
 
@@ -1801,7 +1804,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
   }>): Promise<readonly Ulid[]> {
     const principalId = safePrincipal(input.principalId);
     if (input.operation !== "forget" && input.operation !== "lift"
-      && input.operation !== "confirm" && input.operation !== "explain") {
+      && input.operation !== "confirm" && input.operation !== "explain"
+      && input.operation !== "correct") {
       throw new TypeError("telegram_memory_target_invalid");
     }
     const states = targetStates(input.operation);

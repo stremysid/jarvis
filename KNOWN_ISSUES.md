@@ -201,9 +201,23 @@ integration work must resolve these limits before enabling the affected callers:
   excerpts, and forget/lift replays require the exact current transition, but an
   unchanged accepted command can still be completed much later. Define a durable
   expiry policy before command-retention or delayed-queue work.
-- **N8:** each remember, explain, forget or lift request accepts exactly one
-  resolved target. The future adapter must state that limit and ask the owner to
-  disambiguate or repeat multi-target requests rather than silently selecting one.
+- **N8:** each remember, explain, forget, lift or correct request accepts exactly
+  one resolved target. The future adapter must state that limit and ask the owner
+  to disambiguate or repeat multi-target requests rather than silently selecting
+  one.
+- **Correction N1:** a correction appends two owner commands before its memory
+  write, because the transition trigger binds one command to one transition: one
+  authorizes the replacement item and one authorizes the retirement. Append
+  replay is per command, so a failure between them leaves one command and a retry
+  completes the pair, and the memory writes stay in one D1 batch. A correction
+  whose commands are accepted and then never retried therefore holds that turn's
+  mutation key without changing memory, the same exposure Round-2 N2 records for
+  a single command.
+- **Correction N2:** the `targetStates("correct")` narrowing in the retriever is
+  not covered by a test. It only limits which previously referenced items the
+  finder offers, and the control service refuses a target whose lifecycle state
+  is not `active` before any write, so removing the narrowing changes no
+  observable outcome. The transition trigger is the real boundary.
 - **Round-2 N2:** a forget or lift that loses a race after its owner command is
   appended leaves an unapplied command and consumes that turn's mutation key.
   The adapter must ask the owner to repeat the request, or a later storage slice
@@ -571,6 +585,50 @@ The `page.facts.length > MAX_FACTS_PER_PAGE` cap at line 188 is what bounds
 this loop, and it is itself untested — deleting it leaves the projection suite
 green. Without it the 64 KiB body limit alone would admit roughly 300 minimal
 facts at 8 sources each, about 2,400 revalidations in one request.
+
+## Fact projection is filtered on read but not scrubbed or refused on write
+
+Filed from audit finding B-4, closed as far as the model context goes by the
+read-time anti-join added in "Memory: pin the forgetting guarantee at every
+layer". `memory_fact_projection_facts` is a second copy of a turn: the
+publisher re-projects its whole local snapshot every cycle, so a fact distilled
+from a turn the owner later asks to forget is re-uploaded in every later
+version, and the copy had no suppression reference at all.
+
+What is closed: `D1ContextRetriever` (`context-retriever.ts`) now anti-joins
+`memory_active_event_suppressions` over every entry of `sources_json` inside
+the `eligible` CTE, before `LIMIT`, exactly as it already did for history. One
+named test pins it — *"does not return a projected fact whose cited turn the
+owner asked to forget"* — and neutering the anti-join fails that test and only
+that test. All eight cited sources are checked rather than `primary_event_id`
+alone, because the source list is what the client sends and the primary event
+is only its first entry.
+
+What is **not** closed, and must not be read as closed:
+
+- **Already-published rows are never scrubbed.** `memory_fact_projection_facts`
+  aborts every `UPDATE` and refuses `DELETE` while its version is published, so
+  a fact that was published before the forget stays in the table, in
+  `memory_fact_projection_fts`, and in the page JSON. The gateway no longer
+  returns it to a model, but any future reader of those tables that does not
+  re-apply suppression would see it again. Nothing rebuilds them from D1, and
+  the whole projection is classified as rebuildable operational state, so it is
+  not in the backup either.
+- **The write path still accepts it.** `sync/memory-projection.ts` never
+  consults suppression in `verifyPageSources` or at commit. Refusing there
+  would need a client-side quarantine path that does not exist: the local agent
+  treats only `memory_projection_content_rejected` as abandon
+  (`sync/cloud_client.py`), so any other refusal would retry forever, and no
+  refusal can remove a copy that is already published. A write-side guard
+  therefore belongs with the client contract, not ahead of it.
+- **Reachability.** The only intended client is the Linux-only local agent that
+  was never provisioned, so no device is expected to upload today. The route
+  itself is signature-gated but publicly addressable, so any enrolled device
+  holding an active key and the sync secret can create a projection.
+
+Follow-up: give a published projection version a retirement path (or rebuild
+the projection after a forget), then decide whether the client contract grows a
+quarantine/abandon path so the write side can refuse a suppressed source.
 
 ## CI type-checks only Windows, so every Linux branch is invisible to mypy
 
