@@ -72,8 +72,12 @@ slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 #52 reserves `0024_university_application_workflow.sql`, and PR #56 merged
 `0025_archive_literal_history.sql`. Draft
 [PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) uses the next free
-name, `0026_memory_distillation.sql`. No migration after `0015` has been applied
-by this R2 work. The Sid-attended scratch remote-D1 proof remains mandatory
+name, `0026_memory_distillation.sql`. **STALE — this said "No migration after `0015` has been applied by this R2
+work." Production is at `0034`.** Verified read-only against production D1 on
+2026-09-18: `SELECT COUNT(*), MAX(name) FROM d1_migrations` returns **34** and
+`0034_scheduled_run_detail.sql`, with no gaps. The sentence was true when
+written and went nineteen migrations stale. Query it; never quote a migration
+level from prose. The Sid-attended scratch remote-D1 proof remains mandatory
 before any production apply; follow the
 [migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
 
@@ -120,8 +124,9 @@ in its own later PR and is not part of #16.
 
 This item added `0014_memory_projection.sql`, including projection tables,
 publication/abandonment guards and an FTS index. Local migration `0004` adds
-quarantine and restart-safe rejection recovery. Production applied 0014 before
-gateway deployment `28109492`; no cloud migration remains pending through 0015.
+quarantine and restart-safe rejection recovery. **STALE — this said production applied `0014` and nothing remained pending
+through `0015`.** Production is at `0034` as of 2026-09-18, verified against
+`d1_migrations` directly.
 Do not start the historical uploader; R2 no longer depends on a device
 projection or node.
 
