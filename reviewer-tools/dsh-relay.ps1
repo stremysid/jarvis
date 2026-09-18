@@ -27,8 +27,18 @@ $prompt  = Join-Path $scratch "relay\$Name-prompt.txt"
 $log     = Join-Path $scratch "relay\$Name.log"
 $out     = Join-Path $scratch "relay\$Name-attempt1.log"
 $patch   = Join-Path $scratch "dsh\no-telemetry.yml"
+$builder = 'C:\Users\Sid\.dsh\.agent-presets\jarvis-builder\agent.cordis.yml'
 
-if (-not (Test-Path $prompt)) { throw "no prompt file at $prompt" }
+if (-not (Test-Path $prompt))  { throw "no prompt file at $prompt" }
+# The Jarvis Builder preset carries the standing rules: Windows/pwsh only,
+# worktree-only and never the live checkout, verify-do-not-trust,
+# mutation-verified guards, the four known-failing hermes-runtime tests, and
+# the end-of-task AGENT_LOG entry. Until 2026-09-18 this script did NOT layer
+# it, so every headless builder ran on the default composition and those
+# rules existed only in whatever the brief happened to repeat. Presets are a
+# web-UI concept and headless has no flag for them, so it goes in as a
+# --patch, exactly as dsh-audit.ps1 does with the auditor.
+if (-not (Test-Path $builder)) { throw "no builder preset at $builder" }
 
 $key = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY','User')
 if (-not $key) { throw 'DEEPSEEK_API_KEY is not set for this user' }
@@ -65,7 +75,8 @@ $start = (Get-Date).ToUniversalTime().ToString('HH:mm')
 "=== dsh attempt 1 start $start (effort $Effort)" | Out-File -Encoding utf8 $log
 
 Set-Location $WorkDir
-& npx.cmd --yes '@deepseek-ai/dsh' --profile headless --patch $overlay $task 2>&1 |
+# Preset first, run overlay second, so the model and effort pins still win.
+& npx.cmd --yes '@deepseek-ai/dsh' --profile headless --patch $builder --patch $overlay $task 2>&1 |
   Out-File -Encoding utf8 $out
 $code = $LASTEXITCODE
 
