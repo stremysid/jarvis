@@ -64,7 +64,13 @@ raw name → `readCapabilityTier` finds no row → `denied_unknown_capability` �
 gate refuses, and the honest-refusal fallback is what Sid would see.
 
 **The gate is behaving exactly as designed.** Failing closed on an unclassified
-tool is the property that makes it worth having. The map is what is stale.
+tool is the property that makes it worth having. The map is what is stale, and
+the fix is a capability-map row — **not a change to the gate.**
+
+**This only surfaced because the branch was tested MERGED onto today's `main`.**
+On the branch alone the map has eight entries and eight dispatchable tools, so
+every test passes and nothing is wrong. The defect exists only in the
+combination. Testing a branch in isolation would have shipped it.
 
 The fix is one line — `memory_correct: "memory.write"` — and **needs no
 migration**, because `0035` already seeds `memory.write` at tier 1.
@@ -138,6 +144,16 @@ Sid's actions, neither is mine.
 - **`0035` is the next free number in production**, not just on main.
 - [R] Handoff §4.4 gives the reviewer tooling head as `d4f5aa2`; the working
   copy is at **`cfd8d55`**. Stale, like every sha in prose.
+
+### PR #84 — triaged and closed as superseded
+
+Open and never triaged since 2026-09-17. Closed, with the reasoning on the PR.
+It adds a receipt-bound gate that **inspects reply sentences**; `main` already
+carries the same guarantee built the other way — `unsupportedClaims` works from
+`reply.claimedActions`, so **the model declares what its reply claims and code
+verifies each receipt id against the receipts actually produced.** I read that
+mechanism on `main` rather than taking the status board's word for it. Sentence
+matching is also the design Sid ruled out on 2026-09-17. Reopenable.
 
 ### Housekeeping
 
