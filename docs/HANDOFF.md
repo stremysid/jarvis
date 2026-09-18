@@ -1,730 +1,497 @@
 # Handoff
 
-Current as of **2026-09-16**. Verify the current branch and checks before
-using this checkpoint. R0 passed; calling remains R1.
+**Current as of 2026-09-18, `origin/main` = `6febf32`.**
 
-PR #25 merged as `fd39301` after max review. Production D1 now has migrations
-through 0015, and gateway deployment `28109492` runs that commit. Health answers
-200 and the first observed cron succeeded. Inbound calling is unavailable
-because Twilio is not configured; outbound calling is separately disabled by
-`outbound_runtime_controls.enabled = 0`. The release gate still requires the
-retained live-call evidence.
+This document replaces the previous handoff entirely. It is written to be read by
+a session with no memory of what came before — human or model — and it is
+deliberately blunt about what has been verified and what has not.
 
-## R5 school and university checkpoint
+Read this file, then [docs/ARCHITECTURE.md](ARCHITECTURE.md), then
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md), then [AGENTS.md](../AGENTS.md) for the
+traps. `docs/AGENT_LOG.md` is the running mailbox between builder and reviewer;
+its top entries are the most recent truth, and this document summarises rather
+than replaces it.
 
-PR #51 merged as `10d4cd7`. Draft
-[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) extends the merged
-university tracker with per-program application checklist items, plain-speech
-owner updates, and the next five unfinished application items in the morning
-digest. Dates retain the existing verified/unverified rule; submitted means
-only that Sid said he submitted the item. The additive
-`0024_university_application_workflow.sql` migration is not applied. `0023`
-belongs to the merged study-coach slice and is also unapplied. This draft performs no
-submission, upload, school/referee contact, purchase, sign-up, migration,
-deployment or live request. Claude Opus 5 max review requested changes at
-`3388c39`, and the round-3 max review requested further changes at `12a7bbf`.
-Implementation `d5f5ede` plus current-main merge `f2d5c9f` is ready for max
-re-review. The final merged tree passes lint, production typecheck, 52/52
-migration-focused tests and the full 166-file/3,591-test suite. Deferred
-cross-layer and presentation limits are listed in `KNOWN_ISSUES.md`.
+---
 
-## R5 study coach is merged
+## 1. What Jarvis is meant to be
 
-PR #51 merged as `10d4cd7` and completes the Brightspace step-3 feed work
-without setting its secret or making a live request.
-[PR #53](https://github.com/ksid1229-ops/jarvis/pull/53) merged as `9b900fe`
-with the first proactive
-study-coach slice on the existing Telegram conversation: evidence-backed
-per-course weak areas, one quiet daily check-in when evidence changes or is due,
-cited owner-topic/course-card practice, and direct-owner-only correction and
-forget. Its additive `0023_study_coach.sql` is unapplied. The operational record
-stays separate from R2 until a later reviewed integration, and spoken quizzes
-wait for R1 calling. Draft PR #52 independently owns migration `0024` for the
-university application workflow. No school account, secret, deploy, migration,
-contact, purchase, submission or live request is authorized by that draft.
+The owner's words, 2026-09-18:
 
-## R1 is active; R2 automatic-distillation slice is in draft review
+> "This should just be an AI that I can call and chat with, who also has access
+> to tools so it can do things for me. Literally THIS CHAT, but if I said hey
+> send an email to blah, or check my Google Classroom, or warm up my Tesla, or
+> do this on my PC."
+>
+> "IT'S JUST AI WITH EXTENDED HANDS. AN AI OUTSIDE THE SANDBOX."
+>
+> "Like a human. My brain knows what to do and uses the tools to do it — tools
+> as in my body."
 
-R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
-PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
-`/call`, with local Windows validation and mutation evidence recorded in the
-PR. PR #25 composes the production Worker and is now merged and deployed.
-Inbound remains unavailable without Twilio configuration, while outbound also
-requires explicit control activation.
-The real release runner passes its local prerequisites and then refuses the
-missing live evidence. It never places a call itself.
+The design rule that follows, and the test to apply to every feature:
+**he talks, the model works out what he meant, tools do the rest.** Any place he
+must phrase something a particular way is wiring that is wrong. Code holds only
+**reflexes** — things the model must not be able to do however convinced it is —
+and **receipts** — what actually happened.
 
-Production also has no owner voice `channel_identities` row and no
-`voice_owner_identity` singleton, so Twilio configuration alone cannot make a
-call pass admission. The reviewed proposal compares three enrollment designs
-and records Sid's selection of Option 1:
-[`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
-No original sealed key was found on the intended home PC, so Sid chose a newly
-generated home-PC key and a separately reviewed, owner-executed replacement of
-the active production device row before phone work. The next order is: merge
-and configure the Option 1 route; deploy it with the inbound webhook closed;
-then perform the reviewed device-key replacement and prove it through the
-deployed non-disclosing preflight; require first phone status `absent`; then
-configure Twilio and run the attended enrollment window.
-Twilio configuration is required before enrollment can finish, and setting
-the production voice webhook makes inbound live: the outbound runtime control
-does not gate inbound calls. Unknown callers are refused but may still incur
-provider charges. The proposal authorizes implementation planning only; each
-production key change, live call, secret change, migration, and deployment
-remains a separate owner-confirmed action.
+Named requirement: store everything, automatically remember what matters, recall
+anything on request, and **no homework** — he should never have to file, tag or
+manage anything.
 
-R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
-before merge. Item 1's real Worker/runtime composition is now on `main`. Its
-first checkpoint
-installs a lazy production Durable Object runtime using the real D1 access,
-activation, conversation, DeepSeek and Telegram services. Nominal proof and
-authority issuers are shared within each reconstructed graph. Configuration
-is validated before runtime effects; initialization and termination remain
-available when provider configuration is missing. The new explicit
-`IDENTITY_CHALLENGE_HMAC_KEY_VERSION` must match challenge issuance and inbound
-admission, and all three peppers must be canonical base64 for exactly 32 bytes.
-The Worker now wires verified voice routes and confirmed Telegram dispatch
-to real adapters; owner configuration and review still gate activation.
-The pre-dial capacity check and telemetry freshness corrections are
-implemented and tested. The owner approved admission through 100% of each
-configured limit, with 85% and 95% warnings. D1/R2 and provider collectors, explicit capacity
-configuration and the durable Telegram alert sink are implemented. New D1
-migration 0015 adds alert crossing receipts, recoverable leases, default-disabled
-outbound controls and atomic admission guards. It adds and backfills a terminal
-evidence column on existing attempts. Production applied 0015 with no existing
-outbound attempts or provider events, so the backfill changed no rows. The default call
-runtime now checks every final conversation turn before fresh access validation
-and durable admission. Interrupted admission releases the slot for a replacement
-prompt; cancelled context retrieval cannot start a model request. Completed
-output can still settle its receipt after interruption without closing the call.
-Persisted outbound controls now cover atomic access/number binding, expiry,
-quiet windows and the two/six admission limits. Final control reads and a
-synchronous clock fence precede dialing. Unknown claims retain their slot;
-affirmative terminal evidence survives archival. Inbound requests are verified
-once before capacity collection; their nominal form is passed to admission.
-Terminal callbacks and socket forwarding do not require model/credit config.
-The max review of #23 at d6c5fc2 requested changes. The fixes at `695e762`
-were carried into PR #25 and cleared before merge. The broad
-relay harness invokes DO methods directly. A separate configured test project
-now exercises the default production factory through the actual DO stub and
-client WebSocket: owner and PIN-authenticated guest turns survive real eviction,
-and a failed credit read closes the socket before another model request or turn.
-Another test drives actual Worker ingress, confirmed Telegram dispatch, signed
-TwiML and callback routes, and closes real sockets after terminal callbacks.
-Only external provider HTTP is stubbed. This does not prove live Twilio delivery.
-The guarantee is stop at the configured limit or provider refusal, not a
-reservation or a bound on later concurrent charges. An admitted call can end
-mid-conversation when credit runs out. The voice runbook identifies each
-measured or estimated source. Voice calls and turns are capacity-gated;
-Telegram text and `/sync/distill` remain ungated. Every resource warns at 85%
-and 95%; an unacknowledged send can retry later but cannot itself refuse work.
-Pre-provider refusals now
-settle claimed attempts as rejected; genuinely uncertain POST outcomes remain
-reserved for owner reconciliation.
-Twilio configuration,
-live calls and redacted live evidence remain owner operations. The item-3
-candidate on `codex/r1-live-smoke-driver` adds the fail-closed orchestration
-driver and fixed local evidence store without performing a live action. The
-driver requires exact operator/readiness, fake-gate and deployed-revision proof
-before one scenario, then binds its correlation ID and commit to the aggregate
-query result. The normal command remains non-live until reviewed adapters and
-boolean prerequisite observations are injected; no live record was generated.
-Item 3 still requires the live smoke. The separate item-4 candidate on
-`codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
-updates the foundation design to the grant-bound guest model, and adds PR
-#28's evidence-store failure regression. Its PIN-free owner wording is
-superseded by the 2026-09-14 owner-passphrase design; live smoke must use the
-later seven-record
-step-up contract, including the answered outbound refusal Sid approved on
-2026-09-16. It does not
-delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. That stored
-secret is already deletable as the separate owner-confirmed step in
-`docs/runbooks/deploy.md`; do not run it during a live call or attended
-phone-enrollment window, never recreate the retired verifier, and assess any
-rollback to a version that reads it first. Neither the live smoke nor that
-owner operation is satisfied by local tests.
+---
 
-Sid selected the device-signed Windows path for enrolling the missing owner
-phone, with a new production device key held on the home PC. PR #29 records the
-decision. PR #30 contains the separate key-replacement runbook and guarded SQL;
-PR #31 contains the non-disclosing key preflight, atomic owner-phone bootstrap,
-fixed status contract and attended rollout runbook. Its current review fixes
-bind both configured owner identifiers, identify the exact inserted challenge,
-salt the phone-bearing request, distinguish local configuration/key/clock/key-
-mismatch failures, and pin the review's repository, route, race, and Windows
-CLI guards. Neither PR performs a live operation. Deploy the configured route
-with the webhook closed before PR #30's production insert and preflight; require
-first status `absent`; configure Twilio; then open one attended enrollment
-window. The Twilio voice webhook is the inbound activation switch; outbound
-controls do not close it. R1 live smoke remains blocked until a fresh signed
-status reports the owner phone active.
+## 2. The fleet and the constraints
 
-The current inbound owner path trusts Twilio's signed `From` number without
-STIR/SHAKEN attestation or another owner factor. Calling is not live. Sid chose
-a spoken phrase on every inbound and outbound owner call, three tries, no
-persistent lockout, and an exact Passed-A waiver built but switched off. PR
-#33 merged at `726b78b` with the reviewed documentation contract. Draft PR
-#37 is the first implementation slice: migration `0017`, the versioned
-verifier, authenticated Worker-side generation and compare-and-swap rotation,
-guarded disable/new-version re-enable storage transitions, known-answer
-vectors, and the attended Windows CLI. Migration `0016` may be applied later;
-Wrangler determines pending work by migration name. PR #37 does not grant call
-authority or open inbound calling; call-session step-up and live acceptance
-remain outstanding. The device-signed begin response also reveals whether a
-supplied number matches stored enrollment state. Both current-code gaps are
-recorded in `KNOWN_ISSUES.md`.
-
-Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux host,
-server or VPS; the home PC is off overnight. The Linux home node was a
-planning-session choice Sid never made and is now historical. Do not port,
-provision or depend on it.
-
-Sid requires the best cloud memory, usable with every PC off, and delegated
-the design. D1 is authoritative for the event ledger, versioned memory items,
-receipts and topic tree. D1 FTS5 and Vectorize are rebuildable indexes;
-full-history recall also walks verified R2 archive segments. Obsidian is only a
-later optional one-way export and is not built or read back in R2.
-
-PRs #35, #36 and #38 merged the extraction policy, topic reducer, evaluator and
-approved design. PR #39 merged additive `0016_cloud_memory.sql` as `0d659bf`;
-PR #42 merged the owner-command ingress boundary in
-`0019_memory_ingress.sql` as `f0bfbe9`; PR #44 merged the reviewed runtime-slice
-plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
-`0022_university_tracker.sql`, while PR #46 merged as `ebb757b` with
-`0021_voice_owner_delivery.sql`, and main now also owns
-`0023_study_coach.sql` and `0025_archive_literal_history.sql`. Open PR #52
-reserves `0024_university_application_workflow.sql`; draft PR #59 uses the next
-free name, `0026_memory_distillation.sql`. No migration after `0015` has been
-applied by this R2 work. The pending migrations still require the reviewed,
-Sid-attended scratch remote-D1 proof before Sid decides on a production apply.
-
-[PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
-with the first slice in
-[`plan/2026-09-15-r2-memory-runtime-slices.md`](plan/2026-09-15-r2-memory-runtime-slices.md).
-It adds the channel-neutral D1 repository for root/inbox bootstrap, exact source
-validation, atomic initial item writes, canonical reads and current-path-first
-topic resolution. It is deliberately uncomposed: no channel adapter,
-archive-complete history index, automatic distillation Workflow, provider or
-scheduled job uses it. It changes no migration and performs no live call,
-provider call, migration application, secret operation or deployment.
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
-with the uncomposed channel-neutral owner-controls service. Draft
-[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) merged as `282f066`
-with slice 2: bounded
-literal-history chunks and complete live/verified-R2 coverage, suppression-safe
-exact provenance results, and a checkpointed exhaustive-search job with counted
-D1 and text budgets. It also preserves immutable source receipts while deriving
-their current archived location after live-event purge. Migration `0025` is not
-applied. Sid will eventually use ordinary speech and text rather than learned
-commands; Telegram and voice intent routing remain later slices.
-
-Draft [PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) builds slice 3:
-the hourly automatic-distillation step reads bounded live/R2 history, revalidates
-stored event envelopes and exact excerpts, applies the existing extraction
-policy and canonical repository, files uncertain or low-confidence items into
-the explicit inbox, and advances its cursor only after the item batch. Migration
-`0026` adds immutable event/item receipts plus schema-enforced count and cursor
-reconciliation. The production job remains visibly provider-disabled: tests use
-only the fake provider, while paid-provider selection and the real token/cost
-ledger wait for separate owner approval and are recorded in `KNOWN_ISSUES.md`.
-Local validation on implementation `0825b8d` passes lint, typecheck, 82 focused
-tests and the complete 165-file / 3,499-test workspace suite. Deleting each of
-the nine `0026` triggers and planting twelve runtime/budget/source faults failed
-named tests before exact restoration. Independent Claude max review is pending;
-no live provider call, deploy, migration apply, secret operation or spend
-occurred.
-
-Reviewer pre-probes on the first ready head exposed that a live event receipt
-could accompany an exact excerpt absent from the event. Fix `052f1fc` now
-validates the canonical event envelope and its row mirrors, derives its live
-channel, and refuses an absent excerpt before the write boundary. The archived
-principal probe did not reach the repository because its fixture failed the
-existing archive seal comparison; the merged design already records that the
-archive catalog lacks principal and event-type evidence, so archived-only
-material remains restricted to uncertain, proposed model memory.
-
-Final local validation on implementation head `052f1fc` passes the two focused
-repository files (17 tests), workspace lint and typecheck, and the complete
-workspace suite (148 files / 3,094 tests) with Vitest bounded to four workers.
-The repository's known non-gating test typecheck has no error in the new memory
-source or tests. All eight final-source faults were caught, including exact
-live-excerpt provenance, then the source file returned to SHA-256
-`e3c668563ee074abd3294688a437892b117c9936146ab95d1dc69b3f96b5ead7`.
-This is local evidence only; independent Claude xhigh review is pending and no
-live acceptance is claimed.
-
-PR #16 at `27b232f` has completed the reviewer's requested changes. The
-reviewer independently verified migration byte identity, all five trigger
-mutations, 2,146 workspace tests and 807 Linux local-agent tests. Sid's
-2026-09-13 Windows runs subsequently reported 789 local-agent passes / 32
-skips, 2 deployment-script passes, and 33 byte-exact files unchanged by
-checkout. Hermes has three known failures on his Store/MSIX PowerShell
-layout; that independent R3 issue does not block #16 and is not fixed here.
-These are owner/reviewer reports, not reruns by this builder. No further
-implementation is requested on #16. Sid merged #16 on 2026-09-13 at
-`b6f3542`. Production applied 0014, verified exactly 21 projection triggers,
-and deployed gateway `28109492` from `fd39301`. Do not start the node; local
-uploader acceptance remains behind the platform decision.
-
-Sid's real Windows suite exposed Hermes' MSI-only PowerShell path: the trusted
-host lookup rejects his Store/MSIX installation. This is deferred R3
-[issue #24](https://github.com/ksid1229-ops/jarvis/issues/24), not a PR #16
-blocker. No Hermes implementation changed. The Codex command host is a bundled
-PowerShell installation, so local command success does not reproduce Sid's
-installed Store host or clear the reported Hermes failures. Prefer evidence
-from the actual target environment over runner layout assumptions.
-
-PR #16 and PR #23 both edit NEXT_STEPS, AGENT_LOG and this document. Whichever
-merges second must preserve both milestones' current state and all log entries.
-
-GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
-enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally
-and record the results in each PR; do not retry Actions, disable jobs or
-restructure CI to bypass the quota. CI path filtering can be considered
-when CI is next intentionally changed; it is not part of this work.
-
-## R2 item 3 historical accepted baseline
-
-**Superseded platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
-iPhone 16; there is no Linux host, server or VPS. The home PC is off overnight.
-The current Linux-only node cannot run on his machines. Sid later chose cloud
-memory and confirmed that he never chose the Linux node. The node and its
-runbook are historical; carry forward only the requirement that memory works
-with every PC off. PR #22 records the earlier correction in `CLAUDE.md`; its
-mode-0700 check remains POSIX-only historical evidence, not Windows ACL
-enforcement.
-
-The platform-independent review fixes are pushed at `f1958c4`. GitHub Actions
-run 34721781316 did not start any of its seven jobs because of an account
-billing/spending-limit restriction. This is not current-head CI validation;
-the local results below remain the available evidence. No billing setting or
-workflow check was changed.
-
-The follow-up after `2e5da79` adds five direct migration-trigger regressions and
-two FTS recovery cases. Removing each named trigger from migration 0014 fails its
-own test; removing the exercised rebuild command fails both forged/missing-match
-cases. The migration is restored byte-for-byte and has no diff from `4764d9b`.
-The FTS cleanup test inspects postings directly instead of letting the base-table
-join hide them. Recovery uses the real retriever and preserves facts, heads and
-receipts. The runbook now documents rebuilding the derived index, the default
-integrity-check limitation, and the decision to retain the existing base-table
-join rather than add a second per-query tokenizer or scan.
-
-Pre-merge rollout review must read this newly introduced runbook from the PR
-branch, not `main`. Its mode-0700 preflight is explicitly POSIX-only; the Linux
-shell commands do not validate Windows ACLs. After applying 0014 and before
-deploying the gateway, the owner must count exactly 21 projection triggers.
-Local validation passes 105 focused tests and all 2,146 workspace tests across
-109 files, lint and source types. The separate test typecheck has 119 diagnostics
-outside the two changed files and none inside them. Current-head CI and review
-status are recorded on PR #16. No production code or migration changed in this
-follow-up, and no live operation or merge was performed.
-
-Review remediation after `78e8e89` is implemented. The early pushed checkpoint
-`f8666f9` passed all seven CI jobs, including Linux's real node SIGKILL/restart
-and live-duplicate test. Startup names an occupied endpoint and gives conditional
-manual recovery instructions; the runbook puts stale-endpoint removal before
-restart. A failed, unaccepted enqueue no longer sets a persistent storage alarm.
-New store-directory components are all created as 0700 and validated. Invalid
-control-response shapes and encoding failures return a fixed refusal while the
-control service remains usable.
-
-The latest local Python suite passes 789 tests / 32 Windows platform skips,
-with Ruff and win32 mypy clean. Seventeen targeted mutations were caught and
-restored. Added coverage pins transaction boundaries, recovered-work wakeup,
-shutdown admission, mode=rw, all three reviewed migration 0005 constraints,
-per-device retention, and memory write locks staying outside cloud requests.
-No migration contents changed in this round. A fresh read-only same-vendor
-advisory review found no further issues in the inspected delta; it does not
-replace independent Claude review. Final-commit CI and publication status are
-recorded on PR #16.
-
-The follow-up after `a9b73fb` bounds the retry reply wait and returns an explicit
-queued acknowledgement while a cloud call is in flight. Local command work wakes
-without running a cloud cycle; only a successful scoped quarantine delete asks
-for one. Status reports pending and recent retry results, including failures and
-stop cancellation. Local migration `0005_projection_retries.sql` persists accepted
-requests and their outcomes in the memory store. The cycle thread commits the
-delete and receipt atomically; queued work resumes after abrupt restart, and
-recent history survives with distinct request IDs. Retention uses completion
-order, so an older request finishing late remains visible. A receipt-storage
-failure keeps queued work available for later existing boundaries without a
-hot retry loop. The runbook retains the stopped-node exact SQL fallback.
-Atomic admission limits each owner to 256 pending requests so all accepted work
-fits in status; excess new requests receive `retry_queue_full`, and duplicate
-pending requests retain their IDs. Request flags and wake signals share the
-same lock so a delayed local signal cannot bypass the cloud backoff deadline.
-
-The gateway now returns retryable 409 for `device_key_changed`, the race between
-the verified-key read and nonce write. `device_key_invalid` remains 401 and a
-deliberate stop because it means the stored enrolled key/fingerprint is corrupt.
-Only the reviewed `memory_projection_device_state_changed` D1 trigger may turn
-storage text into a permanent status; future trigger names remain generic 400.
-Promotion-stage authentication is mutation-pinned. Quarantine deletion scope and
-both fact-id guards now have dedicated regressions.
-
-Existing POSIX store parents are refused if they are not private; startup never
-chmods an owner-selected directory. The permission error names the manual chmod
-command. The runbook now requires an archive/memory/vault/vector parent-mode
-preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
-0600. The existing embedding compatibility check creates its own candidate
-directory with 0700 so it obeys this same policy. The preceding checkpoint's
-local validation was Python 757 passed / 31 skips, Ruff, win32 mypy for all 55
-source files and diff checks.
-The 40 earlier guard mutations and 11 follow-up mutations were caught and
-restored. Its Linux CI passed the actual slow-cloud Unix socket and POSIX
-permission cases. Main `1fc8187`, including merged PR #21's Hermes close fix,
-is incorporated here. Current validation is at the top of this section and on
-PR #16.
-
-The gateway authenticates signed bytes before endpoint validation, so an
-unauthenticated request cannot invoke projection policy or distillation model
-work. Sync status uses exact closed codes; a raw `request_nonces` storage error
-remains retryable 400, while genuine auth/device-state failures retain 401/403.
-Deterministic invalid fact text receives the signed abandonment classification,
-authenticated content rejection is logged without submitted text, and a page
-write race returns retryable 409 instead of device revocation. Python and
-TypeScript exercise shared 4,096-byte/eight-source bounds.
-
-Distillation now refuses excerpt controls and non-ULID source ids before prompt
-rendering. The node skips these ineligible raw excerpts without rewriting the
-archive, and selection/progress use one scan so rejected events cannot consume
-the valid-excerpt limit or cause repeated batches. Superseding a quarantined fact
-is covered across re-projection: the active count becomes zero while its retained
-quarantine record remains. Both state-filter mutations fail that regression.
-
-Fact text now rejects controls and Unicode line separators at both producers,
-upload validation and the D1 boundary. Provider context quotes/escapes each
-entry, including multiline history, so content cannot add a rendered entry.
-Python and TypeScript execute one shared redaction-vector file covering
-ECMAScript whitespace and ASCII boundary/case semantics. Page rejection still
-quarantines the page as a unit; completed projection cycles expose the exact
-active quarantine count through node status.
-
-The follow-up addresses permanently stalled projection: distillation now shares
-the 4,096 UTF-8-byte/eight-source bounds and refuses text requiring redaction.
-Legacy unrepresentable facts are quarantined individually. Definitive gateway
-content rejection records durable local recovery and signs an exact-manifest
-abandonment, leaving published memory intact. D1 abandonment receipts prevent
-delayed pages from resurrecting the rejected stage. Unknown HTTP 400/network
-errors remain resumable. Quarantine and pending recovery have distinct node
-status messages. Local migration `0004` stores the quarantine/recovery metadata;
-cloud migration `0014` also includes the abandonment guards. Current validation
-and the pending independent review are recorded on PR #16.
-
-Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
-at `94575fb`, including the client lifecycle fixes and direct completed-token
-wire regression. That main commit is incorporated into
-`codex/r2-fact-projection`. The gateway accepts signed, bounded active-fact
-pages, validates their source events in D1 or the verified R2 archive, and
-publishes a complete manifest atomically. SQL version/head transitions require
-the exact immutable commit receipt; published contents reject direct additions,
-edits, deletion and replacement, including replacement by fact rowid. Cleanup
-after a newer commit and staged expiry/key rotation remain permitted. Removing
-each of ten guards and the fact-rowid predicate fails its direct-SQL regression.
-The Python uploader persists an
-immutable snapshot before HTTP and resends every page after interruption,
-advancing only on an exact commit receipt. Local memory migration `0003`
-adds its durable pending pages and publication cursor. Earlier Python validation
-was 686 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
-now combines matching published facts with recent turns, enforces active
-principal/device ownership and a shared byte/item budget, and keeps the most
-restrictive sensitivity across device duplicates. History stops at the first
-over-budget turn to preserve its contiguous newest suffix; deferred facts can
-use the remaining space and skip independent oversized candidates. Keyword
-mutations fail the three regressions for these boundaries. Earlier workspace
-validation was 2,112 passed / 109 files, with lint and source types clean. Removing both
-publication predicates exposes staged facts and fails the regression; removing
-the device-status predicate exposes a revoked fact and also fails. All guards
-were restored before the full suite.
-
-The merged bootstrap now runs the uploader. An owed immutable projection is
-retried after event sync/ACK recovery and before new distillation. The current
-active snapshot is published after promotion. Node tests verify signed wire
-requests, unchanged later cycles, exact retry after process reconstruction,
-and shutdown with a pending page. Disabling the node binding, retry call, or
-stop callback fails those boundary tests. Authentication rejection stops the
-service; transient failure keeps pending work durable for retry. The reviewed
-ACK recovery implementation remains unchanged.
-
-Current-head checks and review status are recorded on PR #16. Its live-data
-migration requires Claude Opus 5 at max under the current BUILDING rules.
-Item 4 semantic
-search is a separate future PR and is not included here.
-See the [fact projection runbook](runbooks/fact-projection.md) for rollout and
-owner acceptance. The earlier sections below are historical R0 evidence.
-
-**Production schema change:** `0014_memory_projection.sql` adds projection
-storage, publication triggers and FTS indexing. It does not backfill facts
-or alter existing event rows. At owner deployment, apply and verify this
-migration on live D1 before publishing the gateway and enabling the uploader.
-Merging, production migration, deployment, and live acceptance remain Sid's;
-local D1 tests establish none of those actions.
-
-## R2 item 2 merged baseline
-
-PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
-base for [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
-`codex/r2-unix-node`, which continues the Unix control socket and foreground
-`jarvis node` bootstrap. Transport code was pushed early after local checks;
-Ubuntu CI passed 525 Python tests (14 skipped) at transport checkpoint
-`1ce74d1`. This is evidence for that checkpoint, not a claim about the final
-bootstrap or the provisioned server. See PR #13 for current-head validation.
-
-Review at `996e6ec` confirmed two merge-blocking client lifecycle defects:
-completed snapshot reuse on later cycles, and pending ACKs that could not be
-sent by a reconstructed client. Core fixes stage snapshot identity with the
-events and cursor and validate the ACK receipt before clearing it. Boundary
-tests cover terminal, empty and nonterminal pages across cycles and a disk
-archive reopened with a new signed client. Expired ACK recovery now retries
-the original ACK first, refetches exactly its range on refusal, compares every
-archived field, and commits replacement metadata before sending the new ACK.
-The cursor and events remain unchanged, and stop checks preserve a pending ACK
-between requests. A direct HTTP-client regression also makes two pulls without
-an intervening ACK and checks that a completed nonempty page's token is absent
-from the second request. Replacing the `has_more` guard with `True` fails that
-wire assertion. Python validation is 557 passed / 20 Windows platform skips,
-with Ruff and win32 mypy clean. All seven CI jobs passed at `719d4ee` before
-Sid merged PR #13 at `94575fb`.
-
-GPT-5.6 Sol xhigh builds R2 under the current BUILDING rules. Because this item
-contains a live-data migration, its review requires Claude Opus 5 max. Sid
-retains merging and the live systemd check. Item 3 is isolated in
-[PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
-D1 migration and version-order regression. No production operation was run.
-R0's observed exit evidence below remains valid and R1 remains open.
-
-## Earlier R0 branch and review
-
-[PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) was reviewed by Claude
-Opus 5 high at `fab6d25`, retargeted to main, and merged by Sid as
-`ffa3ecd`. [PR #7](https://github.com/ksid1229-ops/jarvis/pull/7) recorded the
-deployment and merged as `2b506c8`. Its documentation retained some older
-draft/review/deployment holds; this checkpoint removes those contradictions.
-The current follow-up branch is `codex/r0-live-acceptance-checkpoint`, based
-on `2b506c8`. The active checkout remains the Codex task's `work/jarvis`.
-The builder must not merge or repeat the owner's deployment.
-
-Codex completed the cross-vendor review of Claude's PR #5 escalation:
-**no merge blocker**. See the [immutable-head review](reviews/r0-pr5-edac272.md)
-for security, temp-path equivalence, cleanup-handle evidence and the exact
-uv interpreter pin. CI run 34553801860 was observed green on that head:
-seven jobs, Hermes 108, workspace 1,935, watchdog 113. Manual extended
-Hermes suites remain unrun. These results supersede the old CI blocker.
-
-## R0 items 6 and 7 implementation
-
-- Gateway GET `/health` now calls the existing coarse liveness handler;
-  HEAD is bodyless. An independent existing limiter supplies 30 probes per
-  minute per isolate. No private readiness snapshot or D1 read is exposed.
-- Watchdog `WATCHDOG_REQUIRED_COMPONENTS` defaults to `cloud-gateway`.
-  Missing rows enter the existing alert/recovery flow without invented
-  heartbeats. Invalid lists fail configuration health. Required names outside
-  a bounded component page are looked up before being declared missing.
-- The existing hourly `poll` job calls the existing archival service for
-  one bounded segment before optional GitHub work. It runs without GitHub
-  configuration. Retention, verified readback, sealing and purge checks stay
-  in that service. An upload failure fails the hourly run.
-- [The deployment runbook](runbooks/deploy.md) includes the separate numbered
-  UptimeRobot owner actions: HTTPS GET on the watchdog URL, every five
-  minutes, non-200 alerts to Sid's verified notification destination.
-
-No new service, cron expression, schema, runtime pin, security bypass, or
-gateway import in the watchdog was added. The three old unrelated-route
-tests retain their 501 assertions on an unknown path; explicit health-route
-tests now cover the intended change.
-
-## Validation and next gate
-
-Lint and source typechecking pass. Workspace 1,942/1,942 (107 files) and
-watchdog 119/119 (8 files) pass. Both named deployment scripts completed
-local Wrangler dry-runs successfully; neither published. Mutation checks
-remove the health route, archival call and
-must-report argument in turn: 3, 3 and 2 tests fail respectively. All
-mutations are restored. Follow-up CI is tracked in
-[PR #6 checks](https://github.com/ksid1229-ops/jarvis/pull/6/checks); verify
-the newest head there. PR #5's green run is not evidence for this branch.
-The gateway test-type command reports **122**
-errors on both this branch and an isolated checkout of `edac272`, with
-none in the changed files. The earlier 117 count is stale.
-
-Claude's PR #6 review independently reproduced both suites and all three
-mutation results and found no merge blocker. That code review gate is
-complete. Current main `2b506c8` has
-[green CI, all seven jobs](https://github.com/ksid1229-ops/jarvis/actions/runs/34564221873).
-Non-blocking notes about the hourly claim, non-empty must-report list,
-absent-row suppression and bounded fallback reads do not call for new R0
-services or a change to the reviewed code.
-
-## R0 item 5 is done: both Workers are deployed
-
-**2026-09-11.** Sid merged PR #5 and PR #6. CI on `main` at `ffa3ecd` is
-green across all seven jobs -- the first green `main` since 2026-09-02.
-
-Migrations `0008`-`0013` were applied to the production `jarvis` database at
-04:39 UTC and verified by querying `d1_migrations` directly. `0001`-`0007`
-were already applied on 2026-09-02; there was no partial or unexpected
-state. Every one of the six is purely additive, so no existing row was at
-risk.
-
-Initial publication from the reviewed commit (historical version IDs):
-
-| Worker | Version | Triggers |
+| Device | OS | Notes |
 |---|---|---|
-| `jarvis-cloud-gateway` | `daffbf21-9310-41c5-8cfe-14a5dac606ff` | `*/5 * * * *`, `0 * * * *`, and the two daily pairs |
-| `jarvis-watchdog` | `a6c743df-02c0-44f0-96c9-3e9da50e01f4` | `*/5 * * * *` |
+| Home PC | **Windows 11** | On all waking hours, **off overnight** |
+| Laptop | **Windows 11** | |
+| Phone | **iPhone 16** | |
+| Car | Tesla | Separate integration, not a host |
 
-Gateway liveness was verified against the live deployment: `GET /health`
-returns 200 `ok`, `HEAD` returns 200, and any other method returns 405. It
-returned 501 before this deployment.
+- **There is no Linux machine and he has never used one.** A `systemd`, `chmod`
+  or bash instruction is not something he can run. Do not plan for a Linux host.
+- **Anything that must survive the night lives in the cloud.** "Always-on" means
+  "on except overnight".
+- Grade 12 in Ontario, behind after surgery, **university applications due
+  around now**. School is the top priority after foundations.
+- Cost-conscious. **GitHub Actions is out of budget until 2026-10-01.**
 
-Watchdog liveness returned 503 `no_cycle_recorded` immediately after
-deployment, which is correct before its first cron. That response also
-confirmed `database: bound` and `alertChannel: configured`. The latter
-means both settings are present, not that the bot credentials or alert
-delivery are valid. PR #7 separately records an observed DOWN alert.
+---
 
-The watchdog has its own Telegram bot, separate from the gateway's, and its
-heartbeat secret is set on both Workers.
+## 3. Where the work stands
 
-Read-only follow-up on 2026-09-11 independently verified all six migration
-rows at 04:39:26-27 UTC. Current deployment metadata has newer versions:
-gateway `72571927-4afb-428f-9b78-defb1392ff26` at 05:06:25 UTC and watchdog
-`84231e21-5535-4894-8c92-14bd1b9fc3a5` at 05:06:20 UTC, each at 100%.
-Only binding names/presence were inspected, never secret values.
+### Revisions and deployment
 
-At 05:11 UTC, D1 showed successful gateway drain runs through 05:10 and an
-hourly poll at 05:00. The watchdog self-row advanced to 05:10:19.621 UTC,
-but there was no `cloud-gateway` liveness row and its 04:55 DOWN alert
-remained open. Thus the real cron runs are observed, but gateway heartbeat
-delivery is not yet established. Do not dismiss a continuing missing row
-as the initial deployment alert, and do not fabricate a heartbeat.
+| | |
+|---|---|
+| `origin/main` | `6febf32` |
+| Migrations on main | **34**, `0001`–`0034`, no gaps |
+| Production D1 | through **0032** applied and verified (reviewer-confirmed) |
+| Production Worker | `c46e6c89` from `832b1e8` (reviewer-confirmed) |
 
-A filtered trace of the real 05:15 gateway cron reported
-`sent: false, reason: rejected, detail: status 404` at 05:15:20 UTC.
-No request headers, bodies or credential values were retained. An external
-unauthenticated POST to the correct public `/heartbeat` endpoint returned
-401 at 05:19:30 UTC. This does **not** establish a shared-secret mismatch:
-the configured request receives a different status. Worker secrets cannot
-be read back. Two URL re-sets, one interactive and one piped, changed
-nothing -- because the stored value was never the variable. The cause was
-Worker-to-Worker fetch routing; see KNOWN_ISSUES.md. No attempted production
-fix was made here.
+**Unapplied migrations are a standing hazard, not a detail.** Code on `main`
+reads tables production may not have. Establish what is applied before any
+deploy. Do not infer production state from prose — see §9.
 
-Independent HTTP checks at 05:16 UTC found gateway `/health` 200 and watchdog
-`/health` 200 with no reasons and a 05:15:19 UTC self-cycle. The watchdog URL
-is `https://jarvis-watchdog.twilight-tree-70b1.workers.dev/health`.
-Sid additionally reports a clean hourly archival run at 05:00:19 UTC and
-watchdog alert delivery counts of one sent, zero undelivered, zero faults.
-Telegram `/status`, `/queue` and the morning digest are explicitly untested.
+### CI is dead, and this is a standing decision
 
-The mailbox reports Sid re-set the URL and shared secret. The real 05:30
-cron still returned `rejected: status 404` at 05:30:19.944 UTC. Read-only
-metadata shows gateway version `fc24520c-e392-4159-bc25-277cd7c17a8a`,
-created at 05:24:28 UTC, at 100%, with no compatibility flags or watchdog
-service binding. PR #8 now adds `global_fetch_strictly_public` to the
-gateway configuration for the existing public HTTP heartbeat path, as
-required by Cloudflare's fetch documentation. This affects global fetch
-routing, not just this endpoint. No source, secret, auth check or test is
-changed. Focused heartbeat/scheduler tests pass 25/25 and the gateway
-deployment dry-run passes; neither establishes Cloudflare edge routing.
-PR #8 has since passed Claude Opus 5 high review with no merge-blocking
-finding. Sid's deployment is still required before a real cron can verify
-the fix, and no live recovery is claimed.
+Last green run on `main`: **2026-09-12**. Every push since fails in 3–7 seconds
+with *"The job was not started because recent account payments have failed or
+your spending limit needs to be increased."* The owner has decided not to raise
+the limit; it resets 2026-10-01.
 
-## What is still owner-blocked
+Consequences to hold in mind:
 
-The **UptimeRobot monitor is not configured.** Until it is, nothing watches
-the watchdog. Follow the numbered actions in the runbook, against the
-watchdog's `/health`, never the gateway's.
+- **A local gate is the only check.** See §4.2.
+- `apps/local-agent` and `apps/brain-bridge` have **no `package.json`**, so
+  `pnpm lint`/`typecheck` never reach them. CI was the only place `ruff` and
+  `mypy --strict` ran for ~9,300 lines of Python.
+- Four `@jarvis/hermes-runtime` tests fail on `main` (SBOM, source-lock).
+  **Pre-existing. Not yours. Do not fix them here.**
 
-**R0 exit PASSED on 2026-09-11.** All five conditions observed by Sid, with
-the evidence below. R1 is unblocked.
+### Recently merged (an audit-response burst)
 
-| Condition | Evidence | UTC |
-|---|---|---|
-| CI green on `main` | `577c6a0`, seven jobs | 13:13 |
-| A real cron firing and being recorded | `drain` every five minutes, `poll` hourly, `failure` NULL throughout | through 13:15 |
-| The scheduled morning digest saying "nothing due" | `scheduled_runs` row `digest` / `2026-09-11`, started and finished 11:30:40, `failure` NULL; delivered to Telegram as "Digest -- 2026-09-11 / Nothing due, nothing changed, nothing waiting on you." | 11:30:40 |
-| Telegram `/status` replies | "Autonomy: shadow since 2026-09-02 (reporting, not acting)" with `drain: ok at 13:15`, `poll: ok at 13:00`, `digest: ok at 11:30` | 13:16 |
-| Telegram `/queue` replies | "Nothing waiting on you." — the empty-queue answer, not a failure | 13:17 |
+Several merges on 2026-09-18 answered findings from that day's deep audit:
 
-The digest is the load-bearing one: it fired on its own schedule at the
-America/Toronto 07:30 boundary with no `DIGEST_TIMEZONE` override, and a
-manually invoked digest would not have proved that. `/status` independently
-reported the same 11:30 digest time that D1 holds, so two paths agree.
+| PR | Subject |
+|---|---|
+| #93 | Voice honours forgetting in shared conversation retrieval |
+| #94 | Status: make a failed or never-run job visible |
+| #95 | School: trust the receiving MTA's own authentication group |
+| #97 | Digest: school first, and a dead feed says so |
+| #98 | Memory: recall uncertain proposals instead of hiding them |
+| #99 | Memory: pin the forgetting guarantee at every layer |
+| #100 | Memory: correcting a fact in plain speech |
+| #101 | reviewer-tools handoff |
 
-An unknown command (`/staus`) answered "No such command." and listed the
-seven real ones, which was not required evidence but is worth recording.
+**Open PRs:** #96 *Calling: a spoken PIN before sensitive actions, and redact
+it*; #84 *Telegram: never claim actions Jarvis didn't take* (superseded, kept
+for record).
 
-Gateway heartbeat delivery was removed from this list by Sid on 2026-09-11;
-see the scope note below.
+Detail for each is in `docs/AGENT_LOG.md`. **These summaries come from PR titles
+and log headings, not from a review of the diffs — treat them as pointers.**
 
-Sid authorizes building through roadmap items without individual approvals.
-Merging, production operations, secrets and the consequential actions in
-DECISIONS.md remain owner actions. The stop rules and cross-vendor review
-remain mandatory. R0 has passed, so build R1 and obtain Claude Opus 5 **max**
-review for its v1.0 release gate.
+---
 
-**Scope: the heartbeat is off R0's exit test, by Sid's own decision.** The
-GPT-6 Codex session was right to refuse a weaker gate on a reviewer's say-so
-and to ask for owner clarification; it has it. At about 06:00 UTC on
-2026-09-11 Sid said, of the heartbeat, "just drop it for now, we finish
-jarvis and then fix it at the end", after an hour of hands-on diagnosis had
-produced no recovery. He also pushed back on the watchdog being treated as
-R0 scope at all: it was inherited work ratified into the milestone by a
-reviewer, not something he asked for. So R0's exit test is the amended list
-above, and neither the heartbeat nor the UptimeRobot monitor blocks starting
-R1. This is a narrowing of the milestone, not of any test or security check:
-nothing is skipped, disabled or weakened, and the defect stays open and
-documented in KNOWN_ISSUES.md until he chooses to close it.
+## 4. THE WORKFLOWS
 
-Item 2's rotations remain complete by owner confirmation; do not request
-them again. `PIN_VERIFIER_JSON` is absent from config and the stored secret is
-deletable now as the separate, owner-confirmed operation documented in
-`docs/runbooks/deploy.md`. Do not perform it during a live call or attended
-phone-enrollment window, never recreate the retired verifier, and assess a
-rollback to a version that reads it before deletion. Never request, print or
-commit a secret value.
+This section is the point of the document. Everything below is how work is done
+here, not what to do next.
 
-## What is built but not wired
+### 4.1 Build and review (the cross-vendor gate)
 
-- **Google Classroom ingestion.** The client and the ingestion path exist;
-  the hourly job does not call them, because no deployment holds the OAuth
-  credentials. `deadline_sources` therefore has nothing writing to it, so the
-  deadline half of the digest is empty rather than stale.
-- **Historical `project()` in the vault.** It has no authority gate in front
-  of it and nothing but tests calls it. Do not wire a caller; the adapter is not
-  the R2 memory path.
-- **There is no Windows process host.** The existing `jarvis node` starts
-  `RunLoop` and `ServiceState`, but refuses to start outside Linux.
-  `NamedPipeServer.serve_forever` is still started only by tests; there is no
-  `jarvis service` command and no Windows service host. Node platform work
-  remains on hold as described above.
+**Never let the same model build and review the same work.** One vendor builds,
+a different vendor reviews, and **the reviewer never accepts a builder's claim
+about its own tests.**
 
-## Historical vault safety note
+- `docs/BUILDING.md` holds the per-milestone build/review assignment and the
+  escalation ladder. Read it before starting a milestone.
+- A PR that **applies a migration to live data is reviewed at max.**
+- **The one rule:** a session builds until its milestone's exit test passes, or
+  until it is stuck. **Stuck means stop and report. Never grind.** Grinding is
+  the failure this project has already had.
+- Stop at the first of: the same test failing three times against three
+  different fixes; two full attempts at one item; the failure being in code the
+  milestone does not touch; the fix needing a new service or >200 lines the
+  roadmap does not name; two documents disagreeing on something load-bearing; a
+  missing credential, purchase or permission.
 
-Vault observations are stored **verbatim, with no redaction**. That is safe
-today only because nothing uploads them. Building the cloud sync path before
-the redactor would ship the owner's notes to the gateway unredacted, so the
-redactor is a prerequisite for that work rather than a follow-up to it.
+### 4.2 The local gate (because CI is dead)
 
-## Historical divergences from the Obsidian plans
+Run from the repository root, in your own worktree:
 
-These are retained for the existing adapter, not as current R2 direction. Both
-are explained in [DECISIONS.md](../DECISIONS.md):
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test          # cloud-gateway + contracts + acceptance
+```
 
-- Migration numbering: the Obsidian plan reserves 0008–0011 for vault state;
-  those numbers were taken first. Vault D1 migrations take 0014 onward.
-- The Obsidian adapter ships in two stages. Stage one (pure Python) is done.
-  Stage two is the Rust/PyO3 bridge, and until it lands the adapter meets a
-  weaker guarantee than the plan states.
+**Scoping caveat that has caught people:** `pnpm test:all` is
+`pnpm test && pnpm test:runtime && pnpm test:watchdog` — an `&&` chain that
+**stops at the first failing package**. Gateway-only numbers are not `test:all`
+numbers, and reporting them as such overstates what ran.
 
-## Session history
+The local agent is Python and is **not** covered by `pnpm`:
 
-Detailed continuity ledgers live outside the repository, under each
-assistant's continuity directory (`~/.codex/continuity/tasks/` for Codex),
-per the owner's standing preference. They are
-not required to understand the code — this file, ARCHITECTURE.md,
-KNOWN_ISSUES.md and NEXT_STEPS.md are meant to be sufficient on their own. If
-they are not, that is a bug in them.
+```bash
+& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run pytest -q
+& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run ruff check .
+& "C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe" run mypy --platform win32 jarvis_local
+```
+
+`python` on PATH is a **broken stub**. `uv` is at the unusual path above. All
+three must pass. Ruff runs with `ANN`, so **every function needs annotations,
+test functions included**.
+
+The suite is **load-sensitive**. Unrelated files that time out under a full
+parallel run usually pass alone — rerun them isolated, and say so rather than
+reporting them as failures.
+
+### 4.3 The two-session mailbox
+
+`docs/AGENT_LOG.md` is a mailbox between a builder session and a reviewer
+session that cannot talk to each other.
+
+- **Append at the top.** Sign it. Write it to be read late.
+- State **what effort level you ran at**, and what that effort did *not* cover.
+- Record things a reviewer will check, including things you got wrong on the way.
+- Where the project *stands* goes in this file, not there. The log is history.
+
+### 4.4 Migrations — the workflow with the most traps
+
+1. **Find the next free number** by checking `main` *and every open PR branch*.
+   Two migrations have collided on this project before.
+2. **Additive and remote-D1-safe.** Use `WHEN … BEGIN SELECT RAISE(...)` or
+   `CHECK`. **Never `SELECT CASE … RAISE`** — remote D1 rejects it.
+3. **No semicolons inside `--` comments.** The test migration splitter divides
+   on `;` and cuts the statement in half.
+4. **Register it in `memory-backup-restore-migrations.ts`** in the same commit.
+   A migration missing from that inventory makes backups at the new schema
+   version **unrestorable**.
+5. **Classify any new table** in `memory-backup.ts` (`MEMORY_BACKUP_TABLES`,
+   `MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES`, or
+   `MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES`), or the nightly backup aborts
+   with `memory_backup_table_unclassified`.
+6. **If it seeds rows, update `MIGRATION_SEEDED_ROWS` in
+   `memory-backup-restore.ts`.** The restore path pins the exact seeded row set
+   per table and refuses a target that does not match
+   (`memory_backup_restore_target_not_fresh`).
+7. **A migration that adds a column or table the new code reads MUST be applied
+   before that code deploys.** Deploying first is an outage, not a warning. The
+   project has the scar: `KNOWN_ISSUES.md` records the `0024` ordering hazard,
+   and PR #90's log entry states the rule for `0032`.
+8. **The Sid-attended scratch rehearsal is mandatory** before any production
+   apply: `docs/runbooks/migration-scratch-proof.md`.
+9. Adding a migration means updating `test/persistence/migration.ts` (import +
+   applier + `allCloudGatewayMigrations`),
+   `test/persistence/remote-d1-migration-syntax.test.ts`, and any test that pins
+   the expected `databaseSchemaVersion`.
+
+### 4.5 Worktrees
+
+**One session per milestone. Do not work in the shared checkout.** Create your
+own worktree at a **short path** on a new branch:
+
+```bash
+git fetch origin
+git worktree add C:\Users\Sid\jarvis-<topic> -b codex/<topic> origin/main
+```
+
+Short paths matter: the Hermes runtime containment check rejects paths containing
+an 8.3 short name, and a deep temp path can trip it. Remove the worktree **only
+after pushing**.
+
+### 4.6 Deploy
+
+`docs/runbooks/deploy.md`. Dry-run by default, explicit production selection,
+publishing requires confirmation. Deployment is the **owner's** action.
+
+### 4.7 Standing rules — never do these
+
+**Never merge, deploy, apply migrations, touch secrets, spend, sign up, or
+contact anyone.** Merging, production operations, secrets and consequential
+actions are the owner's. Building through roadmap items needs no approval; those
+do.
+
+### 4.8 Reporting discipline
+
+Every claim carries a tag:
+
+- `[M]` verified by the writer, first-hand
+- `[R]` relayed from someone else, **not** re-verified — a lead, not a finding
+- `[X]` external source, fetched and cited
+- `[I]` inferred
+
+And a **falsifier** where one exists — what observation would show the claim is
+wrong. Separate **"this is broken"** from **"this is a design choice I
+disagree with"**; they are acted on differently.
+
+**Cite symbol + "as of `<sha>`", never a bare `path:line`.** With ~25 git
+worktrees live, one symbol resolved to **14 different line numbers** across
+checkouts; a bare line number is ambiguous at a single instant.
+
+### 4.9 Mutation testing — the bar for a guard
+
+A guard whose logic can be neutered while the suite stays green is **unpinned**
+and gets sent back. For any new guard:
+
+1. Write a **named** test whose name describes the behaviour.
+2. Neuter the guard, confirm **that named test fails**.
+3. Restore, confirm it passes.
+4. Report both results.
+
+**A mutation that survives is a finding about your tests, not a pass.** This
+happened on the tier-3 work: the first mutation targeted a branch reachable only
+in an uncovered configuration, survived, and the fix was to add the missing
+coverage — not to change the mutation.
+
+Beware the two recurring traps: a test that pins a **name** rather than the
+behaviour (asserting a trigger exists is not asserting it is load-bearing), and
+a test that passes for a **different reason** than the one it claims.
+
+### 4.10 Memory, backup and restore invariants
+
+- **D1 is authoritative.** FTS5 and Vectorize are rebuildable indexes; a stale
+  vector cannot resurface suppressed content because the read re-validates
+  against D1.
+- **Append-only means a trigger, not a convention.** Read the `CHECK`
+  constraints and `RAISE(ABORT, …)` triggers, not the repository code.
+- **Forgetting is hiding, never erasure.** The receipt says the original
+  conversation remains retained. Do not describe it as deletion.
+- **A backup taken before a forget does not carry the suppression**, and
+  nothing re-applies suppressions after a restore. Forgetting holds forward from
+  the forget; a pre-forget backup is the resurrection path. This is deliberate,
+  not a bug — but say it out loud rather than implying otherwise.
+
+---
+
+## 5. IN FLIGHT: the tier-3 backstop (unmerged branch)
+
+**Branch `codex/wire-autonomy-tier3` at `54ad5a0`, pushed. No PR opened. Not
+green.**
+
+### The defect it addresses
+
+`AutonomyService.evaluate` has **zero callers** in `src`. `decideOutcome` is
+called only from `evaluate`. Meanwhile `README.md` advertises "tier 3 never runs
+without Sid confirming" and `docs/ARCHITECTURE.md` rule 4 calls tier 3 "the
+backstop that holds after everything else fails". **Neither is true of the
+running code.** Real protection today is per-feature; every new hand inherits
+nothing.
+
+**Re-verified on current main `6febf32`: still zero production callers `[M]`.
+The work is not redundant.**
+
+### What is built
+
+| File | What it does |
+|---|---|
+| `src/autonomy/tool-gate.ts` | The gate. Evaluates capability → tier **before** any tool acts; fails closed on unclassified and on an audit-write failure; never reads arguments for meaning |
+| `src/autonomy/tool-capabilities.ts` | Tool → capability map. The eight existing tools classified; the reserved hands (email/Tesla) pre-classified |
+| `src/autonomy/tool-confirmations.ts` | Tier-3 confirmation bound to **capability + a canonical hash of the arguments**, consumed from the existing `decision_responses` ledger. **No new table for the confirmation** |
+| `0035_autonomy_tool_capabilities.sql` | Additive seed of five capability rows. `0035` is the next free number `[M]` |
+| `test/autonomy/tool-gate.test.ts` | 9 gate tests |
+| `test/channels/owner-telegram-agent.test.ts` | +2 integration tests that fail if the gate call site is removed |
+
+Wired into `OwnerTelegramAgentAdapter.executeCall` as a **required**
+dependency, so a construction site that forgets it is a compile error. **Voice
+has no tool dispatch today `[M]`, so `executeCall` is the only wiring point.**
+
+The confirmation reuses the existing decision queue exactly as the memory
+`confirm`/`forget` flows do: `decisions.raise` →
+`recordPendingTelegramReplyMarkup` → answered via `answerFromTap`. **No second
+confirmation mechanism was invented.**
+
+### Mutation results (all restored, verified clean)
+
+| Mutation | Result |
+|---|---|
+| Disable the gate call site | **2 failed** — exactly the two new integration tests |
+| `requires_confirmation` → permit (uncovered branch) | **survived** → real test gap; coverage added |
+| Confirmation lookup-miss → permit | **4 failed** |
+| Unclassified → default tier-1 capability | **1 failed** — the named test |
+| Standing confirmation never found | **2 failed** |
+
+### Why it is NOT green
+
+Last full run: **15 failures**, after fixing two real integration points found by
+running the suite (`memory_backup_restore_target_not_fresh:capability_tiers`, and
+the schema-version fixture). Remaining failures cluster in the **voice acceptance
+suites** (`voice-call-path`, `voice-telegram-call`,
+`voice-telegram-owner-step-up`, `call-session-do`), plus
+`owner-telegram-agent > does not promote a model inference from a stale Confirm
+keyboard`, one `memory-backup` case, and one `owner-call-step-up-migration` case.
+
+**These are NOT diagnosed.** An earlier baseline on a different revision passed
+199/199, so they cannot be assumed unrelated. **This is the first thing to
+investigate.**
+
+### Two things a successor must know
+
+1. **Deploy ordering is load-bearing.** The gate denies a capability with no
+   row, so `0035` must be applied **before** the gateway deploys, or every
+   memory/school/university/study call is refused. The refusal is loud — it
+   appears in the receipt — but it is still an outage.
+2. **The one judgement call that changes product behaviour:** the eight
+   existing tools are classified **tier 1, not tier 2.** Production runs the
+   shadow mode `0008` seeds, and shadow withholds every tier-2 action — so tier
+   2 would have stopped the school, university, study and memory tools the owner
+   is using. The reasoning is written into `0035`'s comment and
+   `tool-capabilities.ts`. **The alternative is one `UPDATE`. That decision is
+   the owner's.**
+
+### Still owed on this branch
+
+- Diagnose the 15 failures.
+- The `docs/AGENT_LOG.md` ready entry, signed, with the effort level stated.
+- The PR itself, titled *"Autonomy: the tier-3 backstop actually runs"*.
+- If the README's claim cannot be made true as written, say so plainly and
+  propose what the documentation should say instead.
+
+---
+
+## 6. Open defects worth knowing (top of the register)
+
+`KNOWN_ISSUES.md` is ~1,000 lines and is **the most honest document here**. The
+highest-value entries as of this writing, all `[R]` from the 2026-09-18 audit
+unless marked:
+
+1. **`/status` could not report failure** — no `detail` column and a hardcoded
+   three-job list. Fixed by #94 `[R]`.
+2. **Distilled facts were unreachable** — the pipeline's default output
+   (`proposed + model + inferred`) was excluded by every recall path.
+   Addressed by #98 `[R]`.
+3. **Voice has no memory search** — `TelegramMemoryRetriever` is constructed
+   only in `index.ts`; voice wires the raw `D1ContextRetriever` `[M]`. **Not
+   addressed as far as is known.**
+4. **An incomplete search is reported as complete** —
+   `LiteralHistoryService` computes `status: "incomplete"` and `mergeMemory`
+   drops it `[R]`.
+5. **School and study tools run on a weaker authority marker than memory** —
+   `directPipelineText` omits `containsQuotedOrPastedControlContent`, so a
+   multi-line paste of someone else's words can mutate deadlines and application
+   status `[M]`. This is the structural cause of a `submitted_by_sid` false
+   record already in `KNOWN_ISSUES.md`.
+6. **The backup had never once succeeded** until 2026-09-17 (`_cf_KV` was
+   unclassified). Fixed and deployed `[R]`.
+7. **Rate limiting and the circuit breaker are per-isolate.**
+8. **The gateway heartbeat 404s** — cause found (missing
+   `global_fetch_strictly_public`), fix on `main`, **needs a redeploy to prove**.
+9. **Nothing watches the watchdog** — no external uptime monitor exists.
+   Owner-blocked.
+10. **CI type-checks only Windows**, so every Linux-guarded branch in the local
+    agent is invisible to `mypy`.
+
+---
+
+## 7. The roadmap reality
+
+Plan documents: `docs/plan/2026-09-03-jarvis-roadmap.md` (milestones R0–R10) and
+`docs/plan/2026-09-15-*`. The roadmap's own status table **lags** — check
+`docs/AGENT_LOG.md` and the merged-PR list.
+
+**What exists today:** Telegram text with memory, calling (cloud-side, gated on
+Twilio config and owner-phone enrollment), school and university trackers, study
+coach, deadlines, the digest, the decision queue, the watchdog, the backup.
+
+**What the vision names and does not exist:**
+
+| Hand | State |
+|---|---|
+| Google Classroom | **Built and wired**, gated only on three Google credentials. The closest thing to working — one owner OAuth action away. |
+| Email | **Nothing.** Zero hits for `gmail`, `send_email`, `smtp` `[M]` |
+| Tesla | **Nothing.** Zero hits for `tesla` `[M]` |
+| PC control | Substrate partly present (`transport/pipe_server.py`, `crypto/dpapi.py` are real Windows implementations, CI-tested), but **no Windows service host** and `jarvis node` refuses non-Linux `[M]` |
+
+**A sequencing opinion worth carrying forward:** email needs the tier-3 gate and
+a Google identity; the Tesla needs the gate and is *reversible*, so it is the
+safer first hand; PC control is the largest build and should come last, in
+slices, starting read-only.
+
+---
+
+## 8. Traps that have actually cost time
+
+`AGENTS.md` holds the full list. The ones that recur:
+
+- **`python` on PATH is a broken stub.** Use `uv` at the path in §4.2.
+- **No semicolons inside SQL comments** (the splitter).
+- **`fetch` must be bound**: `globalThis.fetch.bind(globalThis)`, or it throws
+  `Illegal invocation` in workerd. Every test passed against mocks before this
+  was found in production.
+- **Never write source containing escapes through a shell heredoc** — it has
+  corrupted files three times. Use the file-writing tool. Corollary learned the
+  hard way: in PowerShell, `\n` inside a double-quoted string is a **literal
+  backslash-n**, not a newline. Use a backtick-n or a here-string, and verify
+  the edit landed rather than assuming.
+- **The watchdog must not import from the gateway.** Not a type, not a helper.
+- **The gateway's tests were never typechecked.**
+- **A green suite is not evidence.** Mutate the guard.
+
+---
+
+## 9. How to verify a claim in this repository
+
+**Prose is a claim, never state.** Every deploy SHA, migration number and
+"current state" sentence in these documents is a claim about a system you can
+query.
+
+This was learned expensively: an audit reported "production D1 is at 0031" and
+"last deploy is the PR #80 era" — both derived from `AGENT_LOG` prose, both
+**false**. The tell was present and dropped: `git log -1 ebe38aa4` returned
+*"unknown revision"*, a deploy SHA quoted as fact that did not exist as an object
+in the repository.
+
+So:
+
+```bash
+gh pr list --state open --json number,title,headRefName
+gh pr list --state merged --limit 10
+gh run list --branch main --limit 5
+git log --oneline origin/main -15
+git ls-tree -r --name-only origin/main -- apps/cloud-gateway/src/persistence/migrations
+git grep -n "<Symbol>" origin/main -- apps/cloud-gateway/src
+```
+
+And for production, **ask the reviewer to run the query** — an auditor does not
+get `wrangler`, because the same credential deploys Workers and applies
+migrations. Write the SQL; the reviewer runs it read-only and pastes results.
+
+---
+
+## 10. Immediate next actions, in order
+
+1. **Diagnose the 15 failures on `codex/wire-autonomy-tier3`** and get it green.
+   Nothing else about that branch matters until then.
+2. **Add the `docs/AGENT_LOG.md` entry** for that branch (signed, effort stated,
+   deploy-ordering rule stated, tier-1 judgement call stated) and open the PR.
+3. **Re-run the doc-vs-reality sweep** after the documentation reconciliation
+   lands — the previous sweep found `HANDOFF.md` and `CHANGELOG.md` abandoned
+   while `README.md` called them load-bearing, `ARCHITECTURE.md` claiming "the 13
+   migrations" against 34 on disk, and a 117/122 test-typecheck count in four
+   documents.
+4. **School first:** one owner OAuth action turns on Classroom; the university
+   tracker needs its migrations applied first, with the scratch rehearsal.
+5. **Then hands**, in the order argued in §7 — and the tier gate from §5 is the
+   precondition for every one of them.
