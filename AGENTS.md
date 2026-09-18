@@ -181,8 +181,30 @@ documentation corrections, a fix written onto someone else's branch -- gets an
 suspects, not convictions; that is enough. It reads the diff with no stake in it.
 
 This costs nothing in throughput: the auditor runs in parallel while the reviewer
-works on something else. It is far cheaper than a second reviewing vendor and it
-closes the actual gap, which is that nobody but the author has looked.
+works on something else.
+
+**It is not enough on its own, and the first audit run under this rule said so.**
+Audited on its own PR (#105), the auditor's verdict was that the remedy is *"the
+cheapest thing that is not nothing — a genuine second look, with no
+accountability attached"*: its log goes to an untracked scratch directory, the
+reviewer writes its brief, and nothing obliged the reviewer to publish, answer or
+be blocked by anything it found. **The audited party was scoping its own audit
+and keeping the only copy of the result.**
+
+So the rule carries the auditor's own minimum fix:
+
+1. **The verdict goes in the PR, before merge** — its findings, and for each one
+   either the fix or a stated reason for declining it. An audit whose result
+   exists only in a scratch file did not happen.
+2. **A "do not merge as-is" verdict blocks the merge** until every finding is
+   answered in writing. Not "considered".
+3. **The brief must invite attack on the parts the author is least sure of**, and
+   must say the work is reviewer-authored, so the auditor knows the cross-vendor
+   rule is already suspended.
+
+This still does not make the auditor independent of the reviewer, because the
+reviewer launches it. It makes the result *public and binding*, which is the part
+that was missing.
 
 **It does not apply** to merging a PR a different vendor built, which the
 reviewer has always been allowed to do at the exact reviewed head.

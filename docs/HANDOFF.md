@@ -578,7 +578,10 @@ work. Apply this lens before proposing anything new.
   handles D2L only, so Classroom notifications arrive and are ignored. See
   `docs/runbooks/google-classroom-oauth.md`, which now carries the same warning.
 - **A3. Digest school-first — DONE, PR #97.** Verify.
-- **A4. Grade and missing-work watch.** Needs A1's submissions scope.
+- **A4. Grade and missing-work watch.** Previously "needs A1's submissions
+  scope" — **that dependency is dead.** A1's OAuth route cannot be obtained (see
+  A1). Grades and missing work must come from Classroom notification email,
+  through the same parser work A1 now names.
 - **D2L: LDSB Brightspace has NO calendar or iCal feed.** **Never ask Sid for
   one.** The route is notification email into `onesid.ca`, after memory.
 

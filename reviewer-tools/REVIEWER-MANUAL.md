@@ -41,7 +41,12 @@ The GitHub repo is `ksid1229-ops/jarvis`; the local folder is named `javis`.
    - checks each finding against the code;
    - looks for new holes the fix opened.
 8. **When cleared:** post a clearance entry, set the board row to "Merge #N", and ask Sid to merge, with the link.
-9. **Sid merges** and says "merged" or "merged and sent".
+9. **The reviewer merges** a PR it has cleared, at the exact reviewed head, then
+   verifies `main` afterwards. **CORRECTED 2026-09-18: this said "Sid merges".**
+   `docs/HANDOFF.md` §4.9 records the delegation (Sid, 2026-09-15); this manual
+   was never updated, so a new reviewer session reading it concluded merging was
+   forbidden while `AGENTS.md` said it was allowed. Deploying and applying
+   migrations remain Sid's, always.
 10. **After a merge, confirm `main` matches what you reviewed:** `git fetch origin` then `git diff --quiet <reviewed head> origin/main && echo identical`. If the reviewed branch had since merged main, compare against that merge commit.
     - Then, **unprompted**, give Sid the next paste message for that chat: what it should build next.
     - Sid should never have to ask "what's next". Something must always be moving, unless it's blocked on him.
@@ -213,8 +218,9 @@ Finding IDs:
   ```
 - The same pattern pushes to `claude/reviewer-tools`. It holds tools, specs, probes, reports and notes.
   **CORRECTED 2026-09-18: this said the branch "is never merged". That is no longer
-  true.** PR #104 merged a curated 22-file subset of `claude/reviewer-gate-tools`
-  to `main` -- the five scripts, this manual and the mutation specs -- leaving the
+  true.** PR #104 merged a curated 22-file subset of the reviewer tooling to `main` from
+  head branch `claude/reviewer-tooling-on-main` (merge `5a8acf3`), taken from
+  `claude/reviewer-gate-tools` at `cfd8d55` -- the five scripts, this manual and the mutation specs -- leaving the
   ~1,380 files of per-PR session scratch on the branch. The scripts now live on
   `main`; the scratch still does not.
 

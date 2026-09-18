@@ -71,8 +71,10 @@ slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`, open PR
 #52 reserves `0024_university_application_workflow.sql`, and PR #56 merged
 `0025_archive_literal_history.sql`. Draft
-[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) uses the next free
-name, `0026_memory_distillation.sql`. **STALE — this said "No migration after `0015` has been applied by this R2
+[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) uses what was then the
+next free name, `0026_memory_distillation.sql`. **Also stale: `0026` is applied
+in production and `0035` is claimed on an open branch.** Never take a "next
+free number" from prose; check `main` and every open PR branch. **STALE — this said "No migration after `0015` has been applied by this R2
 work." Production is at `0034`.** Verified read-only against production D1 on
 2026-09-18: `SELECT COUNT(*), MAX(name) FROM d1_migrations` returns **34** and
 `0034_scheduled_run_detail.sql`, with no gaps. The sentence was true when
@@ -391,9 +393,12 @@ These have code and tests but still need owner configuration or a later slice.
   `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
   all three Google OAuth bindings. With no bindings it performs no Google call;
   partial or failed configuration becomes visible source health in the digest.
-  Live configuration and deployment acceptance are not established, and Sid's
-  OAuth consent remains an owner-run step in
-  [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
+  Live configuration and deployment acceptance are not established. **Sid's
+  OAuth consent is NOT an owner-run step — it is impossible.** His school
+  account cannot reach Google Cloud Console, so the three `GOOGLE_*` bindings
+  can never be obtained; see
+  [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md),
+  which now opens with that warning.
 - **Brightspace calendar ingestion.** The current candidate reads only Sid's
   private iCalendar subscription URL in the always-on gateway. Missing
   configuration makes no request and says `Brightspace: not set up` in the

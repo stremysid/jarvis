@@ -1,5 +1,19 @@
 # Brightspace calendar-feed owner setup
 
+> ## THIS ROUTE IS DEAD FOR SID. DO NOT SEND HIM HERE.
+>
+> **Sid's board (LDSB "Minds Online" Brightspace) has NO Calendar tool and no
+> personal iCal export.** He said so on 2026-09-16 after being asked for the
+> link: *"i thought i went over this, there is no calnder in d2l"*. It was
+> already recorded in `docs/plan/2026-08-jarvis-expansion-plan.md`, and PRs #49
+> and #51 built the feature anyway.
+>
+> **Never ask Sid for a D2L calendar or feed URL.** The live route is D2L
+> notification email into `school@onesid.ca`, which he has already configured.
+>
+> Kept because the ingestion code and its failure codes are real and would be
+> reused if that board ever exposes a feed.
+
 This runbook is for Sid. It stores the one private calendar-subscription URL
 that lets the hourly Cloudflare job read Brightspace calendar events while
 every Windows PC is off. Jarvis does not log in to Brightspace, copy a browser
