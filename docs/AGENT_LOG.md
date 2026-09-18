@@ -3,6 +3,130 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 22:46 UTC — DeepSeek V4.1 Flash, migration-number collision check: `reviewer-tools/migration-numbers.ps1`
+
+**Effort level: high.** `run-migration-collision-check.yml` sets this session's
+`deepseek-flash` default to `reasoningEffort: high`.
+
+**Branch:** `codex/migration-collision-check`, off `origin/main` at `5a8acf3`.
+**Worktree:** `C:\Users\Sid\jarvis-migcheck`. No migration was added, renamed or
+applied, no open branch was touched, and no file under `apps/` or `packages/`
+changed.
+
+### What changed
+
+One new script, `reviewer-tools/migration-numbers.ps1`, and its write-up in
+`GATE-TOOLS.md` and `REVIEWER-MANUAL.md`. It takes the open PR branches from
+`gh pr list` and reads `origin/main` plus each branch with `git ls-tree` against
+the remote ref, so it never checks anything out and never touches a working
+tree. It reports a number claimed by more than one distinct filename, one
+filename whose contents differ between refs, and the next genuinely free number
+(the smallest number above main's highest that no scanned ref claims). Exit 0
+clean, 1 collision, 2 when it could not produce a usable answer.
+
+**`-Repo` choice:** the default is the repository the script lives in (the parent
+of `reviewer-tools/`), not a shared checkout path, and the resolved repository
+plus every scanned ref is printed at the top of the output. `docs-check.ps1`
+defaults to `C:/javis` and so silently checks the wrong tree from a worktree;
+this script roots every git call at the resolved repository, so it does not have
+that failure and the tree under test is unmissable in the output either way.
+
+### Verification 1 — the real 0035 collision (must exit 1)
+
+Run from `C:\Users\Sid\jarvis-migcheck`, default `-Repo`, at 2026-09-18 22:42 UTC:
+
+```text
+===== MIGRATION NUMBER CHECK =====
+repo:       C:/Users/Sid/jarvis-migcheck  (defaulted from this script's location)
+migrations: apps/cloud-gateway/src/persistence/migrations
+scanned:    origin/main + 3 open PR branch(es)
+    origin/main                                      main
+    origin/codex/tier3-classify-memory-correct       PR #106
+    origin/claude/classroom-route-dead               PR #105
+    origin/codex/r1-sensitive-action-pin-v6          PR #96
+files read: 138
+
+COLLISION 0035 - 2 different migrations claim this number:
+    0035_autonomy_tool_capabilities.sql  [2c0df4804a]
+        origin/codex/tier3-classify-memory-correct  (PR #106)
+    0035_owner_sensitive_action_pin.sql  [73f6b6903c]
+        origin/codex/r1-sensitive-action-pin-v6  (PR #96)
+
+next genuinely free number: 0036
+verdict: COLLISION - 1 number(s) claimed by more than one branch
+==================================
+```
+
+`[exit code: 1]`. It names both branches and both full filenames, with main at
+`0034`, and the next free number is `0036`, not `0035`.
+
+### Verification 2 — a clean case (must exit 0)
+
+The real repository is in the collided state today, so a clean run against it is
+not constructible. The clean case is a throwaway fixture in `%TEMP%`: a bare
+`origin.git`, a clone, `main` carrying `0001_a.sql`, `feature/one` carrying
+`0002_one.sql`, `feature/two` carrying `0003_two.sql`, and a stub `gh.cmd` on
+PATH returning those two branches with numbers 11 and 12. The script's own
+fetch, `ls-tree`, grouping and exit logic ran unmodified.
+
+```text
+===== MIGRATION NUMBER CHECK =====
+repo:       C:/Users/Sid/AppData/Local/Temp/mignum-clean-8c8337fa/work
+migrations: apps/cloud-gateway/src/persistence/migrations
+scanned:    origin/main + 2 open PR branch(es)
+    origin/main                                      main
+    origin/feature/one                               PR #11
+    origin/feature/two                               PR #12
+files read: 5
+
+no number collision: every migration number is claimed by a single branch.
+next genuinely free number: 0004
+verdict: clean
+==================================
+```
+
+`[exit code: 0]`. So the clean path runs; this is not a check that can only
+fail.
+
+### Verification 3 — the exit-2 path (must not look clean)
+
+`-Repo` pointed at an empty folder that is not a git repository:
+
+```text
+===== MIGRATION NUMBER CHECK (ABORTED - NOT A CLEAN RESULT) =====
+repo:    C:\Users\Sid\AppData\Local\Temp\mignum-not-a-repo-18970cfa
+
+MIGRATION-NUMBERS ABORTED: 'C:\Users\Sid\AppData\Local\Temp\mignum-not-a-repo-18970cfa' is not inside a git repository.
+===============================================================
+```
+
+`[exit code: 2]`. Two more abort paths were exercised but not pasted: `gh`
+removed from PATH exits 2, and a bad `GH_TOKEN` makes `gh pr list` fail with
+`HTTP 401: Bad credentials`, which also exits 2. In every abort the banner says
+`ABORTED` and no `verdict: clean` line is printed.
+
+### What it does not cover
+
+- It sees only what is reachable from `origin/main` and the open PR branches.
+  A migration that exists only in a builder's unpushed worktree, or on a branch
+  with no open PR, is invisible - `gh pr list --state open` is the boundary.
+- It reads numbers and names, not contents: it does not validate ordering,
+  remote-D1 syntax, `CASE`-wrapped `RAISE`, or whether a migration is additive.
+- It does not check an AGENT_LOG reservation that has no file yet.
+- A fork PR whose head is not under `origin/` aborts (exit 2) rather than being
+  silently skipped.
+- It reports a collision; it does not prevent one. Nothing invokes it
+  automatically, and no CI wiring was added (GitHub Actions is billing-blocked).
+- No pnpm gate was run, because no application code changed - as the brief said,
+  the gate is not meaningful here, so I am reporting no numbers rather than
+  numbers I did not measure.
+
+**Out of scope, recommendation only.** The number is reserved by a filename and
+checked after the fact, so the class survives any checker that runs when a human
+remembers. A one-line claim file on main, or a pre-push check, would make the
+reservation atomic. I did not implement it: it changes the migration workflow
+and should be a decision, not a side effect of this task.
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
