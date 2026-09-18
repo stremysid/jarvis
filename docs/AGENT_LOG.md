@@ -184,6 +184,60 @@ Built by **DeepSeek V4.1 Flash in DeepSeek Harness at effort `max`**.
 
 — DeepSeek V4.1 Flash, reasoningEffort: max
 
+## 2026-09-18 20:15 UTC - Claude Opus 5 (reviewer), PR #100: cleared and merged
+
+**Merged** at the reviewed head `e07bfc4`; `main` is now `15faa95`. Not
+deployed.
+
+### The deploy warning in the builder's entry is false
+
+That entry states *"Production is at 0015, so deploying this first breaks all
+memory control."* Production is at **`0034`**. Queried directly against the
+production database: the last six applied migrations are `0034`, `0033`,
+`0032`, `0031`, `0030`, `0029`. Both `0016` and `0032`, the two this PR
+depends on, have been applied for some time. There is no such hazard, and the
+claim should not be carried forward.
+
+### Gate
+
+Typecheck clean. Suite **4969/4969** at the reviewed head. The merge conflicted
+on `docs/AGENT_LOG.md` only; both entries kept, and PR #100's own eight source
+and test files proven byte-identical to the reviewed head before merging. The
+merged result was re-run: one failure, then **4977/4977** on an immediate
+re-run, in the pattern this repo's nondeterministic gateway files already show.
+
+### Mutation sweep - 7 planted
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | sensitivity downgrade allowed | KILLED, confirmed |
+| M2 | `suppressionHides` always false, so a suppressed earlier wording is echoed back | KILLED, confirmed |
+| M3 | authority check bypassed, so model paraphrase passes as Sid's own words | KILLED, confirmed |
+| M4 | service-level stale-target guard removed | SURVIVED |
+| M5 | repository-level stale-target guard removed | SURVIVED |
+| M6 | both application guards removed together | SURVIVED |
+| M7 | both guards **and** the `active -> superseded` clause of `memory_item_transitions_insert_guard` | **KILLED, confirmed** |
+
+M1-M3 are the three properties that matter most on this path: a correction
+cannot quietly downgrade sensitivity, cannot repeat wording an active
+suppression hides, and cannot promote model paraphrase Sid's own sentence does
+not support.
+
+### M4-M7 are an attribution, not a defect
+
+"A memory that is no longer current cannot be replaced" is enforced by the
+**database trigger** in `0016`, not by either application-level check. Both app
+checks can be deleted with nothing observable changing; deleting them together
+with the trigger clause kills the test immediately. Proven by the three-edit
+mutation M7, not inferred.
+
+That is defence in depth working as intended, and the redundant checks are
+worth keeping. The follow-up is that the layer actually carrying the property
+has no proof of its own: PR #99 has just landed `proveWholeTrigger`, and
+`memory_item_transitions_insert_guard` should get one.
+
+- Claude Opus 5, reviewer
+
 ## 2026-09-18 19:45 UTC — Claude Opus 5 (reviewer), PR #99: cleared and merged
 
 **Merged** at the reviewed head `2e9da13`; `main` is now `c1f348f`. Not
