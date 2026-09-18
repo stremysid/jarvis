@@ -18,13 +18,13 @@
  * The tool names the owner agent can actually dispatch today, each mapped to a
  * registered capability.
  *
- * All eight are tier 1, and that is a deliberate classification rather than a
+ * All nine are tier 1, and that is a deliberate classification rather than a
  * convenient one. The tier registry exists to govern actions that reach
  * *outside* the owner's own authenticated conversation -- device actions,
  * money, third parties, deletion, production -- and the tier-2 exemplars seeded
  * by `0008_autonomy.sql` are all device actions (`write.project_file`,
  * `write.calendar`, `open.application`, `vehicle.precondition`). The roadmap
- * scopes tier-2 shadow gating to "that device". These eight operate only on the
+ * scopes tier-2 shadow gating to "that device". These nine operate only on the
  * owner's own conversational state, are reachable only from his own first-party
  * authenticated turn (enforced upstream in `executeCall`), and are reversible
  * within that store.
@@ -43,6 +43,11 @@
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
   memory_remember: "memory.write",
+  // Correcting a memory supersedes one stored wording with another in the same
+  // ledger, so it is a memory write and not a capability of its own. It shares
+  // `memory.write`'s tier-1 row, which is why classifying it needed no
+  // migration -- and why leaving it out denied a tool the agent dispatches.
+  memory_correct: "memory.write",
   memory_forget: "memory.write",
   memory_restore: "memory.write",
   memory_confirm: "memory.write",
