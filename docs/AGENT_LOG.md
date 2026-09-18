@@ -3,6 +3,282 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 19:35 UTC — DeepSeek V4.1 Flash, read every email the school inbox sends
+
+**Effort level: `max`.** `~/.dsh/settings.yaml` sets
+`agent-default-model.reasoningEffort: max` for `deepseek-flash`, and this
+session ran on that default. `CLAUDE_EFFORT=xhigh` is also in the environment
+but belongs to the session that launched this one, so it is not the level I
+ran at.
+
+**Branch `codex/email-read-everything`, head `ee3ed2c`, pushed.** Worktree at
+`C:\Users\Sid\jarvis-readmail`. Read the brief at
+`C:\Users\Sid\jarvis-gate\reviewer-tools\relay\email-read-everything-prompt.txt`
+and followed it; it supersedes the earlier `codex/email-keep-everything` brief,
+which is why this branch exists rather than a continuation of that one.
+
+### What the gate actually said, including the two runs that were mine to fix
+
+| Run | Result |
+|---|---|
+| `pnpm lint` | **pass** (5 projects) |
+| `pnpm typecheck` | **pass** (5 projects) |
+| `pnpm typecheck:tests` on changed files | **no diagnostics in any file this slice touches**; the suite's pre-existing 347-line diagnostic load is untouched. `tsconfig.test.json` is still not a CI gate, as AGENTS.md records. |
+| `pnpm test`, run 1 | 202 files, 5,372 tests: **7 failed | 5,365 passed** |
+| `pnpm test`, run 2 | 202 files, 5,372 tests: **4 failed | 5,368 passed** — different names again |
+| `pnpm test`, run 3 (final, committed state) | 202 files, 5,372 tests: **5 failed | 5,367 passed** — `voice-telegram-owner-step-up` (1), `hourly-archive` (1), `call-session-do` (3) |
+
+Two of run 1's failures were mine and are fixed: `memory-backup.test.ts`
+asserted `databaseSchemaVersion === "0034_scheduled_run_detail.sql"` and a new
+migration moves it, so it now asserts `0036`; re-run alone that file is 26/26.
+The rest are the known noise the brief names, and I did what it asks — every
+failing file was re-run alone, and **every one passed alone**: `voice-telegram-owner-step-up`
+15/15 in 20 s, `hourly-archive` 6/6 in 10 s, `call-session-do` 126/126 in 161 s,
+`voice-call-path` 18/18 (it failed once in a full run at 5,067 ms against a
+5,000 ms timeout — 67 ms over — and passed on the next two runs),
+`archival-service` 48/48. Every one of them is a 5,000 ms wall-clock timeout
+under a loaded machine, they land on a different test each run, and **no file
+this slice touches failed in any run**.
+`git diff --stat` for this branch names no file under `voice/`, `archive/` or
+`tests/acceptance/`.
+
+So: the gate is green on everything this branch can affect, and I am not
+claiming a clean full-suite run. Five tests time out when 202 files run at
+once on this machine and pass alone; that is the same class of noise the brief
+describes, but it is five and not two, and I would rather say the number than
+round it down.
+
+### The injection boundary, which is the acceptance criterion that matters
+
+**Where email content flows.** Nowhere near a model. The path is: Cloudflare
+Email Routing → `handleD2lNotificationEmail` → `parseD2lEmail` →
+`D2lEmailRepository.begin` → D1, and nothing else in the Worker can see it. The
+handler runs no model; there is no model client imported into it, no prompt is
+built, and no tool is available to it. What leaves the ingest path is bounded
+**structured data** — `course`, `title`, `dueAt`, an external id, a numeric
+grade — written to `deadlines`, `school_assignment_observations` and
+`d2l_email_grade_observations`.
+
+**What delimiting or escaping I rely on.** Less escaping than one might expect,
+because there is no quoting to get wrong: the parser does not pass prose on, it
+*selects fields*. `inline()` in `d2l-email-parser.ts` normalises NFC, replaces
+every control and format character with a space, collapses whitespace and caps
+at 512 characters, so a labelled field is one bounded line and cannot carry a
+newline that would let it forge structure. `normalizeTitle()` in
+`deadline-ingestion.ts` repeats that on the way into the deadline store, on the
+explicit reasoning that a scraped title can carry a right-to-left override.
+The digest then renders those fields through `neutraliseInline()`, which strips
+Unicode's entire "other" category — control characters, format characters,
+surrogates, private use — before the line reaches a Telegram message. The one
+place the handler composes text of its own, an owner notice, is built from
+fixed constants; `email-injection-boundary.test.ts` asserts that a message
+carrying five imperative instructions produces a notice containing none of
+them.
+
+**Why a crafted body cannot steer a tool call.** Because the body never reaches
+anything that has tools. Every tool in this Worker hangs off the Telegram
+webhook and the voice relay, on paths that take their input from the owner's
+own message; a retrieval reads conversation history and projected memory facts,
+not `d2l_email_messages`. The structural assertion is in the test file by
+name: `has no module outside the email path importing the parsed message
+shape` walks `src/**/*.ts` and fails if any module outside
+`school/d2l-email-{handler,parser,repository}.ts` mentions `parseD2lEmail`,
+`rawMimeBase64` or `raw_mime_base64`, and
+`hands nothing from a message to a model-facing module` asserts the four
+model-adjacent modules — the Telegram owner agent, the context retriever, the
+school catch-up model, the voice production runtime — contain no reference to
+the email modules at all. Add a `RETRIEVE_MAIL` tool and that test fails.
+
+The same rule the brief attaches to it holds: no link is surfaced as clickable
+and none is followed. The verification notice still relays one URL, and only
+when its host is under a pinned D2L domain — `never relays a link that points
+off a pinned host` sends a message with a pinned link and an attacker's link and
+asserts only the pinned one appears.
+
+### What I chose for `recipient_mismatch`, and why
+
+**It keeps the old rule: no body retained.** `RAW_WITHHELD_REASONS` is now
+`{recipient_mismatch}` and nothing else. This is not a trust judgement — it is
+mail that was not addressed to the ingest address, so Jarvis was never its
+recipient. Keeping a copy would put a stranger's correspondence in the database
+that also holds Sid's deadlines and memory, and it would do so for every message
+a misconfigured catch-all happened to deliver. The receipt, the hash, the header
+names and the reason are still written; only the bytes are not.
+
+`from_missing` and `from_domain_unpinned` were on that list and are gone. They
+described the sender, and the owner's decision is that the sender is no longer a
+reason to destroy a body. Their verdicts now set the label instead.
+
+### The bounds I chose, and why those numbers
+
+The brief's instruction is that the old cap was sized for a different
+population, and it was: `MAXIMUM_RETAINED_QUARANTINED_RECEIPTS = 5` over a
+30-day window is *less than one school day* of the mail that now flows through
+this table, and pruning refused mail is no longer a goal at all.
+
+Two things are bounded now, and neither is the receipt.
+
+- **Raw MIME: the newest 200 bodies per owner, and nothing older than 30 days**
+  (`MAXIMUM_RETAINED_RAW_RECEIPTS`, `RAW_RECEIPT_RETENTION_MS`). The raw body is
+  the part measured in hundreds of kilobytes — 512 KiB against the 1 MiB
+  backup-row ceiling — so it is the part that needs a cap. Two hundred is
+  deliberately "the term so far": a school week is roughly 25-50 messages once
+  the whole inbox routes here, so the count is about a month of mail, and the
+  age window is what normally prunes. Worst case it is ~100 MB of D1 for a
+  month of retained bytes, and a flood cannot exceed 200 bodies because the
+  bound is enforced in the same request as the write that grows the table.
+- **A body a grade observation points at is never cleared, at any age.** The
+  grade row's foreign key is RESTRICT and the body is the message the grade was
+  read out of, so retiring it would either fail the delete or force the grade
+  away. This is bounded by grade volume rather than mail volume, and a verified
+  D2L grade message is one of the few pieces of mail whose exact bytes are worth
+  keeping.
+- **The receipt itself is never deleted.** The hash, the header names, the
+  measured authentication record, the structured event and the authenticity
+  level stay permanently, and pruning clears one column. That is what makes
+  "this arrived, and here is exactly what was proven about it" survive the body.
+
+The per-message 512 KiB bound is unchanged, and the oversized-message test still
+pins the retained prefix at 699,052 base64 characters.
+
+### Provenance, and where the label is actually visible
+
+`D2lEmailMessageReceipt.authenticity` is `verified` or `unverified`, decided by
+`assessAuthenticity` and nothing else — **no existing authenticity CHECK was
+weakened.** The three paths that earn `verified` are exactly the three
+`KNOWN_ISSUES.md` already describes; the ARC path, the delivered-order rule for
+the receiving MTA's group, and the hard-fail precedence are all untouched, and
+every one of their tests still passes.
+
+What the verdict decides changed: it now sets a label instead of deciding
+whether the body survives. It still decides whether **derived** records may be
+written, and that is a deliberate reading of the brief — "provenance replaces
+refusal" is about retention, and letting unproven mail create deadlines would
+hand anyone who learns the address the owner's task list. So an unverified
+message is read, stored, labelled, and produces no deadline and no grade.
+
+Where the label reaches the owner: the digest, which is also what `/digest`
+returns and what the daily and Sunday jobs send as a Telegram message. A `D2L
+email` deadline renders as `[D2L email] Calculus: Titration lab (in 7h, other,
+unverified)` — the date and the caveat in the same parentheses on purpose, so a
+reader skimming for the due date cannot take it and miss the doubt — and a D2L
+grade as `[reported by D2L email (unverified); graded …]`. Both are read by
+joining the deadline or grade back to the receipt that produced it; there is no
+second copy of the label that could drift from the message.
+
+**The honest limit, and it is the one a reviewer should push on:** because
+unverified mail creates no derived records, the `unverified` branch of those two
+renderings is reached only by fixtures today. The join, the read and the
+rendering are all exercised — `d2l-email-authenticity-read.test.ts` builds
+receipts of both labels and reads them back — but the production path that would
+*create* an unverified deadline does not exist by design. That is recorded in
+`KNOWN_ISSUES.md` rather than implied away.
+
+### Migration 0036, and the migration rules
+
+`0036_email_read_everything.sql`, because `0035` is taken twice over: by
+`codex/r1-sensitive-action-pin-v6` as `0035_owner_sensitive_action_pin.sql` and
+by `codex/tier3-classify-memory-correct` and `codex/wire-autonomy-tier3` as
+`0035_autonomy_tool_capabilities.sql`. I checked main and every open branch, as
+the brief asks. Registered in `memory-backup-restore-migrations.ts`,
+`test/persistence/migration.ts` and `remote-d1-migration-syntax.test.ts`.
+**No new table, so `memory-backup.ts` is unchanged** — `d2l_email_messages` is
+already classified authoritative and `d2l_email_failure_state` already
+operational.
+
+Additive and remote-D1 safe: `ADD COLUMN` with a default (so every pre-existing
+receipt is `unverified` rather than silently promoted), an expression index, and
+a `DROP TRIGGER` + `CREATE TRIGGER` replacement in whole `WHEN … BEGIN SELECT
+RAISE(ABORT, …)` form. No `SELECT CASE … RAISE`, and no semicolon in a `--`
+comment — which cost me the same hour it cost the last session, in the same way:
+two semicolons inside the header comment split the first statement into
+comment-only fragments and D1 rejected them with "SQL code did not contain a
+statement". The first semicolon inside a `--` comment is the trap.
+
+### Neuter, confirm the named test fails, restore — and two clauses that did not
+
+`scripts/neutering-audit.ps1` in this branch applies each mutation, runs the
+test that names the guard, restores, and re-runs. Ten guards:
+
+| # | Guard neutered | Mutant | Restored |
+|---|---|---|---|
+| A | `authenticity` label from the verdict → always `"verified"` | **FAIL** | **PASS** |
+| B | `RAW_WITHHELD_REASONS` → add `from_missing`, `from_domain_unpinned`, `authentication_unproven` | **FAIL** | **PASS** |
+| C | unverified senders no longer quarantined (`authentication_unproven` → `null`) | **FAIL** | **PASS** |
+| D | `pruneRetainedRaw` age cutoff → 1970 (nothing is ever old) | **FAIL** | **PASS** |
+| E | `readAuthenticityBySourceExternalId` → always an empty map | **FAIL** | **PASS** |
+| F | digest deadline provenance label dropped | **FAIL** | **PASS** |
+| G | digest grade provenance label dropped | **FAIL** | **PASS** |
+| H | digest job stops passing the map into `toDigestDeadline` | **FAIL** | **PASS** |
+| I | trigger clear-branch stops freezing `status` | **PASS — did not fail** | **PASS** |
+| J | trigger clear-branch stops freezing `processed_at` | **PASS — did not fail** | **PASS** |
+| K | trigger clear-branch stops requiring a non-empty body / empty result | **FAIL** | **PASS** |
+
+Every named test failed under its mutant and passed again after restore, and no
+test was weakened to make that true.
+
+**I and J are the interesting rows.** They survive because the clause they
+neuter is redundant: the two pre-existing disjuncts require a non-pending
+transition to leave the body byte-identical (`NEW.raw_mime_base64 IS
+OLD.raw_mime_base64`), so an UPDATE that changes the body *and* the status is
+rejected by those before the clear branch is consulted. I rewrote the clear
+branch to name the state a clear may produce rather than list columns it must
+not touch, ran the mutants again, and they still survive — for the same reason.
+So I am reporting the clear branch as **one load-bearing clause (K) plus three
+column freezes that no test can distinguish, because overlapping clauses already
+reject those updates.** The behaviour is right; the extra clauses are cheap
+defence that the suite does not and cannot pin. That is exactly the kind of
+claim AGENTS.md says to write down instead of implying away, and it is why I
+kept the clause-by-clause table rather than a single "all guards killed" line.
+
+One thing I found while doing this and fixed rather than left: the first version
+of the clear branch used `length(OLD.raw_mime_base64) > 0`, and the mutant for
+K replaced the pair with `1 = 1` and still survived. It was not the clause that
+was redundant, it was the *combination* — the refill path was already blocked
+elsewhere. K's final form is the one in the table, and it is the one that fails
+when broken.
+
+### What this did not cover
+
+- **No live mail.** Nothing was deployed, no migration was applied, no Email
+  Routing rule was touched, and no real message went through this path. The
+  question `KNOWN_ISSUES.md` still leaves open — whether Microsoft 365
+  forwarding preserves `From:`, and what Cloudflare's real `authserv-id` string
+  is in delivered order — is exactly as open as it was.
+- **No new surface was built to read stored mail.** "Readable" here means the
+  bytes are retained and the repository returns them; there is no bot command
+  that lists the owner's mail. `D2lEmailRepository.read` and `readByIdentity`
+  are the read path, and `readAuthenticityBySourceExternalId` is the one
+  purpose-built query. If the owner wants to read the mail itself in Telegram,
+  that is a new surface and a separate review — it is also the surface where
+  attacker-controlled prose would reach his screen for the first time, so it
+  should be built deliberately rather than bolted on here.
+- **The `unverified` label was not exercised end to end in production shape**,
+  for the reason given above: no production path creates an unverified deadline.
+- **No count-cap test at 200.** The flood test proves the age bound mechanically
+  (eight stale bodies cleared, the current body kept, all nine receipts kept);
+  the count branch of the same `SELECT` is asserted by constant and by the
+  `MAXIMUM_RETAINED_RAW_RECEIPTS` comparison, not by a 200-row fixture. I judged
+  200 inserts in a unit test to be cost without much information, and I would
+  rather say so than let the assertion's name imply more than it does.
+- **Voice.** The digest composer is the only place a deadline or a grade is
+  rendered for the owner, and voice reaches the model through the context
+  retriever, which reads conversation history and memory projections — not
+  deadlines. So the label reaches voice only if the digest text is itself a
+  conversation turn, and I did not find a path that makes it one. Nothing in
+  `voice/**` changed and no live call was placed.
+
+### Risk, stated plainly
+
+Two things about this branch are worth a reviewer's time more than the rest.
+First, an unproven sender's body is now stored where it used to be destroyed —
+that is the owner's decision and the reason for the change, but it means the
+database that holds his deadlines and memory also holds text a stranger wrote,
+bounded to 200 bodies and 30 days. Second, the `verified`/`unverified` split
+still rests on header text a sender can compose, exactly as `KNOWN_ISSUES.md`
+says; nothing here narrows that, and nothing here should be read as narrowing
+it.
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
