@@ -1,6 +1,16 @@
 # Handoff
 
-**Current as of 2026-09-18, `origin/main` = `6febf32`.**
+**Verified at `origin/main` = `6febf32` on 2026-09-18.** That is no longer main:
+five commits have landed on top of it, all documentation. This document does not
+try to keep a revision current, because prose cannot. Query it:
+
+```bash
+git log --oneline origin/main -1
+```
+
+Nothing in that range touched a source file — `AGENTS.md`, `TESTING.md`, this
+file, and the deletion of `reviewer-tools/HANDOFF-2026-09-18c.md` — so every code
+fact below still holds.
 
 This document replaces every earlier handoff. It is written to be read by a
 session with no memory of what came before — human or model — and it is
@@ -82,7 +92,7 @@ until 2026-10-01**.
 
 | | |
 |---|---|
-| `origin/main` | `6febf32` |
+| `origin/main` | **query it** — `git log --oneline origin/main -1`. `6febf32` when written; not maintained here |
 | Migrations on main | **34**, `0001`–`0034`, no gaps |
 | Production Worker | **`555c1414`**, not redeployed since |
 | Production D1 | **migration `0034`** — verified by querying `d1_migrations` |
@@ -101,8 +111,9 @@ reconciled:
   is **right**. The `0032` figure was accurate when written and went stale.
 - **Production runs Worker `555c1414`, not `c46e6c89`.** Same cause; 18c is
   right. The redeploy happened on 2026-09-18.
-- **`main` is `6febf32`.** 18c records `8b5f438`, which was current when it was
-  written, before #98's merge commit landed.
+- **`main` was `6febf32`.** 18c records `8b5f438`, which was current when it was
+  written, before #98's merge commit landed. Both are now behind main; see the
+  header for why this document no longer states a revision as current.
 - **The merged list is 18c's** (#90–#95, #97–#101). The earlier draft omitted
   #90, #91 and #92.
 - **The reviewer tooling branch head is `d4f5aa2`.** 18c says `e78b787` and the
