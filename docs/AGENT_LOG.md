@@ -117,8 +117,11 @@ timeouts inside this feature's own PIN tests: the test that spends all five
 attempts performs thirty chained PBKDF2 passes, which measures 2.8s alone and
 more than 5s under a loaded pool. `call-session-do.test.ts` now gives the four
 PIN-deriving tests an explicit 30s budget — the same one the service-level twin
-in `owner-sensitive-action.test.ts` already carried. No assertion changed.
-Treat the reviewer's own gate run as the evidence.
+in `owner-sensitive-action.test.ts` already carried. No assertion changed. With
+the budget in place the whole file still failed twice while the other builders
+were running, on two further timing tests that each passed alone; once they
+stopped, the file ran green at 125/125 in 208s. Treat the reviewer's own gate
+run as the evidence.
 
 ### Two builders worked this feature at once
 
