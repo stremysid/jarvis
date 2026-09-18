@@ -32,12 +32,14 @@ file applies the chain in its own `beforeEach`, so a filtered run gets the
 schema the same way a full run does, and nothing I ran depends on an earlier
 test.
 
-**What I did reproduce is the failure this feature actually has.** Running one
-owner test alone *while a second vitest process was running* gave
+**What I did reproduce is the failure this feature actually has, on demand.**
+Running one owner test alone *while a second vitest process was running* gave
 `Error: Test timed out in 5000ms` on *"clears active authority and transient
 interaction state on terminal callback invalidation"* — a test that had passed
-alone on a quiet machine minutes earlier. That is the class the previous entry
-describes, and it is not about ordering.
+alone on a quiet machine minutes earlier. Isolation is not what decides it;
+how busy the machine is, is. If the eleven were counted from a loaded run,
+that is what they are, and the fix below removes the cause rather than moving
+the deadline.
 
 **The cause is in the fixture, not the deadline.** `accessHarness` re-derived
 the owner passphrase, the owner call PIN and the guest PIN from scratch for
@@ -60,12 +62,40 @@ unpinned random salt, and nothing asserts on that salt.
 No assertion and no test name changed. The four 30s budgets stay: those tests
 do five real PIN verifications, which is what they exist to prove.
 
-**Evidence.** Whole file 125/125 in 198.9s before, 125/125 in 161.2s after.
+**Evidence, A/B on the same machine under the same load.** Both file versions
+run back to back, twice each, while the box sat at 100% CPU with 28 node
+processes from other sessions:
+
+| | pre-fix `af39e01` | post-fix `0f4ce62` |
+|---|---|---|
+| run 1 | **124/125**, one `Test timed out in 5000ms`, 213.9s | **125/125**, 190.7s |
+| run 2 | **124/125**, one `Test timed out in 5000ms`, 231.4s | **125/125**, 197.5s |
+
+The two pre-fix failures were **different tests** — *"cleans up a live core
+already durably rejected and replays without double provider cleanup"* and
+*"drops an issued owner proposal and partial PIN across a core restart"*. A
+failing name that roams is a budget, not an ordering bug: nothing about the
+second test depends on the first. On a quiet machine the same file was
+125/125 in 198.9s before and 125/125 in 161.2s after.
+
 After the change, the first 59 tests in file order — every owner, guest and
 sensitive-action test in the first two describes — each pass run alone.
 `pnpm lint` and `pnpm typecheck` clean. `tsc -p apps/cloud-gateway/tsconfig.test.json`
 reports 21 diagnostics for this file both before and after, so the known
 test-typecheck backlog did not grow.
+
+**`pnpm test` on `1734bb4`: 5,283 of 5,297 passed, 195 of 203 files**, run at
+100% CPU against those other sessions. Eight files failed; eight of the
+fourteen failures were `Test timed out in 5000ms` and the rest cascaded from
+them. **Every one of the eight passes when the file is re-run alone** —
+`voice-call-path` 18/18, `voice-telegram-call` 44/44,
+`voice-telegram-owner-step-up` 15/15, `memory-backup` 26/26,
+`owner-telegram-agent` 87/87, `voice-access-authority` 7/7,
+`call-session-do` 125/125, and `telegram-memory` 60/60 on the second alone run
+(its first alone run still missed the 500 ms latency budget it asserts, which
+is the same load). `owner-telegram-agent`'s `delivery_unknown` case is the
+flake the reviewer already measured on a clean merge base; none of the others
+are in this PR's diff except `call-session-do` and `memory-backup`.
 
 **The migration is now `0036`, not `0035`.** PR #106
 (`codex/tier3-classify-memory-correct`) also claims `0035`, for
