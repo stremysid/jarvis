@@ -1338,17 +1338,17 @@ describe("owner Telegram agent", () => {
       .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
   });
 
-  it("requires control intent before forget, restore, or explain reaches owner controls", async () => {
-    const harness = await ownerHarness("control-intent");
+  it("refuses forget, restore, or explain tool calls whose excerpt is not in Sid's current message", async () => {
+    const harness = await ownerHarness("control-grounding");
     await runTurn({
       harness,
       text: "remember I like calculus",
       provider: new FakeAgentProvider([
-        called(tool("control-intent-seed", "memory_remember", {
+        called(tool("control-grounding-seed", "memory_remember", {
           fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
           previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
         })),
-        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:control-intent-seed"] }]),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:control-grounding-seed"] }]),
       ]),
     });
     const row = (await memoryRows(harness.principalId))[0]!;
@@ -1357,9 +1357,15 @@ describe("owner Telegram agent", () => {
     const explain = vi.spyOn(MemoryOwnerControlsService.prototype, "explain");
     try {
       for (const call of [
-        tool("control-intent-forget", "memory_forget", { itemIds: [row.item_id], supportingExcerpt: "hi" }),
-        tool("control-intent-restore", "memory_restore", { itemId: row.item_id, supportingExcerpt: "hi" }),
-        tool("control-intent-explain", "memory_explain", { itemId: row.item_id, supportingExcerpt: "hi" }),
+        tool("control-grounding-forget", "memory_forget", {
+          itemIds: [row.item_id], supportingExcerpt: "delete the calculus memory",
+        }),
+        tool("control-grounding-restore", "memory_restore", {
+          itemId: row.item_id, supportingExcerpt: "bring back the calculus memory",
+        }),
+        tool("control-grounding-explain", "memory_explain", {
+          itemId: row.item_id, supportingExcerpt: "where did the calculus memory come from",
+        }),
       ]) {
         await runTurn({
           harness,
@@ -1376,6 +1382,233 @@ describe("owner Telegram agent", () => {
       lift.mockRestore();
       explain.mockRestore();
     }
+  });
+
+  it("reaches owner controls for a forget the model inferred with no control verb in Sid's message", async () => {
+    const harness = await ownerHarness("inferred-forget");
+    await runTurn({
+      harness,
+      text: "remember my spare key is under the mat",
+      provider: new FakeAgentProvider([
+        called(tool("inferred-forget-seed", "memory_remember", {
+          fact: "my spare key is under the mat",
+          supportingExcerpt: "my spare key is under the mat",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:inferred-forget-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+
+    const receipt = await runTurn({
+      harness,
+      text: "scrap the spare key thing",
+      context: [memoryContext(row)],
+      provider: new FakeAgentProvider([
+        called(tool("inferred-forget", "memory_forget", {
+          itemIds: [row.item_id], supportingExcerpt: "scrap the spare key thing",
+        })),
+        stopped("Done.", [{ sentence: "Done.", receiptIds: ["receipt:inferred-forget"] }]),
+      ]),
+    });
+
+    expect(receipt).toContain("Forgot 1 memory");
+    expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("forgotten");
+  });
+
+  it("does not forget a memory when Sid says not to forget it", async () => {
+    const harness = await ownerHarness("negated-forget");
+    await runTurn({
+      harness,
+      text: "remember my spare key is under the mat",
+      provider: new FakeAgentProvider([
+        called(tool("negated-forget-seed", "memory_remember", {
+          fact: "my spare key is under the mat",
+          supportingExcerpt: "my spare key is under the mat",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:negated-forget-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    const text = "don't forget the memory about the spare key";
+
+    const provider = new FakeAgentProvider([
+      called(tool("negated-forget", "memory_forget", {
+        itemIds: [row.item_id], supportingExcerpt: text,
+      })),
+      stopped("Okay.", []),
+    ]);
+    await runTurn({ harness, text, context: [memoryContext(row)], provider });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+      .toMatchObject({ status: "refused" });
+    expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("active");
+  });
+
+  it("does not restore a memory when Sid says he does not want it used again", async () => {
+    const harness = await ownerHarness("negated-restore");
+    await runTurn({
+      harness,
+      text: "remember I like calculus",
+      provider: new FakeAgentProvider([
+        called(tool("negated-restore-seed", "memory_remember", {
+          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:negated-restore-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    await runTurn({
+      harness,
+      text: "forget that",
+      context: [memoryContext(row)],
+      provider: new FakeAgentProvider([
+        called(tool("negated-restore-forget", "memory_forget", {
+          itemIds: [row.item_id], supportingExcerpt: "forget that",
+        })),
+        stopped("Forgot.", [{ sentence: "Forgot.", receiptIds: ["receipt:negated-restore-forget"] }]),
+      ]),
+    });
+    const text = "I don't want to use that memory again";
+
+    const provider = new FakeAgentProvider([
+      called(tool("negated-restore", "memory_restore", {
+        itemId: row.item_id, supportingExcerpt: text,
+      })),
+      stopped("Okay.", []),
+    ]);
+    await runTurn({ harness, text, context: [memoryContext(row)], provider });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+      .toMatchObject({ status: "refused" });
+    expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("forgotten");
+  });
+
+  it("replaces one memory when Sid plainly states a new version, and recalls only the new wording", async () => {
+    const harness = await ownerHarness("memory-correction");
+    await runTurn({
+      harness,
+      text: "my fav subject is math",
+      provider: new FakeAgentProvider([
+        called(tool("correction-seed", "memory_remember", {
+          fact: "my fav subject is math",
+          supportingExcerpt: "my fav subject is math",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:correction-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+
+    const receipt = await runTurn({
+      harness,
+      text: "my fav subject is now science",
+      context: [memoryContext(row)],
+      provider: new FakeAgentProvider([
+        called(tool("correction-change", "memory_correct", {
+          itemId: row.item_id,
+          newFact: "my fav subject is now science",
+          supportingExcerpt: "my fav subject is now science",
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Done.", [{ sentence: "Done.", receiptIds: ["receipt:correction-change"] }]),
+      ]),
+    });
+
+    expect(receipt).toContain("my fav subject is math");
+    expect(receipt).toContain("my fav subject is now science");
+    expect(receipt).toContain("no longer current");
+    expect((await memoryRows(harness.principalId)).map((entry) => [entry.text, entry.lifecycle_state]))
+      .toEqual([
+        ["my fav subject is math", "superseded"],
+        ["my fav subject is now science", "active"],
+      ]);
+    expect(await env.DB.prepare(`SELECT source_item_id, target_item_id, link_type
+      FROM memory_item_links WHERE principal_id = ?`).bind(harness.principalId)
+      .first<{ source_item_id: string; target_item_id: string; link_type: string }>())
+      .toMatchObject({ target_item_id: row.item_id, link_type: "supersedes" });
+  });
+
+  it("refuses a correction tool call that is not grounded in Sid's direct current message", async () => {
+    const harness = await ownerHarness("correction-authority");
+    await runTurn({
+      harness,
+      text: "my fav subject is math",
+      provider: new FakeAgentProvider([
+        called(tool("correction-authority-seed", "memory_remember", {
+          fact: "my fav subject is math",
+          supportingExcerpt: "my fav subject is math",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:correction-authority-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    // Forwarded text reaches the adapter with its direct-owner authority off,
+    // which is the prompt-injection boundary the phrasing gate never was. The
+    // second run keeps the durable turn marker authoritative so the adapter's
+    // own flag is the only thing standing between forwarded text and a write.
+    for (const durableDirectOwnerText of [false, true]) {
+      const forwarded = new FakeAgentProvider([
+        called(tool(`correction-forwarded-${durableDirectOwnerText}`, "memory_correct", {
+          itemId: row.item_id,
+          newFact: "my fav subject is now science",
+          supportingExcerpt: "my fav subject is now science",
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Okay.", []),
+      ]);
+      await runTurn({
+        harness,
+        text: "my fav subject is now science",
+        directOwnerText: false,
+        durableDirectOwnerText,
+        context: [memoryContext(row)],
+        provider: forwarded,
+      });
+      expect(JSON.parse(forwarded.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+        .toMatchObject({ status: "refused" });
+    }
+
+    // A model-authored wording Sid's sentence does not support is refused by
+    // the control service rather than promoted, because a correction carries
+    // no confirmation step that could catch it later.
+    const invented = new FakeAgentProvider([
+      called(tool("correction-invented", "memory_correct", {
+        itemId: row.item_id,
+        newFact: "my fav subject is chemistry",
+        supportingExcerpt: "my fav subject is now science",
+        kind: "preference",
+        sensitivity: "normal",
+      })),
+      stopped("Okay.", []),
+    ]);
+    await runTurn({
+      harness,
+      text: "my fav subject is now science",
+      context: [memoryContext(row)],
+      provider: invented,
+    });
+    expect(JSON.parse(invented.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+      .toMatchObject({ status: "refused" });
+    expect((await memoryRows(harness.principalId)).map((entry) => [entry.text, entry.lifecycle_state]))
+      .toEqual([["my fav subject is math", "active"]]);
   });
 
   it("refuses agent-level memory confirmation when its excerpt is absent from Sid's current text", async () => {

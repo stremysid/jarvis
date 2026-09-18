@@ -33,6 +33,7 @@ import {
 } from "../../src/memory/telegram-memory-retriever.js";
 import { LiteralHistoryService } from "../../src/memory/literal-history.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import { MemoryOwnerControlsService } from "../../src/memory/memory-owner-controls.js";
 import { parseTelegramMemoryControl } from "../../src/memory/telegram-memory-language.js";
 import type {
   ModelAdapter,
@@ -1611,6 +1612,82 @@ describe("Telegram forget recall safety", () => {
     expect(telegram.requests[0]?.text).toContain("Ms Lee");
     expect(telegram.requests[1]?.text).toMatch(/Forgot 1 memory/u);
     expect(contexts.every((context) => !context.text.includes("Ms Lee"))).toBe(true);
+  });
+});
+
+describe("Telegram owner memory correction", () => {
+  it("recalls only the wording Sid last stated and retains the earlier one in the ledger", async () => {
+    const owner = await seedServicePrincipal("memory-correction");
+    const original = "my fav subject is math";
+    const correction = "my fav subject is now science";
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: original,
+      model: new RecordingModel(),
+      telegram: new FakeTelegramProvider(),
+    });
+    const creation = await latestUserEvent(owner.principalId);
+    const supersededItemId = await commitTestItem({
+      principalId: owner.principalId,
+      text: original,
+      creation,
+    });
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: correction,
+      model: new RecordingModel(),
+      telegram: new FakeTelegramProvider(),
+    });
+    const turn = await latestUserEvent(owner.principalId);
+    const corrected = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).correct({
+      ownerTurn: Object.freeze({
+        principalId: owner.principalId,
+        eventId: turn.eventId,
+        eventSequence: turn.sequence,
+        occurredAt: turn.occurredAt,
+        channel: "telegram",
+        memoryIntent: "correct",
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }),
+      candidateItemIds: Object.freeze([supersededItemId]),
+      text: correction,
+      kind: "preference",
+      sensitivity: "normal",
+      sourceExcerpt: correction,
+      normalizedFromSource: true,
+    });
+
+    const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE })
+      .retrieve({
+        principalId: owner.principalId,
+        channel: "telegram",
+        purpose: "conversation",
+        query: "fav subject",
+        maxTokens: 32_000,
+      });
+    const evidence = contexts.filter((context) => context.text.startsWith("Memory evidence ["));
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.text).toContain(correction);
+    expect(evidence[0]!.text).not.toContain(original);
+    expect(corrected.item.itemId).not.toBe(supersededItemId);
+
+    const retained = await env.DB.prepare(`SELECT version.text, state.lifecycle_state
+      FROM memory_item_state state
+      JOIN memory_item_versions version ON version.principal_id = state.principal_id
+        AND version.version_id = state.current_version_id
+      WHERE state.principal_id = ? AND state.item_id = ?`)
+      .bind(owner.principalId, supersededItemId)
+      .first<{ text: string; lifecycle_state: string }>();
+    expect(retained).toEqual({ text: original, lifecycle_state: "superseded" });
   });
 });
 

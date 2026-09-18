@@ -201,9 +201,23 @@ integration work must resolve these limits before enabling the affected callers:
   excerpts, and forget/lift replays require the exact current transition, but an
   unchanged accepted command can still be completed much later. Define a durable
   expiry policy before command-retention or delayed-queue work.
-- **N8:** each remember, explain, forget or lift request accepts exactly one
-  resolved target. The future adapter must state that limit and ask the owner to
-  disambiguate or repeat multi-target requests rather than silently selecting one.
+- **N8:** each remember, explain, forget, lift or correct request accepts exactly
+  one resolved target. The future adapter must state that limit and ask the owner
+  to disambiguate or repeat multi-target requests rather than silently selecting
+  one.
+- **Correction N1:** a correction appends two owner commands before its memory
+  write, because the transition trigger binds one command to one transition: one
+  authorizes the replacement item and one authorizes the retirement. Append
+  replay is per command, so a failure between them leaves one command and a retry
+  completes the pair, and the memory writes stay in one D1 batch. A correction
+  whose commands are accepted and then never retried therefore holds that turn's
+  mutation key without changing memory, the same exposure Round-2 N2 records for
+  a single command.
+- **Correction N2:** the `targetStates("correct")` narrowing in the retriever is
+  not covered by a test. It only limits which previously referenced items the
+  finder offers, and the control service refuses a target whose lifecycle state
+  is not `active` before any write, so removing the narrowing changes no
+  observable outcome. The transition trigger is the real boundary.
 - **Round-2 N2:** a forget or lift that loses a race after its owner command is
   appended leaves an unapplied command and consumes that turn's mutation key.
   The adapter must ask the owner to repeat the request, or a later storage slice
