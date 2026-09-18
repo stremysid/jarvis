@@ -454,6 +454,34 @@ roaming names, load flakes, the gate's misclassification, #96's timeouts — is
 downstream of that. Queued as `codex/suite-timeout-budget`; it is worth more than
 any individual flake fix.
 
+### Six concurrent builders is self-defeating when three of them are measuring
+
+I ran six headless agents at once — 50 node/pwsh processes. The guidance is 2–3.
+**Three of those six were briefed to MEASURE rates** (`telegram-flake`,
+`gate-isolation-repeat`, `suite-timeout-budget`), on a machine I had made
+unmeasurable, on the same evening I established three separate times that load
+corrupts exactly this kind of measurement.
+
+**The concrete predictable harm:** `suite-timeout-budget` must choose a
+`testTimeout` from evidence. Under six-way contention everything is slow, so it
+could land on a budget generous enough to survive conditions that never occur
+normally — and a budget that large means a genuine hang takes minutes to
+surface. That is a permanent wrong number chosen from a transient condition.
+
+**Stopped `telegram-flake` to drain load.** I first wrote that it was superseded
+by `suite-timeout-budget`. **That justification does not hold and I am
+correcting it rather than leaving it.** The flake's symptom is
+`outcome: 'delivery_unknown'` — an assertion mismatch — not
+`Test timed out in 5000ms`. Those are different failure modes: one is a vitest
+budget, the other is the delivery outcome failing to resolve inside the
+application. A `testTimeout` change may well not touch it. **Requeue that work
+once the machine is quiet; the ~18%-in-11-runs characterisation stands and is
+still unexplained.**
+
+**Rule for next time:** count the measuring builders, not just the builders. Two
+building plus one measuring is fine. Three measuring at once is not a queue, it
+is three corrupted experiments.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
