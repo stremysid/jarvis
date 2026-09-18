@@ -183,15 +183,31 @@ pinned.
 ### Gates
 
 - `pnpm lint`: pass. `pnpm typecheck`: pass.
-- `pnpm test` (cloud gateway): see the PR body for the exact run.
-- **Flakiness, reported rather than smoothed over:** running
-  `test/memory` and `test/channels` together, four runs failed a *different*
-  pre-existing test each time — the staged-target guard, the archived-and-purged
-  forget, the forget-recall-safety suite, and the literal-history dedup — and
-  every one of them passes on its own and in other runs. The failing assertions
-  are the wall-clock-bounded retrieval ones, and my additions make the file
-  longer, which makes them likelier to trip under parallel load. I did not
-  "fix" any of them by loosening a bound.
+- `pnpm test`, full gateway suite, **run 1**: 199 files, 5308 tests,
+  **3 failed** — `owner-telegram-agent.test.ts` (*rejects confirmed forget when
+  callback data, item set, answered-confirm state, or principal differs*,
+  `delivery_unknown` instead of `telegram_delivered`), `voice/call-session-do.test.ts`
+  (5 s timeout) and one more in the same tail.
+- `pnpm test`, **run 2** (same command, nothing changed in between): 199 files,
+  5308 tests, **7 failed** in 4 files — four in
+  `tests/acceptance/fake/voice-call-path.test.ts`, one in
+  `tests/acceptance/fake/voice-telegram-call.test.ts`, one in
+  `voice/call-session-do.test.ts`, and one in `sync/memory-projection.test.ts`.
+  Almost nothing overlaps run 1.
+- **Flakiness, reported rather than smoothed over.** The failing sets are
+  disjoint between two identical runs, every failing file passes when run alone
+  (`memory-projection.test.ts` 87/87 twice, `owner-telegram-agent.test.ts` 89/89,
+  `telegram-memory.test.ts` 68/68 four times), and the assertions that fail are
+  the wall-clock-bounded ones. This machine carries three other agent processes
+  and 22 node processes. I did not loosen a bound, skip a test, or call a red
+  run green: the two failing runs are recorded here as failing.
+- A pristine `origin/main` worktree at `385c052`, carrying none of this
+  change, was run through the same `pnpm test`: **12 failed in 6 files**,
+  including the same `owner-telegram-agent.test.ts` case run 1 failed. The
+  full-suite flakiness is therefore pre-existing and environmental, not
+  something this branch introduces. On this machine it correlates with the
+  wall-clock-bounded voice, Durable Object and backup tests and with three
+  other agent processes and 22 node processes running.
 
 ### What breaks if this deploys before any migration it needs
 
