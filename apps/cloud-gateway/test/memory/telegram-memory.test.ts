@@ -46,7 +46,7 @@ import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-bre
 import { Redactor } from "../../src/security/redaction.js";
 import { projectionSourceText } from "../../src/sync/memory-projection.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
-import { applyMemoryDistillationMigration } from "../persistence/migration.js";
+import { applyMemoryLivingNotesMigration } from "../persistence/migration.js";
 
 const OWNER_ID = "principal:telegram-memory-owner";
 const GUEST_ID = "principal:telegram-memory-guest";
@@ -814,7 +814,7 @@ function adapter(
 }
 
 beforeAll(async () => {
-  await applyMemoryDistillationMigration();
+  await applyMemoryLivingNotesMigration();
   await seedPrincipal(OWNER_ID);
   await seedPrincipal(GUEST_ID);
   await seedPrincipal(RETRIEVAL_ID);
@@ -2410,7 +2410,7 @@ describe("Telegram memory retrieval statement bounds", () => {
     expect(contexts.some((context) => context.text.includes("My favorite subject is math."))).toBe(true);
   });
 
-  it("checks forgotten-turn suppression with one bounded statement over the base rows", async () => {
+  it("checks forgotten-turn suppression with one base-row statement and one bounded profile read", async () => {
     const owner = await seedServicePrincipal("suppression-statement");
     const telegram = new FakeTelegramProvider();
     const model = new RecordingModel();
@@ -2445,7 +2445,7 @@ describe("Telegram memory retrieval statement bounds", () => {
       elapsedMs,
       statements: stats.statements,
     }));
-    expect(stats.statements).toBe(1);
+    expect(stats.statements).toBe(2);
     expect(elapsedMs).toBeGreaterThanOrEqual(20);
   });
 

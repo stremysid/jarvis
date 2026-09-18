@@ -18,8 +18,8 @@ export const MEMORY_BACKUP_LATEST_KEY = "memory-backup/latest.json";
 
 /**
  * Dependency order is also restore order. These are all authoritative D1
- * tables in migrations 0001 through 0033 (0032 is reserved on another
- * branch), apart from the explicit derived list below.
+ * tables in migrations 0001 through 0033, apart from the explicit derived
+ * list below.
  */
 export const MEMORY_BACKUP_TABLES = Object.freeze([
   "principals",
@@ -81,6 +81,10 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "memory_model_prices",
   "memory_reprocess_jobs",
   "memory_runs",
+  "memory_topic_note_versions",
+  "memory_topic_note_sources",
+  "memory_topic_note_receipts",
+  "memory_consolidation_change_receipts",
   "memory_cost_ledger",
   "owner_passphrase_verifiers",
   "owner_passphrase_rotation_commits",
@@ -157,6 +161,7 @@ export const MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES = Object.freeze([
   "memory_item_fts",
   "memory_episode_fts",
   "memory_history_fts",
+  "memory_topic_note_heads",
 ] as const);
 
 /** Ephemeral state, external caches, and receipts maintained by the backup itself. */
@@ -178,6 +183,7 @@ export const MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES = Object.freeze([
   "memory_backup_table_cuts",
   "memory_backup_objects",
   "memory_backup_alerts",
+  "memory_consolidation_model_steps",
   "d2l_email_failure_state",
 ] as const);
 
@@ -434,6 +440,16 @@ function scheduledRunsSince(startedAt: string): string {
   return new Date(Date.parse(startedAt) - 48 * 60 * 60_000).toISOString();
 }
 
+/**
+ * D1 reserves the `_cf_` prefix for its own bookkeeping (`_cf_METADATA`,
+ * `_cf_KV`) and its authorizer refuses a CREATE there (SQLITE_AUTH), so such a
+ * table can only exist because Cloudflare put it there. Exempting these by name
+ * instead is what aborted the nightly backup when `_cf_KV` first appeared.
+ */
+function isCloudflareInternalTable(name: string): boolean {
+  return name.startsWith("_cf_");
+}
+
 function isInternalFtsTable(name: string): boolean {
   return MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.some(
     (table) => table.endsWith("_fts") && name.startsWith(`${table}_`),
@@ -521,8 +537,8 @@ class MemoryBackupRepository {
       ...MEMORY_BACKUP_EXCLUDED_RESTORE_TABLES,
     ]);
     const unclassified = schema.results.map((row) => row.name).filter((name) =>
-      !name.startsWith("sqlite_") && name !== "d1_migrations" && name !== "_cf_METADATA"
-      && !isInternalFtsTable(name) && !classified.has(name));
+      !name.startsWith("sqlite_") && name !== "d1_migrations"
+      && !isCloudflareInternalTable(name) && !isInternalFtsTable(name) && !classified.has(name));
     if (unclassified.length > 0) {
       throw new Error(`memory_backup_table_unclassified:${unclassified.sort().join(",")}`);
     }

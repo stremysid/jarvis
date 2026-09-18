@@ -37,7 +37,7 @@ import {
   TelegramMemoryRetriever,
   type TelegramMeaningSearchObservation,
 } from "../../src/memory/telegram-memory-retriever.js";
-import { applyMemoryDistillationMigration } from "../persistence/migration.js";
+import { applyMemoryLivingNotesMigration } from "../persistence/migration.js";
 
 const ZERO_VECTOR = Object.freeze(Array.from({ length: MEMORY_EMBEDDING_DIMENSIONS }, () => 0));
 let serial = 0;
@@ -724,7 +724,7 @@ async function retrieve(
 }
 
 beforeAll(async () => {
-  await applyMemoryDistillationMigration();
+  await applyMemoryLivingNotesMigration();
 });
 
 describe("memory meaning adapters", () => {

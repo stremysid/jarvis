@@ -31,6 +31,7 @@ import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_gues
 import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
 import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
 import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
+import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
 
 let migrated: Promise<void> | undefined;
@@ -51,6 +52,7 @@ let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 let universityApplicationDetailsMigrated: Promise<void> | undefined;
 let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
 let memoryBackupMigrated: Promise<void> | undefined;
+let memoryLivingNotesMigrated: Promise<void> | undefined;
 let d2lNotificationEmailMigrated: Promise<void> | undefined;
 
 export { splitMigration };
@@ -256,9 +258,18 @@ export async function applyMemoryBackupMigration(): Promise<void> {
   await memoryBackupMigrated;
 }
 
+/** Applies living-note history, receipts and immediate derivation redaction. */
+export async function applyMemoryLivingNotesMigration(): Promise<void> {
+  await applyMemoryBackupMigration();
+  memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+  ]);
+  await memoryLivingNotesMigrated;
+}
+
 /** Applies the D2L notification-email receipt and observation schema. */
 export async function applyD2lNotificationEmailMigration(): Promise<void> {
-  await applyMemoryBackupMigration();
+  await applyMemoryLivingNotesMigration();
   d2lNotificationEmailMigrated ??= applyD1Migrations(env.DB, [
     { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
   ]);
@@ -286,6 +297,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
   { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
   { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+  { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
   { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
 ]);
 
@@ -298,8 +310,10 @@ export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void>
     .all<{ name: string }>();
   const triggers = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'")
     .all<{ name: string }>();
+  // `_cf_` is D1's reserved namespace, so a DROP or CREATE inside it is refused;
+  // leave those tables alone instead of reading Cloudflare's bookkeeping as schema.
   const tables = await env.DB.prepare(`SELECT name FROM sqlite_schema
-    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_cf_METADATA'`)
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) != '_cf_'`)
     .all<{ name: string }>();
   const virtualNames = virtualTables.results.map(({ name }) => name);
   const regularNames = tables.results.map(({ name }) => name).filter((name) =>
