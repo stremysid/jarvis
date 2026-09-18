@@ -13,8 +13,13 @@ has already had.
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
 [docs/AGENT_LOG.md](docs/AGENT_LOG.md) — append at the top, sign it, and
-write it to be read late. Where the project actually stands stays in
-`docs/HANDOFF.md`, not there.
+write it to be read late. **Search it; do not read it.** It is more than
+thirteen thousand lines of evidence and none of it is current state.
+
+Where the project actually stands is [docs/STATE.md](docs/STATE.md). What is in
+flight, and who owns the next action, is [docs/QUEUE.md](docs/QUEUE.md). What only
+Sid can do is [docs/OWNER-ACTIONS.md](docs/OWNER-ACTIONS.md). Read those three
+before anything longer, and if they disagree with a longer document, they win.
 
 ## Traps that have actually cost time here
 

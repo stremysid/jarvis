@@ -1,26 +1,29 @@
 # Handoff
 
-**Verified at `origin/main` = `6febf32` on 2026-09-18.** That is no longer main:
-five commits have landed on top of it, all documentation. This document does not
-try to keep a revision current, because prose cannot. Query it:
+**This document is a narrative, not a status.** For what is true right now read
+[docs/STATE.md](STATE.md); for what is in flight, and who acts next, read
+[docs/QUEUE.md](QUEUE.md). Those two are maintained. This one explains.
+
+Its facts were verified at the revision printed by:
 
 ```bash
 git log --oneline origin/main -1
 ```
 
-Nothing in that range touched a source file — `AGENTS.md`, `TESTING.md`, this
-file, and the deletion of `reviewer-tools/HANDOFF-2026-09-18c.md` — so every code
-fact below still holds.
+A row below that carries a date or a sha is a historical claim about that revision.
+It is not wrong for being old. It is wrong only if it is read as current — which is
+the mistake this file has now made three times.
 
 This document replaces every earlier handoff. It is written to be read by a
 session with no memory of what came before — human or model — and it is
 deliberately blunt about what has been verified and what has not.
 
-Read this file, then [docs/ARCHITECTURE.md](ARCHITECTURE.md), then
-[KNOWN_ISSUES.md](../KNOWN_ISSUES.md), then [AGENTS.md](../AGENTS.md) for the
-traps. `docs/AGENT_LOG.md` is the running mailbox between builder and reviewer;
-its top entries are the most recent truth, and this document summarises rather
-than replaces it.
+Read [docs/STATE.md](STATE.md) first — it is short, it is current, and it wins any
+disagreement with this file. Then this file, then
+[docs/ARCHITECTURE.md](ARCHITECTURE.md), then
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md), then [AGENTS.md](../AGENTS.md) for the traps.
+`docs/AGENT_LOG.md` is the mailbox between builder and reviewer: **search it, do
+not read it** — it is evidence, and none of it is current state.
 
 ---
 
