@@ -275,8 +275,12 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     const send = vi.fn(async (_text: string) => undefined);
     const jobContext = { ...context(fetcher), delivery: { send } };
 
+    // `ok` because the memory phases did run against the configured owner, and
+    // `degraded` because the network sweep the poll exists for did not. Both
+    // facts have to survive; either one alone misleads.
     await expect(runPoll(jobContext)).resolves.toMatchObject({
       ok: true,
+      degraded: true,
       detail: expect.stringContaining("Brightspace not configured"),
     });
     expect(fetcher).not.toHaveBeenCalled();

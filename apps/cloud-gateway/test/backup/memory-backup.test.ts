@@ -205,7 +205,7 @@ describe("nightly verified memory backup", () => {
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
   const manifest = await readLatestManifest();
-  expect(manifest.databaseSchemaVersion).toBe("0033_d2l_notification_email.sql");
+  expect(manifest.databaseSchemaVersion).toBe("0034_scheduled_run_detail.sql");
   expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({

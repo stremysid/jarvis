@@ -14,6 +14,7 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { buildTelegramConversationRepository } from "../../src/index.js";
 import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
+import { isSuccess, type JobOutcome } from "../../src/scheduler/scheduled-handler.js";
 import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
   AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING,
@@ -98,6 +99,19 @@ function redactPayload(value: unknown): RedactedJsonValue {
   if (Array.isArray(value)) return value.map(redactPayload);
   if (typeof value !== "object") throw new Error("automatic_distillation_fixture_payload_invalid");
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, redactPayload(child)]));
+}
+
+/**
+ * The detail of a successful poll outcome.
+ *
+ * A job now has three possible answers, so `outcome.ok && outcome.detail` no
+ * longer type-checks. Throwing rather than returning an empty string keeps a
+ * failing assertion readable: the error names the outcome that was actually
+ * returned instead of an unhelpful `expected "" to contain ...`.
+ */
+function pollDetail(outcome: JobOutcome): string {
+  if (!isSuccess(outcome)) throw new Error(`poll_did_not_succeed: ${JSON.stringify(outcome)}`);
+  return outcome.detail ?? "";
 }
 
 async function principal(): Promise<string> {
@@ -2216,8 +2230,8 @@ describe("automatic memory distillation", () => {
     const result = await poll();
 
     expect(result).toMatchObject({ ok: true });
-    expect(result.ok && result.detail).toContain("1 archived");
-    expect(result.ok && result.detail).toContain(
+    expect(pollDetail(result)).toContain("1 archived");
+    expect(pollDetail(result)).toContain(
       "Memory succeeded, 1 created, 0 events pending, 0 eligible events pending, 0 skips after 1 step",
     );
     expect(await env.DB.prepare("SELECT count(*) AS count FROM events WHERE sequence = ?")
@@ -2396,7 +2410,7 @@ describe("automatic memory distillation", () => {
     const result = await poll();
 
     expect(provider.requests).toHaveLength(1);
-    expect(result.ok && result.detail).toContain("after 1 step, D1 statement allowance reached");
+    expect(pollDetail(result)).toContain("after 1 step, D1 statement allowance reached");
   });
 
   it("does not start re-file when its 425-statement reservation cannot fit", async () => {
@@ -2458,8 +2472,8 @@ describe("automatic memory distillation", () => {
     const result = await poll();
 
     expect(refileCandidateReads).toBe(0);
-    expect(result.ok && result.detail).toContain("D1 statement allowance reached");
-    expect(result.ok && result.detail).toContain("inbox filing 0 refiled");
+    expect(pollDetail(result)).toContain("D1 statement allowance reached");
+    expect(pollDetail(result)).toContain("inbox filing 0 refiled");
   });
 
   it("polls Classroom and Brightspace before starting memory distillation", async () => {
@@ -2622,7 +2636,7 @@ describe("automatic memory distillation", () => {
       ok: true,
       detail: expect.stringContaining("1 event pending, 1 eligible event pending"),
     });
-    expect(result.ok && result.detail).toContain("after 1 step, wall-clock budget reached");
+    expect(pollDetail(result)).toContain("after 1 step, wall-clock budget reached");
   });
 
   it("commits the maximum paid response once inside the declared D1 invocation allowance", async () => {
@@ -2662,7 +2676,7 @@ describe("automatic memory distillation", () => {
       ok: true,
       detail: expect.stringContaining("0 events pending, 0 eligible events pending"),
     });
-    expect(result.ok && result.detail).toContain("after 1 step");
+    expect(pollDetail(result)).toContain("after 1 step");
   });
 
   it("breaks the hourly step loop when a finalized step cannot advance the cursor", async () => {
@@ -2758,7 +2772,7 @@ describe("automatic memory distillation", () => {
         "1 event pending, 1 eligible event pending, 1 skip (owner_scope_ineligible=1)",
       ),
     });
-    expect(result.ok && result.detail).toContain("after 8 steps");
+    expect(pollDetail(result)).toContain("after 8 steps");
     expect(provider.requests).toHaveLength(8);
     expect(cursor).toBe(latest - 1);
   });
@@ -2784,7 +2798,14 @@ describe("automatic memory distillation", () => {
 
     const result = await poll();
 
-    expect(result).toMatchObject({ ok: true, detail: expect.stringContaining("Memory distillation not configured") });
+    // `degraded` as well as `ok`: the memory sweeps did run against the
+    // configured owner, and the distillation phase did not. A clean `ok`
+    // would erase the second fact.
+    expect(result).toMatchObject({
+      ok: true,
+      degraded: true,
+      detail: expect.stringContaining("Memory distillation not configured"),
+    });
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_runs WHERE principal_id = ?")
       .bind(principalId).first("count")).toBe(0);
     expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors

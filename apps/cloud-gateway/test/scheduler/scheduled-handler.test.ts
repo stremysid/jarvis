@@ -12,7 +12,7 @@ import {
   type ScheduledDependencies,
 } from "../../src/scheduler/scheduled-handler.js";
 import { ScheduledRunRepository } from "../../src/scheduler/scheduled-run-repository.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyD2lNotificationEmailMigration } from "../persistence/migration.js";
 
 /**
  * This file is about an ordering, not a feature.
@@ -47,7 +47,7 @@ const ok = async (): Promise<JobOutcome> => ({ ok: true });
 
 describe("routing a firing to its jobs", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyD2lNotificationEmailMigration();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
   });
 
@@ -90,7 +90,7 @@ describe("routing a firing to its jobs", () => {
 
 describe("claiming before running", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyD2lNotificationEmailMigration();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
   });
 
@@ -136,7 +136,7 @@ describe("claiming before running", () => {
 
 describe("a job that fails", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyD2lNotificationEmailMigration();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
   });
 
@@ -191,7 +191,7 @@ describe("a job that fails", () => {
 
 describe("the heartbeat", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyD2lNotificationEmailMigration();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
   });
 

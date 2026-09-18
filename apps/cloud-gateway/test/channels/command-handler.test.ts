@@ -127,6 +127,9 @@ describe("owner call step-up disable", () => {
 });
 
 describe("status", () => {
+  /** Every job the router knows about, including the nightly backup. */
+  const ALL_JOBS = ["drain", "poll", "digest", "retro", "backup"] as const;
+
   it("reports never-run separately from failed", async () => {
     // A fresh deployment and a broken one both have nothing recent to show.
     // Collapsing them means the first alarming morning looks like day one.
@@ -139,6 +142,7 @@ describe("status", () => {
           setMode: async () => ({ mode: "shadow" as const, enteredAt: "" }),
         },
         scheduler: {
+          jobs: () => ALL_JOBS,
           recent: async (job) =>
             job === "poll"
               ? [{
@@ -146,6 +150,8 @@ describe("status", () => {
                 startedAt: "2026-09-02T11:00:00.000Z",
                 finishedAt: "2026-09-02T11:00:04.000Z",
                 failure: "GitHub returned 503",
+                detail: null,
+                completion: "ok" as const,
               }]
               : job === "drain"
                 ? [{
@@ -153,6 +159,8 @@ describe("status", () => {
                   startedAt: "2026-09-02T11:25:00.000Z",
                   finishedAt: "2026-09-02T11:25:01.000Z",
                   failure: null,
+                  detail: null,
+                  completion: "ok" as const,
                 }]
                 : [],
         },
@@ -165,12 +173,100 @@ describe("status", () => {
     expect(reported).toContain("digest: never run");
   });
 
+  it("shows the detail a run reported even though the run succeeded", async () => {
+    // The defect: `finish` cleared `failure` and persisted nothing else, so a
+    // job that succeeded while saying "this source is not configured" looked
+    // exactly like a job that succeeded cleanly. The owner's own status screen
+    // is the only place that sentence was supposed to survive.
+    const reported = await text(
+      "status",
+      "",
+      context({
+        scheduler: {
+          jobs: () => ALL_JOBS,
+          recent: async (job) =>
+            job === "poll"
+              ? [{
+                runKey: "2026-09-02T11",
+                startedAt: "2026-09-02T11:00:00.000Z",
+                finishedAt: "2026-09-02T11:00:04.000Z",
+                failure: null,
+                detail: "12 archived; Classroom not configured; 6 polled",
+                completion: "degraded" as const,
+              }]
+              : [],
+        },
+      }),
+    );
+
+    expect(reported).toContain(
+      "poll: ok with caveat at 11:00 -- 12 archived; Classroom not configured; 6 polled",
+    );
+  });
+
+  it("reports the nightly backup, which the hardcoded three-job list never showed", async () => {
+    // A job outside the literal was invisible however badly it was failing,
+    // which is how a backup that wrote no rows for months stayed absent from
+    // the one screen an owner checks.
+    const reported = await text(
+      "status",
+      "",
+      context({
+        scheduler: {
+          jobs: () => ALL_JOBS,
+          recent: async (job) =>
+            job === "backup"
+              ? [{
+                runKey: "2026-09-06",
+                startedAt: "2026-09-06T23:30:00.000Z",
+                finishedAt: "2026-09-06T23:31:00.000Z",
+                failure: "memory_backup_binding_missing",
+                detail: null,
+                completion: "ok" as const,
+              }]
+              : [],
+        },
+      }),
+    );
+
+    expect(reported).toContain("backup: FAILED at 23:30 -- memory_backup_binding_missing");
+  });
+
+  it("reports a job that reached the end without running as not set up rather than ok", async () => {
+    // The third state. Recording it as a success is what let a job with no
+    // credential in place report `ok` and beat a healthy heartbeat.
+    const reported = await text(
+      "status",
+      "",
+      context({
+        scheduler: {
+          jobs: () => ALL_JOBS,
+          recent: async (job) =>
+            job === "backup"
+              ? [{
+                runKey: "2026-09-06",
+                startedAt: "2026-09-06T23:30:00.000Z",
+                finishedAt: "2026-09-06T23:31:00.000Z",
+                failure: null,
+                detail: "Memory consolidation not configured",
+                completion: "not_measured" as const,
+              }]
+              : [],
+        },
+      }),
+    );
+
+    expect(reported).toContain("backup: NOT SET UP at 23:31 -- Memory consolidation not configured");
+    expect(reported).not.toContain("backup: ok");
+  });
+
   it("reports a run that started and never finished", async () => {
     const reported = await text(
       "status",
       "",
       context({
         scheduler: {
+          jobs: () => ALL_JOBS,
           recent: async (job) =>
             job === "digest"
               ? [{
@@ -178,6 +274,8 @@ describe("status", () => {
                 startedAt: "2026-09-02T11:30:00.000Z",
                 finishedAt: null,
                 failure: null,
+                detail: null,
+                completion: "ok" as const,
               }]
               : [],
         },

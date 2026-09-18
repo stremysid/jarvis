@@ -3,6 +3,120 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 04:40 UTC — DeepSeek V4.1 Flash, status failure visibility: ready for review
+
+**Effort level: low.** Stated because the handoff rules ask for it, and because
+it bounds what this entry rests on: the three defects were named in the brief
+and confirmed against the code, and the verification below is mechanical. Low
+effort did **not** independently re-derive where else the pattern occurs; see
+"What I did not look at" for the honest limit of that.
+
+**Branch:** `codex/status-failure-visibility`, from `origin/main` = `e8f8402`.
+**Migration:** `0034_scheduled_run_detail.sql` — the next free number, because
+`0033` was already taken by `0033_d2l_notification_email.sql` at `e8f8402`.
+The brief said `0033`; it came from an audit read one commit earlier.
+
+### The defect, confirmed at `e8f8402`
+
+1. `scheduled-run-repository.ts` (`ScheduledRunRepository.finish`) ran
+   `UPDATE ... SET finished_at = ?, failure = NULL` and `recent` selected
+   `run_key, started_at, finished_at, failure`. There was no column for the
+   `detail` a job returns, so every successful run's own account of itself was
+   discarded between the handler and `/status`.
+2. `command-handler.ts` (`status`) iterated the literal
+   `["drain", "poll", "digest"]`. `backup` and `retro` are both
+   `ScheduledJob`s and both in `buildJobTable`; neither could ever appear.
+3. `job-table.ts` returned `{ ok: true, detail: "...not configured" }` for a
+   missing credential in five places. `ok: true` is what `runOne` records as
+   `ran`, and `ran` is what the heartbeat block counts — so a job with no
+   credential recorded a success, printed `ok`, and beat a healthy heartbeat.
+
+### The three decisions
+
+**A fourth completion state, not a new failure.** `JobOutcome` now has
+`{ notMeasured: true, detail }` beside `ok` and `failure`. I chose "not
+measured" over the two the brief offered:
+
+- *Not a failure.* `digest` and `drain` already returned `ok: false` for a
+  missing `OWNER_PRINCIPAL_ID`. That was not what the third defect described,
+  but it is the same conflation in reverse: a deployment nobody has finished
+  setting up is not an outage, and a red FAILED on every fresh install is how
+  the real failures get ignored.
+- *Not "never run".* A `not_measured` job **is** recorded, so `/status` shows
+  `NOT SET UP at <time> -- <detail>` rather than `never run`. The distinction
+  the module header already draws between never-run and run-and-failed survives
+  intact and gains a third case.
+
+**No heartbeat for `not_measured`.** The heartbeat block still fires only on
+`result === "ran"`; `not_measured` maps to `not_measured`, so it is excluded
+without a new condition. A job that reached the end of its body having done
+nothing attests to nothing, which is the failure a watchdog cannot recover
+from.
+
+**`poll` is `degraded`, never `not_measured`.** Archival runs every firing
+regardless of any credential, so `poll` always does work. When its source
+sweeps are unconfigured it now returns `ok: true, degraded: true`. This is the
+one place I overrode the brief's framing: `poll` was in the not-configured
+family, but recording it `not_measured` would have claimed no work happened
+when archival demonstrably did. `/status` prints `ok with caveat`.
+
+`degraded` and `not_measured` ride in the `detail` column as `degraded: ` /
+`not measured: ` prefixes, plain words rather than a control character because
+the column is capped and a marker truncation can slice in half would decode as
+a clean success — the exact defect being fixed. Cost: a clean detail beginning
+with those literals would mis-decode. No job writes one.
+
+### Named tests, and what neutering each guard did
+
+| Guard | Test | Mutation | Result |
+|---|---|---|---|
+| `finish` persists `detail` | `keeps the detail a successful run returned instead of discarding it` | drop `detail` from the UPDATE | **3 failed** / 51 passed |
+| `/status` derives the list | `reports the nightly backup, which the hardcoded three-job list never showed` | restore the literal three | **2 failed** / 30 passed |
+| missing credential is not `ok` | `reports a scheduled job that never installed its credential as not measured rather than ok` | `digest`/`drain` return `ok: true` when unset | **1 failed** / 5 passed |
+
+All three restored, all green after. **Recorded because a reviewer will check
+it:** my first attempt at the third guard mutated
+`runMemoryConsolidationJob` only, and it failed a *different* test
+(`reports the consolidation phase as not measured while still recording the
+backup that ran`) while the named test stayed green — the named test asserts
+through `drain` and `digest`. The second attempt mutated those two and failed
+exactly the named test. The first result is not evidence the guard is broken;
+it is evidence the named test and the consolidation test pin different things.
+
+### Gates
+
+- lint (`tsc --noEmit`) 0, typecheck 0.
+- gateway suite: **180/180 files, 4941/4941 tests**.
+- `typecheck:tests` stays at the 144 pre-existing errors — unchanged, checked
+  by stashing.
+
+Two runs before that final green one failed a *different* test each time
+(`memory-backup-restore` before I registered `0034` in
+`memory-backup-restore-migrations.ts` — a real miss, fixed; then
+`telegram-memory.test.ts > skips a non-Telegram turn ...`, which passes alone
+and with its whole directory and passed in the final full run). I am calling
+that second one load/ordering flakiness rather than mine, and saying so rather
+than reporting only the green run.
+
+### What I did not look at
+
+Low effort bounded this: I fixed the not-configured paths for the four jobs in
+`buildJobTable`, and I did **not** sweep the repository for the same
+`ok: true` + "not configured" shape elsewhere. `drain`'s
+`guest notices not configured` detail and `indexMeaningMemory`'s
+`Memory meaning disabled (...)` both still read as an ordinary success inside a
+green `poll`. They are visible now, which is more than before, but neither is
+classified. If a reader wants one thing to check next, it is those two.
+
+`memory_backup_binding_missing` is deliberately left a **failure**, not
+reclassified. A declared R2 binding that is unreachable is broken; calling it
+"not set up" would hide a fault behind a setup message. There is a test pinning
+that boundary.
+
+— DeepSeek V4.1 Flash
+
+---
+
 ## 2026-09-18 04:05 UTC — Claude Opus 5, PR #93 max review at 8a441a8: CLEARED, merging
 
 **Cleared with no findings.** This closes audit finding B-1: voice calls did
