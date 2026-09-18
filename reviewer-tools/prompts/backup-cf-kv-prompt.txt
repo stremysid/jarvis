@@ -1,0 +1,10 @@
+You are a Jarvis build chat (repo ksid1229-ops/jarvis) fixing a proven production defect in a fresh session. git fetch origin, create your own git worktree at a SHORT path (for example C:\Users\Sid\jarvis-cfkv) on branch codex/backup-cf-internal-tables from origin/main, and work only there. Do not switch branches in the shared folder. Single-session task.
+
+PROVEN DEFECT (production, tonight): the nightly memory backup has never succeeded. It aborts with `memory_backup_table_unclassified:_cf_KV`. `apps/cloud-gateway/src/backup/memory-backup.ts:520-522` refuses any table it does not classify — correct behaviour — but its exemption list covers only `sqlite_%`, `d1_migrations` and `_cf_METADATA`, and Cloudflare also creates `_cf_KV` in D1. Evidence: a temporary debug build logged the exact error the catch-all `memory_backup_operation_failed` hides, with the stack at `MemoryBackupRepository.loadDescriptors`.
+
+FIX
+1. Exempt Cloudflare-internal tables by prefix (`_cf_`) rather than by individual name, so the next internal table Cloudflare adds does not break backups again. Keep the refusal of genuinely unknown application tables exactly as strict as it is — that gate is correct and caught a real classification gap earlier today.
+2. Add a named test that fails if `_cf_KV` (and an invented `_cf_FUTURE`) is treated as unclassified, and keep a test proving an unknown application table still aborts the run.
+3. Check the restore path for the same assumption and fix it there too if present.
+
+Run lint, typecheck and the full suite once (rerun only unrelated files that time out). Push, open a draft PR against main titled "Backup: exempt Cloudflare-internal D1 tables", and post a ready entry at the top of docs/AGENT_LOG.md for Claude review. Then stop. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up or contact anyone. Remove your extra worktree only after pushing.

@@ -1,0 +1,31 @@
+You are a Jarvis build chat (repo ksid1229-ops/jarvis) in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree at a SHORT path (for example C:\Users\Sid\jarvis-notes) on a new branch codex/memory-living-notes from origin/main, and work only there. Single-session task: ordinary file edits and test runs, no orchestration or task-delegation tooling, no sub-tasks.
+
+This is the last big memory build: the layer that makes Jarvis feel like it KNOWS Sid rather than merely retrieving from him. Owner decisions are recorded in the reviewer's memory and summarised here; do not redesign them.
+
+Read only: src/memory/memory-repository.ts (topic tree, items, versions, sources), automatic-distillation.ts (hourly extraction, budget accounting), telegram-memory-retriever.ts (what goes into a turn's context, and the 800 ms memory bound), meaning-search.ts (indexing cadence and Vectorize usage), src/jobs/job-table.ts (cron jobs), memory-extraction-budget.ts, env.ts, and the related tests. Read docs/plan for the R2 memory design only if a detail is unclear.
+
+BUILD
+
+1. **Living topic notes.** Every topic-tree area gets one living Markdown note that the background model writes and rewrites: a short summary, current facts with dates, open items, and links to related areas. Notes are derived state, never authority: raw history and atomic memory items remain the evidence, and a note must cite the item ids or event ids it rests on. Store notes in D1 with a version history and a receipt per rewrite. Additive migration only, remote-D1-safe (no `SELECT CASE ... RAISE`; use `SELECT RAISE(...) WHERE ...`), with whole-trigger removal tests for every guard you add. Do NOT apply it; the reviewer rehearses it on a scratch database and Sid applies it.
+
+2. **The profile.** The root note is a compact "about Sid" profile assembled from the notes, rebuilt in the background, never on the hot path, and bounded (say 800 tokens). It sits in the stable, cacheable prompt prefix ahead of per-turn context so provider prompt caching hits. It must degrade safely: if it is missing or stale, the turn still works.
+
+3. **Nightly consolidation.** A scheduled job (DeepSeek V4.1 Flash, inside the existing memory spend cap and its accounting) that: rewrites the notes whose areas changed that day; supersedes facts a newer statement contradicts, keeping both versions and a reason; expires time-bound facts whose date has passed ("chem test Friday" after Friday); merges duplicate areas; and records what it changed as receipts Sid can ask about ("why do you think that"). It must be resumable, bounded per run, and idempotent — a second run the same night changes nothing.
+
+4. **Recall uses notes first.** On a turn, the retriever may use the relevant note as the primary recall layer, with items and literal history as the evidence beneath it. Do not regress anything PR #83 or #87 established: the 800 ms memory bound, meaning-search fusion and its exclusions, forgetting across every path (a forgotten or suppressed item, and anything derived from it, must never reach context — including through a note: a note must be rewritten or redacted when its sources are forgotten), and the archived-history receipt path.
+
+TESTS (fake model providers only, never the real DeepSeek/OpenAI/Telegram/Workers AI APIs)
+- Forgetting: forget an item that a note quotes, and prove the note stops exposing it on the very next turn, not after the next nightly run.
+- Contradiction: a newer statement supersedes an older fact, both versions survive, and the receipt explains it.
+- Expiry: a time-bound fact stops appearing after its date.
+- Idempotency and resumability of the nightly job, including a mid-run failure.
+- Budget: consolidation respects the monthly cap and logs its spend.
+- Latency: the profile is in the cached prefix and adds no per-turn D1 work beyond a bounded read; the 800 ms memory bound still holds with notes enabled, at 25 ms per D1 round trip.
+- Named behavioural tests for every new guard, and whole-trigger removal tests for the migration.
+
+REVIEWER DECISIONS (asked for and granted, 2026-09-17 23:40 UTC):
+- **Migration number: use `0032`.** The D2L email work will take `0033`.
+- **`0032` also carries the memory-history indexes** promised in PR #83's F2: `memory_history_chunks(principal_id, content_hash)` and `(principal_id, start_event_sequence)`, with their backup-restore inventory line in the same commit.
+- **You ARE authorized to make the minimal `apps/cloud-gateway/src/backup/**` changes** the restore gate requires, exactly along the lines you proposed: back up note versions, note sources, rewrite receipts and consolidation-change receipts; rebuild or exclude note heads (they are derived state); treat resumable model-step checkpoints as operational; register every new trigger and migration `0032` in the restore inventory. Do not change backup behaviour beyond classifying this migration's tables and triggers, and keep the gate's refusal of unclassified tables intact — that gate did its job here.
+
+Run lint, typecheck and the full suite once (rerun only unrelated files that time out; owner-telegram-agent.test.ts and telegram-memory.test.ts are known to fail only under load). Do not touch voice/**, calls/**, backup/**, school/**, university/**, or the owner-passphrase and PBKDF2 code. Push, open a draft PR against main titled "Memory: living topic notes, profile and nightly consolidation", and post a ready entry at the top of docs/AGENT_LOG.md for Claude max review that states the migration number you used, what the nightly job costs per run, and how forgetting propagates into notes. Then stop. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up or contact anyone. Remove your extra worktree only after pushing.
