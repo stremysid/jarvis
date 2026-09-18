@@ -79,6 +79,16 @@ export interface DigestJobDependencies {
     kind: DeadlineSourceKind;
   }>[];
   /**
+   * Push sources this deployment is configured to receive, whether or not
+   * anything has ever arrived.
+   *
+   * See `expectedPushSources` for why this cannot be read from the database.
+   */
+  readonly expectedPushSources?: readonly Readonly<{
+    sourceId: string;
+    kind: DeadlineSourceKind;
+  }>[];
+  /**
    * Injected only so the failure path below can be exercised.
    *
    * The detector's one documented throw is a non-finite clock, which also
@@ -97,6 +107,30 @@ export function unconfiguredDeadlineSources(
   const emailConfigured = (env.SCHOOL_EMAIL_INGEST_ADDRESS?.length ?? 0) > 0;
   const calendarConfigured = (env.BRIGHTSPACE_ICAL_URL?.length ?? 0) > 0;
   return !emailConfigured && !calendarConfigured
+    ? Object.freeze([Object.freeze({ sourceId: "d2l-notification-email", kind: "brightspace" as const })])
+    : Object.freeze([]);
+}
+
+/**
+ * Push sources this deployment is configured to receive.
+ *
+ * A polled source creates its own health row the first time it runs, so an
+ * absent row is a statement about the deployment. A push source never runs:
+ * its row is created inside the mail handler, by the first message that
+ * arrives. A feed that has never delivered anything therefore has no row for
+ * the digest to read, no gap for it to print, and no symptom at all -- a
+ * deleted Email Routing rule or a D2L notification setting switched off reads
+ * exactly like a quiet term, for as long as nobody notices the grades are
+ * missing. What the deployment is configured to receive has to be read from
+ * the configuration, because it is the one fact the first delivery creates.
+ *
+ * Configuration removed, rather than never installed, is
+ * `unconfiguredDeadlineSources`' case and is deliberately not repeated here.
+ */
+export function expectedPushSources(
+  env: Pick<Env, "SCHOOL_EMAIL_INGEST_ADDRESS">,
+): readonly Readonly<{ sourceId: string; kind: DeadlineSourceKind }>[] {
+  return (env.SCHOOL_EMAIL_INGEST_ADDRESS?.length ?? 0) > 0
     ? Object.freeze([Object.freeze({ sourceId: "d2l-notification-email", kind: "brightspace" as const })])
     : Object.freeze([]);
 }
@@ -362,6 +396,16 @@ export async function assembleDigest(
     gaps.push({ source: deadlineSourceName(expected), detail });
   }
 
+  // A configured push source that has no health row at all has never received
+  // anything. It has to be said from the configuration rather than from the
+  // row, because the row is what the first delivery creates -- a feed that has
+  // never delivered is exactly the feed with nothing to read.
+  for (const expected of dependencies.expectedPushSources ?? []) {
+    if (unconfigured.has(expected.sourceId)) continue;
+    if (deadlineSources.some((source) => source.sourceId === expected.sourceId)) continue;
+    gaps.push({ source: deadlineSourceName(expected), detail: "has never received a message" });
+  }
+
   // Keep the last known deadlines visible while saying that their source is
   // failed or stale. Dropping the deadlines would turn a sync fault into
   // "nothing due".
@@ -374,9 +418,18 @@ export async function assembleDigest(
     gaps.push({ source: deadlineSourceName(source), detail });
   }
 
-  const classroomSource = deadlineSources.find((source) => source.kind === "classroom" && source.active);
+  // A school feed that has never delivered must say so, and that cannot be
+  // decided from a health row either. The row a completed Grades/submissions
+  // scan writes is created by the first sync attempt, so a deployment where
+  // Classroom was never set up has no row at all -- and the digest then simply
+  // omitted school, which is the one thing the owner ranks first. The
+  // observation reader being present is what says this deployment expects
+  // Classroom observations; the missing scan row is then a fact about the
+  // feed, not about the deployment. A source deliberately switched off is
+  // still not a silent one, so the inactive case keeps saying nothing.
+  const classroomSource = deadlineSources.find((source) => source.kind === "classroom");
   const schoolSnapshot = schoolRead.snapshot;
-  if (schoolRead.available && schoolSnapshot !== null && classroomSource !== undefined) {
+  if (schoolRead.available && schoolSnapshot !== null && classroomSource?.active !== false) {
     const observationSource = schoolSnapshot.source;
     if (observationSource === null) {
       gaps.push({ source: "Google Classroom grades/submissions", detail: "has never completed a submission scan" });

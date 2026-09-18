@@ -2596,6 +2596,42 @@ describe("automatic memory distillation", () => {
     });
   });
 
+  it("marks the hourly poll degraded when the meaning index holds no binding", async () => {
+    const principalId = await principal();
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        // Every credential this classification looks at is present, so the
+        // meaning binding is the only thing that can make this degraded.
+        GOOGLE_CLIENT_ID: "client-id.apps.googleusercontent.com",
+        GOOGLE_CLIENT_SECRET: "client-secret",
+        GOOGLE_REFRESH_TOKEN: "refresh-token",
+        BRIGHTSPACE_ICAL_URL: "https://school.example/d2l/le/calendar/feed/user.ics?fixture-only",
+        GITHUB_TOKEN: "read-only-token",
+        // One binding present and the other absent, which is the case a check
+        // that required both to be missing would call configured.
+        AI: {} as Ai,
+        MEMORY_VECTORS: undefined,
+        OWNER_PRINCIPAL_ID: principalId,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: (async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch,
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("memory_meaning_poll_missing");
+
+    // The archival and memory sweeps ran, so this is a success and not a job
+    // nobody set up. The meaning index held no binding to run against, so it is
+    // not a clean one: a green tick on /status while nothing is searchable by
+    // meaning is the "silence looks like success" defect the other jobs lost.
+    await expect(poll()).resolves.toMatchObject({
+      ok: true,
+      degraded: true,
+      detail: expect.stringContaining("Memory meaning disabled (memory_meaning_bindings_missing)"),
+    });
+  });
+
   it("starts no new distillation step after four minutes of wall-clock work", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
