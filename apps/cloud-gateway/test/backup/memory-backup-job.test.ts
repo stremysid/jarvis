@@ -97,4 +97,54 @@ describe("memory backup job wiring", () => {
     expect(decisionQueueRead).toBe(true);
     expect(outcome).toEqual({ ok: false, failure: "memory_backup_binding_missing" });
   });
+
+  it("reports a scheduled job that never installed its credential as not measured rather than ok", async () => {
+    // The defect, at the job rather than the row. With no owner principal
+    // there is nothing for either job to do, and `ok: true` recorded a
+    // successful run, beat a healthy heartbeat for it, and printed `ok` on
+    // /status -- for work that never happened.
+    const jobs = buildJobTable(jobEnvironment({ OWNER_PRINCIPAL_ID: undefined }));
+
+    for (const job of ["drain", "digest"] as const) {
+      const run = jobs[job];
+      if (run === undefined) throw new Error(`job missing: ${job}`);
+      // Deliberately the third state, not merely "not ok". A throw or a plain
+      // failure would satisfy a weaker assertion while telling the owner
+      // something untrue about a deployment that is simply not set up yet.
+      await expect(run()).resolves.toMatchObject({ notMeasured: true });
+    }
+  });
+
+  it("reports the consolidation phase as not measured while still recording the backup that ran", async () => {
+    // The distinction in one result. The backup step really ran, so the job is
+    // a success and there is a heartbeat to give -- and the phase that was
+    // never set up is carried in the detail and marks it degraded rather than
+    // clean.
+    const backup = buildJobTable(jobEnvironment()).backup;
+    if (backup === undefined) throw new Error("backup job missing");
+
+    const outcome = await backup();
+
+    expect(outcome).toMatchObject({
+      ok: true,
+      degraded: true,
+      detail: expect.stringContaining("Memory consolidation not configured"),
+    });
+  });
+
+  it("keeps the backup binding missing a failure rather than reclassifying it as not measured", async () => {
+    // The boundary of the new state. An R2 binding the deployment declared and
+    // that is unreachable is broken, not unconfigured -- calling it "not set
+    // up" would hide a real fault behind a setup message.
+    const backup = buildJobTable(jobEnvironment({
+      BACKUP: undefined,
+      OWNER_PRINCIPAL_ID: "principal:owner",
+    })).backup;
+    if (backup === undefined) throw new Error("backup job missing");
+
+    await expect(backup()).resolves.toMatchObject({
+      ok: false,
+      failure: "memory_backup_binding_missing",
+    });
+  });
 });

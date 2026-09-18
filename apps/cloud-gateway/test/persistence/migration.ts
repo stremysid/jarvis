@@ -33,6 +33,7 @@ import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_
 import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
 import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
+import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -267,11 +268,19 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await memoryLivingNotesMigrated;
 }
 
-/** Applies the D2L notification-email receipt and observation schema. */
+/**
+ * Applies the newest prefix of the runtime schema: the D2L notification-email
+ * receipt and the detail column on `scheduled_runs`.
+ *
+ * Named for the migration that introduced it and extended here, so every
+ * fixture that already asked for the current schema keeps getting the current
+ * schema instead of silently pinning itself one migration back.
+ */
 export async function applyD2lNotificationEmailMigration(): Promise<void> {
   await applyMemoryLivingNotesMigration();
   d2lNotificationEmailMigrated ??= applyD1Migrations(env.DB, [
     { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
+    { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
   ]);
   await d2lNotificationEmailMigrated;
 }
@@ -299,6 +308,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
   { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
   { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
+  { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */

@@ -69,6 +69,7 @@ import {
   SchoolObservationRepository,
 } from "../school/school-observation-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
+import { isFailure, isNotMeasured } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
@@ -99,6 +100,19 @@ export interface JobEnvironment {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A job that reached its end without running, because it holds no
+ * configuration.
+ *
+ * The distinction this exists to preserve: "I ran and everything is fine" and
+ * "I have nothing to run with" are different facts about the deployment, and
+ * returning `ok: true` for the second one made the gateway's own health
+ * reporting say `ok` and beat a heartbeat for work that never happened.
+ */
+function notMeasured(detail: string): JobOutcome {
+  return { notMeasured: true, detail };
 }
 
 export const CLASSROOM_SOURCE_ID = "google-classroom";
@@ -759,8 +773,32 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
     () => indexMeaningMemory(context),
   );
   const sourceDetail = `${classroom}; ${brightspace}; ${memory}; ${history}; ${meaning}`;
+  // Which external sweeps this deployment holds a configuration for. Read
+  // from the environment, not from the sentences above: a job's message is
+  // free text, and deciding what happened by matching words in it would make
+  // this classify its own prose.
+  //
+  // Archival is deliberately absent, and for the opposite reason: it depends
+  // on none of these settings and it either ran or threw. So this job always
+  // does *something*, which is why it is never `not_measured` -- the honest
+  // report when nothing else ran is a degraded success, not a clean one.
+  const missingCredentials = [
+    context.env.GOOGLE_CLIENT_ID === undefined
+      && context.env.GOOGLE_CLIENT_SECRET === undefined
+      && context.env.GOOGLE_REFRESH_TOKEN === undefined,
+    context.env.BRIGHTSPACE_ICAL_URL === undefined,
+    context.env.GITHUB_TOKEN === undefined,
+  ];
+  const degraded = missingCredentials.some(Boolean);
+
   const token = context.env.GITHUB_TOKEN;
-  if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
+  if (token === undefined) {
+    return {
+      ok: true,
+      degraded: true,
+      detail: `${archived}; ${sourceDetail}; project poll not configured`,
+    };
+  }
 
   const poller = new ProjectPoller({
     projects: new ProjectRepository(context.env.DB),
@@ -770,12 +808,21 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
 
   const outcomes = await poller.pollActiveProjects();
   const failed = outcomes.filter((outcome) => outcome.status === "failed");
-  // Reported as a detail, not a failure. One unreachable repository out of
-  // six is a fact about that repository; failing the whole job would claim
-  // the other five were not polled either.
+  // A failed repository is reported as a detail, not a failure. One
+  // unreachable repository out of six is a fact about that repository;
+  // failing the whole job would claim the other five were not polled either.
+  // It still makes the run degraded rather than clean.
   return failed.length === 0
-    ? { ok: true, detail: `${archived}; ${sourceDetail}; ${outcomes.length} polled` }
-    : { ok: true, detail: `${archived}; ${sourceDetail}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
+    ? {
+      ok: true,
+      ...(degraded ? { degraded: true as const } : {}),
+      detail: `${archived}; ${sourceDetail}; ${outcomes.length} polled`,
+    }
+    : {
+      ok: true,
+      degraded: true,
+      detail: `${archived}; ${sourceDetail}; ${outcomes.length - failed.length} polled, ${failed.length} failed`,
+    };
 }
 
 async function digest(
@@ -786,7 +833,13 @@ async function digest(
   // Scheduled work has no request to derive an identity from. Picking a
   // principal out of the database and assuming it meant the owner is how a
   // digest ends up delivered to the wrong person.
-  if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
+  //
+  // Checked before anything else runs, so this is a configuration the
+  // deployment does not hold -- not a digest that failed. Reporting it as a
+  // failure would put a red mark on every healthy deployment that has never
+  // had an owner principal, and reporting it as `ok` is the defect this
+  // repository removed elsewhere.
+  if (principalId === undefined) return notMeasured("digest not set up (OWNER_PRINCIPAL_ID is not set)");
 
   const deadlines = new DeadlineRepository(context.env.DB);
   const projects = new ProjectRepository(context.env.DB);
@@ -861,11 +914,20 @@ function backupJobOutcome(result: MemoryBackupOutcome): JobOutcome {
 async function backup(context: JobEnvironment): Promise<JobOutcome> {
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
   const consolidation = await runMemoryConsolidationJob(context);
+  // The backup step runs first and can fail on its own. Its failure outranks
+  // the consolidation phase's state, because a backup that did not happen is
+  // the more serious fact.
   const backupOutcome = backupJobOutcome(
     await memoryBackup(context).runNightly(localDate(context.clock.now(), timeZone)),
   );
-  if (!backupOutcome.ok) return backupOutcome;
-  if (!consolidation.ok) return consolidation;
+  if (isFailure(backupOutcome)) return backupOutcome;
+  if (isNotMeasured(consolidation)) {
+    // The backup itself ran, so the job ran and holds a heartbeat. That the
+    // consolidation phase is not set up is carried in the detail and marks
+    // the run degraded instead of clean.
+    return { ok: true, degraded: true, detail: `${consolidation.detail}; ${backupOutcome.detail}` };
+  }
+  if (isFailure(consolidation)) return consolidation;
   return { ok: true, detail: `${consolidation.detail}; ${backupOutcome.detail}` };
 }
 
@@ -876,9 +938,12 @@ export async function runMemoryConsolidationJob(context: JobEnvironment): Promis
     try { configured = context.memoryConsolidationFactory(); }
     catch { return { ok: false, failure: "memory_consolidation_configuration_invalid" }; }
   }
-  if (configured === undefined) return { ok: true, detail: "Memory consolidation not configured" };
+  // No provider was ever installed, so this phase ran nothing. It must not
+  // report a successful consolidation -- an owner reading that on /status
+  // would conclude their memory is being consolidated nightly when it is not.
+  if (configured === undefined) return notMeasured("Memory consolidation not configured");
   const principalId = context.env.OWNER_PRINCIPAL_ID;
-  if (principalId === undefined) return { ok: false, failure: "owner_not_configured" };
+  if (principalId === undefined) return notMeasured("Memory consolidation not set up (OWNER_PRINCIPAL_ID is not set)");
   const liveClock = context.liveClock ?? context.clock;
   try {
     await new MemoryRepository(context.env.DB, { clock: () => liveClock.now() })
@@ -936,7 +1001,10 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   const backupContinuation = await memoryBackup(context)
     .continueActive(localDate(context.clock.now(), timeZone));
   const principalId = context.env.OWNER_PRINCIPAL_ID;
-  if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
+  // Same reasoning as the digest. The backup continuation above is a bound
+  // step that reports its own failure; everything else this job does needs an
+  // owner to do it for, and without one it has nothing to measure.
+  if (principalId === undefined) return notMeasured("drain not set up (OWNER_PRINCIPAL_ID is not set)");
   try {
     const noticeDetail: GuestGrantNoticeDrainOutcome | "not_configured" = context.env.TELEGRAM_BOT_TOKEN === undefined
       ? "not_configured"
@@ -968,15 +1036,24 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   }
 }
 
+/**
+ * Every scheduled job, keyed by the name the cron router routes to.
+ *
+ * This object is the single place a job is wired to its implementation, and
+ * it is exhaustive by construction: `satisfies JobTable` rejects a name that
+ * is not a `ScheduledJob` and a member left out. `/status` iterates the names
+ * declared alongside `ScheduledJob` rather than a literal here, so a job
+ * added to the router and to this object cannot be silently missing there.
+ */
 export function buildJobTable(context: JobEnvironment): JobTable {
-  const jobs: Record<string, () => Promise<JobOutcome>> = {
+  const jobs = {
     drain: () => drain(context),
     digest: () => digest("daily", context),
     retro: () => digest("retro", context),
     backup: () => backup(context),
     poll: () => poll(context),
-  };
-  return jobs as JobTable;
+  } satisfies JobTable;
+  return Object.freeze(jobs);
 }
 
 export function buildScheduledRuns(context: JobEnvironment): ScheduledRunRepository {

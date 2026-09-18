@@ -39,8 +39,59 @@ export const COMPONENT = "cloud-gateway";
  */
 export const EXPECTED_INTERVAL_SECONDS = 900;
 
-export type JobOutcome = { ok: true; detail?: string } | { ok: false; failure: string };
+/**
+ * What a job reports.
+ *
+ * `notMeasured` is a third answer, not a flavour of the other two. It is for a
+ * job that is wired up but holds nothing to run with -- the credential or the
+ * binding it needs was never installed -- so it reached the end without doing
+ * any of its work.
+ *
+ * It must not be `ok: true`. That recorded a successful run, reported `ok` on
+ * `/status`, and sent the watchdog a healthy heartbeat for a job that had
+ * measured nothing; the same defect the handler already refuses for a job the
+ * table does not contain at all. Silence and success must not look the same,
+ * and a job nobody set up is the loudest kind of silence.
+ *
+ * It must not be `ok: false` either. Nothing is broken, and recording it as a
+ * failure would make a fresh deployment look like an outage.
+ */
+export type JobOutcome =
+  | { ok: true; detail?: string; degraded?: true }
+  | { ok: false; failure: string }
+  | { notMeasured: true; detail: string };
 
+/**
+ * Narrowing by hand.
+ *
+ * `"notMeasured" in outcome` does not discriminate this union, and neither
+ * does `outcome.ok`: the not-measured member has no `ok` property at all, so
+ * testing it leaves every member that could carry `ok` still in play.
+ */
+export function isNotMeasured(
+  outcome: JobOutcome,
+): outcome is { notMeasured: true; detail: string } {
+  return "notMeasured" in outcome;
+}
+
+export function isFailure(
+  outcome: JobOutcome,
+): outcome is { ok: false; failure: string } {
+  return "ok" in outcome && outcome.ok === false;
+}
+
+export function isSuccess(
+  outcome: JobOutcome,
+): outcome is { ok: true; detail?: string; degraded?: true } {
+  return "ok" in outcome && outcome.ok === true;
+}
+
+/**
+ * Every job key the table is allowed to hold.
+ *
+ * `Partial` because a deployment may hand the handler a table missing a job,
+ * which `runOne` reports as `skipped_unconfigured`.
+ */
 export type JobTable = Readonly<Partial<Record<ScheduledJob, () => Promise<JobOutcome>>>>;
 
 export interface ScheduledDependencies {
@@ -54,7 +105,7 @@ export interface ScheduledDependencies {
 export interface JobReport {
   readonly job: ScheduledJob;
   readonly runKey: string;
-  readonly result: "ran" | "skipped_duplicate" | "skipped_unconfigured" | "failed";
+  readonly result: "ran" | "skipped_duplicate" | "skipped_unconfigured" | "not_measured" | "failed";
   readonly detail?: string;
 }
 
@@ -90,8 +141,24 @@ async function runOne(
     outcome = { ok: false, failure: error instanceof Error ? error.message : String(error) };
   }
 
+  if (isNotMeasured(outcome)) {
+    // Recorded, not silently dropped. The run happened and `/status` should
+    // say which firing found nothing set up -- but the row carries no
+    // heartbeat and no success, because neither was earned.
+    try {
+      await dependencies.runs.finish(claim, "not_measured", outcome.detail);
+    } catch {
+      // Bookkeeping may fail for the same reason the job held no
+      // configuration. The report still carries the fact.
+    }
+    return { job, runKey, result: "not_measured", detail: outcome.detail };
+  }
+
   if (outcome.ok) {
-    await dependencies.runs.finish(claim);
+    // `finish` may throw. That propagates, exactly as it did when the run was
+    // recorded without a detail: the claim is then left unfinished, which is
+    // the honest state for a run whose outcome could not be written down.
+    await dependencies.runs.finish(claim, outcome.degraded === true ? "degraded" : "ok", outcome.detail);
     return { job, runKey, result: "ran", ...(outcome.detail === undefined ? {} : { detail: outcome.detail }) };
   }
 
@@ -127,6 +194,12 @@ export async function handleScheduled(
   // on the wrong local hour -- does not heartbeat. It proves the cron fired,
   // not that the Worker can do its work, and a Worker whose every job is
   // failing would otherwise look healthy on the strength of its no-ops.
+  //
+  // A job that ran without its configuration is excluded for the same reason
+  // and a sharper one: it reached the end of its body having done nothing, so
+  // a heartbeat from it would attest to liveness the firing never
+  // demonstrated. That is the failure mode a watchdog cannot recover from --
+  // being told everything is fine by the thing that is not running.
   const ran = reports.some((report) => report.result === "ran");
   const heartbeat = ran
     ? await reportHeartbeat(

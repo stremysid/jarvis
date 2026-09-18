@@ -38,6 +38,31 @@ export const NIGHT_CRON = "30 23,0 * * *";
 
 export type ScheduledJob = "drain" | "poll" | "digest" | "retro" | "backup";
 
+/**
+ * Every job name, as a value.
+ *
+ * The `Record<ScheduledJob, number>` is the guarantee: adding a member to
+ * `ScheduledJob` without listing it here is a compile error, so a job cannot
+ * become invisible to `/status` by being forgotten. Status used to iterate a
+ * hardcoded three, and the two jobs outside that literal -- including the
+ * nightly backup -- could fail every night without ever appearing on the
+ * owner's own status screen.
+ *
+ * The values are the display order.
+ */
+const JOB_DISPLAY_ORDER: Readonly<Record<ScheduledJob, number>> = Object.freeze({
+  drain: 0,
+  poll: 1,
+  digest: 2,
+  retro: 3,
+  backup: 4,
+});
+
+export const SCHEDULED_JOB_NAMES: readonly ScheduledJob[] = Object.freeze(
+  (Object.keys(JOB_DISPLAY_ORDER) as ScheduledJob[])
+    .sort((left, right) => JOB_DISPLAY_ORDER[left] - JOB_DISPLAY_ORDER[right]),
+);
+
 export interface ScheduledWork {
   readonly job: ScheduledJob;
   /**
