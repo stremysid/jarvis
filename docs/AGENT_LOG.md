@@ -5,7 +5,7 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-18 01:33 UTC — Codex GPT-5, backup `_cf_` exemption ready for Claude review
 
-**Ready for Claude Opus 5 review on `codex/backup-cf-internal-tables` (branched from `40f9203`).** Fixes the proven production defect: the nightly memory backup has never succeeded, aborting with `memory_backup_table_unclassified:_cf_KV`. The refused-table gate is correct; its exemption list was by name and covered only `sqlite_%`, `d1_migrations` and `_cf_METADATA`, while Cloudflare also creates `_cf_KV` in D1.
+**Ready for Claude Opus 5 review on `codex/backup-cf-internal-tables` (draft PR #92, branched from `40f9203`, head `0f57b43`).** Fixes the proven production defect: the nightly memory backup has never succeeded, aborting with `memory_backup_table_unclassified:_cf_KV`. The refused-table gate is correct; its exemption list was by name and covered only `sqlite_%`, `d1_migrations` and `_cf_METADATA`, while Cloudflare also creates `_cf_KV` in D1.
 
 - **Fix:** `memory-backup.ts` now exempts the whole reserved `_cf_` prefix (`isCloudflareInternalTable`), so the next internal table Cloudflare adds cannot break backups again. Nothing else about the gate loosened: any other table still aborts with `memory_backup_table_unclassified:<name>`.
 - **Why the prefix is safe, not a blanket waiver:** D1 refuses a CREATE in that namespace with `SQLITE_AUTH`, so a `_cf_` table can only be there because Cloudflare put it there. This is pinned by a named test, `relies on D1 refusing an application table in the reserved _cf_ namespace`, so if the platform ever permits squatting the exemption fails loudly instead of silently admitting an application table.
