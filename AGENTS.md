@@ -123,3 +123,39 @@ and discovering the suite stayed green:
   as an instruction.
 - Describe the vault's write-once as meeting the plan's guarantee. It does
   not yet; see KNOWN_ISSUES.md.
+
+
+## A fact about Sid or his environment goes in the REPO, not only in agent memory
+
+This has now cost him twice, and the second time was entirely avoidable.
+
+An agent's memory folder is private to that agent. **The repository is the only
+thing every session reads.** When a session establishes a durable fact — what
+hardware he has, what his school permits, what he has already set up, what he
+has decided — writing it to agent memory alone means the next session, or the
+next vendor, never sees it.
+
+Worse, a load-bearing repo document that says the opposite will actively steer
+that session wrong. Memory cannot outvote `docs/HANDOFF.md`, because the handoff
+is what a new session is told to read first.
+
+**The failure, concretely.** On 2026-09-17 Sid said his school account cannot
+reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md` went
+on listing *"A1. Google Classroom consent — SID'S ACTION, one sitting. Highest
+value per hour in the whole plan"*, so on 2026-09-18 another session read the
+handoff, opened the runbook, and walked him through an impossible setup a second
+time. The same shape had already happened with the D2L calendar feed.
+
+**The rule.** When you learn something durable about Sid or his environment:
+
+1. Write it where the next session will read it — `docs/HANDOFF.md`,
+   `KNOWN_ISSUES.md`, `CLAUDE.md`, or the relevant runbook.
+2. If it contradicts something a document already claims, **correct that
+   document in the same change.** Leaving the contradiction is how it recurs.
+3. If it makes a runbook unusable for him, say so at the TOP of that runbook,
+   not in a paragraph halfway down.
+4. Agent memory is a cache, not a record. Treat anything living only there as
+   one session away from being lost.
+
+**Sid is the message bus between chats that cannot talk to each other.** Every
+fact that only lives in one chat is a question he has to answer again.
