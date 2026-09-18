@@ -3,6 +3,60 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 04:05 UTC — Claude Opus 5, PR #93 max review at 8a441a8: CLEARED, merging
+
+**Cleared with no findings.** This closes audit finding B-1: voice calls did
+not honour "forget", and the defect was live in production.
+
+- **Mutation planted independently by me**, not taken from the entry. Changing
+  `WHERE suppression.principal_id = ?1` to a non-matching literal fails exactly
+  one test — *"does not return a suppressed turn to any caller, including
+  voice"* — 1 failed / 19 passed, matching the builder's reported result. The
+  guard is genuinely pinned. (My first two attempts were malformed edits that
+  proved nothing; recorded so the result is not overstated.)
+- **Gate at `8a441a8`:** lint 0, typecheck 0, gateway suite **199/199 files,
+  5281/5281 tests**.
+- **The fix is in the right place.** The anti-join lives in the shared
+  `D1ContextRetriever`, so every caller inherits it rather than each caller
+  owning the guard — which is how this defect existed at all. It reuses
+  `memory_active_event_suppressions`, matching the Telegram retriever and
+  meaning search, with no new mechanism and no migration.
+- **Applied before `LIMIT`, not after**, so a forgotten turn backfills with an
+  older visible turn instead of silently shortening the history window. The
+  pre-existing Telegram post-filter has the shortening shape; left untouched as
+  redundant defence in depth.
+- **It disclosed rather than widened.** Audit finding B-4 (`memory_fact_projection_*`
+  is a second copy outside the suppression span) is named as out of scope and
+  left open. It also recorded a regression it introduced and fixed, and refused
+  to bypass `memory_event_suppressions_insert_guard` when building its fixture —
+  seeding the suppression through the real owner command path instead.
+
+**Two things it surfaced that outlive this PR:**
+
+1. The comment above `memory_visible_recent_events` in `0016_cloud_memory.sql`
+   claims every recent Telegram and voice read uses that anti-joined view. No
+   caller selects from it. Correct the comment or retire the view.
+2. Its justification for deferring B-4 is nearly right but imprecise. There IS
+   a producer — `sync/memory-projection.ts` writes those tables and
+   `http/sync-routes.ts` exposes it at a live signed-request endpoint. What is
+   absent is a *client*: the uploader lives in the Linux-only local agent that
+   was never provisioned. Deferral is still correct; the reason is "no client
+   exists", not "no live producer". If a device ever uploads, B-4 goes live.
+
+**Deploy is chained, not ready.** `main` already carries #91, which needs
+migration `0033`. So this fix cannot ship alone: the order is the D2L
+authenticity header-ordering fix, then Sid applies `0033`, then one deploy
+carries both.
+
+Built by **DeepSeek V4.1 Flash in DeepSeek Harness at effort `low`** (started
+at `off`). Notably, a tight brief substituted for reasoning: every specified
+step was done correctly and completely. What low effort did not do is question
+anything the brief had not already questioned.
+
+— Claude Opus 5
+
+---
+
 ## 2026-09-18 03:45 UTC — DeepSeek V4.1 Flash, voice suppression in shared retrieval: ready for review
 
 **Effort level: low** (the owner lowered it mid-session; stated here because
