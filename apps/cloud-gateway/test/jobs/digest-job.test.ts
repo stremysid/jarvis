@@ -3,7 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   assembleDigest,
   runDigestJob,
-  unconfiguredDeadlineSourceKinds,
+  unconfiguredDeadlineSources,
   type DigestJobDependencies,
   type DigestSources,
 } from "../../src/jobs/digest-job.js";
@@ -252,18 +252,32 @@ describe("assembling from every source", () => {
             lastFailure: null,
             lastFailureAt: null,
           },
-          grades: [{
-            observationId: "observation-a",
-            deadlineId: "deadline-a",
-            course: "Calculus",
-            title: "Quiz 2",
-            assignedGrade: 84,
-            maxPoints: 100,
-            source: "google_classroom_api",
-            gradeUpdatedAt: NOW,
-            contentChangedAt: NOW,
-            lastSeenAt: NOW,
-          }],
+          grades: [
+            {
+              observationId: "observation-a",
+              deadlineId: "deadline-a",
+              course: "Calculus",
+              title: "Quiz 2",
+              assignedGrade: 84,
+              maxPoints: 100,
+              source: "google_classroom_api",
+              gradeUpdatedAt: NOW,
+              contentChangedAt: NOW,
+              lastSeenAt: NOW,
+            },
+            {
+              observationId: "observation-b",
+              deadlineId: null,
+              course: "Chemistry",
+              title: "Titration lab",
+              assignedGrade: 18,
+              maxPoints: 20,
+              source: "d2l_notification_email",
+              gradeUpdatedAt: null,
+              contentChangedAt: NOW,
+              lastSeenAt: NOW,
+            },
+          ],
           missingWork: [{
             transitionId: "transition-a",
             deadlineId: "deadline-b",
@@ -281,6 +295,11 @@ describe("assembling from every source", () => {
 
     expect(digest.text).toContain("verified: Google Classroom");
     expect(digest.text).toContain("assigned grade 84");
+    // An email-sourced grade is authenticated at best, never checked against
+    // the gradebook, so it cannot claim the API source's `verified:`.
+    expect(digest.text).toContain("reported by D2L email");
+    expect(digest.text).not.toContain("verified: D2L email");
+    expect(digest.text).toContain("assigned grade 18/20 (90.0%)");
     expect(digest.text).toContain("derived: Google Classroom showed no submission as of");
     expect(digest.text).not.toContain("you missed");
   });
@@ -428,33 +447,84 @@ describe("a source that will not answer", () => {
     );
   });
 
-  it("reports an expected Brightspace source as not set up without a stored source row", async () => {
+  it("does not call a push source stale inside its silence window", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "d2l-notification-email",
+          lastSuccessAt: "2026-09-01T12:00:00.000Z",
+        })],
+      },
+    }));
+
+    expect(digest.text).not.toContain("D2L notification email:");
+    expect(digest.text).not.toContain("last successful sync is stale");
+  });
+
+  it("reports a push source that has received nothing for a week", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "d2l-notification-email",
+          lastSuccessAt: "2026-08-24T11:29:59.000Z",
+        })],
+      },
+    }));
+
+    // Email is push, not poll: a notification setting that was reset or a
+    // shadowed routing rule produces silence, and silence is not a quiet term.
+    expect(digest.text).toContain("D2L notification email: nothing received in 7 days");
+  });
+
+  it("reports a push source that has never received a message", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "d2l-notification-email",
+          lastSuccessAt: null,
+        })],
+      },
+    }));
+
+    expect(digest.text).toContain("D2L notification email: has never received a message");
+  });
+
+  it("reports expected D2L notification email as not set up without a stored source row", async () => {
     const digest = await assembleDigest("daily", deps({
       // This is the same helper used by both the scheduled and manual /digest
       // paths, so neither can silently omit the configuration gap.
-      unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds({ BRIGHTSPACE_ICAL_URL: undefined }),
+      unconfiguredDeadlineSources: unconfiguredDeadlineSources({
+        BRIGHTSPACE_ICAL_URL: undefined,
+        SCHOOL_EMAIL_INGEST_ADDRESS: undefined,
+      }),
     }));
-    expect(digest.text).toContain("Brightspace: not set up");
+    expect(digest.text).toContain("D2L notification email: not set up");
   });
 
-  it("calls removed Brightspace configuration last-known instead of not set up", async () => {
+  it("calls removed D2L email configuration last-known instead of not set up", async () => {
     const digest = await assembleDigest("daily", deps({
-      unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds({ BRIGHTSPACE_ICAL_URL: undefined }),
+      unconfiguredDeadlineSources: unconfiguredDeadlineSources({
+        BRIGHTSPACE_ICAL_URL: undefined,
+        SCHOOL_EMAIL_INGEST_ADDRESS: undefined,
+      }),
       sources: {
         readDeadlines: async () => [deadline()],
         readDeadlineSources: async () => [deadlineSource({
           kind: "brightspace",
-          sourceId: "brightspace-ical",
+          sourceId: "d2l-notification-email",
           lastSuccessAt: "2026-09-01T12:00:00.000Z",
-          lastFailure: "brightspace_configuration_missing",
+          lastFailure: "school_email_configuration_missing",
           lastFailureAt: NOW,
         })],
       },
     }));
 
     expect(digest.text).toContain("Quiz 3");
-    expect(digest.text).toContain("Brightspace: configuration removed; showing last-known deadlines from 2026-09-01");
-    expect(digest.text).not.toContain("Brightspace: not set up");
+    expect(digest.text).toContain("D2L notification email: configuration removed; showing last-known deadlines from 2026-09-01");
+    expect(digest.text).not.toContain("D2L notification email: not set up");
   });
 
   it("names it as a gap instead of throwing", async () => {

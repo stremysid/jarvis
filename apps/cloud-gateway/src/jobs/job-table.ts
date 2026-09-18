@@ -70,7 +70,7 @@ import {
 } from "../school/school-observation-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
-import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
+import { runDigestJob, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
 
 export interface JobEnvironment {
@@ -837,7 +837,7 @@ async function digest(
     delivery: context.delivery,
     clock: context.clock,
     timeZone,
-    unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds(context.env),
+    unconfiguredDeadlineSources: unconfiguredDeadlineSources(context.env),
   });
 
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };

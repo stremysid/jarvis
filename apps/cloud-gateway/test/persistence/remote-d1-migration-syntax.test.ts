@@ -99,6 +99,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0030_study_coach_weak_spots.sql",
       "0031_memory_backup.sql",
       "0032_memory_living_notes.sql",
+      "0033_d2l_notification_email.sql",
     ]);
   });
 

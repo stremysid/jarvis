@@ -1,5 +1,65 @@
 # Known issues
 
+## LDSB Brightspace notification email still needs live template and authentication measurement
+
+Sid's LDSB Minds Online account exposes no calendar or iCalendar feed. The
+merged calendar-feed implementation remains in the repository, but it cannot
+be configured or live-accepted for this board and must not be treated as a
+fallback. For Sid, `docs/runbooks/d2l-notification-email.md` supersedes the
+calendar-feed owner setup.
+
+The notification-email route fails closed. An unguessable exact recipient and
+an exact `From:` domain pin only route and filter; a message creates a deadline
+or a grade only with positive authentication evidence -- a DKIM signature
+naming a pinned domain, the receiving MTA's own `dkim=pass` for a pinned
+`header.d`, or an ARC chain sealed by a pinned forwarder whose original
+authentication passed. Anything else quarantines as `authentication_unproven`,
+and explicit DKIM, DMARC or ARC failures quarantine as `authentication_failed`.
+
+Two limits in that gate are not yet measured, and both are fail-closed:
+
+- **Cloudflare's `authserv-id` is an assumption.** The gate treats the last
+  `Authentication-Results` group attributed to `mx.cloudflare.net` as the
+  receiving MTA's own, because a sender writes its headers before the MTA
+  appends its own. Cloudflare's public Email Workers contract does not promise
+  that string. If the real value differs, the receiving-MTA path never fires
+  and authentic mail quarantines as `authentication_unproven`; the first live
+  delivery must record the actual header names and values.
+- **Signature text is sender-writable.** The DKIM-signature and ARC paths read
+  header text that a sender can compose, and the Worker cannot verify either
+  signature: that needs the signer's DNS key, which is not fetched here. A
+  forged `DKIM-Signature: d=<pinned>` is rejected only because the receiving
+  MTA's own recorded failure contradicts it, and a forged ARC chain that names
+  a pinned sealer is not distinguishable from a real one by text alone. Full
+  verification, or pinning the exact chain Sid's tenant produces, is the
+  follow-up that would close this.
+
+A recorded failure outranks the ARC path: a chain from a pinned sealer is
+read only when the receiving MTA recorded no DKIM or ARC failure for this
+hop, and `dkim=fail` quarantines as `authentication_failed` whatever the
+chain says. Letting text-only ARC evidence erase the strongest signal in the
+message would hand the gate to anyone who guesses the pinned sealer domain,
+so forwarded mail whose DKIM genuinely broke quarantines rather than being
+believed, and the repair belongs on the forwarding path.
+
+The first live messages must also establish the real D2L templates, the exact
+sender domain, and whether Microsoft 365 forwarding preserves `From:`. A
+`Redirect`-style forward preserves it and the pinned `From:` still matches; a
+classic `Forward` rewrites it and every message quarantines as
+`from_domain_unpinned`, in which case the forwarding tenant must be pinned and
+the ARC path becomes the primary evidence. Nothing here establishes live
+source acceptance.
+
+Refused-mail retention is bounded rather than permanent: the newest five
+quarantined receipts per owner, a 30-day retention window, and no raw MIME at
+all for a message refused on its recipient or its visible `From:`. Releasing a
+pruned receipt's pointer in `d2l_email_failure_state` can re-arm one notice
+later; that is a notification, never a write. Messages above the 512 KiB
+raw-receipt bound are quarantined with a retained truncated prefix because an
+authoritative backup row has a hard 1 MiB ceiling. A date-only due date is
+stored with `dueTimeSupplied: false`; the digest does not yet surface that
+flag, so it still reads as an ordinary due time.
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd

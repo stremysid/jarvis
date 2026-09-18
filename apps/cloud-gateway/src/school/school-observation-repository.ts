@@ -119,6 +119,16 @@ interface GradeRow {
   last_seen_at: string;
 }
 
+interface D2lGradeRow {
+  observation_id: string;
+  deadline_id: string | null;
+  course: string;
+  title: string;
+  assigned_grade: number;
+  max_points: number | null;
+  observed_at: string;
+}
+
 interface MissingRow {
   transition_id: string;
   deadline_id: string;
@@ -151,6 +161,18 @@ export interface ObservationIngestionReport {
 export interface MissingWorkDerivationReport {
   readonly transitions: number;
   readonly nextAfterDeadlineId: string | null;
+}
+
+export interface D2lEmailGradeInput {
+  readonly principalId: string;
+  readonly emailId: string;
+  readonly deadlineId: string | null;
+  readonly externalId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly assignedGrade: number;
+  readonly maxPoints: number | null;
+  readonly now: Date;
 }
 
 function rows<T>(result: D1Result<T>): readonly T[] {
@@ -356,6 +378,45 @@ export class SchoolObservationRepository {
        ) VALUES (?, ?, 'google_classroom_api', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
     ).bind(principalId, sourceId, observedAt, observedAt).run();
     return await this.requireSync(principalId, sourceId);
+  }
+
+  /** Append one trusted D2L email grade into the shared school observation read path. */
+  async ingestD2lEmailGrade(input: D2lEmailGradeInput): Promise<boolean> {
+    const principalId = principal(input.principalId);
+    const emailId = ulid(input.emailId, "d2l_email_grade_email_invalid");
+    const deadlineId = input.deadlineId === null
+      ? null
+      : identifier(input.deadlineId, "d2l_email_grade_deadline_invalid");
+    const externalId = identifier(input.externalId, "d2l_email_grade_external_id_invalid", 256);
+    const course = text(input.course, "d2l_email_grade_course_invalid", 512);
+    const title = text(input.title, "d2l_email_grade_title_invalid", 512);
+    const assignedGrade = grade(input.assignedGrade);
+    const maxPoints = scale(input.maxPoints);
+    if (assignedGrade === null) throw new TypeError("d2l_email_grade_value_invalid");
+    const observedAt = at(input.now);
+    const hash = await sha256Hex(canonicalJson({ assignedGrade, course, maxPoints, title }));
+    // Claim the race path up front. The insert trigger must reject REPLACE,
+    // so idempotency is an explicit read with a post-conflict re-read.
+    this.#claim(3);
+    const existing = async (): Promise<boolean> => await this.database.prepare(
+      `SELECT observation_id FROM d2l_email_grade_observations
+       WHERE principal_id = ? AND external_id = ? AND content_hash = ?`,
+    ).bind(principalId, externalId, hash).first<{ observation_id: string }>() !== null;
+    if (await existing()) return false;
+    try {
+      const result = await this.database.prepare(`INSERT INTO d2l_email_grade_observations (
+        principal_id, observation_id, email_id, deadline_id, external_id, course, title,
+        assigned_grade, max_points, content_hash, observed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
+          principalId, newUlid(), emailId, deadlineId, externalId, course, title,
+          assignedGrade, maxPoints, hash, observedAt,
+        ).run();
+      return result.meta.changes > 0;
+    } catch (error) {
+      if (await existing()) return false;
+      throw error;
+    }
   }
 
   async readSync(principalIdValue: string, sourceIdValue: string): Promise<SchoolObservationSyncState | null> {
@@ -761,7 +822,7 @@ export class SchoolObservationRepository {
     const changedSince = at(input.changedSince);
     const now = at(input.now);
     this.#claim(2);
-    const [gradeResult, missingResult, source] = await Promise.all([
+    const [gradeResult, missingResult, source, d2lGradeRows] = await Promise.all([
       this.database.prepare(
         `SELECT o.observation_id, o.deadline_id, d.course, d.title, o.assigned_grade,
                 o.max_points, o.source_updated_at,
@@ -807,8 +868,9 @@ export class SchoolObservationRepository {
          LIMIT 20`,
       ).bind(principalId, sourceId, now).all<MissingRow>(),
       this.readSync(principalId, sourceId),
+      this.#readD2lDigestGrades(principalId, changedSince),
     ]);
-    const grades = rows(gradeResult).map((row): SchoolGradeObservation => {
+    const classroomGrades = rows(gradeResult).map((row): SchoolGradeObservation => {
       if (typeof row.assigned_grade !== "number") throw new TypeError("school_grade_row_invalid");
       return Object.freeze({
         observationId: ulid(row.observation_id, "school_grade_row_invalid"),
@@ -823,6 +885,27 @@ export class SchoolObservationRepository {
         lastSeenAt: instant(row.last_seen_at, "school_grade_row_invalid"),
       });
     });
+    const d2lGrades = d2lGradeRows.map((row): SchoolGradeObservation => {
+      if (typeof row.assigned_grade !== "number") throw new TypeError("school_grade_row_invalid");
+      return Object.freeze({
+        observationId: ulid(row.observation_id, "school_grade_row_invalid"),
+        deadlineId: row.deadline_id === null
+          ? null
+          : identifier(row.deadline_id, "school_grade_row_invalid"),
+        course: text(row.course, "school_grade_row_invalid", 2_048),
+        title: text(row.title, "school_grade_row_invalid", 2_048),
+        assignedGrade: grade(row.assigned_grade) as number,
+        maxPoints: scale(row.max_points),
+        source: "d2l_notification_email" as const,
+        gradeUpdatedAt: null,
+        contentChangedAt: instant(row.observed_at, "school_grade_row_invalid"),
+        lastSeenAt: instant(row.observed_at, "school_grade_row_invalid"),
+      });
+    });
+    const grades = [...classroomGrades, ...d2lGrades]
+      .sort((left, right) => right.contentChangedAt.localeCompare(left.contentChangedAt)
+        || left.observationId.localeCompare(right.observationId))
+      .slice(0, 20);
     const missingRows = rows(missingResult);
     const missingWork = missingRows.map((row): SchoolDerivedMissingWork => {
       if (row.classification !== "derived" || row.to_state !== "no_submission_seen") {
@@ -957,5 +1040,30 @@ export class SchoolObservationRepository {
     const value = await this.readSync(principalId, sourceId);
     if (value === null) throw new Error("school_observation_sync_write_failed");
     return value;
+  }
+
+
+  async #readD2lDigestGrades(principalId: string, changedSince: string): Promise<readonly D2lGradeRow[]> {
+    this.#claim();
+    try {
+      const result = await this.database.prepare(`SELECT g.observation_id, g.deadline_id, g.course,
+          g.title, g.assigned_grade, g.max_points, g.observed_at
+        FROM d2l_email_grade_observations g
+        WHERE g.principal_id = ?1 AND g.observed_at >= ?2
+          AND NOT EXISTS (
+            SELECT 1 FROM d2l_email_grade_observations later
+            WHERE later.principal_id = g.principal_id AND later.external_id = g.external_id
+              AND (later.observed_at > g.observed_at
+                OR (later.observed_at = g.observed_at AND later.observation_id > g.observation_id))
+          )
+        ORDER BY g.observed_at DESC, g.observation_id
+        LIMIT 20`).bind(principalId, changedSince).all<D2lGradeRow>();
+      return rows(result);
+    } catch (error) {
+      if (/no such table:\s*d2l_email_grade_observations/iu.test(
+        error instanceof Error ? error.message : String(error),
+      )) return Object.freeze([]);
+      throw error;
+    }
   }
 }

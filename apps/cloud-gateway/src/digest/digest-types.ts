@@ -20,6 +20,8 @@ export interface DigestDeadline {
   readonly title: string;
   readonly dueAt: string;
   readonly effort: "quiz" | "test" | "exam" | "essay" | "project" | "other";
+  /** Fixed adapter label. Optional only for older fixture callers. */
+  readonly source?: "Google Classroom" | "Brightspace calendar" | "D2L email" | "Manual" | "Brightspace";
 }
 
 export interface DigestProject {
@@ -115,7 +117,7 @@ export interface DigestGradeObservation {
   readonly assignedGrade: number;
   readonly maxPoints: number | null;
   readonly gradeUpdatedAt: string | null;
-  readonly source: "Google Classroom";
+  readonly source: "Google Classroom" | "D2L email";
   readonly lastSeenAt: string;
 }
 
