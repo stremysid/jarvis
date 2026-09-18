@@ -3,6 +3,153 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 21:59 UTC — DeepSeek V4.1 Flash (DSH), docs-check: the eight false positives annotated, the one genuine finding fixed
+
+**Effort level: `max` by the agent default, and that is an inference, not a
+reading.** `~/.dsh/settings.yaml` sets `agent-default-model` to
+`deepseek-flash` with `reasoningEffort: max`. The inherited environment says
+`CLAUDE_EFFORT=xhigh`, but that belongs to the session that launched this one,
+so I am not claiming it. If the level has to be exact, read it from the
+harness, not from here.
+
+**Branch:** `codex/docscheck-annotations`, pushed at `59ca49a`, **not** pushed
+to `claude/reviewer-gate-tools`. Worktree left in place at
+`C:\Users\Sid\jarvis-docscheck` for inspection. No migration. No code changed.
+
+**The commits carry `Co-Authored-By: Claude Opus 5` because the brief mandates
+that trailer verbatim, not because Opus 5 wrote them.** This session is
+DeepSeek V4.1 Flash in DSH; the trailer is a formatting instruction I was told
+to follow exactly. Reading it as authorship would be wrong.
+
+### The judgement call to check first: I merged `origin/main` in
+
+The brief said to branch from `origin/claude/reviewer-gate-tools`, and I did
+(`cfd8d55`). That branch was cut from main at `52f0881` (PR #34, 2026-09-14);
+main is now `bb51861` (PR #103, 2026-09-18). It carries `reviewer-tools/` and
+touches **no Markdown at all** — `git diff --name-only 52f0881 cfd8d55 -- docs
+AGENTS.md TESTING.md KNOWN_ISSUES.md` is empty.
+
+So the brief's nine findings were not there. Five of them — both Worker version
+ids, the unresolvable worked-example sha, and the `codex/memory-proposed-recallable`
+reference the brief calls the one genuine finding — appear nowhere in the
+branch's copy of those files. The checker on the branch as it stood gave **16
+different findings**, all in prose main had already rewritten.
+
+Annotating the stale copies would have been worse than useless: the branch
+changes none of those files, so on any merge into main, main's versions win and
+every annotation vanishes. The annotations have to sit on the text a reader
+will actually see. I merged `origin/main` into `codex/docscheck-annotations`.
+No conflicts — the two sides share **zero** changed files.
+
+`apps/`, `packages/`, `scripts/` and `tests/` are **byte-identical to
+`origin/main`** after the merge, which is why I did not run the gate. I changed
+no code; the merge brings in main's already-gated tree. Saying that explicitly
+rather than letting a branch that contains 123k lines of main's diff imply I
+ran `pnpm test` over it.
+
+If the reviewer wanted the small PR instead, this is the decision to overrule —
+but then the genuine finding cannot be fixed at all, because the line it lives
+on is not in the branch.
+
+### Before and after
+
+```
+BEFORE   claims checked: 113   findings: 9
+AFTER    claims checked: 114   findings: 0
+         7 directives absorbing 8 findings
+```
+
+The annotated lines are still checked in full and their findings are absorbed
+afterwards, so they moved from unexamined to examined rather than the reverse.
+Each directive's absorbed count is printed, so the eight are visible as eight
+instead of hidden.
+
+The nine, and what each was:
+
+| Line | Kind | Why it was not a defect | Disposition |
+|---|---|---|---|
+| `HANDOFF.md:97` | SHA | `555c1414` is a Cloudflare Worker version id | annotated |
+| `HANDOFF.md:112` | SHA | `555c1414` and `c46e6c89` are Worker version ids | annotated (2) |
+| `HANDOFF.md:265` | PATH | the dead `Ksid1` path the paragraph exists to retract | annotated |
+| `HANDOFF.md:494` | MIGRATION | `0035_...sql` is on unmerged `codex/wire-autonomy-tier3` | annotated |
+| `HANDOFF.md:693` | SHA | `ebe38aa4` is the worked example and must stay unresolvable | annotated |
+| `AGENTS.md:30` | PATH | the same dead `Ksid1` path, inside the same kind of correction | annotated |
+| `KNOWN_ISSUES.md:282` | BRANCH | **genuine** — the branch is merged and deleted | fixed |
+| `KNOWN_ISSUES.md:760` | PATH | `C:\Users\RUNNER~1\` is the CI runner's 8.3 alias | annotated |
+
+Eight lines, not eight findings: `HANDOFF.md:112` carries two.
+
+I worked out the last two myself, as the brief asked. 494 names a file that
+exists only on `codex/wire-autonomy-tier3` (`c982b0b`, still on origin, no PR),
+and the cell already calls `0035` the next free number, so it does not claim
+the file is here. 760 is an 8.3 short name under the GitHub Actions runner's
+own user profile.
+
+### The genuine finding
+
+`KNOWN_ISSUES.md:282` read "The recall change is on branch
+`codex/memory-proposed-recallable`". Checked rather than assumed: `8bd42e7` is
+`Merge pull request #98 from ksid1229-ops/codex/memory-proposed-recallable`, an
+ancestor of `origin/main`; `gh pr view 98` says `MERGED` at
+`2026-09-18T20:33:59Z`; and `git ls-remote --heads origin` returns nothing for
+the branch. It now reads:
+
+> The recall change landed on `main` in PR #98 (merge `8bd42e7`, 2026-09-18);
+> the branch that carried it is merged and deleted.
+
+The deleted branch name is gone rather than annotated. Naming it and then
+suppressing the check would leave the false claim in the file with a note
+excusing it. `AGENT_LOG.md:15` and `:660` still name the branch, correctly:
+those are historical entries recording what was true when written, and
+`AGENT_LOG.md` is not in the checker's file list.
+
+### The control
+
+A scratch copy, `docs/HANDOFF.md.control`, with four planted claims appended:
+
+```
+docs/HANDOFF.md.control:748  [SHA]        abadc0de
+docs/HANDOFF.md.control:749  [BRANCH]     codex/memory-proposed-recallable
+docs/HANDOFF.md.control:750  [PATH]       C:\Users\Nobody\hermes\bin\uv.exe
+docs/HANDOFF.md.control:751  [MIGRATION]  0036_does_not_exist.sql
+```
+
+Exit 1, all four reported. The same run absorbed exactly the five annotations
+copied into that file, so the suppressions are scoped to their lines and not to
+the run. Deleted afterwards; `git status` is clean.
+
+Two further checks of the new machinery, on a throwaway file: an ignore with no
+reason is reported as IGNORE and absorbs nothing, and an ignore with a reason
+but nothing to absorb is reported as STALE. Both are the point of the change —
+a suppression that cannot be bare and cannot rot.
+
+### What this did not cover
+
+- **`docs-check:ignore` absorbs every finding on its line, not just the one it
+  was written for.** It is not kind-scoped. A second false claim added to an
+  annotated line would be absorbed silently. The absorbed count is printed, so
+  a line growing from 1 to 2 is visible to whoever reads the output, but
+  nothing fails. Kind-scoped directives (`docs-check:ignore SHA: ...`) would
+  close it; I did not build them, because the brief asked for line-level
+  precision and none of the eight lines needed it.
+- **The PATH check tests the placeholder after trimming trailing dots, so a
+  trailing ellipsis is destroyed before the placeholder test sees it.**
+  `C:\Users\RUNNER~1\...` is a placeholder by the tool's own documented rule
+  and is flagged anyway. I annotated the line instead of reordering the trim,
+  because that fix would have removed one of the eight the brief asked me to
+  annotate with a reason — and "the checker no longer reports this" is the
+  shape of tuning. It is a real defect in `docs-check.ps1` and it is still
+  there.
+- **`HANDOFF.md:268` says the stale path "is still in `AGENTS.md` and
+  `TESTING.md`".** `TESTING.md` no longer contains it; `AGENTS.md` does, as the
+  correction. No check can see this — it is a claim about prose, the class the
+  tool declines to check — and rewriting it was outside the brief. Recording it
+  so it is not lost.
+- The checker still cannot tell whether a still-true claim is still true. That
+  is by design and is printed in its own output.
+
+— DeepSeek V4.1 Flash
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
