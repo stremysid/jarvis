@@ -178,6 +178,7 @@ async function seedItem(
   memory: TestMemory,
   text: string,
   validTo: string | null = null,
+  sensitivity: "normal" | "sensitive" = "normal",
 ): Promise<SeededItem> {
   const source = await seedConversation(memory, text);
   const itemId = newUlid(memory.clock.advance());
@@ -195,7 +196,7 @@ async function seedItem(
       basis: "stated",
       origin: "authenticated_first_person",
       uncertain: false,
-      sensitivity: "normal",
+      sensitivity,
       validFrom: null,
       validTo,
       extractorVersion: "living-notes-test-v1",
@@ -269,6 +270,113 @@ function workflow(
 
 function noBaseContext(): ContextRetriever {
   return { retrieve: async () => Object.freeze([]) };
+}
+
+function telegramRetriever(memory: TestMemory): TelegramMemoryRetriever {
+  return new TelegramMemoryRetriever({
+    database: env.DB,
+    archive: env.ARCHIVE,
+    baseContext: noBaseContext(),
+    now: memory.clock.now,
+  });
+}
+
+async function recalledText(memory: TestMemory, query: string): Promise<string> {
+  const contexts = await telegramRetriever(memory).retrieve({
+    principalId: memory.principalId,
+    channel: "telegram",
+    purpose: "conversation",
+    query,
+    maxTokens: 16_384,
+  });
+  return contexts.map(({ text }) => text).join("\n");
+}
+
+async function noteHeadVisibility(memory: TestMemory): Promise<readonly string[]> {
+  const result = await env.DB.prepare(`SELECT visibility FROM memory_topic_note_heads
+    WHERE principal_id = ? ORDER BY topic_id`).bind(memory.principalId).all<{ visibility: string }>();
+  return result.results.map(({ visibility }) => visibility);
+}
+
+/**
+ * Runs `body` with one production trigger removed, restoring it afterwards.
+ *
+ * The retriever's anti-join and the 0032 redaction triggers enforce the same
+ * promise twice. A test for the retriever therefore has to hold the trigger's
+ * effect absent, or it re-proves the trigger and leaves the second layer free
+ * to rot -- which is exactly what happened before this test existed: neutering
+ * the anti-join left every living-notes test green because the trigger had
+ * already redacted the head the assertions were reading.
+ */
+async function withoutTrigger<T>(name: string, body: () => Promise<T>): Promise<T> {
+  const trigger = await env.DB.prepare(
+    "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
+  ).bind(name).first<{ sql: string }>();
+  if (trigger === null) throw new Error(`missing trigger ${name}`);
+  await env.DB.prepare(`DROP TRIGGER ${name}`).run();
+  try {
+    return await body();
+  } finally {
+    await env.DB.prepare(trigger.sql).run();
+  }
+}
+
+/**
+ * Hides one conversation turn the way `history.suppress` does: a canonical
+ * owner command event and the suppression row that command authorizes.
+ *
+ * A hand-written suppression would be refused by
+ * `memory_event_suppressions_insert_guard`; bypassing the guard would let the
+ * test prove a state the product cannot reach.
+ */
+async function suppressTurnForTest(
+  memory: TestMemory,
+  targetEventId: Ulid,
+  occurredAt: string,
+): Promise<void> {
+  const suppressionId = newUlid(memory.clock.now());
+  const commandEventId = newUlid(memory.clock.now());
+  const contentHash = await sha256Hex(canonicalJson({ suppressionId, commandEventId }));
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId: commandEventId,
+    correlationId: commandEventId,
+    eventType: "memory.owner_command",
+    source: "memory-control",
+    subjectId: memory.principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    contentHash,
+    producerVersion: "memory-control-v1",
+    payload: {
+      operation: "history.suppress",
+      targetId: suppressionId,
+      targetEventId,
+      startEventSequence: null,
+      endEventSequence: null,
+      newlyHiddenTurnCount: 1,
+      totalCoveredTurnCount: 1,
+    },
+  };
+  await env.DB.prepare(`INSERT INTO events (
+    event_id, event_type, source, subject_id, occurred_at, received_at,
+    content_hash, envelope_json, created_at
+  ) VALUES (?, 'memory.owner_command', 'memory-control', ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      commandEventId,
+      memory.principalId,
+      occurredAt,
+      occurredAt,
+      contentHash,
+      JSON.stringify(envelope),
+      occurredAt,
+    ).run();
+  await env.DB.prepare(`INSERT INTO memory_event_suppressions (
+    suppression_id, principal_id, target_event_id, start_event_sequence,
+    end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+    source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+  ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'owner asked Jarvis to forget this turn', 1, 1, ?)`)
+    .bind(suppressionId, memory.principalId, targetEventId, commandEventId, occurredAt).run();
 }
 
 function delayedDatabase(database: D1Database, milliseconds: number): Readonly<{
@@ -438,6 +546,69 @@ describe("living memory notes", () => {
     expect(await env.DB.prepare(`SELECT visibility FROM memory_topic_note_heads
       WHERE principal_id = ? AND topic_id = ?`).bind(memory.principalId, memory.inboxTopicId)
       .first("visibility")).toBe("redacted");
+  });
+
+  it("withholds a forgotten fact from note recall even where the redaction trigger has not run", async () => {
+    const memory = await createTestMemory();
+    const item = await seedItem(memory, "My private garden code word is marigold.");
+    await workflow(memory, new CallbackProvider((topics) => notesFor(topics))).runNight();
+    const before = await recalledText(memory, "What is my garden code word?");
+    expect(before).toContain("marigold");
+
+    // The redaction trigger is the first layer. It is removed here so the
+    // retriever's own anti-join is the only thing left standing between the
+    // owner and a forgotten fact -- otherwise this test re-proves the trigger.
+    await withoutTrigger("memory_topic_notes_redact_for_event_suppression", async () => {
+      const forgetTurn = await seedConversation(memory, "Forget my garden code word.", "forget");
+      await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
+        ownerTurn: forgetTurn,
+        candidateItemIds: [item.itemId],
+      });
+
+      // Nothing redacted the notes: they are still current and still cite the
+      // forgotten item. Only a retrieval-time guard can withhold them now.
+      expect(await noteHeadVisibility(memory)).toEqual(["current", "current"]);
+      expect(await recalledText(memory, "What is my garden code word?")).not.toContain("marigold");
+    });
+  });
+
+  it("withholds a note whose cited turn was suppressed while the fact itself stays active", async () => {
+    const memory = await createTestMemory();
+    const item = await seedItem(memory, "My spare key is under the blue pot.");
+    await workflow(memory, new CallbackProvider((topics) => notesFor(topics))).runNight();
+    expect(await recalledText(memory, "Where is my spare key?")).toContain("blue pot");
+
+    await withoutTrigger("memory_topic_notes_redact_for_event_suppression", async () => {
+      await suppressTurnForTest(memory, item.sourceEventId, memory.clock.advance().toISOString());
+
+      // A suppressed turn must not be recalled even though the derived fact
+      // was never forgotten, so no lifecycle or supersession branch can
+      // exclude the note -- only the suppression anti-join can.
+      expect(await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+        WHERE principal_id = ? AND item_id = ?`).bind(memory.principalId, item.itemId)
+        .first("lifecycle_state")).toBe("active");
+      expect(await noteHeadVisibility(memory)).toEqual(["current", "current"]);
+      expect(await recalledText(memory, "Where is my spare key?")).not.toContain("blue pot");
+    });
+  });
+
+  it("marks a living note that cites a sensitive fact as restricted", async () => {
+    const memory = await createTestMemory();
+    await seedItem(memory, "My therapy appointment is on Tuesday.", null, "sensitive");
+    await workflow(memory, new CallbackProvider((topics) => notesFor(topics))).runNight();
+    const contexts = await telegramRetriever(memory).retrieve({
+      principalId: memory.principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "When is my therapy appointment?",
+      maxTokens: 16_384,
+    });
+
+    // Every note here derives from the sensitive fact, so a note labelled
+    // personal would hand derived sensitive text to the model unlabelled.
+    const notes = contexts.filter(({ text }) => text.startsWith("Living "));
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.map(({ sensitivity }) => sensitivity)).toEqual(notes.map(() => "restricted"));
   });
 
   it("keeps both contradictory atomic versions and receipts why the newer one supersedes recall", async () => {

@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, canonicalJson, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import livingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import { applyMemoryLivingNotesMigration } from "./migration.js";
+import { proveWholeTrigger } from "./whole-trigger-proof.js";
 
 const MODEL = "deepseek:deepseek-flash";
 
@@ -59,9 +60,10 @@ async function insertVersion(
   topicId = value.rootTopicId,
   versionNumber = 1,
   sourceCount = 1,
+  citedId = value.rootTopicEventId,
 ): Promise<Ulid> {
   const noteVersionId = newUlid();
-  const text = markdown(value.rootTopicEventId);
+  const text = markdown(citedId);
   await env.DB.prepare(`INSERT INTO memory_topic_note_versions (
     note_version_id, principal_id, topic_id, version_number, markdown, content_hash,
     source_count, token_count, run_id, model_id, created_at
@@ -95,7 +97,11 @@ async function insertSource(
   return sourceRefId;
 }
 
-async function insertReceipt(value: Fixture, noteVersionId: Ulid): Promise<Ulid> {
+async function insertReceipt(
+  value: Fixture,
+  noteVersionId: Ulid,
+  topicId = value.rootTopicId,
+): Promise<Ulid> {
   const receiptId = newUlid();
   await env.DB.prepare(`INSERT INTO memory_topic_note_receipts (
     receipt_id, principal_id, run_id, topic_id, prior_note_version_id,
@@ -105,7 +111,7 @@ async function insertReceipt(value: Fixture, noteVersionId: Ulid): Promise<Ulid>
       receiptId,
       value.principalId,
       value.runId,
-      value.rootTopicId,
+      topicId,
       noteVersionId,
       value.now,
     ).run();
@@ -123,19 +129,329 @@ async function completeNote(value: Fixture): Promise<Readonly<{
   return { noteVersionId, sourceRefId, receiptId };
 }
 
-async function proveWholeTriggerIsRequired(
-  triggerName: string,
-  mutation: () => Promise<unknown>,
-  expectedFailure: string,
+interface SeededItem {
+  readonly itemId: Ulid;
+  readonly versionId: Ulid;
+  readonly sourceEventId: Ulid;
+  /** The version's own timestamp, so a later item can be strictly newer. */
+  readonly versionCreatedAt: string;
+}
+
+/** Moves forward per call, so a supersession's newer version is strictly newer. */
+function steppingClock(from: string): { now(): Date } {
+  let at = Date.parse(from);
+  return { now: () => (at += 1_000, new Date(at)) };
+}
+
+/**
+ * Commits one active item through `MemoryRepository`, so the item is bound by
+ * the same guards production writes go through. Hand-written item rows would
+ * let these tests prove states the product cannot reach.
+ */
+async function seedItem(value: Fixture, text: string, notBefore = value.now): Promise<SeededItem> {
+  const clock = steppingClock(notBefore);
+  const repository = new MemoryRepository(env.DB, { clock: clock.now });
+  const eventId = newUlid(clock.now());
+  const occurredAt = clock.now().toISOString();
+  const payload = {
+    schemaCode: 1,
+    channelCode: 2,
+    sensitivityCode: 1,
+    historyEligible: true,
+    directOwnerText: true,
+    text,
+  };
+  const contentHash = await sha256Hex(canonicalJson(payload));
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: value.principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(clock.now()),
+    contentType: "application/json",
+    contentHash,
+    payload,
+    redaction: { status: "none", markers: [] },
+    producerVersion: "conversation-v1",
+  };
+  await env.DB.prepare(`INSERT INTO events (
+    event_id, event_type, source, subject_id, occurred_at, received_at,
+    content_hash, envelope_json, created_at
+  ) VALUES (?, 'conversation.user_committed', 'conversation', ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      eventId,
+      value.principalId,
+      occurredAt,
+      occurredAt,
+      contentHash,
+      canonicalJson(envelope),
+      occurredAt,
+    ).run();
+  const sequence = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
+    .bind(eventId).first<number>("sequence");
+  if (sequence === null) throw new Error("living_note_migration_source_event_missing");
+  const itemId = newUlid(clock.now());
+  const versionId = newUlid(clock.now());
+  await repository.commitInitialItem({
+    principalId: value.principalId,
+    itemId,
+    kind: "fact",
+    creationEventId: eventId,
+    creationEventSequence: sequence,
+    version: {
+      versionId,
+      text,
+      textHash: await sha256Hex(text),
+      basis: "stated",
+      origin: "authenticated_first_person",
+      uncertain: false,
+      sensitivity: "normal",
+      validFrom: null,
+      validTo: null,
+      extractorVersion: "living-note-migration-test-v1",
+      extractorModelId: null,
+    },
+    sources: [{
+      sourceId: newUlid(clock.now()),
+      eventId,
+      eventSequence: sequence,
+      sourceLocation: "live",
+      r2SegmentId: null,
+      excerpt: text,
+      excerptHash: await sha256Hex(text),
+      channel: "telegram",
+      occurredAt,
+    }],
+    transition: {
+      transitionId: newUlid(clock.now()),
+      lifecycleState: "active",
+      reason: "authenticated first-person migration-test evidence",
+      policyVersion: "living-note-migration-test-v1",
+    },
+    placement: {
+      placementId: newUlid(clock.now()),
+      placementEventId: newUlid(clock.now()),
+      topicId: value.inboxTopicId,
+      filingSource: "rule",
+      confidence: 0.9,
+      reason: "living-note migration test places its item in the inbox area",
+    },
+  });
+  const versionCreatedAt = await env.DB.prepare(
+    "SELECT created_at FROM memory_item_versions WHERE version_id = ?",
+  ).bind(versionId).first<string>("created_at");
+  if (versionCreatedAt === null) throw new Error("living_note_migration_version_missing");
+  return { itemId, versionId, sourceEventId: eventId, versionCreatedAt };
+}
+
+/** A current root-topic note whose one cited source is a live item. */
+async function itemNoteCase(): Promise<Readonly<{
+  value: Fixture;
+  item: SeededItem;
+}>> {
+  const value = await fixture();
+  const item = await seedItem(value, "The migration test item is citable.");
+  await insertItemSource(value, item);
+  return { value, item };
+}
+
+async function insertItemSource(value: Fixture, item: SeededItem, position = 0): Promise<void> {
+  const noteVersionId = await insertVersion(value, value.rootTopicId, 1, 1, item.itemId);
+  await env.DB.prepare(`INSERT INTO memory_topic_note_sources (
+    source_ref_id, principal_id, note_version_id, source_position, source_kind,
+    source_id, item_version_id, created_at
+  ) VALUES (?, ?, ?, ?, 'item', ?, ?, ?)`)
+    .bind(
+      newUlid(),
+      value.principalId,
+      noteVersionId,
+      position,
+      item.itemId,
+      item.versionId,
+      value.now,
+    ).run();
+  await insertReceipt(value, noteVersionId);
+}
+
+/**
+ * The redaction triggers refuse nothing themselves: they move the affected
+ * note head to 'redacted'. Removal is made observable through the same
+ * refusal-then-acceptance proof the guards use by committing the triggering
+ * row and then trying to put that head back to 'current' -- an un-redaction
+ * the head guard refuses. With the redaction trigger gone, nothing redacts the
+ * head and the same call succeeds.
+ *
+ * Each call builds its own case, so a refused half leaves nothing behind for
+ * the second call to trip over.
+ */
+function unredact(value: Fixture, topicId: Ulid): Promise<unknown> {
+  return env.DB.prepare(`UPDATE memory_topic_note_heads SET visibility = 'current'
+    WHERE principal_id = ? AND topic_id = ?`).bind(value.principalId, topicId).run();
+}
+
+/**
+ * Mirrors the merge event the consolidation workflow writes, including the
+ * alias entry the topic-events guard requires. The source area must be a child
+ * area, and the root is the merge target, so the redaction covers the root
+ * note that `completeNote` installed.
+ */
+async function insertTopicMerge(value: Fixture): Promise<void> {
+  const source = await env.DB.prepare(`SELECT display_name, normalized_name, parent_topic_id, updated_at
+    FROM memory_topics WHERE principal_id = ? AND topic_id = ?`)
+    .bind(value.principalId, value.inboxTopicId)
+    .first<{
+      display_name: string;
+      normalized_name: string;
+      parent_topic_id: string;
+      updated_at: string;
+    }>();
+  if (source === null) throw new Error("living_note_migration_merge_source_missing");
+  // The topic-events guard refuses an event older than the area's last one,
+  // so the merge is stamped after the bootstrap event rather than at `now`.
+  const occurredAt = new Date(Date.parse(source.updated_at) + 1_000).toISOString();
+  await env.DB.prepare(`INSERT INTO memory_topic_events (
+    topic_event_id, principal_id, topic_id, operation, previous_parent_topic_id,
+    new_parent_topic_id, previous_display_name, previous_normalized_name,
+    new_display_name, new_normalized_name, merge_target_topic_id,
+    reparented_child_ids_json, moved_placement_ids_json, added_aliases_json,
+    reason, actor, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, 'merge', ?, NULL, ?, ?, NULL, NULL, ?, '[]', '[]', ?, ?, 'model', NULL, ?)`)
+    .bind(
+      newUlid(),
+      value.principalId,
+      value.inboxTopicId,
+      source.parent_topic_id,
+      source.display_name,
+      source.normalized_name,
+      value.rootTopicId,
+      canonicalJson([{
+        aliasId: newUlid(),
+        topicId: value.rootTopicId,
+        displayName: source.display_name,
+        normalizedName: source.normalized_name,
+        pathAlias: source.normalized_name,
+      }]),
+      "the migration test merges the inbox area into the profile area",
+      occurredAt,
+    ).run();
+}
+
+/**
+ * Expires one item the way the nightly run does, so the item-transition
+ * redaction trigger sees the row production creates.
+ */
+async function insertExpiredTransition(value: Fixture, item: SeededItem): Promise<void> {
+  const state = await env.DB.prepare(`SELECT current_version_id, last_transition_number, updated_at
+    FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
+    .bind(value.principalId, item.itemId)
+    .first<{ current_version_id: string; last_transition_number: number; updated_at: string }>();
+  if (state === null) throw new Error("living_note_migration_item_state_missing");
+  await env.DB.prepare(`INSERT INTO memory_item_transitions (
+    transition_id, principal_id, item_id, transition_number, version_id,
+    lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, ?, ?, 'expired', ?, 'rules', ?, NULL, ?)`)
+    .bind(
+      newUlid(),
+      value.principalId,
+      item.itemId,
+      state.last_transition_number + 1,
+      state.current_version_id,
+      "The fact's explicit validity end passed.",
+      "living-note-migration-test-v1",
+      new Date(Date.parse(state.updated_at) + 1_000).toISOString(),
+    ).run();
+}
+
+/** A note citing an older item, plus the newer item that supersedes it. */
+async function supersessionCase(): Promise<Readonly<{
+  value: Fixture;
+  older: SeededItem;
+  newer: SeededItem;
+}>> {
+  const value = await fixture();
+  const older = await seedItem(value, "The superseded migration item is citable.");
+  const newer = await seedItem(
+    value,
+    "The newer migration item supersedes the older one.",
+    older.versionCreatedAt,
+  );
+  await insertItemSource(value, older);
+  return { value, older, newer };
+}
+
+async function insertSupersession(
+  value: Fixture,
+  older: SeededItem,
+  newer: SeededItem,
 ): Promise<void> {
-  await expect(mutation()).rejects.toThrow(expectedFailure);
-  const trigger = await env.DB.prepare(
-    "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
-  ).bind(triggerName).first<{ sql: string }>();
-  if (trigger === null) throw new Error(`missing trigger ${triggerName}`);
-  await env.DB.prepare(`DROP TRIGGER ${triggerName}`).run();
-  try { await expect(mutation()).resolves.toBeDefined(); }
-  finally { await env.DB.prepare(trigger.sql).run(); }
+  await env.DB.prepare(`INSERT INTO memory_consolidation_change_receipts (
+    change_receipt_id, principal_id, run_id, change_kind, subject_id, related_id,
+    reason, transition_or_event_id, created_at
+  ) VALUES (?, ?, ?, 'supersession', ?, ?, ?, ?, ?)`)
+    .bind(
+      newUlid(),
+      value.principalId,
+      value.runId,
+      older.itemId,
+      newer.itemId,
+      "The newer migration item supersedes the older one.",
+      newer.itemId,
+      value.now,
+    ).run();
+}
+
+/**
+ * Hides one cited turn the way `history.suppress` does: a canonical owner
+ * command event and the suppression row it authorizes, both written through
+ * their guards.
+ */
+async function insertSuppression(value: Fixture, item: SeededItem): Promise<void> {
+  const suppressionId = newUlid();
+  const commandEventId = newUlid();
+  const contentHash = await sha256Hex(canonicalJson({ suppressionId, commandEventId }));
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId: commandEventId,
+    correlationId: commandEventId,
+    eventType: "memory.owner_command",
+    source: "memory-control",
+    subjectId: value.principalId,
+    occurredAt: value.now,
+    receivedAt: value.now,
+    contentHash,
+    producerVersion: "memory-control-v1",
+    payload: {
+      operation: "history.suppress",
+      targetId: suppressionId,
+      targetEventId: item.sourceEventId,
+      startEventSequence: null,
+      endEventSequence: null,
+      newlyHiddenTurnCount: 1,
+      totalCoveredTurnCount: 1,
+    },
+  };
+  await env.DB.prepare(`INSERT INTO events (
+    event_id, event_type, source, subject_id, occurred_at, received_at,
+    content_hash, envelope_json, created_at
+  ) VALUES (?, 'memory.owner_command', 'memory-control', ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      commandEventId,
+      value.principalId,
+      value.now,
+      value.now,
+      contentHash,
+      canonicalJson(envelope),
+      value.now,
+    ).run();
+  await env.DB.prepare(`INSERT INTO memory_event_suppressions (
+    suppression_id, principal_id, target_event_id, start_event_sequence,
+    end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+    source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+  ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'owner asked Jarvis to forget this turn', 1, 1, ?)`)
+    .bind(suppressionId, value.principalId, item.sourceEventId, commandEventId, value.now).run();
 }
 
 beforeAll(async () => applyMemoryLivingNotesMigration());
@@ -196,7 +512,7 @@ describe("memory living notes migration", () => {
 
   it("needs the whole note-version insert guard to reject a skipped version number", async () => {
     const value = await fixture();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_versions_insert_guard",
       () => insertVersion(value, value.rootTopicId, 2),
       "memory_topic_note_version_invalid",
@@ -206,7 +522,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-version update guard to preserve version history", async () => {
     const value = await fixture();
     const id = await insertVersion(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_versions_update_guard",
       () => env.DB.prepare("UPDATE memory_topic_note_versions SET token_count = 41 WHERE note_version_id = ?")
         .bind(id).run(),
@@ -217,7 +533,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-version delete guard to preserve version history", async () => {
     const value = await fixture();
     const id = await insertVersion(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_versions_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_topic_note_versions WHERE note_version_id = ?").bind(id).run(),
       "memory_topic_note_version_delete_forbidden",
@@ -227,7 +543,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-source insert guard to require a citation in Markdown", async () => {
     const value = await fixture();
     const id = await insertVersion(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_sources_insert_guard",
       () => insertSource(value, id, value.inboxTopicEventId),
       "memory_topic_note_source_invalid",
@@ -238,7 +554,7 @@ describe("memory living notes migration", () => {
     const value = await fixture();
     const id = await insertVersion(value);
     const source = await insertSource(value, id);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_sources_update_guard",
       () => env.DB.prepare("UPDATE memory_topic_note_sources SET source_position = 1 WHERE source_ref_id = ?")
         .bind(source).run(),
@@ -250,7 +566,7 @@ describe("memory living notes migration", () => {
     const value = await fixture();
     const id = await insertVersion(value);
     const source = await insertSource(value, id);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_sources_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_topic_note_sources WHERE source_ref_id = ?").bind(source).run(),
       "memory_topic_note_source_delete_forbidden",
@@ -262,7 +578,7 @@ describe("memory living notes migration", () => {
     const id = await insertVersion(value);
     await insertSource(value, id);
     const receiptId = newUlid();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_receipts_insert_guard",
       () => env.DB.prepare(`INSERT INTO memory_topic_note_receipts (
         receipt_id, principal_id, run_id, topic_id, prior_note_version_id,
@@ -276,7 +592,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-receipt update guard to preserve rewrite receipts", async () => {
     const value = await fixture();
     const note = await completeNote(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_receipts_update_guard",
       () => env.DB.prepare("UPDATE memory_topic_note_receipts SET reason = 'changed' WHERE receipt_id = ?")
         .bind(note.receiptId).run(),
@@ -287,7 +603,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-receipt delete guard to preserve rewrite receipts", async () => {
     const value = await fixture();
     const note = await completeNote(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_receipts_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_topic_note_receipts WHERE receipt_id = ?")
         .bind(note.receiptId).run(),
@@ -298,7 +614,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-head insert guard to reject an unreceipted head", async () => {
     const value = await fixture();
     const id = await insertVersion(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_heads_insert_guard",
       () => env.DB.prepare(`INSERT INTO memory_topic_note_heads (
         principal_id, topic_id, current_note_version_id, visibility, updated_at
@@ -313,7 +629,7 @@ describe("memory living notes migration", () => {
     const first = await completeNote(value);
     const second = await insertVersion(value, value.rootTopicId, 2);
     await insertSource(value, second);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_heads_update_guard",
       () => env.DB.prepare(`UPDATE memory_topic_note_heads
         SET current_note_version_id = ?, updated_at = ? WHERE principal_id = ? AND topic_id = ?`)
@@ -326,7 +642,7 @@ describe("memory living notes migration", () => {
   it("needs the whole note-head delete guard to retain the current pointer", async () => {
     const value = await fixture();
     await completeNote(value);
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_topic_note_heads_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_topic_note_heads WHERE principal_id = ? AND topic_id = ?")
         .bind(value.principalId, value.rootTopicId).run(),
@@ -337,7 +653,7 @@ describe("memory living notes migration", () => {
   it("needs the whole change-receipt insert guard to require the claimed canonical change", async () => {
     const value = await fixture();
     const id = newUlid();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_change_receipts_insert_guard",
       () => env.DB.prepare(`INSERT INTO memory_consolidation_change_receipts (
         change_receipt_id, principal_id, run_id, change_kind, subject_id, related_id,
@@ -365,7 +681,7 @@ describe("memory living notes migration", () => {
         .bind(id, value.principalId, value.runId, value.inboxTopicId, value.rootTopicId, newUlid(), value.now)
         .run();
     } finally { await env.DB.prepare(guard.sql).run(); }
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_change_receipts_update_guard",
       () => env.DB.prepare(`UPDATE memory_consolidation_change_receipts SET reason = 'changed'
         WHERE change_receipt_id = ?`).bind(id).run(),
@@ -389,7 +705,7 @@ describe("memory living notes migration", () => {
         .bind(id, value.principalId, value.runId, value.inboxTopicId, value.rootTopicId, newUlid(), value.now)
         .run();
     } finally { await env.DB.prepare(guard.sql).run(); }
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_change_receipts_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_consolidation_change_receipts WHERE change_receipt_id = ?")
         .bind(id).run(),
@@ -399,7 +715,7 @@ describe("memory living notes migration", () => {
 
   it("needs the whole model-step insert guard to reject a skipped checkpoint", async () => {
     const value = await fixture();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_model_steps_insert_guard",
       () => env.DB.prepare(`INSERT INTO memory_consolidation_model_steps (
         step_receipt_id, principal_id, run_id, step_number, response_json, response_hash,
@@ -420,7 +736,7 @@ describe("memory living notes migration", () => {
       settled_cost_micros, created_at
     ) VALUES (?, ?, ?, 1, '[]', ?, 0, 0, 0, 0, 0, ?)`)
       .bind(id, value.principalId, value.runId, "a".repeat(64), value.now).run();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_model_steps_update_guard",
       () => env.DB.prepare("UPDATE memory_consolidation_model_steps SET response_hash = ? WHERE step_receipt_id = ?")
         .bind("b".repeat(64), id).run(),
@@ -437,11 +753,60 @@ describe("memory living notes migration", () => {
       settled_cost_micros, created_at
     ) VALUES (?, ?, ?, 1, '[]', ?, 0, 0, 0, 0, 0, ?)`)
       .bind(id, value.principalId, value.runId, "a".repeat(64), value.now).run();
-    await proveWholeTriggerIsRequired(
+    await proveWholeTrigger(
       "memory_consolidation_model_steps_delete_guard",
       () => env.DB.prepare("DELETE FROM memory_consolidation_model_steps WHERE step_receipt_id = ?")
         .bind(id).run(),
       "memory_consolidation_model_step_delete_forbidden",
+    );
+  });
+
+  it("needs the whole supersession redaction trigger to take a superseded fact out of its note", async () => {
+    await proveWholeTrigger(
+      "memory_topic_notes_redact_for_supersession",
+      async () => {
+        const { value, older, newer } = await supersessionCase();
+        await insertSupersession(value, older, newer);
+        return unredact(value, value.rootTopicId);
+      },
+      "memory_topic_note_head_transition_invalid",
+    );
+  });
+
+  it("needs the whole topic-merge redaction trigger to take both merged areas' notes out", async () => {
+    await proveWholeTrigger(
+      "memory_topic_notes_redact_for_topic_merge",
+      async () => {
+        const value = await fixture();
+        await completeNote(value);
+        await insertTopicMerge(value);
+        return unredact(value, value.rootTopicId);
+      },
+      "memory_topic_note_head_transition_invalid",
+    );
+  });
+
+  it("needs the whole item-transition redaction trigger to take an expired fact out of its note", async () => {
+    await proveWholeTrigger(
+      "memory_topic_notes_redact_for_item_transition",
+      async () => {
+        const { value, item } = await itemNoteCase();
+        await insertExpiredTransition(value, item);
+        return unredact(value, value.rootTopicId);
+      },
+      "memory_topic_note_head_transition_invalid",
+    );
+  });
+
+  it("needs the whole event-suppression redaction trigger to take a forgotten turn out of its note", async () => {
+    await proveWholeTrigger(
+      "memory_topic_notes_redact_for_event_suppression",
+      async () => {
+        const { value, item } = await itemNoteCase();
+        await insertSuppression(value, item);
+        return unredact(value, value.rootTopicId);
+      },
+      "memory_topic_note_head_transition_invalid",
     );
   });
 });

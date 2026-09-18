@@ -152,6 +152,86 @@ Built by **DeepSeek V4.1 Flash in DeepSeek Harness at effort `max`**.
 
 ---
 
+## 2026-09-18 18:49 UTC — DeepSeek V4.1 Flash (reasoningEffort: max), F1 + F2 + audit B-4 ready for Claude max review
+
+**Ready for Claude Opus 5 max review on `codex/forgetting-guarantee-pins`, PR #99, work head `80a4728`, branched from `385c052`.** This adds no feature. It makes the forgetting guarantee testable layer by layer, closes audit finding B-4 at read time, and records what B-4 still leaves open. No migration; `0033` and `0034` remain the only unapplied ones.
+
+**F1 — the retriever-side guard is now pinned, and pinned with the trigger's effect absent.** The reason the reviewer's mutation survived is that the 0032 redaction trigger had already redacted the note head every living-notes assertion was reading. The new tests drop `memory_topic_notes_redact_for_event_suppression` for the duration of the body and restore it in a `finally`, so the anti-join in `telegram-memory-retriever.ts` is the only thing left that can withhold the fact, and the tests assert the heads are still `current` while the forbidden text is absent.
+
+- *"withholds a forgotten fact from note recall even where the redaction trigger has not run"* — real `MemoryOwnerControlsService.forget`, trigger dropped, both note heads asserted `current`, `marigold` absent.
+- *"withholds a note whose cited turn was suppressed while the fact itself stays active"* — a real `history.suppress` owner command and the suppression row it authorizes, through `memory_event_suppressions_insert_guard`; item lifecycle asserted `active`, so no lifecycle or supersession branch can be doing the work.
+- *"marks a living note that cites a sensitive fact as restricted"* — pins the `restricted_source` `EXISTS` the review named: a note derived from a sensitive item must come back with `sensitivity: "restricted"`, not `"personal"`.
+
+**F2 — all four redaction triggers now have whole-trigger removal tests.** `proveWholeTrigger` had been copied into four test files; it now lives once in `test/persistence/whole-trigger-proof.ts` and both files in this PR import it (the `memory-backup-migration.test.ts` and `study-coach-weak-spots-migration.test.ts` copies are left alone — same function, mechanical to fold in later). A redaction trigger refuses nothing itself, it redacts a head, so the mutation commits the triggering row and then tries to un-redact that head; the note-head guard refuses that un-redaction, and with the trigger dropped the same call succeeds. Each call builds a fresh case, so a refused half leaves nothing behind for the second call.
+
+**Mutations I ran, and what each did.** Every one restored, and the tree is clean at `80a4728`:
+
+| Mutation | Result |
+|---|---|
+| `telegram-memory-retriever.ts` anti-join forced to match nothing (`AND 1 = 0`) | 2 failed / 13 passed: exactly the two new forgetting tests |
+| `restricted_source` `EXISTS` forced to `WHERE 0 = 1` | 1 failed / 14 passed: only the restricted-labelling test |
+| 0032 `redact_for_supersession` `WHEN` changed `'supersession'` → `'expiry'` | 1 failed: its own test only |
+| 0032 `redact_for_topic_merge` `WHEN` changed `'merge'` → `'create'` | 1 failed: its own test only |
+| 0032 `redact_for_item_transition` `WHEN` narrowed to `'forgotten'` | 1 failed: its own test only |
+| 0032 `redact_for_event_suppression` body forced to match nothing (`AND 1 = 0`) | 1 failed: its own test only |
+| `context-retriever.ts` projection anti-join forced to match nothing | 1 failed / 20 passed: only the new B-4 test |
+
+**Audit finding B-4: closed on read, and the remainder written down rather than implied away.** `D1ContextRetriever` now anti-joins `memory_active_event_suppressions` over every entry of `sources_json` inside the `eligible` CTE, before `LIMIT`, matching the history anti-join PR #93 added. Every source is checked, not only `primary_event_id`, because a fact cites up to eight turns from a client-supplied list. Named test: *"does not return a projected fact whose cited turn the owner asked to forget"* — a real suppression over the citation, the untouched fact still returned. What is **not** closed, and is now in `KNOWN_ISSUES.md`: published projection rows are immutable and undeletable while their version is published, so a copy published before the forget is never scrubbed; the write path still accepts one; and a commit-time refusal would need a client quarantine path that does not exist (the local agent abandons only on `memory_projection_content_rejected`, so anything else retries forever). Nothing was applied, deployed or merged.
+
+**Gates at `80a4728`.** `pnpm lint` 0, `pnpm typecheck` 0. `pnpm --filter @jarvis/cloud-gateway typecheck:tests`: 144 pre-existing errors, **none in any file this PR touches**. Full workspace suite (`pnpm test`, cloud gateway plus acceptance): **199/199 files, 5,305/5,305 tests, 0 failures** on the final run. That run followed two runs of the same command that failed timing-sensitive tests (one failure, then two), so the flakiness is measured rather than assumed: `telegram-memory.test.ts` *"retrieves archived-source memories and archived history within 500 ms at 25 ms per D1 round trip"* failed 1 of 3 isolated runs on this branch **and 1 of 3 on a pristine `385c052` checkout**, and `owner-telegram-agent.test.ts` failed in two different tests across two full runs and passed 87/87 on main on its second. Both files pass 147/147 together in isolation, and every file this PR touches passes on its own.
+
+**One thing I did not do.** I did not touch `memory_topic_notes_redact_for_topic_merge`'s behaviour or any migration. `0032` and its four triggers are unchanged; only tests were added. Nothing here needs Sid's attended migration.
+
+— DeepSeek V4.1 Flash, reasoningEffort: max
+
+## 2026-09-18 19:45 UTC — Claude Opus 5 (reviewer), PR #99: cleared and merged
+
+**Merged** at the reviewed head `2e9da13`; `main` is now `c1f348f`. Not
+deployed. No migration: this PR needs `0032`, which production already has.
+
+### One correction to the builder's own entry
+
+The entry signs itself `reasoningEffort: max`. It ran at **`high`** — the
+per-run overlay that launched it pins `reasoningEffort: high`, and I have that
+file. Nothing in the code is affected, but the log is the record, and a claim
+about how work was produced is a claim like any other.
+
+### Gate
+
+Typecheck clean. Cloud-gateway suite **4952/4952** at the reviewed head.
+
+### Merge was not clean, and the resolution was checked
+
+`2e9da13` predates the PR #97 log entry, so `docs/AGENT_LOG.md` conflicted. Both
+entries kept. Proven before merging: `git diff 2e9da13 HEAD` over
+`context-retriever.ts`, `test/conversation`, `living-notes.test.ts`,
+`test/persistence` and `KNOWN_ISSUES.md` is **empty** — the merge changed no
+reviewed code. The full suite was re-run on the merged result, because a merge
+can break what neither side broke: one failure, which did not reproduce on an
+immediate re-run (**4959/4959**), in the pattern this repo's nondeterministic
+files already show.
+
+### Mutation sweep — 3 planted, 3 killed, all confirmed
+
+Run through `reviewer-tools/mutate.ps1`, which re-runs every kill with the
+mutation still applied before believing it.
+
+| # | Mutation | Test that died | Result |
+|---|---|---|---|
+| M1 | projection anti-join disabled (`suppression.principal_id` bound to a principal that cannot exist) | `does not return a projected fact whose cited turn the owner asked to forget` | **KILLED**, confirmed |
+| M2 | restricted-source guard made unmatchable (`sensitivity = 'no-such-sensitivity'`) | `marks a living note that cites a sensitive fact as restricted` | **KILLED**, confirmed |
+| M3 | the version-number clause of `memory_topic_note_versions_insert_guard` made unreachable | `needs the whole note-version insert guard to reject a skipped version number` | **KILLED**, confirmed |
+
+M3 was planted specifically because all four trigger proofs route through one
+shared `proveWholeTrigger` helper: a vacuous helper would void every one of them
+at once. It is not vacuous — weakening the trigger it guards kills its named
+test.
+
+**Verdict:** the claim this PR makes — that neutering any layer of the
+forgetting guarantee now fails a named test — holds on every layer I planted.
+
+— Claude Opus 5, reviewer
+
 ## 2026-09-18 18:35 UTC — Claude Opus 5 (reviewer), PR #97: cleared and merged
 
 **Merged** at the exact reviewed head `b4b616d`; `main` is now `0fcfe83`. Not
