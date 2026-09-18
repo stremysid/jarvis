@@ -31,8 +31,12 @@
     hand. So `find` must match exactly once, the file must really have changed,
     and the new text must really be present, all before any test runs.
 
-    A mutation is restored from a byte-exact backup in a `finally` block, so an
-    exception or Ctrl-C cannot leave a mutated tree behind.
+    A mutation is restored from a byte-exact backup in a `finally` block, and
+    the restore is proven byte-identical at the end. An ordinary exception or
+    Ctrl-C therefore cannot leave a mutated tree behind -- but a hard kill
+    (taskkill, a closed window, a lost machine) does not run `finally` at all,
+    so after an interrupted run check `git status` in the gate directory before
+    trusting anything.
 
     Verdicts per mutation:
       KILLED              a test that was not failing at baseline failed, and it
@@ -326,7 +330,10 @@ function Measure-MutationRun {
         Unnamed       = $unnamed
         SummaryFailed = $summaryFailed
         ExitCode      = $run.ExitCode
-        ExpectedHit   = (@($newNames | Where-Object { $_ -like ('*' + $Expect + '*') }).Count -gt 0)
+        # Ordinal substring, NOT -like: a test name containing * ? or [ ] is
+        # ordinary English punctuation, and as a wildcard it would match names
+        # it does not name.
+        ExpectedHit   = (@($newNames | Where-Object { $_.Contains($Expect, [System.StringComparison]::Ordinal) }).Count -gt 0)
     }
 }
 
@@ -368,6 +375,12 @@ foreach ($mutation in $mutations) {
     if ([string]::IsNullOrWhiteSpace([string]$mutation.expect)) {
         Stop-Loudly "mutation '$($mutation.name)': 'expect' is empty, which would match any failing test and report a false KILLED."
     }
+    # An empty testPath becomes `vitest run ''`, whose baseline says nothing
+    # about the named test. Presence was checked above; emptiness is the same
+    # defect wearing a different hat.
+    foreach ($field in @('name', 'testPath')) {
+        if ([string]::IsNullOrWhiteSpace([string]$mutation.$field)) { Stop-Loudly "mutation '$($mutation.name)': '$field' is empty." }
+    }
     if (-not $mutation.PSObject.Properties['edits']) {
         foreach ($field in @('file', 'find', 'replace')) {
             if (-not $mutation.PSObject.Properties[$field]) { Stop-Loudly "mutation '$($mutation.name)' is missing '$field' and has no 'edits' array." }
@@ -379,6 +392,8 @@ foreach ($mutation in $mutations) {
         foreach ($field in @('file', 'find', 'replace')) {
             if (-not $edit.PSObject.Properties[$field]) { Stop-Loudly "mutation '$($mutation.name)': an edit is missing '$field'." }
         }
+        if ([string]::IsNullOrWhiteSpace([string]$edit.file)) { Stop-Loudly "mutation '$($mutation.name)': an edit has an empty 'file'." }
+        if ([string]::IsNullOrEmpty([string]$edit.find)) { Stop-Loudly "mutation '$($mutation.name)': an edit has an empty 'find'." }
         $path = Join-Path $GateDir $edit.file
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Stop-Loudly "mutation '$($mutation.name)': file '$($edit.file)' does not exist in $GateDir." }
     }
@@ -424,6 +439,7 @@ foreach ($mutation in $mutations) {
         ExpectedDied = $false
         Killed = @()
         Note = ''
+        EditNote = ''
     }
     $applied = New-Object System.Collections.Generic.List[object]
 
@@ -437,10 +453,20 @@ foreach ($mutation in $mutations) {
             Copy-Item -LiteralPath $path -Destination $backup -Force
             $entry = [pscustomobject]@{ Path = $path; Backup = $backup; Name = $mutation.name }
             $applied.Add($entry)
-            $touched.Add($entry)
+            # The restore proof compares a file against its PRISTINE copy, so a
+            # path gets at most one entry: the first backup taken for it. A
+            # second edit to the same file backs up a copy that already holds
+            # the first edit, and proving against that would report a failure
+            # for a tree that restored perfectly.
+            if (-not ($touched | Where-Object { $_.Path -eq $path })) { $touched.Add($entry) }
 
             $result = Invoke-Edit -Path $path -Find $edit.find -Replace $edit.replace
-            if ($result.Note) { $outcome.Note = $result.Note }
+            # Kept apart from Note, which the verdict branches own. Rewriting a
+            # file's line endings changes what the run measured, so that has to
+            # survive to the summary rather than be overwritten by it.
+            if ($result.Applied -and $result.Note) {
+                $outcome.EditNote = ($outcome.EditNote, "$($edit.file): $($result.Note)" | Where-Object { $_ }) -join '; '
+            }
             if (-not $result.Applied) { $blocked = "$($edit.file): $($result.Note)"; break }
         }
         if ($blocked) {
@@ -453,6 +479,19 @@ foreach ($mutation in $mutations) {
 
         $runner = Get-TestRunner -RelativePath $mutation.testPath -Root $GateDir
         $baseline = $baselines[$mutation.testPath]
+        # If the expected test was already red at baseline it is excluded from
+        # kills by definition, so this mutation could only ever report
+        # SURVIVED -- a false survival produced by the guard against false
+        # kills. Refuse rather than measure.
+        $baselineHitsExpected = @($baseline.Names | Where-Object { $_.Contains($mutation.expect, [System.StringComparison]::Ordinal) })
+        if ($baselineHitsExpected.Count -gt 0) {
+            $outcome.Verdict = 'INVALID'
+            $outcome.Note = "the expected test was already failing at baseline ('$($baselineHitsExpected[0])'), so it can never be counted as a kill"
+            $outcomes.Add($outcome)
+            Write-Output "INVALID  $($mutation.name) - $($outcome.Note)"
+            continue
+        }
+
         $first = Measure-MutationRun -Runner $runner -Npx $npx -Baseline $baseline -Expect $mutation.expect
         $outcome.Killed = $first.NewNames
 
@@ -490,9 +529,14 @@ foreach ($mutation in $mutations) {
             $outcome.Verdict = 'KILLED/OTHER'
             $outcome.Note = "expected '$($mutation.expect)' did not die"
         }
-        elseif ($first.ExitCode -ne 0 -and $first.SummaryFailed -lt 0) {
+        elseif ($first.ExitCode -ne 0 -and $first.AllFailures.Count -eq 0) {
+            # SURVIVED is the verdict this tool exists to stop being wrong, so
+            # it may not rest on the ABSENCE of text a regex could parse. The
+            # runner's own exit code is the machine-readable signal: non-zero
+            # with nothing named means a collect error, an unhandled rejection,
+            # or a reporter shape the parser missed -- never a clean survival.
             $outcome.Verdict = 'INVALID'
-            $outcome.Note = "runner exited $($first.ExitCode) with no vitest summary line; the run was incomplete"
+            $outcome.Note = "runner exited $($first.ExitCode) and no failing test could be named; nothing may be concluded about this mutation"
         }
         else {
             $outcome.Verdict = 'SURVIVED'
@@ -502,7 +546,13 @@ foreach ($mutation in $mutations) {
         Write-Output "$($outcome.Verdict)  $($mutation.name)$(if ($outcome.Note) { " - $($outcome.Note)" })"
     }
     finally {
-        foreach ($entry in $applied) { Copy-Item -LiteralPath $entry.Backup -Destination $entry.Path -Force }
+        # REVERSE order. Two edits to the same file take backups at different
+        # moments -- the second one already contains the first edit -- so
+        # restoring forwards writes that backup back last and leaves edit 1
+        # planted for the rest of the sweep.
+        for ($i = $applied.Count - 1; $i -ge 0; $i--) {
+            Copy-Item -LiteralPath $applied[$i].Backup -Destination $applied[$i].Path -Force
+        }
     }
 }
 
@@ -510,6 +560,7 @@ foreach ($mutation in $mutations) {
 # Restore proof. Byte-identical, not "looks fine": a leftover mutation would
 # silently change every later result in this tree.
 # ---------------------------------------------------------------------------
+# Each entry here is a distinct path paired with its pristine backup.
 $restored = $true
 foreach ($entry in $touched) {
     if ((Get-ByteHash -Path $entry.Path) -ne (Get-ByteHash -Path $entry.Backup)) {
@@ -527,8 +578,10 @@ Write-Output ("{0,-$width}  {1,-13}  {2}" -f 'mutation', 'verdict', 'expected')
 foreach ($outcome in $outcomes) {
     $expected = if ($outcome.Verdict -like 'KILLED*') { $(if ($outcome.ExpectedDied) { 'died' } else { 'NO' }) } else { '-' }
     Write-Output ("{0,-$width}  {1,-13}  {2}" -f $outcome.Name, $outcome.Verdict, $expected)
-    foreach ($name in $outcome.Killed) { Write-Output ("    killed: $name") }
+    $label = if ($outcome.Verdict -eq 'UNCONFIRMED') { 'died once' } elseif ($outcome.Verdict -like 'KILLED*') { 'killed' } else { 'failed' }
+    foreach ($name in $outcome.Killed) { Write-Output ("    ${label}: $name") }
     if ($outcome.Note) { Write-Output ("    note:   $($outcome.Note)") }
+    if ($outcome.EditNote) { Write-Output ("    edit:   $($outcome.EditNote)") }
 }
 $survived = @($outcomes | Where-Object { $_.Verdict -eq 'SURVIVED' }).Count
 $notApplied = @($outcomes | Where-Object { $_.Verdict -eq 'NOT APPLIED' }).Count
