@@ -2244,6 +2244,113 @@ describe("Telegram memory retrieval", () => {
     expect(recalled(await recall())).toBe(false);
   });
 
+  it("does not recall a proposed model memory whose cited turn alone was forgotten", async () => {
+    const owner = await seedServicePrincipal("uncertain-model-forgotten-source");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    const text = "My project notes live in the green folder.";
+    const query = Object.freeze({
+      principalId: owner.principalId,
+      channel: "telegram" as const,
+      purpose: "conversation" as const,
+      query: "project notes green folder",
+      maxTokens: 32_000,
+    });
+    const recall = async () => new TelegramMemoryRetriever({
+      database: env.DB,
+      archive: env.ARCHIVE,
+    }).retrieve(query);
+    const recalled = (contexts: Awaited<ReturnType<typeof recall>>) => contexts.some(
+      (context) => context.text.startsWith("Uncertain memory evidence [")
+        && context.text.includes(text),
+    );
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "My locker is number twelve.",
+      model,
+      telegram,
+    });
+    const creation = await latestUserEvent(owner.principalId);
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text,
+      model,
+      telegram,
+    });
+    const cited = await latestUserEvent(owner.principalId);
+    // The proposal is created from the first turn and only cites the second,
+    // so the guard's two suppression clauses are separable: the creation event
+    // stays retrievable and only the cited turn is forgotten.
+    const itemId = await commitTestItem({
+      principalId: owner.principalId,
+      text,
+      creation,
+      source: cited,
+      state: "proposed",
+      uncertain: true,
+    });
+    // A second, active memory owns the cited turn and nothing else, so
+    // forgetting it suppresses that turn without touching the creation turn.
+    const buriedId = await commitTestItem({
+      principalId: owner.principalId,
+      text: "the green folder",
+      creation: cited,
+    });
+    // Without this control the assertion below passes when the fixture is wrong
+    // rather than when suppression works.
+    expect(recalled(await recall())).toBe(true);
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget the memory about the green folder.",
+      model,
+      telegram,
+    });
+    const forgetTurn = await latestUserEvent(owner.principalId);
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
+      ownerTurn: Object.freeze({
+        principalId: owner.principalId,
+        eventId: forgetTurn.eventId,
+        eventSequence: forgetTurn.sequence,
+        occurredAt: forgetTurn.occurredAt,
+        channel: "telegram" as const,
+        memoryIntent: "forget" as const,
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }),
+      candidateItemIds: Object.freeze([buriedId]),
+    });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(owner.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+    // The fixture only separates the guard's two clauses if the visibility read
+    // agrees: the creation event must still stand while the cited source is
+    // suppressed.
+    const [read] = await new MemoryRepository(env.DB).readCurrentItemsWithVisibility(
+      owner.principalId,
+      [itemId],
+    );
+    expect(read?.visibility.creationEventSuppressed).toBe(false);
+    expect(read?.visibility.suppressedSourceIds).toHaveLength(1);
+
+    // Measured layering, so the next reader does not over-read this test: the
+    // assertion below is satisfied one round trip before the retriever guard
+    // sees that visibility. `readCandidates` already drops a current version
+    // with a suppressed source, so deleting the retriever's
+    // `|| visibility.suppressedSourceIds.length > 0` leaves this test green;
+    // deleting the candidate predicate as well turns it red. The guard clause
+    // is a backstop for a forget that commits between those two reads.
+    expect(recalled(await recall())).toBe(false);
+  });
+
   it("renders a recallable proposed third-party memory as unconfirmed evidence", async () => {
     const owner = await seedServicePrincipal("uncertain-third-party-recall");
     const text = "A classmate said the robotics meeting moved to Thursday.";
