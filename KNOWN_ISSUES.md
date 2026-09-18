@@ -16,15 +16,26 @@ naming a pinned domain, the receiving MTA's own `dkim=pass` for a pinned
 authentication passed. Anything else quarantines as `authentication_unproven`,
 and explicit DKIM, DMARC or ARC failures quarantine as `authentication_failed`.
 
-Two limits in that gate are not yet measured, and both are fail-closed:
+Two limits in that gate are not yet measured. Each is fail-closed only while
+its assumption holds, and the first one is the only place a sender can attack
+the assumption itself, so the first live delivery has to settle it.
 
-- **Cloudflare's `authserv-id` is an assumption.** The gate treats the last
-  `Authentication-Results` group attributed to `mx.cloudflare.net` as the
-  receiving MTA's own, because a sender writes its headers before the MTA
-  appends its own. Cloudflare's public Email Workers contract does not promise
-  that string. If the real value differs, the receiving-MTA path never fires
-  and authentic mail quarantines as `authentication_unproven`; the first live
-  delivery must record the actual header names and values.
+- **Cloudflare's `authserv-id`, and the delivered header order, are
+  assumptions.** The gate reads the *first* `Authentication-Results` group as
+  the receiving MTA's own and believes it only when it is attributed to
+  `mx.cloudflare.net`, because RFC 8601 sections 2.1 and 4.1 require every
+  authenticating MTA to prepend its record above everything already in the
+  message and forbid reordering it. That placement is the only thing
+  distinguishing the receiving MTA's verdict from a sender-written group that
+  names the same authserv-id, so it is load-bearing rather than cosmetic: a
+  delivery path that appends instead of prepends, or that rebuilds the header
+  set in another order, would make the first group the sender's and let a
+  forged `dkim=pass` be believed. Cloudflare's public Email Workers contract
+  promises neither the string nor the placement; the receipt keeps both in
+  `authentication_json.headerValues`, in delivered order, and the first live
+  delivery has to confirm them there. A differing authserv-id fails closed
+  instead, falling back to the DKIM-signature path or to
+  `authentication_unproven`.
 - **Signature text is sender-writable.** The DKIM-signature and ARC paths read
   header text that a sender can compose, and the Worker cannot verify either
   signature: that needs the signer's DNS key, which is not fetched here. A
