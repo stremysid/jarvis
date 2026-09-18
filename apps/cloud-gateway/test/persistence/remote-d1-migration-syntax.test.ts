@@ -101,6 +101,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0032_memory_living_notes.sql",
       "0033_d2l_notification_email.sql",
       "0034_scheduled_run_detail.sql",
+      "0035_autonomy_tool_capabilities.sql",
     ]);
   });
 
