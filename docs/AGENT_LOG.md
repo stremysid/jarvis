@@ -294,6 +294,61 @@ Built by **DeepSeek V4.1 Flash in DeepSeek Harness at effort `max`**.
 
 — DeepSeek V4.1 Flash, reasoningEffort: max
 
+## 2026-09-18 20:40 UTC - Claude Opus 5 (reviewer), PR #98: F1 settled, cleared and merged
+
+**Merged** at `7d1ebf1`; `main` is now `8bd42e7`. Not deployed. No migration.
+
+**Conflict of interest, stated:** the reviewer wrote the original change. It was
+therefore sent to an independent read-only auditor, the one open finding was
+built out by a separate builder, and the builder's central claim was re-tested
+here with a control. No step of that chain was the author alone.
+
+### F1 is settled, and it is not a defect
+
+The auditor's F1 said the source-suppression clause on the newly-reachable
+`proposed` path had no test that could fail on it alone. That is true, and the
+reason is now proven rather than argued: **the clause is a working redundant
+layer, not dead code.**
+
+Verified here with `reviewer-tools/mutate.ps1`, two multi-edit mutations against
+the same new test, `does not recall a proposed model memory whose cited turn
+alone was forgotten`:
+
+| Mutation | Result |
+|---|---|
+| **Control** - both candidate queries' source-suppression `NOT EXISTS` neutered, guard clause left intact | **SURVIVED** |
+| Both queries neutered **and** the guard clause removed | **KILLED**, confirmed on a second run |
+
+The control is the whole point. It shows the guard actively withholds the item
+once the queries stop doing so, which is what separates "redundant but working"
+from "dead". No fixture can pin the guard alone, because `readCandidates`
+applies both suppression predicates one D1 round trip earlier on both the FTS
+and area paths; `git log -S` puts both predicates in the same commit, so the
+guard has been the second copy since it was written. It still catches a forget
+committed between the two reads, which is not an interleaving any test here
+manufactures.
+
+An earlier attempt at this on 2026-09-18 reported a two-edit mutation as KILLED
+without a control; the fixture edit alone killed the same test, so that result
+proved nothing and was withdrawn. The control above exists because of it.
+
+### Gate
+
+Typecheck clean. Suite: one failure, then **4989/4989** on an immediate re-run.
+The failing test was **not captured by name** before the re-run, so "flake" here
+rests on the clean re-run and this repo's known nondeterministic gateway files,
+not on an identification. Recorded as a weaker claim than the usual one.
+
+### What this PR actually fixes
+
+Before it, automatic memory had produced 5 items in 36 distillation runs and
+**none of them were reachable** - every read path excluded them, and `confirm()`
+refused the same class it existed to promote while its receipt said otherwise.
+Uncertain proposals are now recalled, marked unconfirmed, and can be confirmed
+or forgotten in ordinary speech.
+
+- Claude Opus 5, reviewer
+
 ## 2026-09-18 20:15 UTC - Claude Opus 5 (reviewer), PR #100: cleared and merged
 
 **Merged** at the reviewed head `e07bfc4`; `main` is now `15faa95`. Not
