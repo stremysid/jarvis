@@ -23,6 +23,33 @@ import {
 
 const observedAt = "2026-08-30T12:00:00.000Z";
 
+const SUPPRESSION_DELETE_GUARDS = Object.freeze([
+  "memory_event_suppression_lifts_immutable_delete",
+  "memory_event_suppressions_immutable_delete",
+]);
+
+/**
+ * Suppressions are append-only, so the shared test cleanup never removed them,
+ * and `memory_event_suppressions.principal_id` restricts deleting its
+ * principal. A test that seeds a suppression therefore breaks the *next*
+ * test's cleanup with a foreign-key error that points at the cleanup rather
+ * than at the fixture. Drop the two delete guards, clear, restore.
+ */
+async function clearEventSuppressionsForTest(): Promise<void> {
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name IN (${SUPPRESSION_DELETE_GUARDS.map(() => "?").join(", ")})`)
+    .bind(...SUPPRESSION_DELETE_GUARDS).all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM memory_event_suppression_lifts"),
+      env.DB.prepare("DELETE FROM memory_event_suppressions"),
+    ]);
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
 /**
  * Seeds a valid `history.suppress` owner command and the suppression row it
  * authorizes, through the same guards production writes go through.
@@ -123,6 +150,7 @@ describe("D1ContextRetriever", () => {
     await applyCloudMemoryMigration();
     await clearConversationDataForTest();
     await clearMemoryProjectionDataForTest();
+    await clearEventSuppressionsForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"),
@@ -914,5 +942,65 @@ describe("D1ContextRetriever", () => {
     // as history on the next call, while the untouched turn still does.
     expect(retrieved.map((context) => context.text)).toEqual(["remind me to book the dentist"]);
     expect(retrieved.some((context) => context.sourceEventId === forgotten.eventId)).toBe(false);
+  });
+
+  it("does not return a projected fact whose cited turn the owner asked to forget", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:projection-suppression";
+    const forgotten = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text: "my spare key is under the blue pot",
+    });
+    const kept = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text: "remind me to book the dentist",
+    });
+    await append(events, forgotten);
+    await append(events, kept);
+    const sequenceOf = async (eventId: Ulid): Promise<number> => {
+      const sequence = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
+        .bind(eventId).first<number>("sequence");
+      if (sequence === null) throw new Error("context_fixture_event_missing");
+      return sequence;
+    };
+    // The device re-projects its whole snapshot every cycle, so a fact
+    // distilled from a turn that is forgotten afterwards is re-published in
+    // every later version. Suppression has to be honoured on this copy too.
+    const forgottenFact = await insertProjection({
+      principalId,
+      deviceId: "device:forgotten-fact",
+      text: "my spare key is under the blue pot",
+      sourceEventId: forgotten.eventId,
+      sourceSequence: await sequenceOf(forgotten.eventId),
+    });
+    const keptFact = await insertProjection({
+      principalId,
+      deviceId: "device:kept-fact",
+      text: "remind me to book the dentist",
+      sourceEventId: kept.eventId,
+      sourceSequence: await sequenceOf(kept.eventId),
+    });
+
+    await suppressEventForTest({
+      principalId,
+      targetEventId: forgotten.eventId,
+    });
+
+    const retrieved = await new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "spare key dentist",
+      maxTokens: 1_024,
+    });
+
+    expect(retrieved.some((context) => context.text === forgottenFact.text)).toBe(false);
+    expect(retrieved.some((context) => context.text === keptFact.text)).toBe(true);
   });
 });
