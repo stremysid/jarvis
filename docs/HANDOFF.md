@@ -24,6 +24,70 @@ than replaces it.
 
 ---
 
+## 0. Where things stand — 2026-09-19 01:30 UTC
+
+Written at the end of a reviewer session that ran out of context. `origin/main`
+is **`855e12a`**. Production is **unchanged**: Worker `555c1414`, D1 at
+migration **`0034`**, `autonomy_mode` **`shadow`**. **The deploy has still not
+happened and is the open item.**
+
+**Landed this evening.** [#106](https://github.com/stremysid/jarvis/pull/106) —
+the tier-3 backstop is now actually wired into `OwnerTelegramAgentAdapter.executeCall`,
+after a blocker the *merge* introduced (`memory_correct` dispatched but
+unclassified, so the gate would have denied memory correction in production).
+[#110](https://github.com/stremysid/jarvis/pull/110) — the hourly distillation
+path ignored the suppression ledger, so forgetting had a back door.
+[#105](https://github.com/stremysid/jarvis/pull/105) — the Classroom route is
+recorded as dead **in this document and in the runbook**, not only in a memory
+file, which is why it came back a second time.
+
+### The outside audit has been read in full and triaged
+
+Sid commissioned a second-vendor deep dive and asked for it to be read whole
+rather than skimmed. It was — 5,924 lines plus a 245-line companion, in
+`jarvis-sweep-reports` under his user profile, **outside this repository**. Do
+not re-read them. The triage is
+[docs/reviews/2026-09-18-full-audit-triage.md](reviews/2026-09-18-full-audit-triage.md)
+and the top entry of [docs/AGENT_LOG.md](AGENT_LOG.md).
+
+Six findings survived independent re-derivation. **Work order:**
+
+| # | Finding | Note for whoever picks it up |
+|---|---|---|
+| 1 | The red `local-agent` CI job | `d839cad` moved the Worker to six chained 100,000-iteration PBKDF2 passes and regenerated the shared fixture; `owner_passphrase_policy.py:70` still makes one 600,000 call. **Do not regenerate `digestBase64` back** — that blesses the divergence the fixture exists to catch |
+| 2 | `channel_identities` has no `BEFORE INSERT` trigger, and `capability_tiers` has neither an update nor a delete guard | One migration, four triggers. `0035`, `0036` and `0037` are all claimed — use **`0038`** |
+| 3 | `tool-gate.ts` returns `verdict: "permit"` as a literal | **`verdictFor(confirmed)` is the wrong fix**; it breaks the confirmed path, because `decideOutcome` takes no input but tier and mode. Deny when the second evaluation is not the outcome the first one was |
+| 4 | `telegram-provider.ts` clears its abort timer before the body read | Under a comment saying the timeout exists so that cannot happen. `twilio-provider.ts` does it correctly |
+| 5 | `jarvis vault sync` cannot see past the first 64 notes | Not 64 per run — the same 64 forever; nothing persists a position |
+
+Recorded, not queued: the safe-log allow-list has zero production importers;
+`/health` shares one per-isolate 30/min bucket; `handleReadiness` has no route;
+the H1/Hermes bridge is test-only; five Python modules have no production
+importer.
+
+**Discount that report where it discounts itself.** Its provider and model rows
+are its own sub-agent's work quoted back — it spot-checked four of them and
+found one wrong — and two of its ten parts ran no test at all, so `PINNED` there
+means somebody read a test's *name*, not that anyone watched it pass.
+
+### Do not restart the builders without asking
+
+Every builder is stopped. Sid stopped them inside his peak-cost window and that
+stands until he says otherwise. **The cheap window is 12:30-20:30 his time
+(16:30-00:30 UTC)**; outside it, the same work bills at double. When it reopens,
+finding 1 goes first — nothing else can be proven green while the gate is red.
+
+### Waiting on Sid, and he has been told
+
+Apply `0035` then the reviewer deploys, in that order · whether to restart the
+builders · tier 1 vs tier 2 for the eight everyday tools (silence means tier 1,
+which live D1 supports) · confirm the deployed `DEFAULT_GUEST_PIN` is not the
+committed test value · and, only after a deploy proves the `email()` handler
+live, flipping `school@onesid.ca` off his Gmail and onto the Worker — which
+turns on D2L **and** Classroom at the same instant.
+
+---
+
 ## 1. How Sid works — read this before anything else
 
 It changes how you behave, not just what you know.
@@ -94,7 +158,7 @@ until 2026-10-01**.
 |---|---|
 | `origin/main` | **query it** — `git log --oneline origin/main -1`. `6febf32` when written; not maintained here |
 | Migrations on main | **34**, `0001`–`0034`, no gaps |
-| Production Worker | **`555c1414`**, not redeployed since |
+| Production Worker | **`555c1414`**, not redeployed since <!-- docs-check:ignore: a Cloudflare Worker version id is 8 hex characters, not a git sha --> |
 | Production D1 | **migration `0034`** — verified by querying `d1_migrations` |
 | Open PRs | #96 (stuck), #84 (stale since 2026-09-17, never triaged) |
 | Running | nothing — all DeepSeek instances finished |
@@ -109,7 +173,7 @@ reconciled:
 - **Production is at migration `0034`, not `0032`.** An earlier draft of this
   document said `0032`; `reviewer-tools/HANDOFF-2026-09-18c.md` said `0034` and
   is **right**. The `0032` figure was accurate when written and went stale.
-- **Production runs Worker `555c1414`, not `c46e6c89`.** Same cause; 18c is
+- **Production runs Worker `555c1414`, not `c46e6c89`.** Same cause; 18c is <!-- docs-check:ignore: both tokens are Cloudflare Worker version ids, not git shas -->
   right. The redeploy happened on 2026-09-18.
 - **`main` was `6febf32`.** 18c records `8b5f438`, which was current when it was
   written, before #98's merge commit landed. Both are now behind main; see the
@@ -262,7 +326,7 @@ uv run mypy --platform win32 jarvis_local
 ```
 
 **Corrected 2026-09-18 by direct check.** `AGENTS.md`, `TESTING.md` and every
-earlier handoff give this as `C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`.
+earlier handoff give this as `C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. <!-- docs-check:ignore: the dead path this paragraph exists to retract, so flagging it inverts the meaning -->
 **That path does not exist, and neither does the `Ksid1` user profile** — the
 only profile on this machine is `Sid`. `uv` is on `PATH` (WinGet shim,
 `uv 0.12.13`), so the bare command works. The stale path is still in
@@ -491,7 +555,7 @@ redundant.**
 | `src/autonomy/tool-gate.ts` | The gate. Evaluates capability → tier **before** any tool acts; fails closed on unclassified and on an audit-write failure; never reads arguments for meaning |
 | `src/autonomy/tool-capabilities.ts` | Tool → capability map. The eight existing tools classified; the reserved hands (email/Tesla) pre-classified |
 | `src/autonomy/tool-confirmations.ts` | Tier-3 confirmation bound to **capability + a canonical hash of the arguments**, consumed from the existing `decision_responses` ledger. **No new table for the confirmation** |
-| `0035_autonomy_tool_capabilities.sql` | Additive seed of five capability rows. `0035` is the next free number |
+| `0035_autonomy_tool_capabilities.sql` | Additive seed of five capability rows. `0035` is the next free number <!-- docs-check:ignore: this file is on the unmerged branch above, not on main, and the cell says so by calling 0035 the next free number --> |
 | `test/autonomy/tool-gate.test.ts` | 9 gate tests |
 | `test/channels/owner-telegram-agent.test.ts` | +2 integration tests that fail if the gate call site is removed |
 
@@ -564,12 +628,24 @@ work. Apply this lens before proposing anything new.
 
 ### Track A — school, calendar-bound
 
-- **A1. Google Classroom consent — SID'S ACTION, one sitting.** `pollClassroom`
-  is already wired into the hourly job and gated only on `GOOGLE_CLIENT_ID` /
-  `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN`. **Highest value per hour in
-  the whole plan; nothing else is one action from delivering.**
+- **A1. Google Classroom consent — NOT SID'S ACTION. THE API ROUTE IS DEAD.**
+  `pollClassroom` is wired into the hourly job and gated on `GOOGLE_CLIENT_ID` /
+  `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN`, and **those three can never be
+  obtained.** Sid's school account cannot reach `console.cloud.google.com` — the
+  board runs Microsoft 365 and does not allow Google accounts. He established
+  this on 2026-09-17; it was recorded in reviewer memory and **not** in this
+  handoff, so a later session sent him back to the runbook anyway on 2026-09-18.
+  A personal Google account does not help: the data is the school account's, so
+  consent must come from it. **Never present this as a one-sitting owner action.**
+  The live route is Classroom notification emails through the `onesid.ca` forward
+  Sid already built; the outstanding work is **ours** — `d2l-email-parser.ts`
+  handles D2L only, so Classroom notifications arrive and are ignored. See
+  `docs/runbooks/google-classroom-oauth.md`, which now carries the same warning.
 - **A3. Digest school-first — DONE, PR #97.** Verify.
-- **A4. Grade and missing-work watch.** Needs A1's submissions scope.
+- **A4. Grade and missing-work watch.** Previously "needs A1's submissions
+  scope" — **that dependency is dead.** A1's OAuth route cannot be obtained (see
+  A1). Grades and missing work must come from Classroom notification email,
+  through the same parser work A1 now names.
 - **D2L: LDSB Brightspace has NO calendar or iCal feed.** **Never ask Sid for
   one.** The route is notification email into `onesid.ca`, after memory.
 
@@ -690,7 +766,7 @@ can query.
 
 This was learned expensively. An audit reported "production D1 is at 0031" and
 "last deploy is the PR #80 era" — both derived from `AGENT_LOG` prose, both
-**false**. The tell was present and dropped: `git log -1 ebe38aa4` returned
+**false**. The tell was present and dropped: `git log -1 ebe38aa4` returned <!-- docs-check:ignore: quoted as the deploy sha that proved the lesson, so it is supposed to be unresolvable -->
 *"unknown revision"*, a deploy SHA quoted as fact that did not exist as an object
 in the repository.
 
