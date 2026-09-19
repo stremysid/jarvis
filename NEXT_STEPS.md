@@ -1,3 +1,12 @@
+> **History, not status.** What is true right now is [docs/STATE.md](docs/STATE.md);
+> what is in flight, and who acts next, is [docs/QUEUE.md](docs/QUEUE.md). Every
+> still-live item this file carried has been moved into the queue.
+>
+> It is kept because it records how R0 was declared passed, what Sid deferred and
+> when, and which capabilities were built and left configuration-gated. Those are
+> history worth having. They are not a description of the present, and this file
+> has been read as one - it still says no migration after 0015 has been applied.
+
 # Next steps
 
 The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).

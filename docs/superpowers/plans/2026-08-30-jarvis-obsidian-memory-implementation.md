@@ -1,3 +1,12 @@
+> **Superseded - read this before using this document.** Its remaining work
+> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
+> section 6 records the disposition:
+>
+> Historical implementation based on an unconfirmed editable-notes premise. Keep the code, but build no Obsidian path in R2. Only compatibility with a later one-way export remains current.
+>
+> Kept rather than deleted, as section 6 instructs. Current state is
+> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+
 # Jarvis Obsidian Memory Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,12 @@
+> **Superseded - read this before using this document.** Its remaining work
+> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
+> section 6 records the disposition:
+>
+> Tasks 5 to 7 and 10 to 13 are superseded by R3. Tasks 0 to 3 (locks, fetch script, profile) remain the pinning mechanism.
+>
+> Kept rather than deleted, as section 6 instructs. Current state is
+> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+
 # Jarvis Hermes H1 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
