@@ -24,6 +24,70 @@ than replaces it.
 
 ---
 
+## 0. Where things stand — 2026-09-19 01:30 UTC
+
+Written at the end of a reviewer session that ran out of context. `origin/main`
+is **`855e12a`**. Production is **unchanged**: Worker `555c1414`, D1 at
+migration **`0034`**, `autonomy_mode` **`shadow`**. **The deploy has still not
+happened and is the open item.**
+
+**Landed this evening.** [#106](https://github.com/stremysid/jarvis/pull/106) —
+the tier-3 backstop is now actually wired into `OwnerTelegramAgentAdapter.executeCall`,
+after a blocker the *merge* introduced (`memory_correct` dispatched but
+unclassified, so the gate would have denied memory correction in production).
+[#110](https://github.com/stremysid/jarvis/pull/110) — the hourly distillation
+path ignored the suppression ledger, so forgetting had a back door.
+[#105](https://github.com/stremysid/jarvis/pull/105) — the Classroom route is
+recorded as dead **in this document and in the runbook**, not only in a memory
+file, which is why it came back a second time.
+
+### The outside audit has been read in full and triaged
+
+Sid commissioned a second-vendor deep dive and asked for it to be read whole
+rather than skimmed. It was — 5,924 lines plus a 245-line companion, in
+`jarvis-sweep-reports` under his user profile, **outside this repository**. Do
+not re-read them. The triage is
+[docs/reviews/2026-09-18-full-audit-triage.md](reviews/2026-09-18-full-audit-triage.md)
+and the top entry of [docs/AGENT_LOG.md](AGENT_LOG.md).
+
+Six findings survived independent re-derivation. **Work order:**
+
+| # | Finding | Note for whoever picks it up |
+|---|---|---|
+| 1 | The red `local-agent` CI job | `d839cad` moved the Worker to six chained 100,000-iteration PBKDF2 passes and regenerated the shared fixture; `owner_passphrase_policy.py:70` still makes one 600,000 call. **Do not regenerate `digestBase64` back** — that blesses the divergence the fixture exists to catch |
+| 2 | `channel_identities` has no `BEFORE INSERT` trigger, and `capability_tiers` has neither an update nor a delete guard | One migration, four triggers. `0035`, `0036` and `0037` are all claimed — use **`0038`** |
+| 3 | `tool-gate.ts` returns `verdict: "permit"` as a literal | **`verdictFor(confirmed)` is the wrong fix**; it breaks the confirmed path, because `decideOutcome` takes no input but tier and mode. Deny when the second evaluation is not the outcome the first one was |
+| 4 | `telegram-provider.ts` clears its abort timer before the body read | Under a comment saying the timeout exists so that cannot happen. `twilio-provider.ts` does it correctly |
+| 5 | `jarvis vault sync` cannot see past the first 64 notes | Not 64 per run — the same 64 forever; nothing persists a position |
+
+Recorded, not queued: the safe-log allow-list has zero production importers;
+`/health` shares one per-isolate 30/min bucket; `handleReadiness` has no route;
+the H1/Hermes bridge is test-only; five Python modules have no production
+importer.
+
+**Discount that report where it discounts itself.** Its provider and model rows
+are its own sub-agent's work quoted back — it spot-checked four of them and
+found one wrong — and two of its ten parts ran no test at all, so `PINNED` there
+means somebody read a test's *name*, not that anyone watched it pass.
+
+### Do not restart the builders without asking
+
+Every builder is stopped. Sid stopped them inside his peak-cost window and that
+stands until he says otherwise. **The cheap window is 12:30-20:30 his time
+(16:30-00:30 UTC)**; outside it, the same work bills at double. When it reopens,
+finding 1 goes first — nothing else can be proven green while the gate is red.
+
+### Waiting on Sid, and he has been told
+
+Apply `0035` then the reviewer deploys, in that order · whether to restart the
+builders · tier 1 vs tier 2 for the eight everyday tools (silence means tier 1,
+which live D1 supports) · confirm the deployed `DEFAULT_GUEST_PIN` is not the
+committed test value · and, only after a deploy proves the `email()` handler
+live, flipping `school@onesid.ca` off his Gmail and onto the Worker — which
+turns on D2L **and** Classroom at the same instant.
+
+---
+
 ## 1. How Sid works — read this before anything else
 
 It changes how you behave, not just what you know.
