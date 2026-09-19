@@ -24,6 +24,8 @@ export const MEMORY_TOOL_NAMES = Object.freeze([
   "memory_restore",
   "memory_confirm",
   "memory_explain",
+  "memory_pin",
+  "memory_unpin",
 ] as const);
 
 export type MemoryToolName = typeof MEMORY_TOOL_NAMES[number];
@@ -107,6 +109,26 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
       properties: {
         itemId: { type: "string", description: "The id of the memory being asked about, from the item ids in your context." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact words asking about it, copied." },
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "memory_pin",
+    description: "Put one memory in front of you in every conversation. Use it for the things that are true of Sid in general rather than in one situation -- how he likes to be spoken to, a standing preference, something that should shape every answer. Pin sparingly: a handful, not a hundred, because everything pinned is in every prompt. Example: he has told you twice that he wants short answers, so you pin that instead of hoping the recall finds it. Read-only memories do not need pinning; this is for the ones that should always be present.",
+    parameters: Object.freeze({
+      type: "object", additionalProperties: false, required: ["itemId"],
+      properties: {
+        itemId: { type: "string", description: "The id of the memory to pin, from the item ids in your context." },
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "memory_unpin",
+    description: "Stop giving one memory in every conversation. The memory is not forgotten and stays retrievable -- it simply stops being in front of you all the time. Use it when something stops being part of who Sid is, or when you pinned more than is earning its place. Example: \"you don't need that in every answer\".",
+    parameters: Object.freeze({
+      type: "object", additionalProperties: false, required: ["itemId"],
+      properties: {
+        itemId: { type: "string", description: "The id of the pinned memory to take out of the core profile." },
       },
     }),
   }),

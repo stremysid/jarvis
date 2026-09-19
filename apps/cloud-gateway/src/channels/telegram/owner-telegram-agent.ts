@@ -852,6 +852,8 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       if (call.name === "memory_restore") return this.restore(input, call);
       if (call.name === "memory_confirm") return this.confirm(input, call);
       if (call.name === "memory_explain") return this.explain(input, call);
+      if (call.name === "memory_pin") return this.setPin(input, call, true);
+      if (call.name === "memory_unpin") return this.setPin(input, call, false);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, "I refused that tool call because this is not Sid's direct private Telegram text. Nothing changed.");
@@ -1150,6 +1152,38 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       ownerTurn: await this.ownerTurn(input, "lift"),
       candidateItemIds: Object.freeze([itemId]),
     });
+    return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
+  }
+
+  /**
+   * `memory_pin` and `memory_unpin`. One method, because they differ only in the
+   * intent they claim and the flag they carry, and splitting them would be two
+   * copies of the eligibility check that could drift apart.
+   *
+   * No excerpt is required: pinning is Jarvis's own judgement about what belongs
+   * in front of it, which the roadmap puts under "Jarvis decides", so unlike
+   * `remember` there is no owner wording for it to be grounded in.
+   */
+  private async setPin(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+    pinned: boolean,
+  ): Promise<ExecutedTool> {
+    const intent = pinned ? "pin" : "unpin";
+    const args = parseArguments(call, ["itemId"]);
+    const itemId = safeUlid(args.itemId);
+    await this.requireEligibleItem(input, intent, itemId);
+    const item = await new MemoryRepository(this.dependencies.database)
+      .readCurrentItem(input.principalId, itemId);
+    const result = pinned
+      ? await this.controls().pin({
+        ownerTurn: await this.ownerTurn(input, intent),
+        candidateItemIds: Object.freeze([itemId]),
+      })
+      : await this.controls().unpin({
+        ownerTurn: await this.ownerTurn(input, intent),
+        candidateItemIds: Object.freeze([itemId]),
+      });
     return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
   }
 

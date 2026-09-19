@@ -2462,6 +2462,45 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
+  it("pins a memory into the core profile when Jarvis decides it belongs there", async () => {
+    // The end of the thread that started with the `memory_item_pins` table: a
+    // table, a view, a reader, an injection seam and now a way to actually set
+    // one. Without this the core profile is structurally always empty.
+    const harness = await ownerHarness("pin-tool");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("pin-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:pin-seed"] }]),
+      ]),
+    });
+    const rows = await memoryRows(harness.principalId);
+    const itemId = rows[0]?.item_id;
+    if (itemId === undefined) throw new Error("pin_fixture_item_missing");
+
+    await runTurn({
+      harness,
+      text: "keep that in mind from now on",
+      context: rows.map(memoryContext),
+      provider: new FakeAgentProvider([
+        called(tool("pin-1", "memory_pin", { itemId })),
+        stopped("Pinned.", [{ sentence: "Pinned.", receiptIds: ["receipt:pin-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT pinned FROM memory_current_pins
+      WHERE principal_id = ? AND item_id = ?`).bind(harness.principalId, itemId).first())
+      .toEqual({ pinned: 1 });
+  });
+
   it("records a temporary fact with the end Sid gave it", async () => {
     // Phase 2 asks for temporary facts to drop out of recall after their end.
     // The column and every recall filter already understood that; nothing ever

@@ -545,7 +545,44 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
   });
 }
 
+type DecodedPinCommand = Readonly<{
+  itemId: Ulid;
+  pinned: boolean;
+  pinId: Ulid;
+}>;
+
+/**
+ * `item.pin` and `item.unpin`, decoded from the stored owner command.
+ *
+ * A pin is a model decision carried in an owner command envelope, exactly like
+ * `memory_correct`, because the roadmap lists "what belongs in your core
+ * profile" under "Jarvis decides". It is re-decoded on replay, so the operation
+ * and the flag are checked against each other: a command that says `item.pin`
+ * while carrying `pinned: false` would append the opposite of what it is named.
+ */
+function pinPayload(value: JsonValue): DecodedPinCommand {
+  const payload = record(value);
+  exactKeys(payload, ["operation", "targetId", "itemId", "pinned"]);
+  if (payload.operation !== "item.pin" && payload.operation !== "item.unpin") refuse();
+  if (typeof payload.pinned !== "boolean") refuse();
+  const pinned = payload.pinned;
+  if (pinned !== (payload.operation === "item.pin")) refuse();
+  return Object.freeze({
+    itemId: inputUlid(payload.itemId),
+    pinned,
+    pinId: inputUlid(payload.targetId),
+  });
+}
+
+export interface MemoryPinReceipt {
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  readonly receipt: string;
+  readonly replayed: boolean;
+}
+
 export class MemoryOwnerControlsService {
+
   private readonly events: EventRepository;
   private readonly memory: MemoryRepository;
   private readonly clock: () => Date;
@@ -1416,6 +1453,66 @@ export class MemoryOwnerControlsService {
             ? `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions. You can ask in ordinary language to forget it again.`
             : `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions, but it is still hidden because another forgotten memory covers the same conversation turn.`,
         replayed: command.replayed || result.replayed,
+      });
+    });
+  }
+
+  /** Puts one memory into the core profile: the facts Jarvis is given every turn. */
+  async pin(input: TargetedMemoryControlInput): Promise<MemoryPinReceipt> {
+    return this.setPin(input, true);
+  }
+
+  /** Takes one back out. The memory stays; it stops being given every turn. */
+  async unpin(input: TargetedMemoryControlInput): Promise<MemoryPinReceipt> {
+    return this.setPin(input, false);
+  }
+
+  private async setPin(
+    input: TargetedMemoryControlInput,
+    pinned: boolean,
+  ): Promise<MemoryPinReceipt> {
+    return this.safely(async () => {
+      const intent = pinned ? "pin" : "unpin";
+      const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, intent);
+      const itemId = exactSingleTarget(input.candidateItemIds);
+      const requestHash = await this.requestHash(intent, ownerTurn, [itemId, String(pinned)]);
+      const key = commandKey(ownerTurn, intent);
+      const existing = await this.hasCommand(key, requestHash);
+      let command: AppendedEvent;
+      if (existing) {
+        // Replay: `appendCommand` returns the stored event for a matching key and
+        // hash, so this stub payload is never the one that gets decoded.
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: pinned ? "item.pin" : "item.unpin",
+          targetId: this.nextId(),
+        });
+      } else {
+        await this.memory.validateOwnerTurn(ownerTurn, intent);
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: pinned ? "item.pin" : "item.unpin",
+          targetId: this.nextId(),
+          itemId,
+          pinned,
+        });
+      }
+      const decoded = decodeStoredCommand(command.envelope.payload, pinPayload);
+      if (decoded.itemId !== itemId || decoded.pinned !== pinned) corrupt();
+      const result = await this.memory.appendPin({
+        principalId: ownerTurn.principalId,
+        itemId: decoded.itemId,
+        pinned: decoded.pinned,
+        pinId: decoded.pinId,
+        authorizingEventId: command.envelope.eventId,
+        occurredAt: this.freshNow().toISOString(),
+      });
+      return Object.freeze({
+        itemId,
+        pinned: result.pinned,
+        receipt: pinned
+          ? "Pinned 1 memory; it goes in front of me in every conversation. Unpin it when it stops being true."
+          : "Unpinned 1 memory; it stays remembered and stops being in every conversation.",
+        replayed: command.replayed || !result.appended,
       });
     });
   }

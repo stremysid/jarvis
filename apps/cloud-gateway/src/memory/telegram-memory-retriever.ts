@@ -134,7 +134,8 @@ export const TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS = Object.freeze({
   candidatesExamined: MAX_CONTROL_TARGETS,
 });
 
-export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain" | "correct";
+export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain" | "correct" | "pin" | "unpin";
+
 
 export interface TelegramMemoryTargetFinder {
   findControlTargets(input: Readonly<{
@@ -820,6 +821,10 @@ function targetStates(operation: TelegramMemoryTargetOperation): readonly Memory
   // Only a current wording can be replaced; the transition guard has no edge
   // from any other state into 'superseded'.
   if (operation === "correct") return Object.freeze(["active"]);
+  // Only a retrievable item can be in the core profile, so a pin can only target
+  // one that is active. Offering a forgotten item as a pin candidate would
+  // produce a preference that can never take effect.
+  if (operation === "pin" || operation === "unpin") return Object.freeze(["active"]);
   return ALL_MEMORY_STATES;
 }
 
