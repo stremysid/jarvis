@@ -576,6 +576,440 @@ separately for `c982b0b` and for the merge.
 
 — Claude Opus 5, reviewer session
 
+## 2026-09-18 22:02 UTC — DeepSeek V4.1 Flash, tier-3 gate: `memory_correct` was dispatched and unclassified, so the gate denied it
+
+**Effort level: not stated for this session; the two signals disagree, so I am
+not naming one.** `~/.dsh/settings.yaml` sets the agent default to
+`reasoningEffort: max` for `deepseek-flash`; the inherited environment carries
+`CLAUDE_EFFORT=xhigh`, which belongs to the session that launched this one. I
+did not find a per-turn record. Same ambiguity the PR #98 F1 entry hit, and I
+am resolving it the same way — by saying so rather than guessing.
+
+**Branch:** `codex/tier3-classify-memory-correct`, branched from
+`origin/claude/tier3-on-main` at `4052f4f` (today's main with the tier-3
+autonomy gate merged in), as the brief specified. **Head of this work:**
+`6077f75` (the fix and the guard), with this entry as the tip of
+`codex/tier3-classify-memory-correct`. No migration, and none needed. The
+worktree is left in place at `C:\Users\Sid\jarvis-t3fix` for inspection.
+
+### The defect, reproduced before it was touched
+
+`npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts -t "replaces one memory when Sid plainly states a new version"`
+
+```
+AssertionError: expected 'I did not complete the unreceipted ac…' to contain 'my fav subject is math'
+Expected: "my fav subject is math"
+Received: "I did not complete the unreceipted action."
+ ❯ apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts:1590:21
+ Tests  1 failed | 95 skipped (96)
+```
+
+That is the honest-refusal fallback: the tool never ran. `memory_correct` is
+dispatching in `owner-telegram-agent.ts` (`if (call.name === "memory_correct")
+return this.correct(...)`, definition at line 118) but had no row in
+`OWNER_TOOL_CAPABILITIES`, so `capabilityForTool` returned the raw name,
+`readCapabilityTier` found nothing and `decideOutcome` returned
+`denied_unknown_capability`. The gate was correct — fail closed on an
+unclassified tool. The map, written against an older main that had eight
+dispatchable tools, was the incomplete half.
+
+### The fix
+
+`memory_correct: "memory.write"`, alongside remember/forget/restore/confirm.
+Correcting a memory supersedes one stored wording with another in the same
+ledger, so it is a memory write, not a capability of its own — it inherits
+0035's existing tier-1 row, which is why **no migration was added**. The same
+test at `6077f75`:
+
+```
+ Test Files  1 passed (1)
+      Tests  1 passed | 95 skipped (96)
+```
+
+The comment above the map said "All eight are tier 1" and "These eight operate
+only on the owner's own conversational state"; both now say nine, because a
+count that is wrong in a file about classification is the defect's own
+documentation.
+
+### The guard, and the proof it is load-bearing
+
+`apps/cloud-gateway/test/autonomy/tool-classification.test.ts`. Nothing in the
+suite asserted that classification covered the dispatchable set, which is why
+a tool added on main became a silent denial on merge. Both sides are derived —
+the dispatchable set from `OWNER_TELEGRAM_TOOL_DEFINITIONS`, the classified set
+from `isToolClassified` — with no hand-written list of nine names, which would
+have been the same defect one level up.
+
+A second test covers the other way the same failure arrives: a tool classified
+as a capability that was never seeded is equally denied (as
+`denied_unknown_capability` with `classified` true, so the receipt blames the
+request rather than the missing row). Each derived capability is read back
+through the same `AutonomyRepository.readCapabilityTier` the gate calls.
+
+Both directions were run, not assumed. Three real runs:
+
+| Run | Mutation | Result |
+|---|---|---|
+| 1 | `memory_correct` deleted from `OWNER_TOOL_CAPABILITIES` | **FAIL** — `Error: unclassified_dispatchable_tools:["memory_correct"]` (classification test); the registration test also fails, with `["memory_correct"]`, since an unmapped tool resolves to its own name |
+| 2 | `memory_correct` remapped to `"memory.correct"` (classified, never seeded) | **FAIL** — `Error: dispatchable_tools_with_unregistered_capability:["memory.correct"]`, and the classification test stays **green**, which is the point: the two tests cover different halves |
+| 3 | restored to `"memory.write"` | **PASS** — `Test Files 1 passed (1) / Tests 2 passed (2)` |
+
+Run 1's failure output, verbatim:
+
+```
+ ❯ |default| apps/cloud-gateway/test/autonomy/tool-classification.test.ts (2 tests | 2 failed) 331ms
+     × every tool the model can dispatch has a capability classification 4ms
+     × every capability those tools are classified as is registered at a tier 11ms
+
+ FAIL  ... > every tool the model can dispatch has a capability classification
+Error: unclassified_dispatchable_tools:["memory_correct"]
+ ❯ expectNothingMissing apps/cloud-gateway/test/autonomy/tool-classification.test.ts:44:31
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+[exit code: 1]
+```
+
+The failure names the tool rather than printing two lists that differ. A guard
+that reports `expect([]).toEqual([])` tells a reader that something is wrong
+and not which tool was forgotten, which is the entire content of the failure.
+
+### Gate numbers, actually run at this revision
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | clean — 5 of 6 projects, all `Done` |
+| `pnpm typecheck` | clean — 5 of 6 projects, all `Done` |
+| `pnpm test` (run 1) | **201 files passed (201), 5356 tests passed (5356)**, 202.38 s |
+| `pnpm test` (run 2) | 3 failed / 198 passed files, 3 failed / 5353 passed tests — all three `Test timed out in 5000ms` |
+| `pnpm test` (run 3) | 1 failed / 200 passed files, 1 failed / 5355 passed tests — the documented flake |
+| `pnpm test` (run 4) | 12 failed / 189 passed files, 16 failed / 5340 passed tests — 15 timeouts + the flake again |
+
+**The full suite is not deterministic on this machine, and I am reporting all
+four runs rather than the one that was green.** Four runs, four different
+results, and neither failing shape is mine:
+
+- **The known pre-existing flake, exactly as the brief describes it**, appeared
+  in runs 3 and 4 with `expected { outcome: 'delivery_unknown', … } to match
+  object { outcome: 'telegram_delivered' }` — and the failing test name had
+  **roamed**, which is why it took two runs to recognise. Run 3's was
+  `records the refusal in the audit ledger with the outcome that caused it`;
+  run 4's was `labels an explanation of an uncertain memory as unconfirmed`.
+  Neither is a `memory_correct` test, and each passes alone. Not chased, as
+  instructed.
+- **The other 18 failures across runs 2 and 4 were 5–10-second timeouts under
+  full-suite load**, in files with no connection to tool classification:
+  `archival-service`, `memory-backup`, `call-session-repository`,
+  `owner-call-step-up-migration`, `guest-grant-notice-drain`,
+  `automatic-distillation`, `telegram-memory`, `voice/call-session-do`, and the
+  `tests/acceptance/fake/` voice suites. Run 2's three took 5.4–6.8 s against a
+  5000 ms limit; run 4's worst was 10.4 s. Run together in isolation the first
+  three are **3 files / 112 tests passed**. This branch's entire source diff is
+  one line added to an object literal in `tool-capabilities.ts`, which no
+  archive, backup, voice, call-session or job code reads, so these are load
+  contention rather than a regression — but they are a **second and much larger
+  source of non-determinism in `pnpm test` on this host than the brief's flake**,
+  and a reviewer re-running the gate will meet them. The correlation with
+  concurrent work on the machine is visible in the numbers: run 1, the only
+  fully green run, was the only one started while nothing else was touching this
+  worktree.
+
+The two tests this branch adds or repairs pass in **every** configuration
+tried: alone, in run 1's full pass, and in each of the three runs that had
+unrelated failures.
+
+### What this did not cover
+
+- **The cause, only the symptom.** The guard catches an unclassified or
+  unregistered dispatchable tool. It cannot catch a tool that dispatches but
+  never made it into `OWNER_TELEGRAM_TOOL_DEFINITIONS` — the dispatch chain and
+  the definitions array are still kept in step by hand. A model can only call
+  what the definitions offer, so that gap is currently unreachable, but it is a
+  gap.
+- **Tier correctness is not asserted.** Both tests prove a capability resolves
+  to *a* tier, not the *right* one. A future tool mapped to an existing but
+  wrong capability tier would pass.
+- **`memory_correct` was exercised only through the named test and the full
+  suite**, not against deployed D1. The mapping is inert until the gateway
+  deploys, and no deploy was run.
+- **The tier-3 gate's own behaviour was not re-reviewed.** Only the map and the
+  missing guard were in scope.
+- **`pnpm test` was not made deterministic, and is worse than the brief's
+  measured 2-in-11.** Across four runs the failure count went 0, 3, 1, 16. Every
+  failure was either the documented `delivery_unknown` flake or a 5–10 s timeout
+  under load in a file this branch does not touch; none reproduced in isolation.
+  That is a real property of the suite on this host and it is **not fixed here**
+  — the brief put it out of scope, and I did not chase it. What I can say
+  precisely is that it is not this branch: the source diff is one line in an
+  object literal, and the two tests this branch owns passed in all four runs.
+- The `wrangler.toml` warning about `vectorize`/`ai` not being inherited by
+  `env.test` is pre-existing noise in every run and was not touched.
+
+— DeepSeek V4.1 Flash, session `session-6ac26c4d-d7bb-4a95-b312-21cd73ae629e`
+
+## 2026-09-19 00:05 UTC — deepseek-flash, `codex/distillation-suppression`: the hourly job gets the anti-join every other memory path already had
+
+**Effort level: I could not determine it, so I am not naming one.** Nothing in
+this session states the level it ran at, and the two signals I can see disagree
+— `~/.dsh/settings.yaml` sets `agent-default-model.reasoningEffort: low` for
+`deepseek-flash`, while the inherited environment carries `CLAUDE_EFFORT=xhigh`,
+which belongs to the session that launched this one. The session record
+(`~/.dsh/sessions/--C-Users-Sid-OneDrive-Documents-ChatGPT-jarvis--/session-7e0e2e94-.../session.v3.jsonl.zstd`)
+carries no effort field. Naming either would be a guess.
+
+**Branch:** `codex/distillation-suppression`, cut from `origin/main` at
+`5a8acf3`. The fix and its tests are `da723ec`; this entry is the commit after
+it. **No migration, and none needed.** Worktree left in
+place at `C:\Users\Sid\jarvis-distill`. A throwaway `origin/main` worktree was
+created at `C:\Users\Sid\jarvis-baseline-distill` for the flake comparison in
+"Gate" below; both can be removed with `git worktree remove`.
+
+### The defect, reproduced before it was fixed
+
+`apps/cloud-gateway/src/memory/automatic-distillation.ts` contained **zero**
+occurrences of `suppress`; the eligibility predicate at what is now line 469 was
+`envelope.subjectId === principalId && payload.historyEligible` with no anti-join
+against `memory_active_event_suppressions`. Neutering the fix (below) reproduces
+the consequence end to end: the hourly poll reports `Memory succeeded, 1 created`
+for a turn the owner had already been told was forgotten.
+
+### The fix, and which existing mechanism it copies
+
+I followed **`literal-history.ts`** (`readSuppressions` + `isSuppressed`), not the
+inline `NOT EXISTS` in `context-retriever.ts`, and the reason is structural
+rather than stylistic: `context-retriever.ts` owns its own `events` SELECT, so it
+can put the anti-join inside that statement, while this workflow reads through an
+injected `SyncEventReader` whose `readRange` serves live D1 *and* sealed R2
+segments. `literal-history.ts` is the existing member of this family written for
+exactly that situation — read the window's active suppressions in one statement,
+then apply the predicate in TypeScript. The predicate is the same one both files
+use, character for character: `target_event_id = event_id OR sequence BETWEEN
+start_event_sequence AND end_event_sequence`. This is a second *copy* of the
+predicate, not a second *mechanism*; note that `context-retriever.ts`,
+`telegram-memory-retriever.ts`, `memory-repository.ts` and `literal-history.ts`
+already carry their own copies.
+
+Where it sits matters twice over. It runs after the range read and **before
+`prefixThroughEligibleLimit`**, so a forgotten turn does not consume one of the
+eight eligible slots — the same ordering `context-retriever.ts` argues for at its
+line 435 ("applied BEFORE LIMIT, not after"). And it happens before
+`providerPrompt` is built, so the forgotten text is never in the request body, is
+not charged against the prompt budget, and is not paid for.
+
+`SUPPRESSION_READ_D1_STATEMENT_CEILING = 1` is added to
+`STEP_SETUP_D1_STATEMENT_CEILING`, which raises
+`AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements` from 4311 to 4312. Two existing
+exact-accounting assertions move by the same one statement, in
+`charges automatic commit preparation again for every retried write attempt`:
+`counted.queryCount()` 3519 → 3520 and `result.budget.d1Statements` 4022 → 4023.
+
+### The receipt vocabulary — a decision, not an accident
+
+A suppressed turn is receipted as `skipped` / **`history_ineligible`**. Both
+halves of that were forced, and both walls are worth writing down:
+
+- A suppression-specific reason (`event_suppressed`) is refused by the
+  `skip_reason` CHECK in `0026_memory_distillation.sql:58-65`. SQLite cannot
+  widen a CHECK, so that reason is a migration. The brief said no migration, and
+  I agree there should not be one for a label.
+- Dropping the row instead — the anti-join's literal semantics — is refused by
+  `memory_distillation_run_counts_invalid` (`0026:276-289`), which requires
+  `input_event_count = end_event_sequence - start_event_sequence + 1` and a
+  receipt covering every sequence between them, and by the two cursor guards
+  (`0026:312-367`), which only advance the cursor across a run that satisfies it.
+  I implemented that version first and it failed exactly there.
+
+`history_ineligible` is *true* of a forgotten turn — it is no longer eligible as
+history — but the receipt does not say **which** gate closed, so an investigator
+who must separate a suppression from a payload that never claimed eligibility has
+to consult `memory_active_event_suppressions` for that event id. The code comment
+on `skippedForSuppression` says all of this. If the reviewer would rather the
+receipt be unambiguous, that is a migration, and it is a one-line change to the
+CHECK plus this constant once someone owns `0026`.
+
+### Neutering, verbatim
+
+The anti-join's decision was disabled with one line at the top of
+`isSuppressedEvent`: `return false; // NEUTERED`. Nothing else changed. The
+three tests below are the whole focused file's worth of new coverage; the full
+file was run so the control's behaviour is visible in the same output.
+
+```
+⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts > automatic memory distillation > does not select a turn whose source event the owner asked to forget
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/memory/automatic-distillation.test.ts:2432:42
+    2432|     expect(result.budget.eventsExamined).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts > automatic memory distillation > mints no memory from forgotten text through the hourly run
+AssertionError: expected 'nothing eligible for archival; Classr…' to contain 'Memory nothing_new, 0 created'
+
+Expected: "Memory nothing_new, 0 created"
+Received: "nothing eligible for archival; Classroom not configured; Brightspace not configured; Memory succeeded, 1 created, 0 events pending, 0 eligible events pending, 2 skips (event_type_ineligible=2) after 1 step; inbox filing 0 refiled, 0 retryable failures; Memory history complete, 4 events examined, 1 chunks written after 1 steps, 19 D1 statements charged; Memory meaning disabled (memory_meaning_bindings_missing); project poll not configured"
+
+ ❯ apps/cloud-gateway/test/memory/automatic-distillation.test.ts:2453:32
+    2453|     expect(pollDetail(result)).toContain("Memory nothing_new, 0 create…");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 73 passed (75)
+```
+
+**The control stayed green under the neuter** — `mints that memory from the same
+fixture when the owner did not forget it` is in the 73 passed, which is what the
+control is for: the fixture mints a memory whether or not the anti-join exists,
+so the other two tests fail on suppression and not on a broken fixture. With the
+line removed, `git diff | Select-String NEUTER` is empty and:
+
+```
+ Test Files  1 passed (1)
+      Tests  75 passed (75)
+```
+
+The tests, all in `apps/cloud-gateway/test/memory/automatic-distillation.test.ts`:
+
+- `does not select a turn whose source event the owner asked to forget` — the
+  turn is skipped, only the owner's later turn is eligible, and the prompt does
+  not contain the forgotten sentence.
+- `mints no memory from forgotten text through the hourly run` — driven through
+  `buildJobTable(context).poll`, the real hourly entry point, against the real
+  `AutomaticMemoryDistillationWorkflow`, a real D1 database and the real
+  `MemoryOwnerControlsService.forget` write; nothing inserts a suppression row by
+  hand.
+- `mints that memory from the same fixture when the owner did not forget it` —
+  the control. Same builder, same provider, same proposal; `forget` is the only
+  difference. It asserts 1 created and that the prompt *does* carry the sentence,
+  so a fixture that had simply stopped working could not pass it.
+
+### The in-flight ordering answer
+
+**What my change guarantees:** for a forget that is committed before a step's
+suppression read, that step cannot select the turn, cannot put its text in a
+prompt, and cannot mint from it. Since the forget is committed synchronously
+before the next hourly run, that is every ordinary case, including a forget that
+lands while an earlier step of the same poll is between steps.
+
+**What it does not guarantee:** a forget that lands *after* the suppression read
+of an in-flight step does not stop that step. The text is already in the request,
+the provider call can run for 120 s, and a proposal built from it is committed.
+That window is real and I did not close it — closing it needs a commit-time check
+the repository does not have, not another read.
+
+I measured what that leaves behind rather than assuming it, with a provider whose
+`completeJson` performs the real `controls.forget` before returning the proposal
+(a scratch test, not committed, so the diff stays the three tests the brief
+asked for):
+
+```
+{ outcome: 'succeeded', created: 1, minted: 1, retrievable: 0, suppressionCount: 1 }
+```
+
+So in that race a memory **is** written and **was** paid for, and the forgotten
+wording **did** cross the provider boundary. What contains it is downstream and
+already existed: the minted item's sources cite the now-suppressed turn, and
+`memory_retrievable_item_versions` (`0016_cloud_memory.sql:942-977`) excludes any
+version with a suppressed source, so every path that reads that view withholds
+it. Reading the same view definition rather than measuring it: that exclusion is
+derived from the suppression, not from the item, so a later `lift` removes it and
+the item minted in the race becomes retrievable like any other. I am not claiming
+the race is safe — I am claiming it is bounded to a ledger row nobody can recall
+while the suppression stands, and that the text reaching the model in that window
+is not preventable by the fix I was asked to make.
+
+### Gate
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | 5 of 6 projects, `apps/cloud-gateway lint: Done` — all Done |
+| `pnpm typecheck` | 5 of 6 projects, all Done |
+| `pnpm test` (run A) | `Test Files 3 failed \| 196 passed (199)`, `Tests 3 failed \| 5342 passed (5345)` |
+| `pnpm test` (run B) | `Test Files 6 failed \| 193 passed (199)`, `Tests 7 failed \| 5338 passed (5345)` |
+| focused file, 4 green runs | `Tests 75 passed (75)` |
+
+**Every cross-suite failure was the documented 5000 ms noise, and the names
+moved.** Run A's three were `Test timed out in 5000ms` in
+`voice-owner-call-step-up.test.ts`, `voice-telegram-call.test.ts` and
+`call-session-do.test.ts`; re-run alone twice, those three files were `205
+passed` both times. Run B failed six *different* files, five of them again on
+`Test timed out in 5000ms`; re-run alone twice, that set was `1 failed | 293
+passed` then `294 passed`, and the single failure was itself a 5 s timeout in a
+**third, different** case of `voice-telegram-call.test.ts`. Inside the focused
+file the same noise moved between two pre-existing tests
+(`commits the maximum paid response once inside the declared D1 invocation
+allowance` once, `routes whole paths to the inbox when the six-topic hourly
+creation cap would be exceeded` once), both green on re-run. Nothing here is
+mine, and I did not chase any of it.
+
+**One failure was not a timeout, and it is the one I cannot fully attribute.**
+Run B failed `owner-telegram-agent.test.ts > stores failed grounding as uncertain
+model inference with Sid's exact excerpt: negation mismatch`; run 3 of that file
+alone failed a different case,
+`accepts a swipe confirmation only for the latest delivered Jarvis message: 1001`,
+with `expected { outcome: 'delivery_unknown', …(4) } to match object { outcome:
+'telegram_delivered' }`. Evidence it is environmental rather than mine:
+`owner-telegram-agent.ts` imports no part of the changed module, and the only
+importer of `automatic-distillation.ts` is `job-table.ts`; the same file passed
+3/3 on a clean `origin/main` worktree; and filtered to that one test it passed
+8/8 on this branch and 8/8 on `origin/main`, with one baseline run taking 5.81 s
+of test time against a 0.36 s norm. I am recording it as unreproduced and
+not explained, not as cleared.
+
+`pnpm --filter @jarvis/cloud-gateway typecheck:tests` still reports 144 errors
+(the note in `AGENTS.md` says 117; the count has grown since it was written). Two
+of them are in my file, at lines 2272 and 2889, and both are pre-existing
+`as D1Database` / `as D1PreparedStatement` casts in fixtures I did not write.
+Nothing I added produces one.
+
+### What this did not cover
+
+- **`selectControlTargets` still has no anti-join**, and the related read path is
+  worse than the sweep suggested. `TelegramMemoryRetriever.selectControlTargets`
+  (`telegram-memory-retriever.ts:1832-1842`) searches `memory_item_fts` with no
+  suppression predicate, so an item hidden by a suppression on its *source event*
+  can still be selected as the target of `forget`/`lift`/`explain`/`correct`
+  while its lifecycle state is still `active`. `telegram-memory-controls.ts:391`
+  then reads it with `readCurrentItem` — not `readItemVisibility`, which is what
+  every other owner-facing read uses — and passes `item.version.text` into
+  `namedReceipt`, which appends `Memory: "<text>"` to the reply
+  (`telegram-memory-controls.ts:170-172`). I did not fix it: it is a different
+  path (item search, not raw-event distillation input), it mints nothing, and
+  deciding whether an owner asking to *forget* a sibling may hear its wording is
+  a product question — `MemoryOwnerControlsService.forget`'s own receipt
+  deliberately withholds it today. **It is a live leak of the same family and
+  deserves its own item.** I left it out of `KNOWN_ISSUES.md` only to keep this
+  diff to the fix and its tests; the reviewer should promote it.
+- **`memory_item_fts` still has no delete trigger** (`0016:3038-3042` inserts
+  only). I left it for the same reason plus one more: `memory_item_versions` is
+  append-only, so a delete trigger has nothing to fire on today, and the gap only
+  bites in combination with the item above — the FTS row is how a suppressed
+  item's wording becomes *findable*, and `selectControlTargets` is where it is
+  found.
+- **I did not re-audit the other memory read paths** for the same missing
+  anti-join. I checked the two the brief named plus `literal-history.ts` and
+  `memory-repository.ts`; the meaning index, the living-notes paths and the fact
+  projection have their own suppression handling that I read only far enough to
+  confirm they have some.
+- **`forget` currently writes only `target_event_id` suppressions** — its payload
+  decoder refuses a non-null `start_event_sequence`/`end_event_sequence`
+  (`memory-owner-controls.ts:469-471`). The range half of the predicate is copied
+  from `literal-history.ts` and is therefore exercised by no test I added; a
+  future writer of range suppressions would be the first to run it here.
+
+— deepseek-flash (DSH `session-7e0e2e94-05ed-46ae-9893-606c734d2c05`), branch
+`codex/distillation-suppression`
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in

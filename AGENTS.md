@@ -27,7 +27,7 @@ Run every local-agent command through **`uv`**, which is on `PATH`
 See [TESTING.md](TESTING.md).
 
 **Corrected 2026-09-18.** This file previously gave `uv` as
-`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist,
+`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist, <!-- docs-check:ignore: the dead path this correction retracts -- the same sentence says it does not exist -->
 and neither does the `Ksid1` user profile** — the only profile on this machine
 is `Sid`, so every command here failed with "not found". It also called
 `python` on PATH a broken stub; `python` now resolves to a real Python and
@@ -123,3 +123,93 @@ and discovering the suite stayed green:
   as an instruction.
 - Describe the vault's write-once as meeting the plan's guarantee. It does
   not yet; see KNOWN_ISSUES.md.
+
+
+## A fact about Sid or his environment goes in the REPO, not only in agent memory
+
+This has now cost him twice, and the second time was entirely avoidable.
+
+An agent's memory folder is private to that agent. **The repository is the only
+thing every session reads.** When a session establishes a durable fact — what
+hardware he has, what his school permits, what he has already set up, what he
+has decided — writing it to agent memory alone means the next session, or the
+next vendor, never sees it.
+
+Worse, a load-bearing repo document that says the opposite will actively steer
+that session wrong. Memory cannot outvote `docs/HANDOFF.md`, because the handoff
+is what a new session is told to read first.
+
+**The failure, concretely.** On 2026-09-17 Sid said his school account cannot
+reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md` went
+on listing *"A1. Google Classroom consent — SID'S ACTION, one sitting. Highest
+value per hour in the whole plan"*, so on 2026-09-18 another session read the
+handoff, opened the runbook, and walked him through an impossible setup a second
+time. The same shape had already happened with the D2L calendar feed.
+
+**The rule.** When you learn something durable about Sid or his environment:
+
+1. Write it where the next session will read it — `docs/HANDOFF.md`,
+   `KNOWN_ISSUES.md`, `CLAUDE.md`, or the relevant runbook.
+2. If it contradicts something a document already claims, **correct that
+   document in the same change.** Leaving the contradiction is how it recurs.
+3. If it makes a runbook unusable for him, say so at the TOP of that runbook,
+   not in a paragraph halfway down.
+4. Agent memory is a cache, not a record. Treat anything living only there as
+   one session away from being lost.
+
+**Sid is the message bus between chats that cannot talk to each other.** Every
+fact that only lives in one chat is a question he has to answer again.
+
+
+## A reviewer-authored PR gets an independent pass before it merges
+
+The cross-vendor rule -- one vendor builds, a different vendor reviews -- holds
+everywhere in this project **except where the reviewer is the author**, and that
+exception was never written down or argued for. It just happened.
+
+**Measured, 2026-09-18:** PR #104 was opened and merged **fourteen seconds
+apart**, 2,215 lines, by the session that curated it. PRs #101-#104 (3,661 lines)
+merged with no recorded verdict. The same session later committed a fix directly
+to #106, a PR it was clearing. Each was disclosed in the PR body or the log.
+**Disclosure is not independence.** A reader who trusts the cross-vendor rule has
+no way to know it was suspended unless they read the prose.
+
+**The rule.** A PR whose content the reviewer authored -- tooling, curation,
+documentation corrections, a fix written onto someone else's branch -- gets an
+**independent read-only auditor pass before merge**, launched with
+`reviewer-tools/dsh-audit.ps1`. The auditor cannot run tests, so its findings are
+suspects, not convictions; that is enough. It reads the diff with no stake in it.
+
+This costs nothing in throughput: the auditor runs in parallel while the reviewer
+works on something else.
+
+**It is not enough on its own, and the first audit run under this rule said so.**
+Audited on its own PR (#105), the auditor's verdict was that the remedy is *"the
+cheapest thing that is not nothing — a genuine second look, with no
+accountability attached"*: its log goes to an untracked scratch directory, the
+reviewer writes its brief, and nothing obliged the reviewer to publish, answer or
+be blocked by anything it found. **The audited party was scoping its own audit
+and keeping the only copy of the result.**
+
+So the rule carries the auditor's own minimum fix:
+
+1. **The verdict goes in the PR, before merge** — its findings, and for each one
+   either the fix or a stated reason for declining it. An audit whose result
+   exists only in a scratch file did not happen.
+2. **A "do not merge as-is" verdict blocks the merge** until every finding is
+   answered in writing. Not "considered".
+3. **The brief must invite attack on the parts the author is least sure of**, and
+   must say the work is reviewer-authored, so the auditor knows the cross-vendor
+   rule is already suspended.
+
+This still does not make the auditor independent of the reviewer, because the
+reviewer launches it. It makes the result *public and binding*, which is the part
+that was missing.
+
+**It does not apply** to merging a PR a different vendor built, which the
+reviewer has always been allowed to do at the exact reviewed head.
+
+**Where a one-word fix on a PR under review is genuinely the right call** -- a
+comment that would otherwise be applied to production wrong -- make it, and say
+in the commit message that the cross-vendor line was crossed and why. Do not let
+the exception become invisible.

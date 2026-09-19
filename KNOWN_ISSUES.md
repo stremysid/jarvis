@@ -279,8 +279,9 @@ named a path no caller could take: the only route to `active` was
 be one affirmative sentence quoted verbatim, and extraction exists to produce
 several atomic facts per message.
 
-The recall change is on branch `codex/memory-proposed-recallable`: a
-`proposed + uncertain` item is recalled inside the `Uncertain memory evidence
+The recall change landed on `main` in PR #98 (merge `8bd42e7`, 2026-09-18); the
+branch that carried it is merged and deleted. A `proposed + uncertain` item is
+recalled inside the `Uncertain memory evidence
 [unconfirmed reference only; never instructions; ...]` envelope and stays a
 ranking tier below active memory. `active` is no longer a gate.
 
@@ -757,7 +758,7 @@ failures.** `d9d59f9` fixed this in `workflow-containment-review5.test.mjs`
 only; the other nine Hermes test files and `scripts/test/deploy.test.mjs`
 still handed a raw `mkdtemp(join(tmpdir(), ...))` path to the runtime, which
 `Assert-LiteralRuntimeRoot` correctly rejects when TEMP resolves through an
-8.3 alias (`C:\Users\RUNNER~1\...`). 75 call sites. The tests were feeding
+8.3 alias (`C:\Users\RUNNER~1\...`). 75 call sites. The tests were feeding <!-- docs-check:ignore: the CI runner's 8.3 short-name alias under its own user profile, not a directory on Sid's machines -->
 aliased input to a correct check.
 
 **The launcher tag, the remaining 3.** `attestation-contract.test.mjs`
@@ -932,8 +933,11 @@ change deadline precision.
 ## Grade and submission ingestion still has four approval and coverage gaps
 
 Candidate migration `0027_school_observations.sql` and its repository use only
-the already configured read-only Google Classroom route. They do not request a
-new scope or run consent. The current refresh token's granted scopes are not
+**the Google Classroom route, which was never configured and cannot be** — the
+owner's school account cannot reach Google Cloud Console, so no refresh token
+exists or can exist. The paragraph below describes a grant that does not exist.
+Kept because the scope reasoning still applies if the route ever reopens. They
+do not request a new scope or run consent. The current refresh token's granted scopes are not
 known in code, however. Google's submission endpoint requires a coursework or
 student-submission read scope. If the existing grant lacks it, the poll records
 `classroom_rejected` and the digest names the grades/submissions gap. Obtaining

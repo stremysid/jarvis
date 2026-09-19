@@ -1,5 +1,34 @@
 # Google Classroom OAuth owner setup
 
+> ## THIS ROUTE IS DEAD FOR SID. DO NOT SEND HIM HERE.
+>
+> **Established 2026-09-17, by Sid, and re-confirmed by him on 2026-09-18 after
+> a reviewer session sent him here a second time.**
+>
+> **His school account cannot reach `console.cloud.google.com`.** The board runs
+> Microsoft 365 and does not allow Google accounts. No Cloud Console means no
+> OAuth client, which means no client id, no client secret and no refresh token.
+> Every step below depends on the first one, and the first one is impossible.
+>
+> A personal Google account does not rescue it: the Classroom data belongs to
+> the school account, so consent must come from the school account, and the
+> board blocks it.
+>
+> **The route that works** is the one already built and already live on his side:
+> Classroom notification emails reach his school mailbox, his Outlook web rule
+> forwards them to `school@onesid.ca`, and Cloudflare Email Routing delivers
+> them to the gateway's `email()` handler. What is missing is ours, not his —
+> `d2l-email-parser.ts` understands D2L notifications only, so a Classroom
+> notification currently arrives and is ignored.
+>
+> **Do not ask Sid to do anything in this file.** Asking him again costs him
+> effort and trust, and it has now happened twice.
+
+## Historical: what the flow would have been
+
+Kept because the Worker-side code, the three bindings and the failure codes are
+real and would be reused if the board ever permits Google accounts.
+
 This runbook is for Sid. It creates the three production Worker secrets that
 let the hourly Cloudflare job read Sid's own Classroom courses and coursework
 while every Windows PC is off. It does **not** deploy this branch, apply a

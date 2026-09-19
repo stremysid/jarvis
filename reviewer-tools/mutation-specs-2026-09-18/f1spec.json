@@ -1,0 +1,27 @@
+[
+  {
+    "name": "F1-source-suppression-guard",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+        "find": "      source: await latestUserEvent(owner.principalId),\n      state: \"proposed\",",
+        "replace": "      source: creation,\n      state: \"proposed\","
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+        "find": "visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0",
+        "replace": "visibility.creationEventSuppressed"
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "expect": "does not recall a proposed model memory whose creation event was forgotten"
+  },
+  {
+    "name": "CONTROL-unmatchable",
+    "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+    "find": "this string does not occur anywhere",
+    "replace": "x",
+    "testPath": "apps/cloud-gateway/test/memory/telegram-memory.test.ts",
+    "expect": "anything"
+  }
+]

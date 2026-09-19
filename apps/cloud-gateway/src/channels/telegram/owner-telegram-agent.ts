@@ -1,5 +1,12 @@
 import { validateEnvelope, type Ulid } from "../../../../../packages/contracts/src/index.js";
 import type { ArchiveBucket } from "../../archive/archival-service.js";
+import {
+  argumentsFingerprint,
+  confirmationReference,
+  TIER3_CONFIRM_OPTION,
+  TIER3_TOOL_ORIGIN,
+} from "../../autonomy/tool-confirmations.js";
+import type { ToolAutonomyGateContract, ToolGateDecision } from "../../autonomy/tool-gate.js";
 import type { DecisionItem, RaiseDecisionInput } from "../../decisions/decision-types.js";
 import { buildDecisionKeyboard } from "../../decisions/telegram-keyboard.js";
 import {
@@ -198,6 +205,16 @@ interface OwnerTelegramAgentDependencies {
   readonly decisions: {
     raise(input: RaiseDecisionInput): Promise<DecisionItem>;
   };
+  /**
+   * The capability-tier gate.
+   *
+   * Required, not optional. A safety backstop that a construction site can omit
+   * is the exact defect this dependency exists to close: `AutonomyService` was
+   * built, reviewed and unreferenced, and the README went on advertising a
+   * control that no code ran. Making it optional would reproduce that shape one
+   * layer down, so a caller that forgets it is a compile error instead.
+   */
+  readonly autonomy: ToolAutonomyGateContract;
   readonly schoolModel: ModelAdapter;
   readonly universityModel: ModelAdapter;
   readonly studyCoachModel: ModelAdapter;
@@ -826,6 +843,12 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       || this.dependencies.authorityText !== input.userText) {
       return refusedTool(call, "I refused that tool call because this is not Sid's direct current Telegram text. Nothing changed.");
     }
+    // Every tool call is evaluated against its capability tier before it acts.
+    // This runs after the authority checks (so only a genuine owner turn is
+    // audited) and before any tool body, so nothing below can execute on a
+    // capability that is tier 3, withheld by shadow mode, or unclassified.
+    const gated = await this.gateTool(input, call);
+    if (gated !== null) return gated;
     if (call.name.startsWith("memory_")) {
       if (!this.dependencies.directOwnerText) {
         return refusedTool(call, "I refused that memory tool call because this is not Sid's direct current Telegram text. Nothing changed.");
@@ -851,6 +874,69 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
 
   private controls(): MemoryOwnerControlsService {
     return new MemoryOwnerControlsService(this.dependencies.database, this.dependencies.archive);
+  }
+
+  /**
+   * The tier gate, as a step in `executeCall`.
+   *
+   * Returns null when the call may proceed, or the refusal to return instead.
+   * Nothing here reads the arguments for meaning -- they are fingerprinted so a
+   * confirmation can bind to them, and that is all.
+   */
+  private async gateTool(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool | null> {
+    let decision: ToolGateDecision;
+    try {
+      decision = await this.dependencies.autonomy.evaluateToolCall({
+        toolName: call.name,
+        principalId: input.principalId,
+        arguments: call.arguments,
+      });
+    } catch {
+      // The gate throws when its audit row could not be written, and the
+      // service's own contract calls that a denial. An action whose evaluation
+      // cannot be recorded is not allowed to run.
+      return refusedTool(call, "I could not record the safety check for that action, so nothing changed.");
+    }
+    if (decision.verdict === "permit") return null;
+    if (decision.verdict === "confirm") return this.raiseTier3Confirmation(input, call, decision);
+    return refusedTool(call, decision.receipt);
+  }
+
+  /**
+   * Ask for the tap a tier-3 capability requires, using the decision queue that
+   * already exists rather than a second confirmation mechanism.
+   *
+   * The raised question carries the capability and a fingerprint of the
+   * arguments, so the tap authorizes this action and not a similar one. It does
+   * not carry the arguments themselves: the owner is asked to approve something
+   * the model is about to do, not to have its content written into the queue.
+   */
+  private async raiseTier3Confirmation(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+    decision: ToolGateDecision,
+  ): Promise<ExecutedTool> {
+    const argumentsHash = await argumentsFingerprint(call.arguments);
+    const raised = await this.dependencies.decisions.raise({
+      principalId: input.principalId,
+      origin: TIER3_TOOL_ORIGIN,
+      originReference: confirmationReference(decision.evaluation.capability, argumentsHash),
+      urgency: "normal",
+      question: `Run ${call.name}? ${decision.evaluation.capability} always needs your tap.`,
+      detail: `${decision.receipt} Tap Confirm, then ask me again and I will do it.`,
+      choices: Object.freeze([{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }]),
+    });
+    recordPendingTelegramReplyMarkup(input.correlationId, Object.freeze({
+      decisionId: raised.decisionId as Ulid,
+      replyMarkup: buildDecisionKeyboard(raised),
+    }));
+    return informationalTool(
+      call,
+      `Nothing has happened yet — that needs your tap. Tap Confirm, then ask me again. ${decision.receipt}`,
+    );
   }
 
   private async ownerTurn(input: Readonly<ModelAdapterStreamInput>, intent: MemoryControlIntent | null) {
