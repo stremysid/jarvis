@@ -201,14 +201,21 @@ time. The same shape had already happened with the D2L calendar feed.
 
 **The rule.** When you learn something durable about Sid or his environment:
 
-1. Write it where the next session will read it — `docs/HANDOFF.md`,
-   `KNOWN_ISSUES.md`, `CLAUDE.md`, or the relevant runbook.
+1. **It is a row in [`docs/FACTS.md`](docs/FACTS.md) — that file is the register,
+   and it is the one place a fact has to reach.** One line: the fact, how we know,
+   the date observed, and whether it still holds. Before asking Sid anything, search
+   there first: an answer he has already given once is not a question to ask again.
 2. If it contradicts something a document already claims, **correct that
-   document in the same change.** Leaving the contradiction is how it recurs.
+   document in the same change.** A fact recorded while the contradiction stands
+   makes the repository disagree with itself, which is worse than not recording it.
 3. If it makes a runbook unusable for him, say so at the TOP of that runbook,
    not in a paragraph halfway down.
 4. Agent memory is a cache, not a record. Treat anything living only there as
    one session away from being lost.
+
+`scripts/check-state.mjs` enforces the register's format — every row needs a source
+and a date — and lists rows that are stale or unconfirmed so they get re-verified
+rather than quietly relied on.
 
 **Sid is the message bus between chats that cannot talk to each other.** Every
 fact that only lives in one chat is a question he has to answer again.
