@@ -24,6 +24,14 @@ Last regenerated: 2026-09-18. Order within a section is the order to do them in.
 the call session. Until that exists, the four rows above buy a phone call that can
 talk and cannot act. It is a builder task, and it is in the queue.
 
+## Blocking the school half of the first release
+
+| Action | Exact steps | State |
+|---|---|---|
+| Send one real Google Classroom notification, forwarded, so a parser can be written | The Classroom REST route is dead on this board, so the notification email is the only route. A builder session stopped rather than inventing the format: *"guessing at the format and shipping tests built on a guessed fixture is worse than nothing, because it would look like coverage."* Forward one real notification to the school mailbox and say so | **not started** |
+| Say whether the forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. Automatic M365 forwarding (SRS) preserves the original DKIM signature; a classic Outlook *Forward* recomposes the body, destroys it, and every message then quarantines as `from_domain_unpinned`. The repository models the first and records the second as unsettled | **not started** |
+| Watch the first real D2L delivery land | Two assumptions in `d2l-email-authenticity.ts` are fail-closed only while they hold: Cloudflare's `authserv-id` string, and the delivered header order. Only a live delivery settles them, and the receipt keeps the evidence | **waiting on a real email** |
+
 ## Decisions only you can make
 
 | Decision | Why it is yours | State |
