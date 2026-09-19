@@ -3,6 +3,146 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 — DeepSeek V4.1 Flash builder: memory rebuild, paused mid-increment
+
+Branch **`codex/memory-rebuild`**, four commits from `1b9cec5`. Everything is pushed and the
+tree is clean. **No PR is open** — nine tests are red, see below. Sid stopped the session;
+this entry is how the next one resumes without re-deriving anything.
+
+**Scope, set by Sid, and it overrides `docs/BUILDING.md`**, which routes R2 Cloud memory to
+GPT-5.6 Sol: build the memory part here, memory only, keep DeepSeek for now, do not touch
+`topic-tree.ts` or `living-notes.ts`, and **build the tools so both channels consume them
+from one place** — do not hang them off the Telegram agent, because that is how voice ended
+up with zero tools.
+
+### Sid's correction, and the reason this is not a rewrite
+
+I had framed the options as "fresh flat `facts` table" versus "keep the ~14k-line ledger".
+That framing was wrong and he corrected it. The 3,061 lines of `0016_cloud_memory.sql` are
+**75 immutability triggers** — `insert_guard` / `immutable_update` / `immutable_delete` —
+which is category 4 of the core rule, *enforcing a decision Jarvis already made*. The
+judgment is elsewhere and it is small: **`extraction-policy.ts` 221 lines and
+`telegram-memory-language.ts` 95 lines, about 316 lines total.** Delete those and the
+judgment is gone; replacing the store would not have deleted them and keeping the store does
+not preserve them. So this is **additive**: columns, a table, two views, and a promotion fix.
+
+**Do not rewrite suppression.** Forgetting is the highest-consequence behaviour here, its
+failure mode is a thing Sid asked to forget coming back, and it demonstrably works —
+anti-joins on every retrieval path that feeds model context, applied before `LIMIT` so a
+filter cannot silently shorten a window, with mutation-killed tests. Rebuilding that to gain
+an `expires_at` column would trade a working guarantee for a tidier schema.
+
+### What landed
+
+1. **`0038_memory_lifetime_and_pins.sql`**, additive. `memory_items.lifetime`
+   (`durable|temporary`); an append-only `memory_item_pins`; `memory_current_pins` and
+   `memory_pinned_item_versions` views; two triggers coupling `lifetime` to the version's
+   `valid_to`; and `item.pin` / `item.unpin` added to the owner-command ingress allowlist.
+
+   Four decisions a reviewer should check, each made because the obvious version was wrong:
+   - **`kind` is taken.** `memory_items.kind` already means the subject taxonomy
+     (`fact|preference|plan|decision|relationship`) with a CHECK, so the durable/temporary
+     axis is `lifetime`.
+   - **`pinned` is a table, not a column.** `memory_item_state_update_guard` requires every
+     update to advance a transition. A pin is not a lifecycle change, so a column there meant
+     relaxing the invariant that makes the state machine trustworthy, to store a preference.
+   - **`expires_at` is the tool's word for the existing `valid_to`.** Every recall path
+     already filters on it and the nightly job already transitions on it. **What was missing
+     was a writer, not a column** — and a second expiry column gives the system two ways to
+     say a fact lapsed.
+   - **The core profile is built on `memory_retrievable_item_versions`, not on the pins**, so
+     a pinned fact Sid later forgets leaves the profile by the same suppression enforcement
+     every other read path uses. The profile is injected into every prompt, which makes it the
+     one read most likely to be trusted and least likely to be questioned.
+2. **The promotion fix**, the item Sid said was the one that mattered. See below.
+3. Nine tests over `0038`, each **mutation-verified**: neutering a guard fails exactly the
+   test that names it.
+
+### The promotion fix, and the tradeoff Sid chose
+
+`isAuthenticatedFirstPersonQuote` required the remembered fact to be the owner's **ENTIRE
+message verbatim**. No conversational turn is, so nothing ever promoted: live D1 held five
+`proposed` and **zero active**, and `memory_retrievable_item_versions` is
+`WHERE lifecycle_state = 'active'`. The feature was inert.
+
+Code now keeps the half that is provenance and checkable — the words are verbatim, from a
+message the channel marked as the owner's own text, forming a whole sentence rather than a
+fragment — and **stops deciding whether the owner is speaking or relaying somebody**, which
+is comprehension. That judgment moved to the extraction prompt, which now carries the rule
+with both examples: *"Mum texted me. I am moving to Calgary in June."* says nothing about the
+owner, nor does the first sentence of *"I prefer tea. Mum texted me about dinner."*
+
+**I stopped and asked before doing this, and that was the right call.** Four existing tests
+were passing *because* of the whole-message rule: `"Mum texted me. I am moving to Calgary in
+June."` and its siblings were rejected by position, not by an attribution check. Loosening
+the rule exposed that there was no attribution guard at all. Sid chose to move attribution to
+the model rather than add a reporting-clause word list — a word list is code making a
+judgment, which is the pattern this work exists to delete, and it fails on "Mum mentioned",
+"she goes", "per my teacher", or no verb at all.
+
+**The four tests were moved, not deleted**, and the PR must not claim otherwise: the property
+is now pinned by the extraction-prompt test in `automatic-distillation.test.ts`, which fails
+if that instruction is removed.
+
+He also corrected me on a fact: I said the forwarded/quoted/pasted flags were hardcoded false
+and carried nothing. Those flags are in `readTelegramMemoryOwnerTurn`, a different and dead
+path. **`telegram-types.ts:265` computes `isDirectText` against eight real Telegram keys**
+(`forward_origin`, `forward_from`, `forward_from_chat`, `forward_sender_name`, `forward_date`,
+`is_automatic_forward`, `external_reply`, `via_bot`) and `isAuthenticatedFirstPersonQuote`
+reads it through `authenticatedOwner`. My "revert and wait for a channel signal" option was
+out on a false premise.
+
+Both runtimes changed, because a shared vector fixture holds them in step:
+`extraction-policy.ts`, `jarvis_local/memory/promotion.py`, and
+`tests/fixtures/memory-extraction-policy.json`.
+
+### Green, and what each number covers
+
+- `test/memory/` — **426 passed**, after every promotion edit.
+- `apps/local-agent` `tests/memory` — **231 passed**; `ruff` and `mypy --platform win32` clean.
+- `test/persistence/` — **799 passed** with 0038 applied.
+- `test/backup/memory-backup.test.ts` — **26/26**.
+- `pnpm test` (root, the whole workspace) — **RED when last run**, and that is how the next
+  item was found. Not re-run after the fixes below.
+
+### RED, and exactly why — this is the next session's first job
+
+**Nine tests in `memory-backup-restore.test.ts`.** Cause identified, repair not attempted.
+
+`assertRestoreTargetPreflight` (`memory-backup-restore.ts:299`) compares the **live trigger
+set** against a set **derived from the migration sources**, and refuses on a size or name
+mismatch. `0038` does `DROP TRIGGER events_memory_owner_command_ingress_guard` and re-creates
+it to add `item.pin` / `item.unpin`, which perturbs that derivation. Two ways out, and the
+second is safer: teach the derivation that a re-created trigger is one trigger, or extend the
+allowlist without touching the live set.
+
+Do **not** simply drop the ingress extension to make it green: `item.pin` would then not be an
+allowed owner command and the pin tests would fail instead.
+
+Also worth knowing: the migration's leading comment originally contained a **semicolon inside
+a `--` comment**, the trap `AGENTS.md` names. The splitter divides on `;`, so the comment became
+a statement with no SQL in it and D1 refused the migration with `SQL code did not contain a
+statement`. Worse, my first mutation pass reported **five guards as verified when only one ran**
+and the rest were skipped behind a failing `beforeAll`. The harness now checks that a mutation
+still splits and refuses to report a result otherwise. A green suite that never ran is not
+evidence.
+
+### Not done, deliberately
+
+- `telegram-memory-language.ts` and `TelegramMemoryControlModelAdapter` are **still there**.
+  Verified unreachable: the adapter is constructed only in `test/memory/telegram-memory.test.ts`,
+  and `controlAuthority` is passed by nobody. Its own PR, per Sid.
+- `topic-tree.ts` and `living-notes.ts` **untouched**, per Sid: separate reasoning, separate PR.
+- No tool surface, no core-profile injection, no wake-ups yet. The hourly review wake-up is a
+  cron and is next after the restore fix. The **quiet-conversation alarm is blocked on the DO
+  work** and must be declared as such rather than half-built against `CallSession`: there is one
+  DO binding (`CALL_SESSION`) and its alarms are the voice step-up deadline.
+- **Correction to my own earlier report:** I told Sid `git grep setAlarm` returns nothing. It
+  returns two hits, `voice/call-session-do.ts:1801` and `:1806`. His conclusion still held, for
+  a better reason than the one given.
+
+Built by **DeepSeek V4.1 Flash**. Reasoning-effort level was not exposed to the session.
+
 ## 2026-09-19 03:30 UTC — DeepSeek V4.1 Flash builder: the `delivery_unknown` flake has a cause, and it is a redaction bug
 
 **The brief was wrong about this in four ways, and the corrections are the work.**
