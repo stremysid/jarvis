@@ -72,6 +72,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "memory_event_suppressions",
   "memory_event_suppression_lifts",
   "memory_item_links",
+  "memory_item_pins",
   "memory_topics",
   "memory_topic_events",
   "memory_topic_aliases",
