@@ -191,6 +191,16 @@ a compile error at every construction site — which is the property that made t
 unskippable. Do not wire it into the retriever to avoid that work; a profile that is usually
 there is the thing the roadmap explicitly did not ask for.
 
+**Settled, because I said it was unattributed and it was worth an hour to not leave it
+that way:** `test/channels/` is flaky **at the parent commit too**, so the extra per-turn
+read did not introduce it. Measured at `6b386c8` — which has the reader but not the wiring —
+three consecutive runs of the same set: `280/280`, `280/280`, then **1 failed** on "falls back
+to the saved receipt when an honesty-repair call fails" at 105 ms. That is the same profile as
+the failures I saw with the wiring: fast, a different test each time, and every one of them
+green when its file is run alone. So this is a **pre-existing non-determinism in this file
+set**, now measured rather than assumed, and it is **not** the load-timeout class (those are
+5–30 s and are #116's subject). It deserves its own item.
+
 Still open after that: `memory_save` taking `expires_at`, the pin/unpin tools and their
 capability tiers, `memory_search`, `confidence` as a projection of `basis`, and the deletion
 PR for `telegram-memory-language.ts`.
