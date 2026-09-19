@@ -482,6 +482,38 @@ still unexplained.**
 building plus one measuring is fine. Three measuring at once is not a queue, it
 is three corrupted experiments.
 
+### The `0036` collision, the blind spot that hid it, and CI coming back
+
+**A second collision appeared within two hours of the first.** `codex/email-read-everything` and `codex/r1-sensitive-action-pin-v6` both claimed `0036` — #96 having moved there off `0035` earlier the same evening.
+
+**The checker I had built that afternoon reported `verdict: clean`.** It enumerated open PR branches via `gh pr list`, and the offending branch had been *pushed with no PR open*. **That is precisely the window in which collisions are created** — this project's standing builder rule is "push before you finish", and the reviewer opens the PR later. The tool was blind exactly when it mattered.
+
+Fixed at `248454f`: it now enumerates `git ls-remote --heads origin`; `gh` is decoration only, so a missing or unauthenticated `gh` no longer aborts. The builder measured the obvious objection rather than assuming it away — a naive scan of all 127 heads produced **5 false groups** from stale forks. Two objective rules remove them: exclude branches already merged into `main` (**and print every exclusion**), and compare each branch against **its own merge-base with main**, not main's tip. Findings are classed `COLLISION` (sets the verdict), `STALE` and `REVISION` (printed, never counted) — because a tool that stays red on finished work gets ignored, which is the failure the docs checker spent a day fixing.
+
+**Verified by me, not accepted:** live state → exit 1, `COLLISION 0036` naming both branches including the PR-less one; after retiring the superseded branch → `verdict: clean`, exit 0, with `STALE 0027` and `REVISION 0035` still reported and still not counted.
+
+`codex/email-read-everything` (`13929a5`) was retired: confirmed a strict ancestor of `codex/email-read-everything-0037`, so every commit is preserved. Restore with
+`git push origin 13929a5aa2fa87ecae8d4aac3e01b9157b3ae06a:refs/heads/codex/email-read-everything`.
+
+### CI IS BACK, and its first run overturns two load-bearing beliefs
+
+Sid bought a plan; Actions has ~50k minutes. Runs before ~23:40 UTC still failed in **2 seconds with zero steps** — the old billing signature. The run at 23:43 executed for real.
+
+| Job | Result |
+|---|---|
+| hermes-runtime (windows) | **success** |
+| watchdog / deployment scripts / byte-exact | success |
+| workspace suite | **198 of 199 files** — one failure |
+| local-agent (ubuntu **and** windows) | failure |
+
+**1. The four hermes tests "red on `main` for six days" PASS in CI.** They were never broken. They time out on a loaded Windows machine against the unconfigured 5000 ms default. **`gate.ps1` carries them on a known-failures allowlist documented as "must shrink and must never grow silently" — an allowlist holding four healthy tests is excusing failures it should not.** That list needs re-deriving from CI, not from local runs.
+
+**2. "Reviving CI goes red immediately and blocks every merge" does not hold.** It is 198/199 with a single failure, and that failure is the known roaming flake in `owner-telegram-agent.test.ts`. **That one flake is now the only thing between this repository and a green build**, which makes it far more valuable than when I stopped a builder on it for load.
+
+**3. The one genuine break is Python, and only CI can see it.** `ruff` passes, `mypy --strict` passes, one test fails on both operating systems: `test_python_runs_the_shared_canonicalization_and_verifier_known_answers`. The Python passphrase digest disagrees with the shared known-answer vector (`d43fzp6T…` against `t4KRRUm+…`). **[I]** my reading is drift from PR #89, which restructured the TypeScript hashing into six chained passes to clear Cloudflare's 100,000-iteration ceiling, without the Python side being carried across — and CI, the only thing that runs Python at all, was dead when it landed. Not yet confirmed by reading both implementations.
+
+**Operational consequence:** stop running full local gates. CI runs every package on hardware that is not Sid's SSD. Keep local runs for single files and for controls.
+
 ### Housekeeping
 
 `main` gained ~5,200 lines of code since this branch's merge base, including
