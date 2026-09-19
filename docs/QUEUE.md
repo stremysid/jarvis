@@ -15,10 +15,9 @@ Last regenerated: 2026-09-19, against `main` = run `git log --oneline origin/mai
 | PR | State | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
 | [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Resolve the conflict against `main`, then request review | builder | **v1.0** | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Its `\d{2,}` contextual rule is the fix for the four-digit PIN gap, verified by executing `sanitizeRedaction`. Conflicting since 2026-09-18 |
-| [#108](https://github.com/stremysid/jarvis/pull/108) | **ready-to-merge** | Merge | reviewer | none | Review protocol. Accepted with one amendment, pushed: §3.4 now points at `AGENTS.md`'s existing reviewer-authored rule. Sections 6–7 ruled on separately |
-| [#109](https://github.com/stremysid/jarvis/pull/109) | **ready-to-merge** | Merge | reviewer | none | Redesign and optimisation, 30 items. A1 and A2 struck as closed by #106 and #110; E1 re-ranked now that CI gates real merges |
 | [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Land `testTimeout` first, then re-measure | builder | none | `gate.ps1` isolation runs 1 → 3, classifying on the rate. Conflicting, and the cause is upstream: no `testTimeout` is configured, so three runs measure machine load three times |
 | [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | A second vendor reads it — **not** the reviewer who wrote it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored, so `AGENTS.md`'s rule applies |
+| [#117](https://github.com/stremysid/jarvis/pull/117) | **awaiting-independent-pass** | A second vendor reads it | Sid | none | Wires `check-state.mjs` into CI as the `state carriers are honest` job, and regenerates the carriers, which were stale on arrival. Reviewer-authored. CI green on this branch |
 
 ## Work with no pull request yet
 
