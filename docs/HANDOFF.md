@@ -57,7 +57,7 @@ Six findings survived independent re-derivation. **Work order:**
 
 | # | Finding | Note for whoever picks it up |
 |---|---|---|
-| 1 | The red `local-agent` CI job | `d839cad` moved the Worker to six chained 100,000-iteration PBKDF2 passes and regenerated the shared fixture; `owner_passphrase_policy.py:70` still makes one 600,000 call. **Do not regenerate `digestBase64` back** — that blesses the divergence the fixture exists to catch |
+| 1 | ~~The red `local-agent` CI job~~ — **CLOSED 2026-09-19** | `d839cad` moved the Worker to six chained 100,000-iteration PBKDF2 passes and regenerated the shared fixture; `owner_passphrase_policy.py` made one 600,000 call. [#115](https://github.com/stremysid/jarvis/pull/115) (`fbd3f0b`) taught Python the chain — repair (a) of the two this row named, and the one that keeps the fixture's cross-runtime pin. The trap was **not** taken: the fixture was never edited back to `d43fzp6…`. Re-verified at `6c64312` by recomputing the fixture digest with the real `deriveChainedPbkdf2Sha256` and by two named mutations; see the AGENT_LOG entry of 2026-09-19 03:30 UTC |
 | 2 | `channel_identities` has no `BEFORE INSERT` trigger, and `capability_tiers` has neither an update nor a delete guard | One migration, four triggers. `0035`, `0036` and `0037` are all claimed — use **`0038`** |
 | 3 | `tool-gate.ts` returns `verdict: "permit"` as a literal | **`verdictFor(confirmed)` is the wrong fix**; it breaks the confirmed path, because `decideOutcome` takes no input but tier and mode. Deny when the second evaluation is not the outcome the first one was |
 | 4 | `telegram-provider.ts` clears its abort timer before the body read | Under a comment saying the timeout exists so that cannot happen. `twilio-provider.ts` does it correctly |
@@ -78,7 +78,8 @@ means somebody read a test's *name*, not that anyone watched it pass.
 Every builder is stopped. Sid stopped them inside his peak-cost window and that
 stands until he says otherwise. **The cheap window is 12:30-20:30 his time
 (16:30-00:30 UTC)**; outside it, the same work bills at double. When it reopens,
-finding 1 goes first — nothing else can be proven green while the gate is red.
+finding 2 goes first: finding 1 closed on 2026-09-19 (`fbd3f0b`, PR #115) and no
+longer gates anything.
 
 ### Waiting on Sid, and he has been told
 

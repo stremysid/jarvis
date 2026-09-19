@@ -3,6 +3,138 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 03:30 UTC — deepseek-flash builder, effort low: the `local-agent` job is already green; I verified the pin instead of re-taking the trap
+
+**Signature.** `deepseek-official/deepseek-flash`, reasoning effort `low`. Basis:
+this session's own log records that provider and model 51 times and the host
+`settings.yaml` default is `agent-default-model: deepseek-flash / reasoningEffort: low`,
+which the `jarvis-builder` preset does not override.
+
+**The task I was handed was stale, in two ways.** It said the red CI job is
+`local-agent`, and that `owner_passphrase_policy.py:70` still makes one 600,000
+call while the Worker chains. Both were true when `HANDOFF.md` §0 row 1 was
+written and neither is true at `origin/main` = `6c64312`. **`fbd3f0b` (PR #115,
+merged 2026-09-18 22:45 EDT) is the fix**, and it is exactly repair (a) — the one
+that keeps the fixture's cross-runtime pin. I did not re-do it, and I did not
+touch the fixture.
+
+### What I observed, not what I was told
+
+| Claim in the brief | What I found at `6c64312` |
+|---|---|
+| `local-agent` CI is red | **Green.** Run `35416717277` (2026-09-19T02:47:54Z): `local-agent (ubuntu-latest)` and `local-agent (windows-latest)` both `success`. Logs: ubuntu `uv run pytest -q` → **896 passed, 14 skipped** in 17.58s; windows → **878 passed, 32 skipped** in 50.46s |
+| Python still makes one 600,000 call | **No.** `PASSES = 6`, `PASS_ITERATIONS = 100_000`, and `derive_owner_passphrase_digest` loops six `pbkdf2_hmac` calls, feeding each 32-byte result in as the next password |
+| The red job is `local-agent` | **It is `workspace suite`.** Same run: **1 failed \| 5358 passed (5359)** — `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > falls back to the saved receipt when an honesty-repair call fails`, `outcome: 'delivery_unknown'` against `'telegram_delivered'` |
+
+### The independent check — the fixture is not taken on faith
+
+I did not accept "the Python test passes" as evidence that the two runtimes agree.
+I recomputed the fixture's digest from the **real Worker module**, in Node 24.19.0,
+importing `apps/cloud-gateway/src/security/chained-pbkdf2.ts` as of `6c64312`
+(type-stripped, no reimplementation), over the fixture's own pepper, salt,
+identity, version and phrase:
+
+| Derivation | digestBase64 |
+|---|---|
+| `deriveChainedPbkdf2Sha256` (six chained 100,000-iteration passes) | `t4KRRUm+00uOGSYZrH4rXuXvMv5KzzEhX9WPPqDSEv8=` |
+| one 600,000-iteration `pbkdf2_hmac` call | `d43fzp6T7IUFNctDqb1DYp2TNmAQ3XRIC0eKzAFW9Xk=` |
+| `packages/contracts/fixtures/owner-passphrase-known-answer-v1.json` `digestBase64` | `t4KRRUm+00uOGSYZrH4rXuXvMv5KzzEhX9WPPqDSEv8=` |
+
+The first row is the fixture. The second is **exactly the digest `d839cad`
+replaced** (`git show d839cad` on the fixture: `d43fzp6…` → `t4KRRUm+…`). So the
+fixture distinguishes the chain from the one-long-call, which is the whole reason
+it exists, and it is the same value both runtimes are measured against:
+`test_owner_passphrase.py` asserts Python equals it, and
+`voice-owner-passphrase-security.test.ts` builds a real `OwnerPassphraseVerifier`
+record and asserts the record equals it.
+
+### Mutations — both sides, each killing a *named* test
+
+The guard I am claiming is pinned is the fixture's digest half. I neutered each
+runtime in turn and watched the suite that owns it go red.
+
+- **M1 — Python, restore the pre-fix defect.** Replaced the six-pass loop in
+  `derive_owner_passphrase_digest` with one `pbkdf2_hmac("sha256", peppered, salt,
+  ITERATIONS, dklen=32)`. `uv run pytest tests/test_owner_passphrase.py -q` →
+  **1 failed, 11 passed**; the failure is named
+  `test_python_runs_the_shared_canonicalization_and_verifier_known_answers`, and
+  it reports `d43fzp6T7IUFNctDqb1DYp2TNmAQ3XRIC0eKzAFW9Xk=` against the fixture's
+  `t4KRRUm+00uOGSYZrH4rXuXvMv5KzzEhX9WPPqDSEv8=`. Restored with `git checkout`;
+  re-ran → **12 passed**.
+- **M2 — Worker, break the chain.** `const PASSES = 6` → `5` in
+  `chained-pbkdf2.ts`. `pnpm vitest --config vitest.workspace.ts run
+  tests/acceptance/fake/voice-owner-passphrase-security.test.ts` →
+  **1 failed | 37 passed (38)**; the failure is named `constructs the six-pass
+  chained PBKDF2 known answer, verifies its phrase, and rejects a wrong one`,
+  receiving `5pCufV5IxThofy3pI48TYThyiq0u8Nb0fmwudSxp934=`. Restored; re-ran the
+  same file → **38 passed (38)**.
+
+M2 is the more informative one: the other **37 pass** under a wrong chain length,
+including every create-then-verify round trip, because those are internally
+self-consistent. **The fixture is the only thing in the repository pinning the
+chain length**, which is why it was worth checking by hand rather than by suite.
+
+### Gates I ran, and what each covers
+
+| Command | Result |
+|---|---|
+| `uv run ruff check .` (apps/local-agent) | All checks passed! |
+| `uv run mypy --platform win32 jarvis_local` | Success: no issues found in 58 source files |
+| `uv run pytest -q tests/test_owner_passphrase.py` | **12 passed** — watched, not read |
+| `pnpm vitest ... tests/acceptance/fake/voice-owner-passphrase-security.test.ts` | **38 passed (38)** — watched |
+| `pnpm vitest ... apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts` | **96 passed (96)** in 12.10s, run once, alone |
+
+The first three are the `local-agent` job's steps, run at `6c64312` on this
+Windows 11 box. The last one is the **only** observation I made of the
+`workspace suite` failure, and it does not clear it: one pass in isolation does
+not disprove an intermittent flake, and the 2026-09-18 22:05 UTC entry in this
+log records the same file failing **2 of 11** isolated runs. **I am not claiming
+the workspace suite is fixed.** It is red on `main` and it is not this defect.
+
+**Not run:** the full `pnpm test` workspace suite (I ran two of its 201 files),
+`pnpm test:all`, and the hermes-runtime and watchdog suites. No CI number here is
+a `test:all` number.
+
+### What changed in this PR
+
+Documentation only — there is no source change to make, because the source change
+is already on `main` and I verified it rather than wrote it.
+
+- `docs/HANDOFF.md` §0 row 1: marked closed, with the sha and what now pins it,
+  and the "when it reopens, finding 1 goes first" sentence corrected to finding 2.
+  That row is the carrier this task was written from; leaving it would send the
+  next session to re-fix a merged fix, which is the failure `AGENTS.md` describes.
+- This entry.
+
+### What would fail if the two runtimes diverged again
+
+Concretely, and by name. Python reverting to one 600,000-iteration call fails
+`test_python_runs_the_shared_canonicalization_and_verifier_known_answers` in the
+`local-agent` job, on both OSes. The Worker changing its chain fails `constructs
+the six-pass chained PBKDF2 known answer, verifies its phrase, and rejects a wrong
+one` in the `workspace suite`. Both fail on the digest value itself, so the
+message names which side moved. **Regenerating `digestBase64` from either
+implementation is no longer a trap** — the two implementations now compute the
+same bytes, which is the property that took the trap away; the trap only existed
+while Python was the odd one out.
+
+### Out of scope, named and not touched
+
+- **`docs/STATE.md` says CI is dead.** It reads *"Dead since 2026-09-12 (billing),
+  resets 2026-10-01. Every push since is red in 5–11 s"*. CI is alive: run
+  `35416717277` has real per-job outcomes, including a 10-minute `workspace suite`.
+  The correction exists on `codex/facts-register` (`9cb8e13`) and is not on `main`,
+  and `claude/wire-state-check` (`596b6c4`, green run `35416768945`) is a second
+  in-flight attempt at it. I left it alone rather than open a third conflict.
+- **`STATE.md`'s gate table is stale too**, in the same direction: it says 199
+  files / 5,342 tests; the CI workspace suite alone reported 201 files / 5,359.
+- **`ITERATIONS` in `owner_passphrase_policy.py` is now dead.** Its comment says it
+  stays "for anything reporting the cost", but `git grep` finds no reader — the
+  helper is imported by its own test and nothing else, which the brief had right.
+  Harmless; not changed.
+- **The `workspace suite` flake** is the actual red job on `main`. It deserves its
+  own issue, as the 2026-09-18 entry already said.
+
 ## 2026-09-18 — Claude Opus 5 reviewer: I read the full audit, and six findings survive
 
 Sid commissioned a second-vendor deep dive and told me to read it whole rather
