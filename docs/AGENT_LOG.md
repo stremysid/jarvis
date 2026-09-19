@@ -157,10 +157,43 @@ green suite that never ran is not evidence.
   Verified unreachable: the adapter is constructed only in `test/memory/telegram-memory.test.ts`,
   and `controlAuthority` is passed by nobody. Its own PR, per Sid.
 - `topic-tree.ts` and `living-notes.ts` **untouched**, per Sid: separate reasoning, separate PR.
-- No tool surface, no core-profile injection, no wake-ups yet. The hourly review wake-up is a
-  cron and is next after the restore fix. The **quiet-conversation alarm is blocked on the DO
-  work** and must be declared as such rather than half-built against `CallSession`: there is one
-  DO binding (`CALL_SESSION`) and its alarms are the voice step-up deadline.
+- No tool surface and no wake-ups yet. The hourly review wake-up is a cron and is next.
+  The **quiet-conversation alarm is blocked on the DO work** and must be declared as such
+  rather than half-built against `CallSession`: there is one DO binding (`CALL_SESSION`) and
+  its alarms are the voice step-up deadline.
+
+### Addendum: the core-profile reader is in, and the injection seam is an open decision
+
+`src/memory/core-profile.ts` reads `memory_pinned_item_versions` and renders the block, or
+`null` when nothing is pinned. It lives in `src/memory` rather than the Telegram adapter so
+both channels can import it, which is the constraint Sid set. Mutation-verified both ways:
+a reader that bypasses the retrievable view fails the suppression test, and a reader that
+ignores the pins fails the newest-pin test. The suppression test asserts **through the
+reader**, not against the view, which is what makes that mutation catchable at all.
+
+**It is not yet injected, and that is deliberate rather than forgotten.** Two seams, and the
+choice has a consequence worth deciding rather than discovering:
+
+- **The Telegram adapter** (`owner-telegram-agent.ts`, where the system prompt is built).
+  Always present, cannot be dropped by a budget — but its dependency list is a strict
+  validated allowlist and **it has no logger or telemetry port at all**. A core-profile read
+  that failed there would have to be swallowed silently, and *silent omission* is the exact
+  defect class `docs/plan/2026-09-19-memory-redesign.md` §2 names ("when a search times out
+  or the circuit is open the model silently receives no memory and is never told").
+- **The retriever** (`TelegramMemoryRetriever.retrieve`), which already has budgets,
+  timeouts and telemetry. But that pipeline can skip or time out, so the profile could be
+  dropped — against "injected on every turn".
+
+**Recommendation for whoever picks this up:** the adapter, plus a small telemetry port added
+to `OwnerTelegramAgentDependencies` so a failed profile read is recorded rather than
+swallowed. The dependency list is validated by design, so adding one is a deliberate act and
+a compile error at every construction site — which is the property that made the tier gate
+unskippable. Do not wire it into the retriever to avoid that work; a profile that is usually
+there is the thing the roadmap explicitly did not ask for.
+
+Still open after that: `memory_save` taking `expires_at`, the pin/unpin tools and their
+capability tiers, `memory_search`, `confidence` as a projection of `basis`, and the deletion
+PR for `telegram-memory-language.ts`.
 - **Correction to my own earlier report:** I told Sid `git grep setAlarm` returns nothing. It
   returns two hits, `voice/call-session-do.ts:1801` and `:1806`. His conclusion still held, for
   a better reason than the one given.
