@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../../src/conversation/outbox-dispatcher.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
@@ -146,6 +147,7 @@ async function runPipelineTurn(input: {
       provider: agent,
       database: env.DB,
       archive: env.ARCHIVE,
+      autonomy: await testToolGate(env.DB),
       ownerPrincipalId: principalId,
       directOwnerText: true,
       authorityText: input.message,

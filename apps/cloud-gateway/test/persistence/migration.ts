@@ -34,7 +34,10 @@ import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup
 import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
+import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
 
+let scheduledRunDetailMigrated: Promise<void> | undefined;
+let newestRuntimeMigrated: Promise<void> | undefined;
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let cloudMemoryMigrated: Promise<void> | undefined;
@@ -276,14 +279,30 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
  * fixture that already asked for the current schema keeps getting the current
  * schema instead of silently pinning itself one migration back.
  */
-export async function applyD2lNotificationEmailMigration(): Promise<void> {
+export async function applyNewestRuntimeMigration(): Promise<void> {
   await applyMemoryLivingNotesMigration();
-  d2lNotificationEmailMigrated ??= applyD1Migrations(env.DB, [
+  newestRuntimeMigrated ??= applyD1Migrations(env.DB, [
     { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
     { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
+    {
+      name: "0035_autonomy_tool_capabilities.sql",
+      queries: splitMigration(autonomyToolCapabilitiesSql),
+    },
   ]);
-  await d2lNotificationEmailMigrated;
+  await newestRuntimeMigrated;
 }
+
+/**
+ * Aliases for the newest prefix.
+ *
+ * The previous name described the migration that introduced it, and stopped
+ * being true the moment another landed -- while every fixture that asked for
+ * "the current schema" kept silently getting one migration less. Naming the
+ * function after what it is fixes that, and the aliases keep existing callers
+ * honest rather than rewritten.
+ */
+export const applyD2lNotificationEmailMigration = applyNewestRuntimeMigration;
+export const applyAutonomyToolCapabilitiesMigration = applyNewestRuntimeMigration;
 
 const allCloudGatewayMigrations = Object.freeze([
   ...voiceAccessBaseMigrations,
@@ -309,6 +328,10 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
   { name: "0033_d2l_notification_email.sql", queries: splitMigration(d2lNotificationEmailSql) },
   { name: "0034_scheduled_run_detail.sql", queries: splitMigration(scheduledRunDetailSql) },
+  {
+    name: "0035_autonomy_tool_capabilities.sql",
+    queries: splitMigration(autonomyToolCapabilitiesSql),
+  },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
