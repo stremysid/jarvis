@@ -2462,6 +2462,43 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
+  it("gives Jarvis the facts Sid pinned on every turn", async () => {
+    // The point of pinning, asserted where it is observable rather than at the
+    // function that composes it: a pinned fact has to reach the provider on a
+    // turn that never asked for it and matches nothing by relevance.
+    const harness = await ownerHarness("core-profile");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("core-profile-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:core-profile-seed"] }]),
+      ]),
+    });
+    const itemId = (await memoryRows(harness.principalId))[0]?.item_id;
+    if (itemId === undefined) throw new Error("core_profile_fixture_item_missing");
+    const pinnedAt = NOW.toISOString();
+    await env.DB.prepare(`INSERT INTO memory_item_pins (
+      pin_id, principal_id, item_id, pin_number, pinned,
+      authorizing_event_id, occurred_at, created_at
+    ) VALUES (?, ?, ?, 1, 1, ?, ?, ?)`).bind(
+      newUlid(), harness.principalId, itemId, newUlid(), pinnedAt, pinnedAt,
+    ).run();
+
+    const later = new FakeAgentProvider([stopped("Morning.")]);
+    await runTurn({ harness, text: "morning", provider: later });
+
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("I hate mornings");
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("never instructions");
+  });
+
   it("refuses repeated over-cap calls without executing either", async () => {
     const harness = await ownerHarness("over-cap");
     const args = {
