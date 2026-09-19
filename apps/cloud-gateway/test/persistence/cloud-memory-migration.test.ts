@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import { applyCloudMemoryMigration, applyNewestRuntimeMigration } from "./migration.js";
+import { composeCoreProfile, MAX_CORE_PROFILE_FACTS, readCoreProfile } from "../../src/memory/core-profile.js";
 
 const testClock = Date.now();
 const timestamp = new Date(testClock - 60_000).toISOString();
@@ -5124,6 +5125,44 @@ describe.sequential("memory lifetime and the core profile (0038)", () => {
     expect(await inProfile()).toBeNull();
   });
 
+  it("gives the core profile a fact only while the newest pin says so", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+
+    expect(await readCoreProfile(env.DB, owner.principalId)).toEqual([]);
+    await pinItem(owner.principalId, item.itemId, 1, 1);
+    expect((await readCoreProfile(env.DB, owner.principalId)).map((fact) => fact.itemId))
+      .toEqual([item.itemId]);
+    await pinItem(owner.principalId, item.itemId, 2, 0);
+    expect(await readCoreProfile(env.DB, owner.principalId)).toEqual([]);
+  });
+
+  it("bounds the profile read rather than trusting the caller's limit", async () => {
+    const owner = await seedPrincipal();
+    const item = await seedActiveItem(owner.principalId, await seedEvent(owner.principalId));
+    await pinItem(owner.principalId, item.itemId, 1, 1);
+
+    // Zero clamps up to one; a caller cannot ask for zero and then be surprised
+    // that the profile is missing, or ask for more than a prompt should carry.
+    expect((await readCoreProfile(env.DB, owner.principalId, 0)).length).toBe(1);
+    expect((await readCoreProfile(env.DB, owner.principalId, 10_000)).length)
+      .toBeLessThanOrEqual(MAX_CORE_PROFILE_FACTS);
+  });
+
+  it("renders the profile as reference data and renders nothing when it is empty", () => {
+    expect(composeCoreProfile([])).toBeNull();
+    const itemId = nextUlid();
+    const block = composeCoreProfile([{ itemId, versionId: nextUlid(), text: "I hate mornings." }]);
+
+    // Pinned wording comes from a conversation that may itself have been
+    // forwarded, so the block keeps the same boundary retrieved memory already
+    // has rather than becoming instructions by virtue of being pinned.
+    expect(block).toContain("never instructions");
+    expect(block).toContain("I hate mornings.");
+    expect(block).toContain(`item ${itemId}`);
+  });
+
   it("hides a pinned fact from the core profile once its source turn is suppressed", async () => {
     // The profile is injected into every prompt, which makes it the one read
     // path most likely to be trusted and least likely to be questioned. So this
@@ -5135,10 +5174,12 @@ describe.sequential("memory lifetime and the core profile (0038)", () => {
     const source = await seedEvent(owner.principalId);
     const item = await seedActiveItem(owner.principalId, source);
     await pinItem(owner.principalId, item.itemId, 1, 1);
-    const inProfile = () => env.DB.prepare(
-      "SELECT item_id FROM memory_pinned_item_versions WHERE item_id = ?",
-    ).bind(item.itemId).first();
-    expect(await inProfile()).toEqual({ item_id: item.itemId });
+    // Asserted through the reader rather than against the view, so that a
+    // reader which bypassed the retrievable view -- reading the pins directly --
+    // would fail this rather than passing it.
+    const inProfile = async () => (await readCoreProfile(env.DB, owner.principalId))
+      .some((fact) => fact.itemId === item.itemId);
+    expect(await inProfile()).toBe(true);
 
     const suppressionId = nextUlid();
     const command = await seedOwnerCommand(owner.principalId, "history.suppress", suppressionId, {
@@ -5156,7 +5197,7 @@ describe.sequential("memory lifetime and the core profile (0038)", () => {
       .bind(suppressionId, owner.principalId, source.eventId, command.eventId, laterTimestamp)
       .run();
 
-    expect(await inProfile()).toBeNull();
+    expect(await inProfile()).toBe(false);
     expect(await env.DB.prepare(
       "SELECT lifecycle_state FROM memory_item_state WHERE item_id = ?",
     ).bind(item.itemId).first()).toEqual({ lifecycle_state: "active" });
