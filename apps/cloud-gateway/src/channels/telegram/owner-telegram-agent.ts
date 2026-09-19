@@ -286,6 +286,27 @@ function parseArgumentsWithOptionalExcerpt(
   return decoded;
 }
 
+/**
+ * `memory_remember`'s arguments, with or without the lifetime pair.
+ *
+ * `parseArguments` insists on an exact key set, which is what makes a
+ * hallucinated argument a refusal rather than a silently dropped field, so an
+ * optional field is expressed as a second accepted shape instead of by
+ * loosening that check. `lifetime` and `expiresAt` are one shape and not two,
+ * because they are coupled: durable carries no end, temporary requires one, so
+ * a call sending just one of them is not a call this tool can mean.
+ */
+function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown> {
+  const required = [
+    "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
+  ];
+  try {
+    return parseArguments(call, required);
+  } catch {
+    return parseArguments(call, [...required, "lifetime", "expiresAt"]);
+  }
+}
+
 function safeUlid(value: unknown): Ulid {
   if (typeof value !== "string" || !ULID.test(value)) throw new TypeError("owner_agent_item_id_invalid");
   return value as Ulid;
@@ -997,9 +1018,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async remember(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
-    const args = parseArguments(call, [
-      "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
-    ]);
+    const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
@@ -1024,6 +1043,18 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
       throw new TypeError("owner_agent_memory_arguments_invalid");
     }
+    // Shape only. Whether the pair is *consistent* -- durable with no end,
+    // temporary with one -- is the capture's call, so that judgment lives in one
+    // place rather than being re-implemented here and drifting from it.
+    const lifetime = args.lifetime === undefined ? "durable" : args.lifetime;
+    if (lifetime !== "durable" && lifetime !== "temporary") {
+      throw new TypeError("owner_agent_memory_lifetime_invalid");
+    }
+    const expiresAt = args.expiresAt === undefined ? null : args.expiresAt;
+    if (expiresAt !== null
+      && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
+      throw new TypeError("owner_agent_memory_expiry_invalid");
+    }
     const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
     const result = await this.controls().remember({
       ownerTurn: await this.ownerTurn(input, "remember"),
@@ -1033,6 +1064,8 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       normalizedFromSource: grounding.authoritative,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
+      lifetime,
+      validTo: expiresAt,
     });
     return successfulTool(
       call,

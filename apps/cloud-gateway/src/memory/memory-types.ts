@@ -5,6 +5,9 @@ export const MEMORY_INBOX_DISPLAY_NAME = "Inbox / Needs filing";
 export const MEMORY_TOPIC_REDIRECT_LIMIT = 64;
 
 export type MemoryKind = "fact" | "preference" | "plan" | "decision" | "relationship";
+/** Durable facts have no end. Temporary ones carry one and lapse from recall. */
+export type MemoryLifetime = "durable" | "temporary";
+
 export type MemoryBasis = "stated" | "confirmed" | "observed" | "inferred" | "third_party";
 export type MemoryOrigin =
   | "authenticated_first_person"
@@ -90,6 +93,16 @@ export interface CommitInitialMemoryInput {
   readonly principalId: string;
   readonly itemId: Ulid;
   readonly kind: MemoryKind;
+  /**
+   * Whether the fact stops being true on its own.
+   *
+   * Optional, and derived from the version's end when absent, so that every
+   * caller written before the column existed keeps its exact behaviour: no end
+   * means durable. Set at creation because nothing updates it -- `memory_items`
+   * is insert-only -- and the coupling trigger in `0038` then holds the
+   * version's `valid_to` to it.
+   */
+  readonly lifetime?: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: InitialMemoryVersionInput;

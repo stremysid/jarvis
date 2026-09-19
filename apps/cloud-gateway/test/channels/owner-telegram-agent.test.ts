@@ -2462,6 +2462,66 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
+  it("records a temporary fact with the end Sid gave it", async () => {
+    // Phase 2 asks for temporary facts to drop out of recall after their end.
+    // The column and every recall filter already understood that; nothing ever
+    // wrote a value, so no fact could be temporary. This is the writer.
+    const harness = await ownerHarness("temporary-fact");
+    const expiresAt = "2026-09-18T04:00:00.000Z";
+    await runTurn({
+      harness,
+      text: "I'm tired today",
+      provider: new FakeAgentProvider([
+        called(tool("temp-1", "memory_remember", {
+          fact: "I'm tired today",
+          supportingExcerpt: "I'm tired today",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+          lifetime: "temporary",
+          expiresAt,
+        })),
+        stopped("Noted.", [{ sentence: "Noted.", receiptIds: ["receipt:temp-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "temporary", valid_to: expiresAt });
+  });
+
+  it("still records a fact as durable when the model says nothing about its lifetime", async () => {
+    // The schema gained two optional fields, so every call that predates them
+    // must behave exactly as it did: durable, with no end.
+    const harness = await ownerHarness("durable-default");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("dur-1", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:dur-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "durable", valid_to: null });
+  });
+
   it("gives Jarvis the facts Sid pinned on every turn", async () => {
     // The point of pinning, asserted where it is observable rather than at the
     // function that composes it: a pinned fact has to reach the provider on a

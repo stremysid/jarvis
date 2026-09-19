@@ -1315,6 +1315,12 @@ export class AutomaticMemoryDistillationWorkflow {
       principalId: this.options.principalId,
       itemId,
       kind: "fact",
+      // An extracted fact is durable: this path passes `validTo: null`, and the
+      // capture refuses a durable item that carries an end. Whether an extracted
+      // fact should be able to lapse is a real question, but answering it by
+      // guessing an expiry here would be code deciding what the roadmap gives to
+      // the model, so it stays durable until a tool can say otherwise.
+      lifetime: "durable",
       creationEventId: anchor.eventId,
       creationEventSequence: anchor.eventSequence,
       version: Object.freeze({

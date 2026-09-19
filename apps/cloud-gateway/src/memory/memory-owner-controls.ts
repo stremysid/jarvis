@@ -28,6 +28,7 @@ import {
   type LiftMemoryItemInput,
   type MemoryControlIntent,
   type MemoryKind,
+  type MemoryLifetime,
   type MemoryOwnerTurnInput,
   type MemorySensitivity,
 } from "./memory-types.js";
@@ -57,6 +58,16 @@ export interface RememberMemoryInput {
   readonly sourceExcerpt?: string;
   readonly basis?: "stated" | "confirmed" | "inferred";
   readonly normalizedFromSource?: boolean;
+  /**
+   * Whether this stops being true on its own, and when.
+   *
+   * Optional so every existing caller keeps its behaviour -- absent means
+   * durable, which is what the store did before the column existed. The two are
+   * validated as a pair: durable with an end, or temporary without one, is
+   * refused rather than stored and then rejected by the coupling trigger.
+   */
+  readonly lifetime?: MemoryLifetime;
+  readonly validTo?: string | null;
 }
 
 export interface ConfirmedForgetDecisionInput {
@@ -358,17 +369,34 @@ type DecodedRememberPayload = Readonly<{
   placementId: Ulid;
   placementEventId: Ulid;
   topicId: Ulid;
+  lifetime: MemoryLifetime;
+  validTo: string | null;
 }>;
 
 function rememberPayload(value: JsonValue): DecodedRememberPayload {
   const payload = record(value);
   exactKeys(payload, [
     "operation", "targetId", "itemId", "versionId", "lifecycleState", "sourceId",
-    "placementId", "placementEventId", "topicId",
+    "placementId", "placementEventId", "topicId", "lifetime", "validTo",
   ]);
   if (payload.operation !== "item.transition"
     || payload.lifecycleState !== "active" && payload.lifecycleState !== "proposed") refuse();
   const transitionId = inputUlid(payload.targetId);
+  // Re-decoded on replay, so the coupling is checked here too: a stored command
+  // that says durable while carrying an end would otherwise be replayed into an
+  // item the trigger then refuses, and the failure would look like a data fault
+  // rather than a bad command.
+  const lifetime = payload.lifetime;
+  if (lifetime !== "durable" && lifetime !== "temporary") refuse();
+  const rawValidTo = payload.validTo;
+  // Canonical RFC 3339, compared the way the rest of this ledger compares a
+  // timestamp: round-tripping through Date is the check, so a value that parses
+  // but does not round-trip is refused rather than stored in a shape the recall
+  // filters would compare as text.
+  if (rawValidTo !== null
+    && (typeof rawValidTo !== "string" || new Date(rawValidTo).toISOString() !== rawValidTo)) refuse();
+  const validTo = rawValidTo === null ? null : rawValidTo;
+  if ((lifetime === "durable") !== (validTo === null)) refuse();
   return Object.freeze({
     transitionId,
     itemId: inputUlid(payload.itemId),
@@ -377,6 +405,8 @@ function rememberPayload(value: JsonValue): DecodedRememberPayload {
     placementId: inputUlid(payload.placementId),
     placementEventId: inputUlid(payload.placementEventId),
     topicId: inputUlid(payload.topicId),
+    lifetime,
+    validTo,
   });
 }
 
@@ -626,6 +656,8 @@ export class MemoryOwnerControlsService {
             placementId: this.nextId(),
             placementEventId: this.nextId(),
             topicId: topics.inbox.topicId,
+            lifetime: input.lifetime ?? "durable",
+            validTo: input.validTo ?? null,
           });
         }
       }
@@ -634,6 +666,7 @@ export class MemoryOwnerControlsService {
         principalId: ownerTurn.principalId,
         itemId: payload.itemId,
         kind,
+        lifetime: payload.lifetime,
         creationEventId: ownerTurn.eventId,
         creationEventSequence: ownerTurn.eventSequence,
         version: {
@@ -645,7 +678,7 @@ export class MemoryOwnerControlsService {
           uncertain: modelInferred,
           sensitivity,
           validFrom: null,
-          validTo: null,
+          validTo: payload.validTo,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
           extractorModelId: modelInferred ? "deepseek:owner-telegram-agent" : null,
         },
@@ -809,6 +842,8 @@ export class MemoryOwnerControlsService {
           placementId: this.nextId(),
           placementEventId: this.nextId(),
           topicId: topics.inbox.topicId,
+          lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
+          validTo: supersededBefore.version.validTo,
         });
         supersessionCommand = await this.appendCommand(ownerTurn, supersessionKey, supersessionHash, {
           operation: "item.transition",
@@ -830,6 +865,12 @@ export class MemoryOwnerControlsService {
         principalId: ownerTurn.principalId,
         itemId: replacementPayload.itemId,
         kind,
+        // The replacement inherits the lifetime being replaced, derived from the
+        // end the old wording carried rather than defaulted: defaulting to
+        // durable would silently turn a fact Sid said would lapse into one that
+        // never does, which is the kind of quiet promotion this redesign exists
+        // to remove.
+        lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
         creationEventId: ownerTurn.eventId,
         creationEventSequence: ownerTurn.eventSequence,
         version: {
@@ -841,7 +882,7 @@ export class MemoryOwnerControlsService {
           uncertain: false,
           sensitivity,
           validFrom: null,
-          validTo: null,
+          validTo: supersededBefore.version.validTo,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
           extractorModelId: null,
         },

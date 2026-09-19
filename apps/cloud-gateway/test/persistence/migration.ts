@@ -127,6 +127,16 @@ export async function applyMemoryIngressMigration(): Promise<void> {
   await applyOwnerCallStepUpMigration();
   memoryIngressMigrated ??= applyD1Migrations(env.DB, [
     { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+    // 0038 belongs here and not only in `applyNewestRuntimeMigration`: it alters
+    // `memory_items`, so every memory fixture needs it, and one that stopped at
+    // 0019 built an item table with no `lifetime` column. That surfaced as
+    // `memory_unavailable` from every commit -- which reads as a database fault
+    // rather than a missing migration, the same shape as 0038 missing from the
+    // other two lists.
+    {
+      name: "0038_memory_lifetime_and_pins.sql",
+      queries: splitMigration(memoryLifetimeAndPinsSql),
+    },
   ]);
   await memoryIngressMigrated;
 }

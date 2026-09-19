@@ -43,6 +43,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
         previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096, description: "The words of your immediately previous offer, when evidenceClass is confirmed. Pass null otherwise." },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"], description: "What sort of thing it is about Sid: a fact about him, a preference, a plan, a decision he made, or a relationship." },
         sensitivity: { enum: ["normal", "sensitive"], description: "sensitive for anything you would not repeat in front of someone else." },
+        lifetime: { enum: ["durable", "temporary"], description: "durable for something with no end date (\"I hate mornings\"); temporary for something that stops being true, which must carry expiresAt (\"I'm tired today\"). Leave it out and the fact is durable." },
+        expiresAt: { type: ["string", "null"], description: "RFC 3339 UTC, when a temporary fact stops being true. Required with lifetime temporary and null otherwise: a temporary fact with no end never lapses, and a durable one carrying an end is refused." },
       },
     }),
   }),

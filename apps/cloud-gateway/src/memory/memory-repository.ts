@@ -36,6 +36,7 @@ import {
   type MemoryControlIntent,
   type MemoryFilingSource,
   type MemoryKind,
+  type MemoryLifetime,
   type MemoryLifecycleState,
   type MemoryPinState,
   type MemoryOrigin,
@@ -356,6 +357,7 @@ interface CapturedInput {
   readonly principalId: string;
   readonly itemId: Ulid;
   readonly kind: MemoryKind;
+  readonly lifetime: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: Readonly<{
@@ -880,6 +882,18 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
   const validFrom = input.version.validFrom === null ? null : inputTimestamp(input.version.validFrom);
   const validTo = input.version.validTo === null ? null : inputTimestamp(input.version.validTo);
   if (validFrom !== null && validTo !== null && validTo <= validFrom) refuse();
+  // Derived from the end when the caller does not say, so a caller written
+  // before this column existed -- every fixture in the suite, and the
+  // distillation writer -- keeps behaving exactly as it did. Only a genuine
+  // contradiction is refused: durable with an end, or temporary without one.
+  const lifetime = input.lifetime === undefined
+    ? (validTo === null ? "durable" as const : "temporary" as const)
+    : inputEnum(input.lifetime, new Set(["durable", "temporary"] as const));
+  // The same coupling the `0038` trigger enforces, checked here as well so a
+  // caller that gets it wrong receives a repository refusal naming the field
+  // rather than a D1 ABORT from the trigger. The trigger stays the authority:
+  // it is the one that also covers paths that do not come through this capture.
+  if ((lifetime === "durable") !== (validTo === null)) refuse();
   const extractorModelId = optionalInputText(input.version.extractorModelId, 192);
   if (extractorModelId !== null && !PROVIDER_MODEL.test(extractorModelId)) refuse();
   if (!Array.isArray(input.sources) || input.sources.length < 1 || input.sources.length > 8) refuse();
@@ -928,6 +942,7 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
     principalId,
     itemId: inputUlid(input.itemId),
     kind,
+    lifetime,
     creationEventId: inputUlid(input.creationEventId),
     creationEventSequence: inputInteger(input.creationEventSequence, 1, Number.MAX_SAFE_INTEGER),
     version: Object.freeze({
@@ -3165,12 +3180,13 @@ export class MemoryRepository {
   ): D1PreparedStatement[] {
     const statements: D1PreparedStatement[] = [
       this.database.prepare(`INSERT INTO memory_items (
-        item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?)`)
+        item_id, principal_id, kind, lifetime, creation_event_id, creation_event_sequence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .bind(
           input.itemId,
           input.principalId,
           input.kind,
+          input.lifetime,
           input.creationEventId,
           input.creationEventSequence,
           createdAt,
