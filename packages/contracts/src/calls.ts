@@ -4,6 +4,18 @@ import type { VoiceAccessBinding } from "./voice-access.js";
 const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
 const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
+/**
+ * The decision callback token, `d1:<ulid>:<option key>`.
+ *
+ * This is the *second* copy of that grammar on purpose, and the other one is the
+ * parser in `apps/cloud-gateway/src/decisions/telegram-keyboard.ts`. That file
+ * keeps its own literal because a Telegram client returns those bytes weeks
+ * later and the parser must not move when a shared constant does; this copy
+ * exists only so the redactor can tell a platform-minted identifier from owner
+ * text. They are kept in step by a test rather than by an import, so a drift
+ * breaks a test instead of a delivery.
+ */
+const DECISION_CALLBACK_DATA = /^d1:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-z0-9_-]{1,32}$/u;
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{8})(?!\d)/gi;
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
@@ -113,7 +125,9 @@ export function sanitizeRedaction(
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
-    if (structuralUlid && LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);
+    if (structuralUlid && (LOWERCASE_ULID.test(text) || DECISION_CALLBACK_DATA.test(text))) {
+      return issueSanitizedRedaction(text, []);
+    }
     const markers: RedactionMarker[] = [];
     const mark = (marker: RedactionMarker) => {
       if (!markers.includes(marker)) markers.push(marker);
