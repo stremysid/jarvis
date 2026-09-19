@@ -285,8 +285,12 @@ finding *where to look*; it cannot settle anything.
   the harness.
 - **Cost:** off-peak, a full day of work — three instances, several PRs, a whole
   audit — ran at about **$0.0067 per million tokens**, roughly 5× cheaper than
-  the peak run that alarmed Sid. Peak is weekdays 01:00–04:00 and 06:00–10:00
-  UTC *per our notes, not re-verified*. Prefer off-peak for heavy work.
+  the peak run that alarmed Sid. **Peak is 01:00–04:00 and 06:00–10:00 UTC,
+  Monday through Friday only — every other hour, including all weekend, is
+  off-peak at half the rate.** Verified 2026-09-19 against DeepSeek's own
+  pricing page; the "not re-verified" hedge that used to sit here was later
+  "corrected" to a weekday-independent window, which was wrong and cost a
+  session. Prefer off-peak for heavy work.
 
 **Standing builder rules that are working:** fresh session per task; own
 worktree at a short path, never `C:\javis`; push before finishing; never merge,
