@@ -67,7 +67,7 @@ promotion rule is the defect**, and it is the reason memory feels absent.
 | Item | Verdict | Detail |
 |---|---|---|
 | `facts` table with the listed columns | ◐ | `memory_item_state` / `memory_item_versions` cover text, source, versioning, hidden and superseded |
-| `kind` durable vs temporary, `expires_at` | ⛔ | `git grep -E "expires_at\|expiresAt"` over `src` returns **nothing**. Temporary facts do not exist |
+| `kind` durable vs temporary, `expires_at` | ◐ | **Corrected 2026-09-19.** The original row said the column does not exist, from a grep for the roadmap's name. The repo calls it **`valid_to`**: it is in `0016_cloud_memory.sql`, six memory modules read it (`memory-repository.ts` alone 21 times), and the nightly job transitions on it. **No writer ever sets it**, so nothing is temporary in practice — the gap is a writer, not a column. `memory_items.kind` is also already taken, meaning the subject taxonomy, so the durable/temporary axis needs its own name |
 | `confidence` stated / inferred / confirmed | ◐ | An `uncertain` flag plus an origin of `authenticated_first_person` or `model`. Not the three-value field |
 | `pinned` and a core profile in the prompt | ⛔ | `git grep -E "pinned\|core profile"` returns **nothing**. Nothing is injected into every turn |
 | Embeddings → Vectorize | ✅ | Workers AI + `jarvis-memory-bge-m3`, indexed by the hourly job |
