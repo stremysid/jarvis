@@ -18,7 +18,7 @@ Last regenerated: 2026-09-18, by a builder session, against the revision printed
 
 | Milestone | Verdict | The one thing missing |
 |---|---|---|
-| R0 Green and deployed | **UNMET** (declared passed 2026-09-11) | CI is red and cannot go green before 2026-10-01, and the watchdog has never recorded a gateway heartbeat. The heartbeat clause was removed from the exit test rather than met |
+| R0 Green and deployed | **UNMET** (declared passed 2026-09-11) | CI runs again as of 2026-09-19 and is **red on `local-agent` only**, for one assertion. The watchdog has still never recorded a gateway heartbeat, and that clause was removed from the exit test rather than met |
 | R1 Phone Jarvis from the car — **v1.0** | **UNMET** | No real call has ever been placed; the release gate is built to fail until one is. The code path is wired and switched off by missing secrets |
 | R2 Cloud memory with every PC off | **UNMET** | Distillation, recall and meaning search all run; production has published **0 active facts** (36 runs, 5 items, all `proposed`) |
 | R3 Hands: device control | **UNMET** | Not started. No command route to any machine exists |
@@ -54,12 +54,18 @@ trustworthy lines in this file:
 
 | Gate | State |
 |---|---|
-| CI | **Dead since 2026-09-12** (billing), resets 2026-10-01. Every push since is red in 5–11 s |
+| CI | **Alive again since 2026-09-19**, after the repository moved into the organisation — the 2026-10-01 reset is no longer what gates it. Latest completed run on `main`: `local-agent` (both platforms) **red**, `hermes-runtime (windows)`, `watchdog`, `deployment scripts` and the byte-exact check **green**. Query it: `gh run list --repo stremysid/jarvis --branch main` |
 | `pnpm test` | 199 files, 5,342 tests, **0 skipped — and unattributable**: three runs gave 12, 8 and 3 failures with no name repeated. No `testTimeout` is configured |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
+
+`local-agent` fails on a single assertion — `tests/test_owner_passphrase.py:81`,
+`1 failed, 895 passed`, `'d43fzp6T…' == 't4KRRUm+…'`. That is the Worker/Python
+passphrase-digest divergence, and it is the only thing between `main` and a green
+gate. `hermes-runtime` is green on CI, so `$KnownPreExistingFailures` in
+`reviewer-tools/gate.ps1` — four named hermes tests — is stale.
 
 **Consequence, stated plainly: a green local run may not be banked, and a red one
 cannot be attributed.** Until that changes, nothing may be merged on the strength of
