@@ -3,6 +3,512 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 00:24 UTC — DeepSeek V4.1 Flash, gate.ps1: isolation on a rate, and the exit code that follows
+
+**Effort level: `reasoningEffort: max`, with the same caveat the PR #98 entry
+recorded.** `~/.dsh/settings.yaml` sets the agent default for `deepseek-flash`
+to `reasoningEffort: max`; the inherited environment also carries
+`CLAUDE_EFFORT=xhigh`, which belongs to the Claude session that launched this
+one. Both signals are visible and they disagree. The dsh default is the one
+this agent runs under, so: **max**, and the xhigh value is the parent's.
+
+**Branch `codex/gate-isolation-repeat`, head `e54932e`** (the fix; this entry is
+the commit on top of it). Worktree `C:\Users\Sid\jarvis-gatefix`, cut from
+`origin/main` `5a8acf3`. Reviewer tooling only: no product code, no migration,
+no secret, no deploy, no merge, no outside contact. Changed files are
+`reviewer-tools/gate.ps1` and `reviewer-tools/GATE-TOOLS.md`; nothing else.
+**No application code changed, so the pnpm gate is not meaningful here and I am
+not reporting pnpm numbers as evidence** - the evidence is the instrumented runs
+below, and one real-repo run with planted faults.
+
+### The defect this fixes, restated in one line
+
+`gate.ps1` re-ran each failing file alone **once**, in the same loaded session
+as the full run, and split the result into REAL / load flake. On its first
+complete run against main it reported **three REAL failures; a reviewer
+re-running all three found zero of three were real.** A single isolated run
+under the same load is not a control for load, and at a measured flake rate of
+roughly 2 in 11 runs it is not evidence either.
+
+### What the script does now
+
+1. **`-IsolationRuns N` (default 3).** Every failing FILE is re-run alone N
+   times, each run printed with its own exit code, named-failure count and
+   elapsed time, followed by a one-line rate for the file.
+2. **Classification is on the rate**, per failing test:
+
+   | Rate | Bucket | Meaning |
+   |---|---|---|
+   | `failed N/N alone` | **REAL** | reproduced in every isolated run |
+   | `failed 0/N alone`, file clean in all N | **load flake** | reproduced in none |
+   | `0 < k < N` | **INTERMITTENT** | neither claim is established |
+
+   The rate is printed on every classified line - `[failed 3/3 alone]`,
+   `[failed 1/3 alone]`, `[failed 0/3 alone]`. A bare binary is what produced
+   the wrong verdict.
+3. **A fourth case is folded into INTERMITTENT, not into either confident
+   bucket:** a test that never reproduced (0/N) while the file itself was red
+   in one of those runs. The old code called that REAL; calling it a load flake
+   would assert a clean isolated run that did not happen, so it is reported as
+   INTERMITTENT with `1/3 alone run(s) were red without naming this test`.
+4. **Progress instead of silence.** `-HeartbeatSeconds` (default 60, 0 to
+   disable) prints `... <label>: still running, 2.0 min elapsed` while a
+   command runs, and every phase prints its elapsed time on completion
+   (`install`, `lint`, `typecheck`, each package, each isolated run). The long
+   commands run in a second runspace so this thread keeps the clock; the result
+   comes back through a `ConcurrentQueue`, and a lost result becomes a non-zero
+   exit with a named error rather than a silent empty run.
+5. **Untouched, deliberately:** what the gate runs, the three-package list, and
+   `$KnownPreExistingFailures` with its file-AND-test-name matching. That
+   matching worked correctly on the run in the brief (all four hermes-runtime
+   entries) and is not this change's business.
+
+### The exit-code decision (the judgement call the brief names)
+
+**Decided: a mixed result does not change the exit code. Exit 0 = no failure
+reproduced in every isolation run; exit 1 = something did, or lint/typecheck
+went red, or a run was unverifiable/incomplete.** The verdict word is
+three-valued so that exit 0 with a mixed result can never read as clean:
+
+| Situation | Verdict line | Exit |
+|---|---|---|
+| something failed N/N alone | `FAIL` | **1** |
+| nothing REAL, at least one INTERMITTENT | `INCONCLUSIVE` | **0** |
+| nothing REAL, nothing INTERMITTENT | `PASS` | **0** |
+
+Reasoning, in the order it decided the question:
+
+- The brief's own worked example settles it. The third failing test from that
+  run was `PASS, PASS, FAIL` in three isolated runs - a 1/3 rate - and the
+  brief calls it **a flake**. A rule that made 1/3 fail the gate would have
+  called a known flake a gate failure and sent a builder after it, which is the
+  exact waste this tool exists to prevent.
+- "The exit code is driven by the REAL set only" is then honoured literally:
+  nothing but a REAL failure moves it. Flakes never did; INTERMITTENT does not
+  either.
+- The cost is real and I am not hiding it: **an intermittent result can be a
+  real race, and exit 0 does not clear it.** That is why the verdict word is
+  `INCONCLUSIVE` and never `PASS`, why the section is named
+  `INTERMITTENT (... NOT a real failure and NOT a load flake)`, why the rate is
+  on the line, and why the exit-code line spells out its own meaning:
+  `exit code 0 (INCONCLUSIVE: no failure reproduced in all 3 runs; 1 result(s)
+  need more runs before they are called either (re-run with -IsolationRuns 10
+  to separate them))`. A reader who wants a binary has the REAL list, which
+  stays empty, and the rate.
+- The alternative - INTERMITTENT exits 1 - was rejected because it makes the
+  gate red on load noise on a machine that is loaded by design, and a red gate
+  that is usually load is a gate people stop reading. The conservative-looking
+  option is the one that trains reviewers to ignore the exit code.
+- **Pre-existing behaviour I did not change:** an UNVERIFIED file (the alone
+  run could not host it) and an unnamed failure still fail the gate. Those are
+  measurements that did not happen, not measurements that disagree, and the
+  brief did not ask for them.
+
+### Verification — an instrumented scratch workspace, real runners
+
+The three demonstrable cases need failure rates that are known rather than
+waited for, because the real suite is the thing that is flaky. Built at
+`C:\Users\Sid\jarvis-gatefix-verify` (outside both repos):
+
+- a git repo with `origin` (so the gate's `git fetch` / `checkout --detach` /
+  clean-tree checks all run for real), cloned twice - `work` to author, `gate`
+  as `-GateDir`;
+- package scripts shaped like the real repository's, and the runner invocations
+  the gate itself makes are the real ones, so **all three of `Get-FileRunner`'s
+  branches are exercised**: root `vitest --config vitest.workspace.ts run`,
+  `apps/hermes-runtime` `vitest run`, `apps/watchdog`
+  `vitest --config vitest.config.ts run`;
+- **real pnpm 11.19.0, real npx, real vitest 4.1.11** - the version the real
+  repo has installed - and real vitest reporter output, which the parser reads
+  unchanged;
+- the failures are planted in the test files and their timing is driven by a
+  counter file outside the repo, so each run is deterministic and the
+  classification can be checked instead of hoped for.
+
+What is *not* real: `lint` and `typecheck` are no-ops in the fixture; the suites
+have one test file per package; and the fixture's `apps/watchdog` config is a
+plain Node vitest config, while the real watchdog runs under the Cloudflare
+Workers pool - which is exactly the difference the real-repo run below found
+the hard way, when a fixture that uses `node:fs` failed to load there. The
+gate's own code path is the real one; the repository it is pointed at is not,
+and one of its three packages is not even the same runtime.
+
+**Run A - all three categories at once** (`-Sha fbb770f`, default
+`-IsolationRuns 3`):
+
+```text
+flake check: apps/cloud-gateway/test/zz-gatefix-real.test.ts alone x3
+  run 1/3: exit 1, 1 named failure(s) in 1s
+  run 2/3: exit 1, 1 named failure(s) in 1s
+  run 3/3: exit 1, 1 named failure(s) in 1s
+flake check: apps/cloud-gateway/test/zz-gatefix-real.test.ts: 3/3 alone run(s) failed
+flake check: apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs alone x3
+  run 1/3: exit 0, 0 named failure(s) in 1s
+  run 2/3: exit 1, 1 named failure(s) in 1s
+  run 3/3: exit 0, 0 named failure(s) in 1s
+flake check: apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs: 1/3 alone run(s) failed
+flake check: apps/watchdog/test/zz-gatefix-flake.test.ts alone x3
+  run 1/3: exit 0, 0 named failure(s) in 1s
+  run 2/3: exit 0, 0 named failure(s) in 1s
+  run 3/3: exit 0, 0 named failure(s) in 1s
+flake check: apps/watchdog/test/zz-gatefix-flake.test.ts: 0/3 alone run(s) failed
+
+===== REVIEWER GATE =====
+sha            fbb770fbc8d8 (fbb770fbc8d8a737bc724ad83b7c1823cd3a9f24)
+gate dir       C:/Users/Sid/jarvis-gatefix-verify/gate
+isolation      3 run(s) per failing file
+lint           PASS
+typecheck      PASS
+cloud-gateway (pnpm test)      FAIL  1 files / 1 tests (1 failed, 0 skipped)
+hermes-runtime (pnpm test:runtime) FAIL  1 files / 1 tests (1 failed, 0 skipped)
+watchdog (pnpm test:watchdog)  FAIL  1 files / 1 tests (1 failed, 0 skipped)
+-- REAL failures (failed in all 3 isolation runs) --
+  apps/cloud-gateway/test/zz-gatefix-real.test.ts > gatefix harness: planted real failure > fails in the full run and in every isolated run  [failed 3/3 alone]
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs > gatefix harness: planted intermittent failure > reproduces in one isolated run out of three  [failed 1/3 alone]
+-- load flakes (passed in all 3 isolation runs) --
+  apps/watchdog/test/zz-gatefix-flake.test.ts > gatefix harness: planted load flake > fails in the full run and passes when the file is run alone  [failed 0/3 alone]
+-- known pre-existing (allowed to fail, must shrink) --
+  (none seen in this run)
+time           0.3 min
+verdict        FAIL
+exit code      1 (FAIL: 1 REAL failure(s), or lint/typecheck, or an unverified or incomplete run)
+=========================
+GATE EXIT CODE = 1
+```
+
+**Run B - the genuinely broken test is the one called REAL.** That is the
+`zz-gatefix-real.test.ts` block above: `expect(2 + 2).toBe(5)`, red in the full
+run and red in all three isolated runs, reported `[failed 3/3 alone]` under
+`-- REAL failures`, and it alone is what makes the verdict FAIL and the exit
+code 1.
+
+**Run C - the known-flaky file reports a rate and is NOT called REAL.** The
+`hermes-runtime` block above: red in the full run, red once in three isolated
+runs, reported `[failed 1/3 alone]` under `INTERMITTENT`, absent from REAL, and
+the gate exits 0. Its failing isolated run is the second, not the first - the
+old script's single re-run would have promoted or cleared it by coin flip.
+
+**Run D - nothing REAL: the same fixtures with the planted REAL failure
+switched off** (`-Sha 4fbe735`):
+
+```text
+-- REAL failures (failed in all 3 isolation runs) --
+  (none)
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs > gatefix harness: planted intermittent failure > reproduces in one isolated run out of three  [failed 1/3 alone]
+-- load flakes (passed in all 3 isolation runs) --
+  apps/watchdog/test/zz-gatefix-flake.test.ts > gatefix harness: planted load flake > fails in the full run and passes when the file is run alone  [failed 0/3 alone]
+time           0.2 min
+verdict        INCONCLUSIVE
+exit code      0 (INCONCLUSIVE: no failure reproduced in all 3 runs; 1 result(s) need more runs before they are called either (re-run with -IsolationRuns 10 to separate them))
+=========================
+GATE EXIT CODE = 0
+```
+
+**Run E - flakes only, no intermittent** (`-Sha d334a25`):
+
+```text
+-- REAL failures (failed in all 3 isolation runs) --
+  (none)
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  (none)
+-- load flakes (passed in all 3 isolation runs) --
+  apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs > gatefix harness: planted intermittent failure (switched off) > fails only in the full run and passes when the file is run alone  [failed 0/3 alone]
+  apps/watchdog/test/zz-gatefix-flake.test.ts > gatefix harness: planted load flake > fails in the full run and passes when the file is run alone  [failed 0/3 alone]
+verdict        PASS
+exit code      0 (PASS: nothing failed every isolation run)
+=========================
+GATE EXIT CODE = 0
+```
+
+**Run F - the file-level branch, red alone but never with this test**
+(`-Sha 7939f01`, watchdog):
+
+```text
+flake check: apps/watchdog/test/zz-gatefix-filelevel.test.ts alone x3
+  run 1/3: exit 1, 1 named failure(s) in 2s
+  run 2/3: exit 0, 0 named failure(s) in 2s
+  run 3/3: exit 0, 0 named failure(s) in 2s
+flake check: apps/watchdog/test/zz-gatefix-filelevel.test.ts: 1/3 alone run(s) failed
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  apps/watchdog/test/zz-gatefix-filelevel.test.ts > gatefix harness: planted file-level instability > never reproduces when this file is run alone  [failed 0/3 alone]  1/3 alone run(s) were red without naming this test
+  apps/watchdog/test/zz-gatefix-filelevel.test.ts > gatefix harness: planted file-level instability > is what is red when the file runs alone  [failed 1/3 alone]
+```
+
+**Run G - `-IsolationRuns` is the knob it claims to be** (Run A's fixtures at
+`-IsolationRuns 5`; the planted rates differ because the fixture's phase
+shifts, which is the point - the denominator follows the parameter):
+
+```text
+gate: isolation 5 run(s) per failing file, heartbeat 60s
+flake check: apps/cloud-gateway/test/zz-gatefix-real.test.ts: 5/5 alone run(s) failed
+flake check: apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs: 1/5 alone run(s) failed
+flake check: apps/watchdog/test/zz-gatefix-flake.test.ts: 0/5 alone run(s) failed
+  ... REAL ...      [failed 5/5 alone]
+  ... INTERMITTENT ...[failed 1/5 alone]
+  ... load flakes ...[failed 0/5 alone]
+exit code      1 (FAIL: 1 REAL failure(s), or lint/typecheck, or an unverified or incomplete run)
+```
+
+### Verification on the real repository
+
+One full gate run against a scratch commit of this repository -
+`gatefix-verify-scratch`, worktree `C:\Users\Sid\jarvis-gatefix-run`, based on
+`origin/main` `5a8acf3` - with the same three planted fixtures this time living
+in the real suite (`apps/cloud-gateway/test/zz-gatefix-real.test.ts`,
+`apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs`,
+`apps/watchdog/test/zz-gatefix-flake.test.ts`). Real pnpm, real lint and
+typecheck, real 200-file gateway suite, real 18-file hermes-runtime suite.
+**Total 66.6 minutes**, on a loaded machine, from the run's own verdict block:
+
+```text
+run: cloud-gateway (pnpm test) started 19:16:00
+  ... cloud-gateway (pnpm test): still running, 60s elapsed
+  ... cloud-gateway (pnpm test): still running, 2.0 min elapsed
+  ... cloud-gateway (pnpm test): still running, 3.0 min elapsed
+run: cloud-gateway (pnpm test): exit 1 in 3.3 min
+run: hermes-runtime (pnpm test:runtime) started 19:19:19
+  ... hermes-runtime (pnpm test:runtime): still running, 1.0 min elapsed
+  ... (eleven more heartbeats, one a minute)
+run: hermes-runtime (pnpm test:runtime): exit 1 in 13.9 min
+run: watchdog (pnpm test:watchdog) started 19:33:16
+run: watchdog (pnpm test:watchdog): exit 1 in 7s
+flake check: apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts alone x3
+  run 1/3: exit 1, 1 named failure(s) in 25s
+  run 2/3: exit 0, 0 named failure(s) in 19s
+  run 3/3: exit 0, 0 named failure(s) in 19s
+flake check: apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts: 1/3 alone run(s) failed
+flake check: tests/acceptance/fake/voice-telegram-call.test.ts alone x3
+  run 1/3: exit 0, 0 named failure(s) in 62s
+  run 2/3: exit 0, 0 named failure(s) in 55s
+  run 3/3: exit 0, 0 named failure(s) in 56s
+flake check: tests/acceptance/fake/voice-telegram-call.test.ts: 0/3 alone run(s) failed
+flake check: apps/hermes-runtime/test/source-lock.test.mjs alone x3
+  run 1/3: exit 1, 1 named failure(s) in 12.3 min
+  run 2/3: exit 1, 1 named failure(s) in 11.8 min
+  run 3/3: exit 1, 1 named failure(s) in 12.7 min
+flake check: apps/hermes-runtime/test/source-lock.test.mjs: 3/3 alone run(s) failed
+
+===== REVIEWER GATE =====
+sha            d34fe4806f14 (d34fe4806f1422810121e3e1d8b3f01a6667ff65)
+gate dir       C:/Users/Sid/jarvis-gatefix-run
+isolation      3 run(s) per failing file
+lint           PASS
+typecheck      PASS
+cloud-gateway (pnpm test)      FAIL  200 files / 5343 tests (7 failed, 0 skipped)
+hermes-runtime (pnpm test:runtime) FAIL  18 files / 251 tests (5 failed, 0 skipped)
+watchdog (pnpm test:watchdog)  FAIL  9 files / 119 tests (0 failed, 0 skipped)
+-- REAL failures (failed in all 3 isolation runs) --
+  apps/cloud-gateway/test/zz-gatefix-real.test.ts > gatefix scratch verification: planted real failure > fails in the full run and in every isolated run  [failed 3/3 alone]
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > stores failed grounding as uncertain model inference with Sid's exact excerpt: one-word unrelated evidence  [failed 0/3 alone]  1/3 alone run(s) were red without naming this test
+  tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > rejects with the fixed refusal when step-up is disabled before the relay begins  [failed 0/3 alone]  1/3 alone run(s) were red without naming this test
+  apps/hermes-runtime/test/zz-gatefix-intermittent.test.mjs > gatefix scratch verification: planted intermittent failure > reproduces in one isolated run out of three  [failed 2/3 alone]
+-- load flakes (passed in all 3 isolation runs) --
+  apps/cloud-gateway/test/memory/automatic-distillation.test.ts > automatic memory distillation > drains multiple production-default steps per hour while only eligible owner events consume the event budget  [failed 0/3 alone]
+  apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo  [failed 0/3 alone]
+  apps/cloud-gateway/test/persistence/call-session-repository.test.ts > CallRepository call sessions > enforces the complete 10-by-10 phase graph in direct SQL, including every terminal reversal  [failed 0/3 alone]
+  tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call \r\ncheck in --confirm"  [failed 0/3 alone]
+-- known pre-existing (allowed to fail, must shrink) --
+  (four hermes-runtime entries, all matched by file AND test name)
+time           66.6 min
+verdict        FAIL
+exit code      1 (FAIL: 1 REAL failure(s), or lint/typecheck, or an unverified or incomplete run)
+=========================
+```
+
+Three things in that block are the whole point:
+
+1. **The brief's own example is classified as a flake, on the real suite.**
+   `voice-telegram-call.test.ts` - the file whose "refuses a line separator
+   immediately after the command" case the brief records as one of three
+   false REAL failures - is `[failed 0/3 alone]` here, in the load-flake list,
+   and not REAL. Two runs passed it, one per 55-62 seconds.
+
+2. **The old rule would have called one of these REAL in this very run, and the
+   new one does not.** `owner-telegram-agent.test.ts` had exactly one red
+   isolated run out of three - **the first one**. The old script ran the file
+   alone exactly once, so its one data point would have been that red run, and
+   its fallback branch ("file still fails alone, but not this test") would have
+   filed the entry under **REAL**. The new script reports
+   `[failed 0/3 alone]` plus `1/3 alone run(s) were red without naming this
+   test`, under INTERMITTENT. Same input, same machine, same day; the
+   difference is that three runs were taken instead of one. The test name here
+   is not the one the brief names (`replays a model-inference Confirm tap`) but
+   the file is the same and the mechanism is identical - a file-level red with
+   a different test's name on it.
+
+3. **The planted REAL failure is the only thing in the REAL list**, at
+   `[failed 3/3 alone]`, and it is what makes the verdict `FAIL` and the exit
+   code 1. Without it this run is `INCONCLUSIVE` / exit 0 - the same run, the
+   same flakes, a different exit code, decided by whether anything failed every
+   isolated run.
+
+Also measured in that run, and worth the reviewer's attention: the watchdog
+fixture failed to load inside the Workers pool (`mkdirSync` under workerd), so
+the watchdog package reported `1 files / 0 tests` - a failed FILE with no named
+test. See the finding below; it is not caused by this change, but this run is
+where it showed up.
+
+### Mutating the fix, because a green demonstration is not a control
+
+Two faults were planted in a copy of the committed script and the harness was
+run against them. Both were caught, and both are the failure modes this change
+exists to prevent:
+
+| Mutant | Change | What the harness then said |
+|---|---|---|
+| M1 | `REAL` requires `$recurrences -gt 0` instead of `-eq $IsolationRuns` - exactly the old binary | the 1/3 test moved into **REAL**, verdict flipped `INCONCLUSIVE` -> `FAIL`, exit 0 -> **1**. The brief's defect, reproduced on demand |
+| M2 | the red-but-unnamed isolated run no longer blocks the flake bucket | the test that never reproduced moved from `INTERMITTENT` into **load flakes**, i.e. the gate claimed a clean isolated run that did not happen |
+
+M1 is the important one: it shows Run D is not green because the fixtures are
+easy, but because the rate is genuinely what decides. Mutant copies live at
+`C:\Users\Sid\jarvis-gatefix-verify\mutant\` and are not in any repository.
+
+### A cost this change increases, measured and deliberately not fixed
+
+`-IsolationRuns` multiplies the isolation pass, and the four known pre-existing
+hermes-runtime files are re-run like any other failing file even though every
+one of their entries lands in the known section whatever the runs say. On the
+real-repo run below, `apps/hermes-runtime/test/source-lock.test.mjs` took
+**12.3, 11.8 and 12.7 minutes** across its three isolated runs - **36.8 of that
+run's 66.6 minutes** spent on one file whose only failures are already on the
+known list, where the old script spent one run of the same length.
+
+I built and verified the obvious fix - decline the isolation runs when every
+parsed failure in the file is already known - and then **reverted it**, because
+the brief says "do not change what the gate runs ... Classification and output
+only", and declining a re-run the gate used to do is a change to what it runs,
+whatever it does to the output. That is the reviewer's call, not mine, so the
+finding is here instead of in the diff.
+
+What I verified before reverting, so the decision is cheap to take later: with
+one known failure **and one new failure** in the same file, the correct script
+re-runs the file, reports the new failure as REAL `[failed 3/3 alone]`, keeps
+the known one in the known section, and exits 1; a copy that skips the file when
+*any* failure in it is known silently moves the new failure into the known
+section and turns `FAIL`/exit 1 into `PASS`/exit 0. If this is done later the
+guard must be "every failure in the file is known", and that control has to come
+with it.
+
+### A pre-existing false PASS I found and did NOT fix
+
+A package whose test FILE does not load reports a failed file and names no
+test. The gate says **PASS** and exits **0**. Reproduced in the harness with a
+module-scope `throw` and nothing else failing:
+
+```text
+watchdog (pnpm test:watchdog)  FAIL  1 files / 0 tests (0 failed, 0 skipped)
+-- REAL failures (failed in all 3 isolation runs) --
+  (none)
+-- INTERMITTENT (failed some isolation runs and passed others: NOT a real failure and NOT a load flake) --
+  (none)
+-- load flakes (passed in all 3 isolation runs) --
+  (none)
+verdict        PASS
+exit code      0 (PASS: nothing failed every isolation run)
+GATE EXIT CODE = 0
+```
+
+The same fixture against `origin/main`'s unmodified `gate.ps1`
+(`C:\Users\Sid\jarvis-gatefix-verify\mutant\gate-ORIGINAL-main.ps1`, log
+`run11-does-not-load-ORIGINAL-main.log`) gives the same `verdict PASS` and
+exit 0, so **this is pre-existing and not something this branch introduced.**
+The cause is that both checks that could catch it read the TESTS line
+(`$result.ExitCode -ne 0 -and -not $result.TestLine`, and
+`SummaryFailed -gt Failures.Count`), while a file that never loaded shows up on
+the FILES line (`Test Files 1 failed`) with `Tests 0`/`no tests`. No group is
+formed, so nothing is classified, and nothing else in `$failed` is true.
+
+I am not fixing it here. The brief names two defects and confines this branch to
+"classification and output only"; this is a third defect with its own blast
+radius, and it deserves its own change, its own mutants and a real-suite run.
+The suggested fix is one line in the existing error block - when
+`(Get-Counts -Line $result.FileLine).Failed -gt 0` and no failure was named,
+raise the same kind of ERROR the unnamed-failure check already raises - and it
+must be verified both ways, because an ERROR path that fires on a healthy quiet
+run is worse than the gap. The reproduction, the fixture and the log are all
+kept; see "what was left on disk" below.
+
+### One bug the verification caught before the push
+
+The first harness run printed `run 1/3: exit 0, 1 named failure(s)` on a
+**passing** isolated run, and then threw
+`The property 'Name' cannot be found on this object` while matching names. Both
+were mine: `Get-VitestFailures` already returns one array object (its `,@(...)`
+return exists so an empty result does not collapse to `$null`), and I had
+wrapped the call in `@(...)`, which makes a one-element array whose only
+element is the real list. That reads as "1 failure" on a clean run and makes
+the inner `Where-Object` iterate the wrapper. Fixed by not re-wrapping; the
+comment in the script says why. It is exactly the class of defect the repo's
+"mutate it" rule is about, and it would have shipped without an instrumented
+case that produced a *passing* isolated run.
+
+### What this did not cover
+
+- **The gate was not run against real `main` in this session.** The runs above
+  are against the fixture workspace and one scratch commit of the real
+  repository (see the section above); the two real flakes named in the brief
+  (`voice-telegram-call`, `owner-telegram-agent`) were not reproduced and are
+  not claimed to be fixed. Nothing about them changed - only the classification
+  of a recurrence did.
+- **The specific defect is demonstrated on planted rates, not on the real
+  suite's own flake rate.** A fixture that fails on cue proves the arithmetic
+  and the reporting; it does not measure how often this suite actually mixes.
+- **Repeating runs does not remove the load.** All N isolated runs still happen
+  in the same loaded session; what the rate buys is reproducibility, which is
+  what the brief asked for. Lowering test parallelism or quiescing the machine
+  between runs was not attempted, and the brief explicitly rules out asking for
+  a quiet machine.
+- **Cost.** `-IsolationRuns 3` triples the isolated-run time for every failing
+  file. On a run with many failing files that is real minutes; the parameter is
+  there for that reason and the default is not free.
+- **The heartbeat reaches a redirected log late.** Observed directly: while the
+  real-repo run was working, the `Tee-Object` log file sat at 361 bytes and
+  showed one heartbeat while the console had two. That is PowerShell's
+  native-command stdout buffering when the child's stdout is a pipe, not the
+  heartbeat loop; on a console (how the tool is used) the lines are live.
+- **The shas in the pasted output above are commits of the fixture repository**
+  at `C:\Users\Sid\jarvis-gatefix-verify` (and one scratch commit in this
+  repository's local object store, `d34fe48`, which was never pushed).
+  `docs-check.ps1` pointed at this file with `-Files docs/AGENT_LOG.md` would
+  report them; that is correct behaviour and not a stale claim about this
+  repository.
+- **No consumer of the exit code was changed or checked.** Nothing in
+  `reviewer-tools` reads `gate.ps1`'s exit code programmatically, so the
+  exit-code decision is verified by hand above, not against a caller.
+- `reviewer-tools/GATE-TOOLS.md`'s worked example is still
+  `GATE-EXAMPLE-PLACEHOLDER` on main; I did not fill it in, because it is a run
+  of the tool on `main` and this session did not produce one.
+- **`docs/HANDOFF.md` was not touched.** Its §4.4 sentence about `gate.ps1`
+  ("re-runs each failing test file alone") is still true, just less precise now
+  that it is N times on a rate, and HANDOFF is the reviewer's file to move. The
+  tool's own doc, `reviewer-tools/GATE-TOOLS.md`, is updated.
+- **The pre-existing false PASS above is reported, not fixed.**
+- **The real-repo run used a scratch commit, not `main`.** It is `origin/main`
+  `5a8acf3` plus three fixture files; the fixture files are the only difference,
+  and none of them is in this branch.
+
+### What was left on disk
+
+Nothing below is committed to any repository except the two changed files and
+this entry. The worktree `C:\Users\Sid\jarvis-gatefix` is left in place, and so
+are:
+
+- `C:\Users\Sid\jarvis-gatefix-verify\` - the fixture repo (`work` to author,
+  `gate` as `-GateDir`, `origin.git`), the counter files, and `logs\` with all
+  eleven runs this session made, several of them pasted above (`run1`-`run4` and
+  `run6` harness; `run5` real repo; `run7`-`run9` the reverted isolation skip
+  and its mutant; `run10`-`run11` the false PASS, new script and original);
+- `C:\Users\Sid\jarvis-gatefix-verify\mutant\` - the three mutants (M1, M2, M3),
+  the reverted-optimisation copy `gate-knownskip.ps1`, and
+  `gate-ORIGINAL-main.ps1` as extracted from `origin/main`;
+- `C:\Users\Sid\jarvis-gatefix-run` - the scratch worktree at
+  `gatefix-verify-scratch` (local branch, never pushed) used for the real run.
+
+— DeepSeek V4.1 Flash
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
