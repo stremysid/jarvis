@@ -20,7 +20,19 @@ const project = (name: string, include: string[], exclude: string[], bindings: R
     miniflare: { bindings: { ...syntheticRequiredBindings, DEFAULT_GUEST_PIN: "4827", ...bindings } },
     wrangler: { configPath: "apps/cloud-gateway/wrangler.toml", environment: "test" },
   })],
-  test: { name, include, exclude },
+  test: {
+    name, include, exclude,
+    // Vitest defaults to 5,000 ms. This suite's tests average about 170 ms, but
+    // several builds run at once on this machine, and under load the clock kills
+    // a test the assertion would have passed: three consecutive full runs gave
+    // 12, 8 and 3 failures with NO test name repeating, and every captured
+    // failure was "Test timed out in 5000ms". That is a clock, not a defect, and
+    // it made the suite unattributable -- a red run could not be acted on and a
+    // green one could not be banked. 15 s keeps a genuine hang failing while
+    // removing the load noise; the number is deliberately bounded rather than
+    // generous, so a real stall still surfaces.
+    testTimeout: 15_000,
+  },
 });
 
 export default defineConfig({
