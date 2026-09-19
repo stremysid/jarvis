@@ -251,6 +251,7 @@ export type MemoryControlIntent =
  */
 const MEMORY_CONTROL_INTENT_MEMBERS = Object.freeze({
   remember: true, forget: true, lift: true, confirm: true, explain: true, correct: true,
+  pin: true, unpin: true,
 } satisfies Readonly<Record<MemoryControlIntent, true>>);
 
 export const MEMORY_CONTROL_INTENTS: ReadonlySet<MemoryControlIntent> =
