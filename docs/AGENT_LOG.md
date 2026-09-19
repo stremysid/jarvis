@@ -3,6 +3,59 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 — Claude Opus 5 reviewer: the triage covered 8 of 24 files; here is the rest
+
+Sid told me to go over the audit reports again. Doing that turned up something
+about the **previous** pass rather than about the code: the triage in
+`docs/reviews/2026-09-18-full-audit-triage.md` covers `JARVIS-AUDIT-COMPLETE.md`
+and `DEEP-AUDIT-2026-09-18.md`, and those two are **one document** — I confirmed
+`DEEP-AUDIT` is its Part 1, `ledger.md` its Part 2, the eight `audit-*.md` files
+its Parts 3-10. That triage is complete for what it covered.
+
+It covered **8 of the 24 files** in `jarvis-sweep-reports`. The other set —
+`00-SYNTHESIS.md`, `FOR-REVIEW-CHAT.md`, `sweep-1` through `sweep-5` — is a
+separate sweep with a separate scope, written earlier the same evening, and
+nothing in this repository had read it. `FOR-REVIEW-CHAT.md` is addressed **to
+this reviewer by name** and had never been opened.
+
+Full supplement: `docs/reviews/2026-09-19-audit-supplement.md`. Everything in it
+was re-derived at `c07d82e`; two findings were settled by **executing** the real
+module, not by reading it.
+
+**The seven that survived.**
+
+| # | Finding | How I checked it |
+|---|---|---|
+| S1 | **The voice channel has no tools at all** — nine on Telegram, zero on voice; the call also gets `D1ContextRetriever`, not `TelegramMemoryRetriever` | `git grep -inE "tool|functionCall|toolCall" -- src/voice` returns nothing at `c07d82e` |
+| S2 | **A four-digit PIN is not redacted** — nor a spoken-word PIN, nor a phone number, nor a token on the line after `Authorization:` | **executed** `sanitizeRedaction`: `"my pin is 4827"` comes back unchanged, markers `[]` |
+| S3 | `explain` / `forget` / `restore` print the memory text in the same result that says it was withheld | `owner-telegram-agent.ts:1110/1151/1202/1215` pass `item.version.text` |
+| S4 | `selectControlTargets` reads `memory_item_fts` with no suppression anti-join, and that index has no delete trigger | read the query |
+| S5 | A confirmation binds `capability:argumentsHash` — **not the tool name** — and five tools share `memory.write` | `tool-confirmations.ts:73`, `tool-capabilities.ts:45-53` |
+| S6 | The watchdog declares none of its alerting secrets, so it can deploy unable to alert | `apps/watchdog/wrangler.toml` `[vars]` holds one name |
+| S7 | No `testTimeout` is configured anywhere; the suite gave 12/8/3 failures over three runs, 33 distinct names, one repeated | `git grep testTimeout` empty; I re-ran `typecheck:tests` → **144**, while `AGENTS.md:61` and `TESTING.md:44` say 117 |
+
+**S2 is the one I want on the record properly, because I would have missed it
+the same way.** There is a test called *"redacts a four-digit voice PIN by field
+context without redacting a year"*. It passes. It exercises `field: "guest.pin"`,
+and the only field literals production passes are `"conversation.turn.text"`,
+`"text"` and `"metadata"`. A green test with exactly the right name, aimed at a
+field no caller uses, is worse than no test — it is the evidence that closes the
+question. PR #96 fixes the digit half and is currently conflicting; the
+spoken-word, phone-number and `Bearer`-ordering halves are untouched, and the
+owner passphrase is not matchable by pattern at all.
+
+**S1 is not mine to decide.** R1's exit test requires no tool, so R1 can pass in
+full and still hand Sid a phone call to a chatbot — which is not what he said
+Jarvis is. That is a decision for him, and this project has twice recorded a
+decision as his that was not.
+
+**Stale — do not re-report.** The sweep ran at `5a8acf3`, before three merges.
+`/shadow` lying about tier 3 (fixed by #106), distillation re-ingesting
+suppressed turns (#110), forget-not-applying-to-voice, the `0035` collision, and
+the "eight tools" migration comment (it says nine) are all closed.
+
+No builder was started. Every builder is stopped and stays stopped.
+
 ## 2026-09-18 — Claude Opus 5 reviewer: I read the full audit, and six findings survive
 
 Sid commissioned a second-vendor deep dive and told me to read it whole rather
