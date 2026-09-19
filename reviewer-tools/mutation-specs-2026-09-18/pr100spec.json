@@ -1,0 +1,34 @@
+[
+  {
+    "name": "M1-sensitivity-downgrade-allowed",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "supersededBefore.version.sensitivity === \"sensitive\" && sensitivity === \"normal\"",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses to replace a sensitive memory with a normal one"
+  },
+  {
+    "name": "M2-suppressed-wording-echoed",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "return visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0;",
+    "replace": "return false;",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "withholds an earlier wording that an active suppression hides"
+  },
+  {
+    "name": "M3-authority-check-bypassed",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "        // promoted, because a correction carries no confirmation step.\n        if (!isAuthorizedRememberText(",
+    "replace": "        // promoted, because a correction carries no confirmation step.\n        if (false && !isAuthorizedRememberText(",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses a correction that claims wording Sid's own message does not contain"
+  },
+  {
+    "name": "M4-stale-target-accepted",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "supersededBefore.lifecycle.state !== \"active\" && !replaying",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses to replace a memory that is no longer current"
+  }
+]

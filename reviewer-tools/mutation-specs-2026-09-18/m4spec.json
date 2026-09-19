@@ -1,0 +1,18 @@
+[
+  {
+    "name": "M4-classroom-never-scanned",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "classroomSource?.active !== false",
+    "replace": "classroomSource?.active === true",
+    "testPath": "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "expect": "says school has never been read when Classroom was never set up at all"
+  },
+  {
+    "name": "CONTROL-pattern-that-cannot-match",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "this string does not occur anywhere in the file",
+    "replace": "x",
+    "testPath": "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "expect": "anything"
+  }
+]

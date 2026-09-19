@@ -174,6 +174,269 @@ unrelated failures.
 
 — DeepSeek V4.1 Flash, session `session-6ac26c4d-d7bb-4a95-b312-21cd73ae629e`
 
+## 2026-09-19 00:05 UTC — deepseek-flash, `codex/distillation-suppression`: the hourly job gets the anti-join every other memory path already had
+
+**Effort level: I could not determine it, so I am not naming one.** Nothing in
+this session states the level it ran at, and the two signals I can see disagree
+— `~/.dsh/settings.yaml` sets `agent-default-model.reasoningEffort: low` for
+`deepseek-flash`, while the inherited environment carries `CLAUDE_EFFORT=xhigh`,
+which belongs to the session that launched this one. The session record
+(`~/.dsh/sessions/--C-Users-Sid-OneDrive-Documents-ChatGPT-jarvis--/session-7e0e2e94-.../session.v3.jsonl.zstd`)
+carries no effort field. Naming either would be a guess.
+
+**Branch:** `codex/distillation-suppression`, cut from `origin/main` at
+`5a8acf3`. The fix and its tests are `da723ec`; this entry is the commit after
+it. **No migration, and none needed.** Worktree left in
+place at `C:\Users\Sid\jarvis-distill`. A throwaway `origin/main` worktree was
+created at `C:\Users\Sid\jarvis-baseline-distill` for the flake comparison in
+"Gate" below; both can be removed with `git worktree remove`.
+
+### The defect, reproduced before it was fixed
+
+`apps/cloud-gateway/src/memory/automatic-distillation.ts` contained **zero**
+occurrences of `suppress`; the eligibility predicate at what is now line 469 was
+`envelope.subjectId === principalId && payload.historyEligible` with no anti-join
+against `memory_active_event_suppressions`. Neutering the fix (below) reproduces
+the consequence end to end: the hourly poll reports `Memory succeeded, 1 created`
+for a turn the owner had already been told was forgotten.
+
+### The fix, and which existing mechanism it copies
+
+I followed **`literal-history.ts`** (`readSuppressions` + `isSuppressed`), not the
+inline `NOT EXISTS` in `context-retriever.ts`, and the reason is structural
+rather than stylistic: `context-retriever.ts` owns its own `events` SELECT, so it
+can put the anti-join inside that statement, while this workflow reads through an
+injected `SyncEventReader` whose `readRange` serves live D1 *and* sealed R2
+segments. `literal-history.ts` is the existing member of this family written for
+exactly that situation — read the window's active suppressions in one statement,
+then apply the predicate in TypeScript. The predicate is the same one both files
+use, character for character: `target_event_id = event_id OR sequence BETWEEN
+start_event_sequence AND end_event_sequence`. This is a second *copy* of the
+predicate, not a second *mechanism*; note that `context-retriever.ts`,
+`telegram-memory-retriever.ts`, `memory-repository.ts` and `literal-history.ts`
+already carry their own copies.
+
+Where it sits matters twice over. It runs after the range read and **before
+`prefixThroughEligibleLimit`**, so a forgotten turn does not consume one of the
+eight eligible slots — the same ordering `context-retriever.ts` argues for at its
+line 435 ("applied BEFORE LIMIT, not after"). And it happens before
+`providerPrompt` is built, so the forgotten text is never in the request body, is
+not charged against the prompt budget, and is not paid for.
+
+`SUPPRESSION_READ_D1_STATEMENT_CEILING = 1` is added to
+`STEP_SETUP_D1_STATEMENT_CEILING`, which raises
+`AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements` from 4311 to 4312. Two existing
+exact-accounting assertions move by the same one statement, in
+`charges automatic commit preparation again for every retried write attempt`:
+`counted.queryCount()` 3519 → 3520 and `result.budget.d1Statements` 4022 → 4023.
+
+### The receipt vocabulary — a decision, not an accident
+
+A suppressed turn is receipted as `skipped` / **`history_ineligible`**. Both
+halves of that were forced, and both walls are worth writing down:
+
+- A suppression-specific reason (`event_suppressed`) is refused by the
+  `skip_reason` CHECK in `0026_memory_distillation.sql:58-65`. SQLite cannot
+  widen a CHECK, so that reason is a migration. The brief said no migration, and
+  I agree there should not be one for a label.
+- Dropping the row instead — the anti-join's literal semantics — is refused by
+  `memory_distillation_run_counts_invalid` (`0026:276-289`), which requires
+  `input_event_count = end_event_sequence - start_event_sequence + 1` and a
+  receipt covering every sequence between them, and by the two cursor guards
+  (`0026:312-367`), which only advance the cursor across a run that satisfies it.
+  I implemented that version first and it failed exactly there.
+
+`history_ineligible` is *true* of a forgotten turn — it is no longer eligible as
+history — but the receipt does not say **which** gate closed, so an investigator
+who must separate a suppression from a payload that never claimed eligibility has
+to consult `memory_active_event_suppressions` for that event id. The code comment
+on `skippedForSuppression` says all of this. If the reviewer would rather the
+receipt be unambiguous, that is a migration, and it is a one-line change to the
+CHECK plus this constant once someone owns `0026`.
+
+### Neutering, verbatim
+
+The anti-join's decision was disabled with one line at the top of
+`isSuppressedEvent`: `return false; // NEUTERED`. Nothing else changed. The
+three tests below are the whole focused file's worth of new coverage; the full
+file was run so the control's behaviour is visible in the same output.
+
+```
+⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts > automatic memory distillation > does not select a turn whose source event the owner asked to forget
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/memory/automatic-distillation.test.ts:2432:42
+    2432|     expect(result.budget.eventsExamined).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts > automatic memory distillation > mints no memory from forgotten text through the hourly run
+AssertionError: expected 'nothing eligible for archival; Classr…' to contain 'Memory nothing_new, 0 created'
+
+Expected: "Memory nothing_new, 0 created"
+Received: "nothing eligible for archival; Classroom not configured; Brightspace not configured; Memory succeeded, 1 created, 0 events pending, 0 eligible events pending, 2 skips (event_type_ineligible=2) after 1 step; inbox filing 0 refiled, 0 retryable failures; Memory history complete, 4 events examined, 1 chunks written after 1 steps, 19 D1 statements charged; Memory meaning disabled (memory_meaning_bindings_missing); project poll not configured"
+
+ ❯ apps/cloud-gateway/test/memory/automatic-distillation.test.ts:2453:32
+    2453|     expect(pollDetail(result)).toContain("Memory nothing_new, 0 create…");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 73 passed (75)
+```
+
+**The control stayed green under the neuter** — `mints that memory from the same
+fixture when the owner did not forget it` is in the 73 passed, which is what the
+control is for: the fixture mints a memory whether or not the anti-join exists,
+so the other two tests fail on suppression and not on a broken fixture. With the
+line removed, `git diff | Select-String NEUTER` is empty and:
+
+```
+ Test Files  1 passed (1)
+      Tests  75 passed (75)
+```
+
+The tests, all in `apps/cloud-gateway/test/memory/automatic-distillation.test.ts`:
+
+- `does not select a turn whose source event the owner asked to forget` — the
+  turn is skipped, only the owner's later turn is eligible, and the prompt does
+  not contain the forgotten sentence.
+- `mints no memory from forgotten text through the hourly run` — driven through
+  `buildJobTable(context).poll`, the real hourly entry point, against the real
+  `AutomaticMemoryDistillationWorkflow`, a real D1 database and the real
+  `MemoryOwnerControlsService.forget` write; nothing inserts a suppression row by
+  hand.
+- `mints that memory from the same fixture when the owner did not forget it` —
+  the control. Same builder, same provider, same proposal; `forget` is the only
+  difference. It asserts 1 created and that the prompt *does* carry the sentence,
+  so a fixture that had simply stopped working could not pass it.
+
+### The in-flight ordering answer
+
+**What my change guarantees:** for a forget that is committed before a step's
+suppression read, that step cannot select the turn, cannot put its text in a
+prompt, and cannot mint from it. Since the forget is committed synchronously
+before the next hourly run, that is every ordinary case, including a forget that
+lands while an earlier step of the same poll is between steps.
+
+**What it does not guarantee:** a forget that lands *after* the suppression read
+of an in-flight step does not stop that step. The text is already in the request,
+the provider call can run for 120 s, and a proposal built from it is committed.
+That window is real and I did not close it — closing it needs a commit-time check
+the repository does not have, not another read.
+
+I measured what that leaves behind rather than assuming it, with a provider whose
+`completeJson` performs the real `controls.forget` before returning the proposal
+(a scratch test, not committed, so the diff stays the three tests the brief
+asked for):
+
+```
+{ outcome: 'succeeded', created: 1, minted: 1, retrievable: 0, suppressionCount: 1 }
+```
+
+So in that race a memory **is** written and **was** paid for, and the forgotten
+wording **did** cross the provider boundary. What contains it is downstream and
+already existed: the minted item's sources cite the now-suppressed turn, and
+`memory_retrievable_item_versions` (`0016_cloud_memory.sql:942-977`) excludes any
+version with a suppressed source, so every path that reads that view withholds
+it. Reading the same view definition rather than measuring it: that exclusion is
+derived from the suppression, not from the item, so a later `lift` removes it and
+the item minted in the race becomes retrievable like any other. I am not claiming
+the race is safe — I am claiming it is bounded to a ledger row nobody can recall
+while the suppression stands, and that the text reaching the model in that window
+is not preventable by the fix I was asked to make.
+
+### Gate
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | 5 of 6 projects, `apps/cloud-gateway lint: Done` — all Done |
+| `pnpm typecheck` | 5 of 6 projects, all Done |
+| `pnpm test` (run A) | `Test Files 3 failed \| 196 passed (199)`, `Tests 3 failed \| 5342 passed (5345)` |
+| `pnpm test` (run B) | `Test Files 6 failed \| 193 passed (199)`, `Tests 7 failed \| 5338 passed (5345)` |
+| focused file, 4 green runs | `Tests 75 passed (75)` |
+
+**Every cross-suite failure was the documented 5000 ms noise, and the names
+moved.** Run A's three were `Test timed out in 5000ms` in
+`voice-owner-call-step-up.test.ts`, `voice-telegram-call.test.ts` and
+`call-session-do.test.ts`; re-run alone twice, those three files were `205
+passed` both times. Run B failed six *different* files, five of them again on
+`Test timed out in 5000ms`; re-run alone twice, that set was `1 failed | 293
+passed` then `294 passed`, and the single failure was itself a 5 s timeout in a
+**third, different** case of `voice-telegram-call.test.ts`. Inside the focused
+file the same noise moved between two pre-existing tests
+(`commits the maximum paid response once inside the declared D1 invocation
+allowance` once, `routes whole paths to the inbox when the six-topic hourly
+creation cap would be exceeded` once), both green on re-run. Nothing here is
+mine, and I did not chase any of it.
+
+**One failure was not a timeout, and it is the one I cannot fully attribute.**
+Run B failed `owner-telegram-agent.test.ts > stores failed grounding as uncertain
+model inference with Sid's exact excerpt: negation mismatch`; run 3 of that file
+alone failed a different case,
+`accepts a swipe confirmation only for the latest delivered Jarvis message: 1001`,
+with `expected { outcome: 'delivery_unknown', …(4) } to match object { outcome:
+'telegram_delivered' }`. Evidence it is environmental rather than mine:
+`owner-telegram-agent.ts` imports no part of the changed module, and the only
+importer of `automatic-distillation.ts` is `job-table.ts`; the same file passed
+3/3 on a clean `origin/main` worktree; and filtered to that one test it passed
+8/8 on this branch and 8/8 on `origin/main`, with one baseline run taking 5.81 s
+of test time against a 0.36 s norm. I am recording it as unreproduced and
+not explained, not as cleared.
+
+`pnpm --filter @jarvis/cloud-gateway typecheck:tests` still reports 144 errors
+(the note in `AGENTS.md` says 117; the count has grown since it was written). Two
+of them are in my file, at lines 2272 and 2889, and both are pre-existing
+`as D1Database` / `as D1PreparedStatement` casts in fixtures I did not write.
+Nothing I added produces one.
+
+### What this did not cover
+
+- **`selectControlTargets` still has no anti-join**, and the related read path is
+  worse than the sweep suggested. `TelegramMemoryRetriever.selectControlTargets`
+  (`telegram-memory-retriever.ts:1832-1842`) searches `memory_item_fts` with no
+  suppression predicate, so an item hidden by a suppression on its *source event*
+  can still be selected as the target of `forget`/`lift`/`explain`/`correct`
+  while its lifecycle state is still `active`. `telegram-memory-controls.ts:391`
+  then reads it with `readCurrentItem` — not `readItemVisibility`, which is what
+  every other owner-facing read uses — and passes `item.version.text` into
+  `namedReceipt`, which appends `Memory: "<text>"` to the reply
+  (`telegram-memory-controls.ts:170-172`). I did not fix it: it is a different
+  path (item search, not raw-event distillation input), it mints nothing, and
+  deciding whether an owner asking to *forget* a sibling may hear its wording is
+  a product question — `MemoryOwnerControlsService.forget`'s own receipt
+  deliberately withholds it today. **It is a live leak of the same family and
+  deserves its own item.** I left it out of `KNOWN_ISSUES.md` only to keep this
+  diff to the fix and its tests; the reviewer should promote it.
+- **`memory_item_fts` still has no delete trigger** (`0016:3038-3042` inserts
+  only). I left it for the same reason plus one more: `memory_item_versions` is
+  append-only, so a delete trigger has nothing to fire on today, and the gap only
+  bites in combination with the item above — the FTS row is how a suppressed
+  item's wording becomes *findable*, and `selectControlTargets` is where it is
+  found.
+- **I did not re-audit the other memory read paths** for the same missing
+  anti-join. I checked the two the brief named plus `literal-history.ts` and
+  `memory-repository.ts`; the meaning index, the living-notes paths and the fact
+  projection have their own suppression handling that I read only far enough to
+  confirm they have some.
+- **`forget` currently writes only `target_event_id` suppressions** — its payload
+  decoder refuses a non-null `start_event_sequence`/`end_event_sequence`
+  (`memory-owner-controls.ts:469-471`). The range half of the predicate is copied
+  from `literal-history.ts` and is therefore exercised by no test I added; a
+  future writer of range suppressions would be the first to run it here.
+
+— deepseek-flash (DSH `session-7e0e2e94-05ed-46ae-9893-606c734d2c05`), branch
+`codex/distillation-suppression`
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
