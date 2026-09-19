@@ -3,6 +3,59 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-18 — Claude Opus 5 reviewer: I read the full audit, and six findings survive
+
+Sid commissioned a second-vendor deep dive and told me to read it whole rather
+than pull its headlines. I did — `JARVIS-AUDIT-COMPLETE.md` (5,924 lines, ten
+parts) and `DEEP-AUDIT-2026-09-18.md`. Both live at
+`C:\Users\Sid\jarvis-sweep-reports\`, **outside this repository**, so the triage
+is now in `docs/reviews/2026-09-18-full-audit-triage.md` where the next session
+will find it. A fact that lives only on his Desktop is a fact the next session
+will contradict — that is the same rule the Classroom re-ask bought us.
+
+**I did not take the report's word for anything.** An auditor's claim about its
+own evidence gets the same treatment as a builder's claim about its own tests.
+Six findings I re-derived first-hand in this worktree at `53d327f`:
+
+| # | Finding | How I checked it |
+|---|---|---|
+| T1 | `channel_identities` has **no `BEFORE INSERT` trigger** — one INSERT naming the owner's `principal_id` against an attacker's Telegram id takes the owner lane | `git grep "ON channel_identities" …/migrations` → two triggers, both `BEFORE UPDATE` |
+| T2 | `capability_tiers` has **neither** an update nor a delete guard, while `autonomy_evaluations` has both; `autonomy_mode`'s UPDATE is unguarded too | read `0008_autonomy.sql` |
+| T3 | `tool-gate.ts:209` returns `verdict: "permit"` as a **literal** — `confirmed.outcome` is never read, and the receipt can say "Nothing happened" on the same object | read it on `origin/main`; it is live now |
+| T4 | `telegram-provider.ts` clears its abort timer in the `finally` around the **fetch alone**, so `await response.json()` runs unbounded — under a comment saying the timeout is enforced precisely so that cannot happen | read `:101-127` |
+| T5 | `jarvis vault sync` can never see more than 64 notes — `documents_examined` counts unchanged files, the walk is sorted, nothing persists a position, so run N+1 stops in the same place forever | read the loop at `reconciliation.py:199-260` |
+| T6 | the red CI job: Worker moved to 6×100,000 chained PBKDF2 in `d839cad` and regenerated the shared fixture; Python still makes one 600,000 call | read both sides |
+
+**T2 is what arms T3.** The confirmed path only misbehaves if a
+`capability_tiers` row changes between the gate's two evaluations — which, with
+no trigger on that table, is one SQL statement. They are one piece of work and
+`0038` is the next free number (`0035`, `0036`, `0037` are all claimed by
+branches in flight, which is the collision this week already produced twice).
+
+**T3's obvious fix is wrong.** `verdictFor(confirmed)` maps tier 3's
+`requires_confirmation` to `"confirm"` and breaks the confirmed path entirely,
+because `decideOutcome` takes no input but tier and mode — a standing decision
+cannot change what it returns. Deny when the second evaluation is not the
+outcome the first one was; do not re-derive the verdict from it.
+
+**T6 has a fix that must not be taken.** Do not regenerate `digestBase64` back
+to `d43fzp6…`. That turns the gate green by blessing the divergence the fixture
+exists to detect, and the next person comparing the two runtimes gets no signal
+at all. Teach Python the chain, or delete the digest half and keep the
+canonicalisation half.
+
+**What I am not passing on.** Every `[R]` row in the audit's provider/model
+table came from its own delegated sub-pass — the audit spot-checked four of them
+and found one wrong, which is the right reason to treat the rest as relayed. And
+a `PINNED` verdict in that report means *a test's name asserts the behaviour*,
+read from source; no suite was run in Parts 8-9 and no mutation was executed
+anywhere. That is a weaker claim than it looks, and it is the auditor's own
+statement of it.
+
+**Nothing is launched.** Sid stopped the builders inside his peak-cost window on
+2026-09-18 and that stands until he says otherwise. The order when it reopens is
+T6 (the gate is red), then T1+T2 as one migration, then T3, T4, T5.
+
 ## 2026-09-18 22:05 UTC — Claude Opus 5 reviewer, effort high: the tier-3 branch, and the "15 failures" that are not there
 
 **Effort: high.** [M] unless tagged. What high did **not** cover: I have not yet
