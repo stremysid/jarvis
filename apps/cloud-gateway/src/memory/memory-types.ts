@@ -56,6 +56,22 @@ export interface AppendActiveMemorySourceInput {
   readonly source: InitialMemorySourceInput;
 }
 
+export interface AppendMemoryPinInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  readonly pinId: Ulid;
+  readonly authorizingEventId: Ulid;
+  readonly occurredAt: string;
+}
+
+export interface MemoryPinState {
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  /** False when the item was already in that state, so nothing was appended. */
+  readonly appended: boolean;
+}
+
 export interface InitialMemoryVersionInput {
   readonly versionId: Ulid;
   readonly text: string;
@@ -213,7 +229,8 @@ export interface AutomaticInboxRefilingResult {
   readonly failedItemCount: number;
 }
 
-export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain" | "correct";
+export type MemoryControlIntent =
+  | "remember" | "forget" | "lift" | "confirm" | "explain" | "correct" | "pin" | "unpin";
 
 /**
  * The members of `MemoryControlIntent`, written once.
