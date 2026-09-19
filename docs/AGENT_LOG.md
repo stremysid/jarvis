@@ -201,9 +201,41 @@ green when its file is run alone. So this is a **pre-existing non-determinism in
 set**, now measured rather than assumed, and it is **not** the load-timeout class (those are
 5–30 s and are #116's subject). It deserves its own item.
 
-Still open after that: `memory_save` taking `expires_at`, the pin/unpin tools and their
-capability tiers, `memory_search`, `confidence` as a projection of `basis`, and the deletion
-PR for `telegram-memory-language.ts`.
+### The three missing tools cost more than they look, and here is the bill
+
+The memory tool definitions now live in `src/memory/memory-tools.ts` so both channels can
+import them, with descriptions written to the roadmap's standard — what it does, when it is
+useful with an example, and what each input means. **None of the six had an example or an
+input explanation before, and no parameter carried a `description` at all.**
+
+Six tools exist. `memory_search`, `memory_pin` and `memory_unpin` do not, and each is a
+vertical rather than an addition. Measured, not guessed:
+
+- **`memory_search`** — meaning search is not reachable from the agent at all. Only
+  `TelegramMemoryRetriever` consults Vectorize, through `MemoryMeaningService`. Dispatching
+  the tool means a new dependency on `OwnerTelegramAgentAdapter`, whose dependency list is a
+  validated allowlist, so every construction site is a compile error until updated.
+- **`memory_pin` / `memory_unpin`** — the write path is gated by a **closed intent set**.
+  `OwnerTelegramAgentAdapter.ownerTurn(input, intent)` chooses the intent in code per tool
+  (`"remember"`, `"forget"`, `"correct"`, `"lift"`, `"confirm"`, `"explain"`), and
+  `requireMemoryIntent` refuses when `turn.memoryIntent !== operation`
+  (`memory-owner-controls.ts:277`). The set is `MEMORY_CONTROL_INTENTS`
+  (`memory-owner-controls.ts:42`), re-validated in `memory-repository.ts:2007`, and the owner
+  command's `operation` is a third closed set in the `0019` ingress guard, which I already
+  extended with `item.pin` / `item.unpin`. Adding the tools means extending the union, both
+  runtime sets, the payload codec, the repository write, and the dispatch — **and then
+  answering a design question first: does a pin need the same owner-command ceremony as a
+  forget?** A forget hides evidence and is irreversible in effect; a pin is a preference and
+  is undone by appending a row. If the answer is "no", the pin should not go through
+  `requireMemoryIntent` at all, and that decision changes the shape of the work.
+
+I stopped rather than start that vertical, because a half-wired tool is worse than a missing
+one: it would be defined, classified, dispatched, and refuse at runtime.
+
+Also still open: `memory_save` taking `expires_at` (with expiry propagated onto the
+`correct` and `confirm` versions, or the `0038` coupling trigger aborts them), `confidence`
+as a projection of `basis`, the hourly review wake-up, and the deletion PR for
+`telegram-memory-language.ts`.
 - **Correction to my own earlier report:** I told Sid `git grep setAlarm` returns nothing. It
   returns two hits, `voice/call-session-do.ts:1801` and `:1806`. His conclusion still held, for
   a better reason than the one given.
