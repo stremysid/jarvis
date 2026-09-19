@@ -5098,6 +5098,28 @@ describe.sequential("memory lifetime and the core profile (0038)", () => {
     await pinItem(owner.principalId, item.itemId, 2);
   });
 
+  it("refuses the racing case, where two writers compute the same next pin number", async () => {
+    // The sequence number is computed inside the INSERT rather than read and then
+    // written, precisely so that two writers cannot agree on max + 1. This is what
+    // that buys, asserted on the writer that LOSES rather than on the happy path:
+    // the second insert carries the number the first one already took, so it has
+    // to be refused rather than appended.
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+    await pinItem(owner.principalId, item.itemId, 1);
+
+    // Both writers read max = 1 and computed 2.
+    await pinItem(owner.principalId, item.itemId, 2);
+    await expect(pinItem(owner.principalId, item.itemId, 2))
+      .rejects.toThrow(/memory_item_pin_sequence_invalid/u);
+
+    // And the loser left nothing behind: the state is the winner's, not both.
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_pins
+      WHERE principal_id = ? AND item_id = ?`).bind(owner.principalId, item.itemId)
+      .first("count")).toBe(2);
+  });
+
   it("refuses to update or delete a pin, because untrusting is a new row", async () => {
     const owner = await seedPrincipal();
     const source = await seedEvent(owner.principalId);
