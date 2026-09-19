@@ -3,6 +3,283 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 00:05 UTC — DeepSeek V4.1 Flash, `0036` was claimed twice and the checker could not see it
+
+**Effort level: `low`.** `~/.dsh/settings.yaml` sets
+`agent-default-model.reasoningEffort: low` for `deepseek-flash`, and this session
+ran on that default. The entry below this one reads `max` from the same field;
+that is what the file said then, and this is what it says now. `CLAUDE_EFFORT=xhigh`
+is in the environment but belongs to the Claude session that launched this one, so
+it is not the level I ran at.
+
+Both parts of
+`C:\Users\Sid\jarvis-gate\reviewer-tools\relay\fix-0036-and-checker-prompt.txt`.
+
+**Pushed branches:** `codex/email-read-everything-0037` at `5b96207` (part 1) and
+`codex/migration-collision-check` at `248454f` (part 2, on top of `bc6951a`).
+
+### Part 1 — `0036` is down to one claim; this branch moved to `0037`
+
+`git ls-tree` on both refs confirmed the collision before anything changed:
+`codex/r1-sensitive-action-pin-v6` carries `0036_owner_sensitive_action_pin.sql`
+(PR #96, head `6a322d1`, 19:16) and `codex/email-read-everything` carries
+`0036_email_read_everything.sql` (no PR, head `13929a5`, 19:42). Production D1 is at
+`0034`, and `0035` belongs to `codex/tier3-classify-memory-correct` (PR #106). #96
+keeps `0036` — it claimed first and is further along. Ordering, not judgement.
+
+Worktree `C:\Users\Sid\jarvis-renum`, branch `codex/email-read-everything-0037`,
+created from `origin/codex/email-read-everything` as the brief specifies.
+
+Renaming the file is not renaming the migration, because the name is what a D1
+receipt records and what the backup/restore inventory looks up. Carried through in
+the same commit:
+
+- `apps/cloud-gateway/src/backup/memory-backup-restore-migrations.ts` — the import
+  and the entry's position in the ordered array, with its comment rewritten to say
+  why the name moved;
+- `apps/cloud-gateway/test/persistence/migration.ts` — the raw import, the
+  `applyD2lNotificationEmailMigration` array and `allCloudGatewayMigrations`;
+- `apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts` — the
+  pinned name list;
+- `apps/cloud-gateway/test/backup/memory-backup.test.ts` — the
+  `databaseSchemaVersion` pin;
+- `apps/cloud-gateway/test/persistence/email-read-everything-migration.test.ts`
+  (name and docstring), `apps/cloud-gateway/src/index.ts` (a comment) and
+  `scripts/neutering-audit.ps1` (the mutation's patch target).
+
+Two items on the brief's checklist had nothing to move, and I checked rather than
+assumed: `MIGRATION_SEEDED_ROWS` in `memory-backup-restore.ts` (this migration
+seeds no rows) and the table classification in `memory-backup.ts` (it adds a
+column, an index and a replaced trigger — no table).
+
+**The synthetic future fixture.** It was `0035_future.sql`. #96 bumped its own copy
+to `0037_future.sql` for the same reason, which is exactly the number this branch
+was taking, so `0038_future.sql` would have handed the same problem to the next
+builder. It is now `9999_future.sql` — above every number any branch claims — with
+a comment in the test saying why the name has to stay above them.
+
+**The two traps, re-checked mechanically on the renamed file:** no
+`SELECT CASE ... RAISE` (the guard is `WHEN NOT (...) BEGIN SELECT RAISE(...) END`),
+and no semicolon inside a `--` comment. Both clean.
+
+**Test numbers, from this worktree:**
+
+| Run | Result |
+|---|---|
+| `apps/cloud-gateway/test/persistence` | 33 files, **798 passed** |
+| `apps/cloud-gateway/test/backup` | 3 files, **43 passed** |
+| the migration files alone (email-read-everything, remote-D1 syntax, d2l-notification-email) | 3 files, **70 passed** |
+| `pnpm lint` | **pass** (5 projects) |
+| `pnpm typecheck` | **pass** (5 projects) |
+
+**Mutated, because a green suite is not evidence.** Deleting the `0037` entry from
+`MEMORY_BACKUP_RESTORE_MIGRATIONS` and re-running `memory-backup-restore.test.ts`
+gave **1 failed | 9 passed** — `memory_backup_restore_migrations_missing`, 409 where
+the operator expected 200, in "restores 5,000 rows through bounded operator steps".
+The inventory entry is load-bearing. It was restored and the branch committed clean.
+
+**What I deliberately did not do:** `origin/codex/email-read-everything` is still on
+origin, still holding `0036`. Deleting or force-pushing another session's branch is
+not something this brief authorized, and it is the reason the checker below still
+reports `0036` as contested. Retiring it is a call for the reviewer or Sid.
+
+### Part 2 — the checker was blind exactly where collisions are made
+
+The old script against the live repository, before I touched it:
+
+```text
+scanned:    origin/main + 4 open PR branch(es)
+files read: 172
+
+no number collision: every migration number is claimed by a single branch.
+next genuinely free number: 0037
+verdict: clean
+```
+
+Exit 0 — on the same origin where two branches held `0036`. `codex/email-read-everything`
+had been pushed and had no PR, and `gh pr list` was the enumeration. The standing
+rule here is "push before you finish", so that blindness lands exactly in the window
+where collisions are created.
+
+`reviewer-tools/migration-numbers.ps1` now enumerates `git ls-remote --heads origin`
+after the fetch and reads each sha with `git ls-tree`. `gh pr list` still prints the
+PR number beside a branch and does nothing else: if gh is missing, unauthenticated
+or pointed at a non-GitHub remote, the run says so and still reads every branch,
+because an unenumerated branch was the risk and git now enumerates all of them. A
+push landing between the fetch and the enumeration leaves a branch that cannot be
+compared, and that aborts loudly (exit 2) naming it, rather than counting it as a
+branch with nothing to report.
+
+**Exclusion reasoning, with the measurement behind it.** Scanning all 127 non-main
+heads naively reported seven collision groups. Five were noise:
+
+| Naive finding | What it actually was |
+|---|---|
+| `0001`, `0002`, `0006` — one filename, two contents | branches that forked before the remote-D1 replay repair edited those files on main, and never touched them themselves |
+| `0014` — one filename, two contents | a merged branch's older copy |
+| `0027` — two filenames | a branch that forked at main@`0025` and picked `0027` while it was free; main has since applied `0027_school_observations.sql` |
+| `0035` — one filename, two contents | three branches of the same tier-3 work, two revisions of one comment |
+| `0036` — two filenames | **the real thing** |
+
+Two rules remove the first two rows, and neither is a judgement about how old or how
+alive a branch looks:
+
+1. **A branch whose tip is an ancestor of `origin/main` is excluded**, and every
+   excluded ref is printed at the bottom of the output. Its commits are main's
+   commits, so it cannot add a migration main does not already have. That is 101 of
+   127 heads on today's origin.
+2. **A branch is compared against its own merge-base with main, not against main's
+   tip.** A branch that forked before main edited a file holds the older bytes
+   without ever having touched it, and merging it cannot change the file, so it is
+   not a claim. This is what removes `0001`, `0002`, `0006` and `0014`.
+
+What remains is classified, and only the first kind sets the verdict:
+
+- **`COLLISION`** — a number main does not apply that two pending branches claim with
+  different filenames (`0036`), or, at a number main does apply, a pending branch
+  changing that migration's bytes. Both merge silently: nothing in either PR's own
+  diff reveals them. Exit 1.
+- **`STALE`** — main already applies the number under another name, and a branch that
+  forked earlier claims it too (`0027`). Printed, not counted: the branch cannot land
+  as numbered, but nothing is racing for that number any more, and a tool that stays
+  red on finished work is the failure mode this repository just spent a day fixing in
+  `docs-check.ps1`.
+- **`REVISION`** — one filename at two revisions where main has not applied the number
+  yet (`0035`). Printed, not counted. This repo pushes revised work to a new branch
+  rather than force-pushing (`-v4`, `-v5`, `-v6`), so a superseded copy is the normal
+  state of an old branch; nothing has shipped, and the second merge is an add/add
+  conflict git refuses rather than a silent overwrite. The difference between #106's
+  `0035` and the other two branches is one word in a comment, which is what a
+  classification that counted it would have put in the verdict forever.
+
+**Verification 1 — the current live state, exit 1:**
+
+```text
+===== MIGRATION NUMBER CHECK =====
+repo:       C:/Users/Sid/jarvis-migcheck
+migrations: apps/cloud-gateway/src/persistence/migrations
+branches:   128 head(s) on origin besides main, every one enumerated from git ls-remote
+             101 excluded - an ancestor of origin/main, so nothing on it is not already on main
+              27 pending - compared against its own fork point, not against main's tip
+               7 of those changed a migration file
+PR context: 5 open pull request(s)
+            PR numbers are context only: every head on origin is read whether or not it has one.
+claims:     34 migration file(s) on main; 7 added or changed by a pending branch
+
+COLLISION 0036 - 2 different migrations claim this number:
+    0036_email_read_everything.sql  [bf40ffb50d]
+        origin/codex/email-read-everything  (no PR, forked at main@0034)
+    0036_owner_sensitive_action_pin.sql  [73f6b6903c]
+        origin/codex/r1-sensitive-action-pin-v6  (PR #96, forked at main@0034)
+
+STALE 0027 - main already applies this number, and a branch that forked earlier claims it too:
+    0027_school_observations.sql  [72d65882a2]
+        origin/main  (no PR)
+    0027_school_progress.sql  [dbcabdb148]
+        origin/codex/r5-grades-missing-work-step5  (no PR, forked at main@0025)
+
+REVISION 0035 - the same filename at different revisions on branches that all still claim it:
+    0035_autonomy_tool_capabilities.sql  [2c0df4804a]
+        origin/claude/tier3-on-main  (no PR, forked at main@0034)
+    0035_autonomy_tool_capabilities.sql  [26e447f4ae]
+        origin/codex/tier3-classify-memory-correct  (PR #106, forked at main@0034)
+    0035_autonomy_tool_capabilities.sql  [2c0df4804a]
+        origin/codex/wire-autonomy-tier3  (no PR, forked at main@0034)
+
+next genuinely free number: 0038
+verdict: COLLISION - 1 number(s) contested by more than one pending branch
+note:    1 stale claim(s) above are printed but not counted: a branch that cannot land as numbered is not a number two builders are racing for.
+note:    1 revision(s) above are printed but not counted: nothing has shipped at that number, so a superseded copy is an old branch, not a defect.
+==================================
+
+EXCLUDED (101) - already merged into origin/main, printed so the filter is auditable:
+    [all 101 refs named]
+PENDING (27) - read for claims; 7 changed a migration file:
+    [all 27 refs, each with its PR number and the file it claims]
+==================================
+```
+
+Exit 1. The collision that sets it names both branches, and one of them has no PR —
+which is why the old version called this same origin clean. `next genuinely free
+number` moved from `0037` to `0038` because part 1 pushed a branch holding `0037`,
+which is the tool noticing its own repository.
+
+**Verification 2 — the abandoned-branch case, from the same run.** The `STALE 0027`
+block above is a real abandoned branch carrying an old migration number:
+`codex/r5-grades-missing-work-step5` is 2.8 days old, forked at main@`0025`, has no
+PR, and picked `0027` while it was free. It is printed with the branch, its fork
+point and main's competing file, and it does not decide the verdict — which is the
+whole point of printing it rather than either hiding it or counting it.
+
+**Verification 3 — a clean case, exit 0.** The live repository cannot be clean today:
+`origin/codex/email-read-everything` still holds `0036` (see "what I did not do"
+above). So the clean case is the real repository with that one superseded ref
+retired: a mirror clone of it, `refs/heads/codex/email-read-everything` deleted, and
+the work clone pointed at the mirror.
+
+```text
+branches:   126 head(s) on origin besides main, every one enumerated from git ls-remote
+             101 excluded - an ancestor of origin/main, so nothing on it is not already on main
+              25 pending - compared against its own fork point, not against main's tip
+               6 of those changed a migration file
+PR context: unavailable (gh pr list failed: expected the "[HOST/]OWNER/REPO" format, got "C:\\Users\\Sid\\AppData\\Local\\Temp\\mig-clean\\origin.git")
+            PR numbers are context only: every head on origin is read whether or not it has one.
+claims:     34 migration file(s) on main; 6 added or changed by a pending branch
+
+no contested number: no number is claimed by more than one pending branch, and no
+pending branch rewrites a migration that main already applies.
+STALE 0027 - ... [as above]
+REVISION 0035 - ... [as above]
+
+next genuinely free number: 0038
+verdict: clean
+note:    1 stale claim(s) above are printed but not counted: ...
+note:    1 revision(s) above are printed but not counted: ...
+```
+
+Exit 0. `0036` is gone because only `codex/r1-sensitive-action-pin-v6` claims it;
+the stale and revision findings are still printed and still do not count. That gh
+line is also the proof that the gh abort is gone: the fixture's remote is a local
+path, gh refuses it, and the scan answers anyway.
+
+**Verification 4 — the classifications are reachable.** Three of the four states
+above are "not a collision", which is indistinguishable from a rule that never
+fires, so `reviewer-tools/migration-numbers.verify.ps1` builds a throwaway origin
+and constructs one state per verdict. `6 case(s), 0 failed`:
+
+```text
+PASS  clean         exit 0 (expected 0)
+PASS  contested     exit 1 (expected 1)
+PASS  revision      exit 0 (expected 0)
+PASS  stale         exit 0 (expected 0)
+PASS  applied-edit  exit 1 (expected 1)
+PASS  merged        exit 0 (expected 0)
+```
+
+`GATE-TOOLS.md` (including a new worked example from the run above) and
+`REVIEWER-MANUAL.md` are updated to the behaviour that is now true, rather than the
+behaviour they described this morning.
+
+### What this did not cover
+
+- **The live repository will keep reporting `0036` until `codex/email-read-everything`
+  is retired.** That is the correct answer, not a leftover bug: two branches really
+  do still claim it.
+- **A branch that deletes a migration file main applies is not detected.** A D1
+  receipt would then name text that no longer exists. It has never happened here and
+  it is written into the script's header as not covered rather than left implied.
+- **A migration file not named `NNNN_something.sql`** is invisible to the scan, by
+  construction.
+- **The verify fixture is a toy repository** — three migrations, no SQL semantics.
+  It proves the classifications fire; it proves nothing about D1. The live run is
+  what covers the real repository.
+- **`GATE-TOOLS.md` is not in `docs-check.ps1`'s default file list**, and passing it
+  explicitly reports migration names and blob prefixes in the pasted example. That
+  was already true of the older example; the doc now says so where it happens.
+- **No full `pnpm test`.** I ran the focused suites the brief asks for (persistence,
+  backup/restore, the migration files) plus lint and typecheck. The known full-suite
+  flakes on this machine are unchanged and unmeasured by this session.
+
 ## 2026-09-18 19:35 UTC — DeepSeek V4.1 Flash, read every email the school inbox sends
 
 **Effort level: `max`.** `~/.dsh/settings.yaml` sets
