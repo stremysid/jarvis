@@ -53,6 +53,9 @@ repository is the only thing every session reads.**
 | The only Windows user profile on this machine is **`Sid`**. The `Ksid1` profile named by older documents never existed | The filesystem; a corrected `AGENTS.md` trap | 2026-09-18 | yes |
 | `python` on `PATH` resolves to a real Python 3.12.6, and `uv` is on `PATH`. The older "python is a broken stub" claim is retracted | `python -V`; corrected `AGENTS.md` | 2026-09-18 | yes |
 | The agent presets are **outside the repository**, under `~/.dsh/.agent-presets/` — `jarvis-builder` and `jarvis-auditor`. They carry the standing rules for headless sessions | The preset files; `reviewer-tools/dsh-relay.ps1` layers them | 2026-09-19 | yes |
+| The committed guest PIN `4827` is a **placeholder**, not a live secret. The deployed `DEFAULT_GUEST_PIN` is not that value | Sid, asked directly after a reviewer flagged it | 2026-09-19 | yes |
+| **Voice must be able to act, not only talk.** A phone call with no tool dispatch is not what Jarvis is for; composing the tool-calling agent into `CallSessionCore` is work, not an open question | Sid, 2026-09-19, when asked whether a call should be able to do things | 2026-09-19 | yes |
+| The eight everyday owner tools stay **tier 1**. Tier 2 is withheld while `autonomy_mode` is `shadow`, so tier 2 would make memory, school and study calls silently do nothing | `decideOutcome` in `autonomy/autonomy-service.ts`; live `autonomy_mode` is `shadow` | 2026-09-19 | yes |
 | **Contested:** `README.md` calls the Twilio number *"a purchase"* while the roadmap says Sid already owns the number and credentials. One of the two is wrong and neither cites evidence | Two documents disagree; no citation in either | 2026-09-19 | **unknown — confirm with Sid** |
 
 ## Adding a row

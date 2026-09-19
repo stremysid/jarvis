@@ -24,7 +24,7 @@ Last regenerated: 2026-09-19, against `main` = run `git log --oneline origin/mai
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
-| Voice has no tool dispatch — a call can talk and cannot act | **decision, not a task** | Sid rules on whether a phone call should be able to do things. R1's exit test does not require a tool, so R1 can pass and still be a chatbot | Sid | **v1.0 as the owner means it** |
+| Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Sid ruled yes on 2026-09-19. Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front of it and receipts working on the voice channel | builder | **v1.0 as the owner means it** |
 | A four-digit PIN, a spoken-word PIN, a phone number and the owner passphrase match no redaction rule | **live defect** | #96 fixes the digit half. The digit-word, phone-number and `Bearer`-ordering halves are untouched, and the passphrase is not matchable by pattern at all | builder | v1.0 |
 | `explain` / `forget` / `restore` print the memory text in the result that says it was withheld | **live defect** | Pass the string the service already sanitised instead of re-reading the repository | builder | R2 |
 | `selectControlTargets` reads `memory_item_fts` with no suppression anti-join | **live defect** | Copy the two `NOT EXISTS` clauses the FTS arm of `readCandidates` already carries | builder | R2 |
