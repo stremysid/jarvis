@@ -337,7 +337,24 @@ const allCloudGatewayMigrations = Object.freeze([
     name: "0035_autonomy_tool_capabilities.sql",
     queries: splitMigration(autonomyToolCapabilitiesSql),
   },
+  {
+    name: "0038_memory_lifetime_and_pins.sql",
+    queries: splitMigration(memoryLifetimeAndPinsSql),
+  },
 ]);
+
+/**
+ * The names this fixture applies, for the parity guard in
+ * `migration-list-parity.test.ts`.
+ *
+ * Exported because the defect that guard exists for was exactly this list
+ * drifting: `0038` was added to `applyNewestRuntimeMigration` and nowhere else,
+ * so the restore fixture rebuilt a target without its tables and a healthy
+ * backup then failed as though it were an operational fault.
+ */
+export function allCloudGatewayMigrationNames(): readonly string[] {
+  return allCloudGatewayMigrations.map(({ name }) => name);
+}
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
 export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void> {

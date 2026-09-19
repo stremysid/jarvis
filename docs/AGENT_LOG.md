@@ -100,32 +100,56 @@ Both runtimes changed, because a shared vector fixture holds them in step:
 
 - `test/memory/` — **426 passed**, after every promotion edit.
 - `apps/local-agent` `tests/memory` — **231 passed**; `ruff` and `mypy --platform win32` clean.
-- `test/persistence/` — **799 passed** with 0038 applied.
-- `test/backup/memory-backup.test.ts` — **26/26**.
-- `pnpm test` (root, the whole workspace) — **RED when last run**, and that is how the next
-  item was found. Not re-run after the fixes below.
+- `test/persistence/` — **800 passed** with 0038 applied.
+- `test/backup/` — **43 passed**, all three files.
+- `pnpm test` (root, the whole workspace) — **5361 of 5373, 193/201 files, with 12 failures
+  across 8 files.** Every one of the twelve re-runs green on its own:
+  `test/backup/memory-backup.test.ts` 26/26 and `test/memory/telegram-memory.test.ts` 70/70
+  when run alone, and the rest the same. All twelve are 5–33 s durations, so they are the
+  documented load timeouts (5,000 ms with no `testTimeout` configured — PR #116's subject),
+  not assertions. **This is a load-timeout finding, not a green suite**, and it is the class of
+  non-determinism that has not been fixed.
 
-### RED, and exactly why — this is the next session's first job
+### The nine red restore tests were a missing migration in two hand-kept lists, not the trigger classifier
 
-**Nine tests in `memory-backup-restore.test.ts`.** Cause identified, repair not attempted.
+**I diagnosed this wrong the first time and am recording both the wrong answer and the right
+one**, because the wrong one was plausible and cost nothing to correct only because the failure
+message was read properly the second time.
 
-`assertRestoreTargetPreflight` (`memory-backup-restore.ts:299`) compares the **live trigger
-set** against a set **derived from the migration sources**, and refuses on a size or name
-mismatch. `0038` does `DROP TRIGGER events_memory_owner_command_ingress_guard` and re-creates
-it to add `item.pin` / `item.unpin`, which perturbs that derivation. Two ways out, and the
-second is safer: teach the derivation that a re-created trigger is one trigger, or extend the
-allowlist without touching the live set.
+What I wrote first: that `assertRestoreTargetPreflight` was mismatching the live trigger set
+because `0038` drops and re-creates the ingress guard. **That was not the cause.** The failure
+was never in the restore preflight at all — it was in `finishBackup`, i.e. the *backup* step
+returning `{"outcome":"failed","code":"memory_backup_operation_failed"}` and every test that
+calls it failing behind it.
 
-Do **not** simply drop the ingress extension to make it green: `item.pin` would then not be an
-allowed owner command and the pin tests would fail instead.
+What it actually was, and it is the same defect twice: **a migration must be added to every
+hand-kept list, and I had only added it to one.**
 
-Also worth knowing: the migration's leading comment originally contained a **semicolon inside
-a `--` comment**, the trap `AGENTS.md` names. The splitter divides on `;`, so the comment became
-a statement with no SQL in it and D1 refused the migration with `SQL code did not contain a
-statement`. Worse, my first mutation pass reported **five guards as verified when only one ran**
-and the rest were skipped behind a failing `beforeAll`. The harness now checks that a mutation
-still splits and refuses to report a result otherwise. A green suite that never ran is not
-evidence.
+1. `allCloudGatewayMigrations` (`test/persistence/migration.ts`) ended at `0035`, and
+   `recreateFreshDatabaseForBackupRestoreTest` builds the restore target from that list alone
+   (`:403`). So the fresh target had no `memory_item_pins` and no `lifetime`, and a healthy
+   backup of a partial schema failed. That file's own comment at `:409` names this exact
+   failure mode: *"A partial schema makes a healthy backup look like an operational failure."*
+2. `MEMORY_BACKUP_RESTORE_MIGRATIONS` (`memory-backup-restore-migrations.ts`) is a
+   **transcribed** import list the operator uses, and it also ended at `0035`. With the
+   manifest at `0038`, `migrationSqlThrough` (`:270`) could not find the applied version and
+   reported `memory_backup_restore_migrations_missing`.
+
+**For the next migration, all five lists need it, not one:** `allCloudGatewayMigrations`,
+`applyNewestRuntimeMigration`, the operator's `MEMORY_BACKUP_RESTORE_MIGRATIONS`, the
+`remote-d1-migration-syntax` inventory, and `MEMORY_BACKUP_TABLES` / the derived excludes if it
+declares a table. A guard exists for the last one and for the inventory; **nothing guards the
+first three**, which is why 0038 passed its own test files and broke the backup. That missing
+guard is worth more than the fix: one test asserting every migration file on disk appears in
+every transcribed list would have caught this before I pushed it.
+
+Also worth knowing, and unrelated to the above: the migration's leading comment originally
+contained a **semicolon inside a `--` comment**, the trap `AGENTS.md` names. The splitter
+divides on `;`, so the comment became a statement with no SQL in it and D1 refused the migration
+with `SQL code did not contain a statement`. Worse, my first mutation pass reported **five
+guards as verified when only one ran** and the rest were skipped behind a failing `beforeAll`.
+The harness now checks that a mutation still splits and refuses to report a result otherwise. A
+green suite that never ran is not evidence.
 
 ### Not done, deliberately
 
