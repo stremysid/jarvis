@@ -933,8 +933,11 @@ change deadline precision.
 ## Grade and submission ingestion still has four approval and coverage gaps
 
 Candidate migration `0027_school_observations.sql` and its repository use only
-the already configured read-only Google Classroom route. They do not request a
-new scope or run consent. The current refresh token's granted scopes are not
+**the Google Classroom route, which was never configured and cannot be** — the
+owner's school account cannot reach Google Cloud Console, so no refresh token
+exists or can exist. The paragraph below describes a grant that does not exist.
+Kept because the scope reasoning still applies if the route ever reopens. They
+do not request a new scope or run consent. The current refresh token's granted scopes are not
 known in code, however. Google's submission endpoint requires a coursework or
 student-submission read scope. If the existing grant lacks it, the poll records
 `classroom_rejected` and the digest names the grades/submissions gap. Obtaining
