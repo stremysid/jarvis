@@ -1,9 +1,10 @@
 # Gate tools
 
 Three Windows PowerShell scripts on the reviewer's branch. They are not product
-code and never ship. (`docs-check.ps1` is a fourth; it explains itself in its
-own header.) They exist because the review loop's most expensive mistakes have
-been mechanical:
+code and never ship. (`docs-check.ps1` is a fourth and
+`migration-numbers.verify.ps1` a fifth; each explains itself in its own header.)
+They exist because the review loop's most expensive mistakes have been
+mechanical:
 
 - `pnpm test:all` is a `&&` chain, so the first failing package stops the
   later ones. Four hermes-runtime security tests sat red on main for six days
@@ -118,30 +119,75 @@ pwsh -NoProfile -File migration-numbers.ps1 [-Repo C:\Users\Sid\jarvis-migcheck]
 ```
 
 It answers two questions before a migration number is accepted: is any number
-claimed by more than one branch, and what is the next genuinely free number. It
-takes the open PR branches from `gh pr list` and reads each branch's migrations
-with `git ls-tree` against the remote ref, so it never checks a branch out and
-never touches a working tree.
+contested by more than one branch, and what is the next genuinely free number.
+
+It enumerates **every head on origin** with `git ls-remote --heads origin` and
+reads each one's migrations with `git ls-tree` against the sha that command
+reports, so it never checks a branch out and never touches a working tree. It
+used to enumerate `gh pr list` instead, which was a blind spot with teeth: the
+standing rule here is "push before you finish", so the window in which two
+builders collide is exactly the window in which the second branch is pushed and
+has no PR yet. On 2026-09-18 it said `verdict: clean, next genuinely free
+number: 0037` while two branches both held `0036`. PR numbers are still printed
+next to a branch that has one; they no longer decide which branches are read,
+and a `gh` that is missing, unauthenticated or pointed at a non-GitHub remote
+no longer aborts the run - it degrades the PR column and nothing else.
+
+Two rules keep a full scan from reporting the same stale news forever, and both
+are printed rather than applied silently:
+
+- A branch whose tip is an ancestor of `origin/main` is excluded: its commits
+  are main's commits. Every excluded ref is named at the bottom of the output.
+- A branch is compared against **its own merge-base with main**, not against
+  main's tip. A branch that forked before a migration was edited on main holds
+  the older bytes without ever having touched the file; merging it cannot change
+  the file, so it is not read as a claim.
+
+Findings come in three kinds, and only the first sets the verdict:
+
+- `COLLISION` - a number main does not apply that two pending branches claim
+  with different filenames, or, at a number main does apply, a pending branch
+  changing that migration's bytes. Exit 1.
+- `STALE` - main already applies the number under another name and a branch
+  that forked earlier claims it too. Printed, not counted.
+- `REVISION` - one filename at different revisions where main has not applied
+  the number yet, which is what a superseded branch normally looks like. Printed,
+  not counted.
 
 - `-Repo` defaults to the repository the script lives in (the parent of
   `reviewer-tools/`), **not** to a shared checkout path. `docs-check.ps1`
   defaults to `C:/javis`, so running it from a worktree silently checks the
   wrong tree; this script cannot, because every git call is rooted at the
-  resolved repository and the resolved path plus every scanned ref is printed
+  resolved repository and the resolved path plus the branch census is printed
   at the top of the output.
-- It fetches `origin` first. A scan of stale local refs can report a collision
-  that has since been resolved, or miss one just created, so a fetch failure
-  aborts rather than answering from refs that may not match GitHub.
-- A number present, byte-identical, on main **and** on a branch is not a
-  collision: every branch contains main's migrations. It reports a number with
-  more than one distinct filename, and separately one filename whose contents
-  differ between refs.
+- It fetches `origin` before enumerating. A scan of stale refs can report a
+  collision that has since been resolved, or miss one just created, so a fetch
+  failure aborts rather than answering from refs that may no longer match. If a
+  push lands between the fetch and the enumeration, the affected branch cannot
+  be compared and the run aborts (exit 2) naming it, rather than treating an
+  unread branch as a branch with nothing to report.
 - The next free number is the smallest number above the highest number on
-  `origin/main` that no scanned ref claims - not a gap below it, because a gap
+  `origin/main` that no pending branch claims - not a gap below it, because a gap
   was either applied or deliberately skipped, and Wrangler applies by name.
-- Exit 0 clean, 1 collision, 2 could not produce a usable answer (gh missing or
-  unauthenticated, not a repository, fetch failed, or a listed PR branch has no
-  local ref). The exit-2 output says ABORTED and never prints a clean verdict.
+- Exit 0 clean, 1 contested collision, 2 could not produce a usable answer (not
+  a repository, no `origin/main`, fetch failed, a branch that cannot be
+  compared). The exit-2 output says ABORTED and never prints a clean verdict.
+
+## `migration-numbers.verify.ps1`
+
+```powershell
+pwsh -NoProfile -File migration-numbers.verify.ps1 [-Scratch C:/Temp/migration-numbers-verify]
+```
+
+Builds a throwaway bare origin plus a clone under `-Scratch` and constructs one
+repository state per verdict - clean, contested, revision, stale, applied-edit,
+merged - then runs `migration-numbers.ps1` against each and compares the exit
+code and the finding printed. Three of those states are "not a collision", which
+is indistinguishable from a rule that never fires, so the fixture is what makes
+the classifications load-bearing rather than merely written down. The fixture
+has no GitHub remote, which is also how the `PR context: unavailable` path gets
+exercised. Exit 0 when every case matched, 1 when one did not, 2 when the
+fixture could not be built. It touches nothing outside `-Scratch`.
 
 ## Worked example: `gate.ps1`
 
@@ -201,33 +247,67 @@ killed.
 
 ## Worked example: `migration-numbers.ps1`
 
-Run from `C:\Users\Sid\jarvis-migcheck` on 2026-09-18, when main was at `0034`:
+Run from `C:\Users\Sid\jarvis-migcheck` on 2026-09-18, when main was at `0034`
+and 128 heads existed on origin. The two lists at the bottom - every excluded
+merged ref, and every pending branch with its claim - are elided here; the run
+prints all of them.
 
 ```text
 ===== MIGRATION NUMBER CHECK =====
-repo:       C:/Users/Sid/jarvis-migcheck  (defaulted from this script's location)
+repo:       C:/Users/Sid/jarvis-migcheck
 migrations: apps/cloud-gateway/src/persistence/migrations
-scanned:    origin/main + 3 open PR branch(es)
-    origin/main                                      main
-    origin/codex/tier3-classify-memory-correct       PR #106
-    origin/claude/classroom-route-dead               PR #105
-    origin/codex/r1-sensitive-action-pin-v6          PR #96
-files read: 138
+branches:   128 head(s) on origin besides main, every one enumerated from git ls-remote
+             101 excluded - an ancestor of origin/main, so nothing on it is not already on main
+              27 pending - compared against its own fork point, not against main's tip
+               7 of those changed a migration file
+PR context: 5 open pull request(s)
+            PR numbers are context only: every head on origin is read whether or not it has one.
+claims:     34 migration file(s) on main; 7 added or changed by a pending branch
 
-COLLISION 0035 - 2 different migrations claim this number:
+COLLISION 0036 - 2 different migrations claim this number:
+    0036_email_read_everything.sql  [bf40ffb50d]
+        origin/codex/email-read-everything  (no PR, forked at main@0034)
+    0036_owner_sensitive_action_pin.sql  [73f6b6903c]
+        origin/codex/r1-sensitive-action-pin-v6  (PR #96, forked at main@0034)
+
+STALE 0027 - main already applies this number, and a branch that forked earlier claims it too:
+    0027_school_observations.sql  [72d65882a2]
+        origin/main  (no PR)
+    0027_school_progress.sql  [dbcabdb148]
+        origin/codex/r5-grades-missing-work-step5  (no PR, forked at main@0025)
+
+REVISION 0035 - the same filename at different revisions on branches that all still claim it:
     0035_autonomy_tool_capabilities.sql  [2c0df4804a]
-        origin/codex/tier3-classify-memory-correct  (PR #106)
-    0035_owner_sensitive_action_pin.sql  [73f6b6903c]
-        origin/codex/r1-sensitive-action-pin-v6  (PR #96)
+        origin/claude/tier3-on-main  (no PR, forked at main@0034)
+    0035_autonomy_tool_capabilities.sql  [26e447f4ae]
+        origin/codex/tier3-classify-memory-correct  (PR #106, forked at main@0034)
+    0035_autonomy_tool_capabilities.sql  [2c0df4804a]
+        origin/codex/wire-autonomy-tier3  (no PR, forked at main@0034)
 
-next genuinely free number: 0036
-verdict: COLLISION - 1 number(s) claimed by more than one branch
+next genuinely free number: 0038
+verdict: COLLISION - 1 number(s) contested by more than one pending branch
+note:    1 stale claim(s) above are printed but not counted: a branch that cannot land as numbered is not a number two builders are racing for.
+note:    1 revision(s) above are printed but not counted: nothing has shipped at that number, so a superseded copy is an old branch, not a defect.
+==================================
+
+EXCLUDED (101) - already merged into origin/main, printed so the filter is auditable:
+    [... every merged ref, named ...]
+PENDING (27) - read for claims; 7 changed a migration file:
+    [... every pending ref, with its PR number and the file it claims ...]
 ==================================
 ```
 
-Exit code 1. With a non-repository path the same invocation prints the
-`ABORTED` banner and exits 2; that path is exercised by pointing `-Repo` at an
-empty folder.
+Exit code 1. The one collision that sets it is `0036`, named on both sides -
+including `origin/codex/email-read-everything`, which was pushed and had no PR,
+which is why the `gh pr list` version of this script called the same repository
+clean. With a path outside any repository the same invocation prints the
+`ABORTED` banner and exits 2.
+
+`GATE-TOOLS.md` is not in `docs-check.ps1`'s default file list, and this example
+is part of why: a pasted run names migrations that live on branches rather than
+on main, and `[blobprefix]` reads as a sha that resolves to nothing. Passed
+explicitly, `docs-check.ps1` flags both here, in this example and in the older
+one it replaced.
 
 ## What these do NOT do
 
@@ -243,12 +323,13 @@ string was removed proves nothing, and the scripts cannot tell the difference.
 - No voice gates. `typecheck:voice-access` and `test:voice-access` are not run.
 - No test typecheck. `tsconfig.test.json` reports 117 pre-existing errors and
   is not a CI gate, so it is not run either.
-- No GitHub writes. None of the three scripts comments, approves, merges,
-  deploys or applies a migration. `migration-numbers.ps1` is the only one that
-  reads GitHub (`gh pr list`) and the only one that fetches; its git use is
-  `fetch`, `rev-parse` and `ls-tree`, and it never checks anything out.
-  `gate.ps1` and `mutate.ps1` use only `git fetch`, `checkout --detach`,
-  `status` and `rev-parse`.
+- No GitHub writes. None of the scripts comments, approves, merges, deploys or
+  applies a migration. `migration-numbers.ps1` is the only one that fetches and
+  the only one that talks to GitHub, and its `gh pr list` is decoration: if it
+  fails, the run still reads every branch and says so. Its git use is `fetch`,
+  `ls-remote`, `merge-base`, `ls-tree` and `rev-parse`, and it never checks
+  anything out. `gate.ps1` and `mutate.ps1` use only `git fetch`,
+  `checkout --detach`, `status` and `rev-parse`.
 - No history rewriting. `mutate.ps1` restores from its own backup copy, and
   refuses to start on a dirty tree; it never commits, stashes or discards.
 - No judgement about scope. The known-failure allowance is a list of test
