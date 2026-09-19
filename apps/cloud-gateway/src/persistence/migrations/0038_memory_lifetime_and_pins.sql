@@ -139,7 +139,7 @@ CREATE INDEX memory_item_pins_current
 
 -- Pinning is an owner memory command like forgetting, so it goes through the
 -- same owner-authorised ingress rather than around it. The guard is recreated
--- with two more operations; nothing it already allowed changes.
+-- with two more operations, and nothing it already allowed changes.
 DROP TRIGGER events_memory_owner_command_ingress_guard;
 
 CREATE TRIGGER events_memory_owner_command_ingress_guard

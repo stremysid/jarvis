@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
-import { applyCloudMemoryMigration } from "./migration.js";
+import { applyCloudMemoryMigration, applyNewestRuntimeMigration } from "./migration.js";
 
 const testClock = Date.now();
 const timestamp = new Date(testClock - 60_000).toISOString();
@@ -4984,5 +4984,193 @@ describe.sequential("cloud memory migration", () => {
     await env.DB.prepare("DELETE FROM memory_history_chunks WHERE chunk_id = ?").bind(chunkId).run();
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_history_fts WHERE rowid = ?")
       .bind(row.chunk_rowid).first()).toEqual({ count: 0 });
+  });
+});
+
+describe.sequential("memory lifetime and the core profile (0038)", () => {
+  beforeAll(async () => {
+    await applyNewestRuntimeMigration();
+  });
+
+  async function seedItem(
+    principalId: string,
+    source: TestEvent,
+    lifetime: "durable" | "temporary" | null,
+  ): Promise<string> {
+    const itemId = nextUlid();
+    if (lifetime === null) {
+      await env.DB.prepare(`INSERT INTO memory_items (
+        item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
+      ) VALUES (?, ?, 'preference', ?, ?, ?)`)
+        .bind(itemId, principalId, source.eventId, source.sequence, timestamp).run();
+      return itemId;
+    }
+    await env.DB.prepare(`INSERT INTO memory_items (
+      item_id, principal_id, kind, lifetime, creation_event_id, creation_event_sequence, created_at
+    ) VALUES (?, ?, 'preference', ?, ?, ?, ?)`)
+      .bind(itemId, principalId, lifetime, source.eventId, source.sequence, timestamp).run();
+    return itemId;
+  }
+
+  async function insertVersion(
+    principalId: string,
+    itemId: string,
+    validTo: string | null,
+  ): Promise<string> {
+    const versionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 1, 'I prefer short reports.', 'NFC', ?, 'stated',
+      'authenticated_first_person', 0, 'normal', NULL, ?, 'policy-v1', NULL, ?)`)
+      .bind(versionId, principalId, itemId, nextHash(), validTo, timestamp).run();
+    return versionId;
+  }
+
+  async function pinItem(
+    principalId: string,
+    itemId: string,
+    pinNumber: number,
+    pinned: 0 | 1 = 1,
+  ): Promise<string> {
+    const pinId = nextUlid();
+    const command = await seedOwnerCommand(principalId, "item.pin", pinId, {
+      itemId, pinned: pinned === 1,
+    });
+    await env.DB.prepare(`INSERT INTO memory_item_pins (
+      pin_id, principal_id, item_id, pin_number, pinned, authorizing_event_id, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(
+        pinId, principalId, itemId, pinNumber, pinned, command.eventId, timestamp, timestamp,
+      ).run();
+    return pinId;
+  }
+
+  it("gives an item written without a lifetime the durable one", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const itemId = await seedItem(owner.principalId, source, null);
+
+    expect(await env.DB.prepare("SELECT lifetime FROM memory_items WHERE item_id = ?")
+      .bind(itemId).first()).toEqual({ lifetime: "durable" });
+  });
+
+  it("refuses an end on a durable fact, because a durable fact does not lapse", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const itemId = await seedItem(owner.principalId, source, "durable");
+
+    await expect(insertVersion(owner.principalId, itemId, laterTimestamp))
+      .rejects.toThrow(/memory_item_lifetime_invalid/u);
+  });
+
+  it("refuses a temporary fact with no end, because it would never lapse", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const itemId = await seedItem(owner.principalId, source, "temporary");
+
+    await expect(insertVersion(owner.principalId, itemId, null))
+      .rejects.toThrow(/memory_item_lifetime_invalid/u);
+  });
+
+  it("accepts a temporary fact that carries its end, so the guard is not merely refusing ends", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const itemId = await seedItem(owner.principalId, source, "temporary");
+    const versionId = await insertVersion(owner.principalId, itemId, laterTimestamp);
+
+    expect(await env.DB.prepare("SELECT valid_to FROM memory_item_versions WHERE version_id = ?")
+      .bind(versionId).first()).toEqual({ valid_to: laterTimestamp });
+  });
+
+  it("numbers pins from one and refuses a number that skips ahead", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+
+    await expect(pinItem(owner.principalId, item.itemId, 2))
+      .rejects.toThrow(/memory_item_pin_sequence_invalid/u);
+    await pinItem(owner.principalId, item.itemId, 1);
+    await expect(pinItem(owner.principalId, item.itemId, 3))
+      .rejects.toThrow(/memory_item_pin_sequence_invalid/u);
+    await pinItem(owner.principalId, item.itemId, 2);
+  });
+
+  it("refuses to update or delete a pin, because untrusting is a new row", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+    const pinId = await pinItem(owner.principalId, item.itemId, 1);
+
+    await expect(env.DB.prepare("UPDATE memory_item_pins SET pinned = 0 WHERE pin_id = ?")
+      .bind(pinId).run()).rejects.toThrow(/memory_item_pin_immutable/u);
+    await expect(env.DB.prepare("DELETE FROM memory_item_pins WHERE pin_id = ?")
+      .bind(pinId).run()).rejects.toThrow(/memory_item_pin_immutable/u);
+  });
+
+  it("keeps a fact in the core profile only while the newest pin says so", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+    const inProfile = () => env.DB.prepare(
+      "SELECT item_id FROM memory_pinned_item_versions WHERE item_id = ?",
+    ).bind(item.itemId).first();
+
+    expect(await inProfile()).toBeNull();
+    await pinItem(owner.principalId, item.itemId, 1, 1);
+    expect(await inProfile()).toEqual({ item_id: item.itemId });
+    await pinItem(owner.principalId, item.itemId, 2, 0);
+    expect(await inProfile()).toBeNull();
+  });
+
+  it("hides a pinned fact from the core profile once its source turn is suppressed", async () => {
+    // The profile is injected into every prompt, which makes it the one read
+    // path most likely to be trusted and least likely to be questioned. So this
+    // is the assertion that matters: a pinned fact Sid later asked to forget
+    // must leave the profile by the same suppression enforcement as every other
+    // read, and it must do so while its lifecycle state is still `active` --
+    // otherwise a pin would outrank a forget.
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+    await pinItem(owner.principalId, item.itemId, 1, 1);
+    const inProfile = () => env.DB.prepare(
+      "SELECT item_id FROM memory_pinned_item_versions WHERE item_id = ?",
+    ).bind(item.itemId).first();
+    expect(await inProfile()).toEqual({ item_id: item.itemId });
+
+    const suppressionId = nextUlid();
+    const command = await seedOwnerCommand(owner.principalId, "history.suppress", suppressionId, {
+      targetEventId: source.eventId,
+      startEventSequence: null,
+      endEventSequence: null,
+      newlyHiddenTurnCount: 1,
+      totalCoveredTurnCount: 1,
+    });
+    await env.DB.prepare(`INSERT INTO memory_event_suppressions (
+      suppression_id, principal_id, target_event_id, start_event_sequence,
+      end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+      source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+    ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'core profile test', 1, 1, ?)`)
+      .bind(suppressionId, owner.principalId, source.eventId, command.eventId, laterTimestamp)
+      .run();
+
+    expect(await inProfile()).toBeNull();
+    expect(await env.DB.prepare(
+      "SELECT lifecycle_state FROM memory_item_state WHERE item_id = ?",
+    ).bind(item.itemId).first()).toEqual({ lifecycle_state: "active" });
+  });
+
+  it("builds the core profile on the retrievable view rather than on the pins alone", async () => {
+    // Pins answer "did Sid ask for this to be kept in front of me". Hidden
+    // answers "may this be read at all". A profile that read the pins directly
+    // would be a second answer to the second question, and the two would drift.
+    const row = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'view' AND name = 'memory_pinned_item_versions'`).first<{ sql: string }>();
+    const sql = row?.sql ?? "";
+
+    expect(sql).toContain("memory_retrievable_item_versions");
+    expect(sql).not.toContain("FROM memory_item_state");
   });
 });
