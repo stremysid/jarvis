@@ -83,6 +83,12 @@ Silence is the one option not allowed. `REVIEWER-MANUAL.md` says the branch hold
 that tooling is "never merged" while PR #104 merged it — a document and a fact
 disagreeing is how this rule failed quietly.
 
+**This rule already exists** at `AGENTS.md` §"A reviewer-authored PR gets an
+independent pass before it merges". This section supersedes nothing; it supplies the
+two fallbacks that section leaves open. If the two ever disagree, `AGENTS.md` wins and
+this file is corrected, because a new session is told to read `AGENTS.md` and is not
+told to read this.
+
 ### 3.5 A stop condition, symmetric to "never grind"
 
 `docs/BUILDING.md`'s stop rule binds builders only. The reviewer's manual tells it
