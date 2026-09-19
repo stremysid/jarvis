@@ -86,6 +86,9 @@ const MAX_NARROWING_ATTEMPTS = 4;
 const MAX_RUN_KEY_RETRIES = 3;
 const TIERED_LATEST_D1_STATEMENT_CEILING = 2;
 const TIERED_READ_D1_STATEMENT_CEILING = 6;
+// One bounded read of the active-suppression window. It is charged before
+// eligibility, because it is what decides eligibility.
+const SUPPRESSION_READ_D1_STATEMENT_CEILING = 1;
 const ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING = MAX_SCANNED_EVENTS + 1;
 const TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING = 20;
 const CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING = 64;
@@ -97,7 +100,8 @@ const AUTOMATIC_COMMIT_WRITE_ATTEMPT_LIMIT = 2;
 const AUTOMATIC_TOPIC_PROMPT_TREE_D1_STATEMENT_CEILING = 1;
 const RUN_START_D1_STATEMENT_CEILING = 1 + MAX_RUN_KEY_RETRIES * 2;
 const STEP_SETUP_D1_STATEMENT_CEILING = 2 + TIERED_LATEST_D1_STATEMENT_CEILING
-  + TIERED_READ_D1_STATEMENT_CEILING + ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
+  + TIERED_READ_D1_STATEMENT_CEILING + SUPPRESSION_READ_D1_STATEMENT_CEILING
+  + ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
 const STEP_FIXED_D1_STATEMENT_CEILING = STEP_SETUP_D1_STATEMENT_CEILING
   + TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING + AUTOMATIC_TOPIC_PROMPT_TREE_D1_STATEMENT_CEILING
   + MAX_NARROWING_ATTEMPTS * (RUN_START_D1_STATEMENT_CEILING + MAX_SCANNED_EVENTS + 4) + 3;
@@ -249,6 +253,16 @@ interface ArchiveReceiptRow {
   readonly content_hash: unknown;
   readonly subject_id: unknown;
 }
+
+interface SuppressionRow {
+  readonly target_event_id: unknown;
+  readonly start_event_sequence: unknown;
+  readonly end_event_sequence: unknown;
+}
+
+const SUPPRESSION_FIELDS = new Set([
+  "target_event_id", "start_event_sequence", "end_event_sequence",
+]);
 
 type FinalizedRun = Readonly<{
   outcome: AutomaticDistillationOutcome;
@@ -456,6 +470,59 @@ function skippedForBudget(event: ScannedEvent, skipReason: string): ScannedEvent
     ...event,
     disposition: "skipped" as const,
     skipReason,
+    channel: null,
+    text: null,
+    textBytes: 0,
+  });
+}
+
+/**
+ * The anti-join the retrievers already apply, evaluated over the window this
+ * step is about to read. It runs before the eligible prefix is cut, so a turn
+ * the owner forgot neither takes one of the eight eligible slots nor reaches
+ * the provider prompt -- the defect was that forgotten text reached the model
+ * at all, and filtering only the provider's OUTPUT would still have paid for
+ * the prompt and still have shown the model the text.
+ */
+function isSuppressedEvent(
+  event: Readonly<Pick<ScannedEvent, "eventId" | "eventSequence">>,
+  suppressions: readonly SuppressionRow[],
+): boolean {
+  return suppressions.some((row) => {
+    const target = row.target_event_id;
+    const start = row.start_event_sequence;
+    const end = row.end_event_sequence;
+    if (target !== null && (typeof target !== "string" || !ULID.test(target))) corrupt();
+    if (start !== null && end !== null) {
+      const first = safeInteger(start, 1, Number.MAX_SAFE_INTEGER);
+      const last = safeInteger(end, first, Number.MAX_SAFE_INTEGER);
+      if (event.eventSequence >= first && event.eventSequence <= last) return true;
+    } else if (start !== null || end !== null) {
+      corrupt();
+    }
+    return target === event.eventId;
+  });
+}
+
+/**
+ * A forgotten turn is receipted, not dropped, because migration 0026 requires
+ * one receipt for every sequence between the run's start and end, and the
+ * cursor may only advance across such a run.
+ *
+ * It is recorded as `history_ineligible` because that CHECK admits no
+ * suppression-specific reason and adding one is a migration. The claim is
+ * true -- a forgotten turn is no longer eligible as history -- but the receipt
+ * does not say WHICH gate closed, so a reader who needs to tell a suppression
+ * from a payload that never claimed eligibility must consult
+ * `memory_active_event_suppressions` for that event id.
+ */
+function skippedForSuppression(
+  event: Omit<ScannedEvent, "sourceLocation" | "r2SegmentId">,
+): Omit<ScannedEvent, "sourceLocation" | "r2SegmentId"> {
+  return Object.freeze({
+    ...event,
+    disposition: "skipped" as const,
+    skipReason: "history_ineligible",
     channel: null,
     text: null,
     textBytes: 0,
@@ -685,9 +752,18 @@ export class AutomaticMemoryDistillationWorkflow {
         if (rawEvents[index]?.eventSequence !== cursor.sequence + index + 1) corrupt();
       }
       const validated = await Promise.all(rawEvents.map((event) => validateStoredEvent(event, this.options.principalId)));
-      observedEvents = validated;
       budget.sourceEventsScanned = validated.length;
-      const selected = prefixThroughEligibleLimit(validated, maxEvents);
+      budget.d1Statements += SUPPRESSION_READ_D1_STATEMENT_CEILING;
+      // Read after the range, not before it, so the anti-join sees the newest
+      // suppression state available in this step. See readActiveSuppressions.
+      const suppressions = await this.readActiveSuppressions(
+        cursor.sequence + 1,
+        cursor.sequence + readLimit,
+      );
+      const visible = validated.map((event) =>
+        isSuppressedEvent(event, suppressions) ? skippedForSuppression(event) : event);
+      observedEvents = visible;
+      const selected = prefixThroughEligibleLimit(visible, maxEvents);
       budget.eventsExamined = selected.filter((event) => event.disposition === "eligible").length;
       budget.textBytesExamined = selected.reduce((total, event) => total + event.textBytes, 0);
       budget.d1Statements += ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
@@ -912,6 +988,48 @@ export class AutomaticMemoryDistillationWorkflow {
       sequence: safeInteger(row.current_event_sequence, 0, Number.MAX_SAFE_INTEGER),
       updatedAt: safeTimestamp(row.updated_at),
     });
+  }
+
+  /**
+   * Active suppressions that touch [startSequence, endSequence].
+   *
+   * Copied from `literal-history.ts`, which is the existing member of this
+   * family written for a caller that reads events through an injected reader:
+   * `context-retriever.ts` owns its own `events` SELECT, so it can put the
+   * `NOT EXISTS` anti-join inline, and this workflow cannot -- the same
+   * `readRange` that serves live D1 serves sealed R2 segments. Both evaluate
+   * the identical predicate, `target_event_id = event_id OR sequence BETWEEN
+   * start_event_sequence AND end_event_sequence`, against
+   * `memory_active_event_suppressions`; only the place it is evaluated differs.
+   *
+   * `target_event_id` is resolved against the live table and the archive
+   * receipt table because the window can straddle the seal.
+   */
+  private async readActiveSuppressions(
+    startSequence: number,
+    endSequence: number,
+  ): Promise<readonly SuppressionRow[]> {
+    const rows = await this.options.database.prepare(`SELECT suppression.target_event_id,
+        suppression.start_event_sequence, suppression.end_event_sequence
+      FROM memory_active_event_suppressions suppression
+      WHERE suppression.principal_id = ? AND (
+        suppression.start_event_sequence <= ? AND suppression.end_event_sequence >= ?
+        OR suppression.target_event_id IN (
+          SELECT event_id FROM events WHERE sequence BETWEEN ? AND ?
+          UNION ALL
+          SELECT event_id FROM archive_segment_events WHERE event_sequence BETWEEN ? AND ?
+        )
+      )`).bind(
+      this.options.principalId,
+      endSequence,
+      startSequence,
+      startSequence,
+      endSequence,
+      startSequence,
+      endSequence,
+    ).all<SuppressionRow>();
+    for (const row of rows.results) exactRow(row, SUPPRESSION_FIELDS);
+    return Object.freeze(rows.results);
   }
 
   private async startRun(

@@ -28,8 +28,14 @@ import {
   type AutomaticFilingDecision,
 } from "../../src/memory/memory-repository.js";
 import { MemoryExtractionFailure } from "../../src/memory/memory-extraction-budget.js";
+import { MemoryOwnerControlsService } from "../../src/memory/memory-owner-controls.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
-import { MemoryRepositoryError, type CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
+import {
+  MemoryRepositoryError,
+  type CommitInitialMemoryInput,
+  type MemoryControlIntent,
+  type MemoryOwnerTurnInput,
+} from "../../src/memory/memory-types.js";
 import {
   EventRepository,
   type AppendedEvent,
@@ -369,6 +375,103 @@ async function storedItem(principalId: string): Promise<{
 async function itemCount(principalId: string): Promise<number> {
   return await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
     .bind(principalId).first<number>("count") ?? -1;
+}
+
+/** Items this hourly job minted, excluding anything the owner controls wrote. */
+async function distilledItemCount(principalId: string): Promise<number> {
+  return await env.DB.prepare(`SELECT count(*) AS count FROM memory_items item
+    JOIN memory_item_state state
+      ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+    JOIN memory_item_versions version
+      ON version.principal_id = state.principal_id
+      AND version.version_id = state.current_version_id
+    WHERE item.principal_id = ? AND version.extractor_version = 'automatic-distillation-v1'`)
+    .bind(principalId).first<number>("count") ?? -1;
+}
+
+/** The owner's own turn, shaped the way the memory-control service reads it. */
+function ownerTurn(
+  event: AppendedEvent,
+  principalId: string,
+  memoryIntent: MemoryControlIntent,
+): MemoryOwnerTurnInput {
+  return Object.freeze({
+    principalId,
+    eventId: event.envelope.eventId,
+    eventSequence: event.eventSequence,
+    occurredAt: event.envelope.occurredAt,
+    channel: "telegram" as const,
+    memoryIntent,
+    forwarded: false,
+    quoted: false,
+    pasted: false,
+    hasAttachment: false,
+    modelGenerated: false,
+    toolGenerated: false,
+    guest: false,
+  });
+}
+
+/**
+ * One owner turn, remembered by the owner and then optionally forgotten.
+ *
+ * The forget is the real `MemoryOwnerControlsService.forget` write, so the
+ * suppression rows are the ones production writes; nothing here inserts a
+ * suppression by hand. The defect test and its control run this same builder,
+ * so `forget` is the only difference between them.
+ */
+async function rememberedThenMaybeForgotten(forget: boolean): Promise<Readonly<{
+  principalId: string;
+  sourceEvent: AppendedEvent;
+  forgottenText: string;
+  proposalText: string;
+}>> {
+  const principalId = await principal();
+  const events = new EventRepository(env.DB);
+  const forgottenText = "I keep a spare key under the blue pot.";
+  // Deliberately not the remembered wording: the hourly job paraphrases, and a
+  // proposal whose text and sources match a stored item is skipped as already
+  // covered, which would stop a memory being minted for a reason that has
+  // nothing to do with suppression.
+  const proposalText = "Sid keeps a spare key under the blue pot.";
+  const sourceEvent = await appendConversation(events, principalId, forgottenText);
+  const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+  const remembered = await controls.remember({
+    ownerTurn: ownerTurn(sourceEvent, principalId, "remember"),
+    text: forgottenText,
+    kind: "fact",
+    sensitivity: "normal",
+  });
+  const laterTurn = await appendConversation(events, principalId, "I sorted the shed today.");
+  if (forget) {
+    await controls.forget({
+      ownerTurn: ownerTurn(laterTurn, principalId, "forget"),
+      candidateItemIds: [remembered.item.itemId],
+    });
+  }
+  return Object.freeze({ principalId, sourceEvent, forgottenText, proposalText });
+}
+
+/** The production hourly entry point, configured the way the worker configures it. */
+async function hourlyPoll(principalId: string, provider: FakeModelProvider): Promise<JobOutcome> {
+  const context: JobEnvironment = {
+    env: {
+      ...env,
+      OWNER_PRINCIPAL_ID: principalId,
+      GITHUB_TOKEN: undefined,
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_CLIENT_SECRET: undefined,
+      GOOGLE_REFRESH_TOKEN: undefined,
+      BRIGHTSPACE_ICAL_URL: undefined,
+    },
+    clock: { now: () => new Date() },
+    delivery: { send: async () => undefined },
+    fetcher: globalThis.fetch.bind(globalThis),
+    memoryDistillation: { provider, providerModelId: MODEL_ID },
+  };
+  const poll = buildJobTable(context).poll;
+  if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+  return await poll();
 }
 
 async function placementDetail(principalId: string, itemId?: Ulid): Promise<{
@@ -1542,8 +1645,8 @@ describe("automatic memory distillation", () => {
     ).runNext({ runKey: `retry-preparation-budget:${newUlid()}` });
 
     expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 32 });
-    expect(counted.queryCount()).toBe(3_519);
-    expect(result.budget.d1Statements).toBe(4_022);
+    expect(counted.queryCount()).toBe(3_520);
+    expect(result.budget.d1Statements).toBe(4_023);
     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1Statements);
     expect(result.budget.d1Statements).toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements);
   }, 120_000);
@@ -2315,6 +2418,58 @@ describe("automatic memory distillation", () => {
       display_name: "Mathematics",
     });
     expect(contexts.some((context) => context.text.includes("My favourite subject is math."))).toBe(true);
+  });
+
+  it("does not select a turn whose source event the owner asked to forget", async () => {
+    const fixture = await rememberedThenMaybeForgotten(true);
+    const provider = new FakeModelProvider({ completeJson: [] });
+
+    const result = await workflow(fixture.principalId, provider).runNext({ runKey: `forgotten:${newUlid()}` });
+
+    // The forgotten turn keeps a receipt -- the run's receipts have to cover
+    // every sequence it spans -- but it is not eligible and never reaches the
+    // prompt. Only the owner's later turn is left to distil.
+    expect(result.budget.eventsExamined).toBe(1);
+    expect(result.eligibleBacklogEventCount).toBe(0);
+    expect(await env.DB.prepare(`SELECT disposition, skip_reason
+      FROM memory_distillation_event_receipts WHERE principal_id = ? AND event_id = ?`)
+      .bind(fixture.principalId, fixture.sourceEvent.envelope.eventId).first())
+      .toEqual({ disposition: "skipped", skip_reason: "history_ineligible" });
+    expect(JSON.stringify(provider.requests)).not.toContain(fixture.forgottenText);
+  });
+
+  it("mints no memory from forgotten text through the hourly run", async () => {
+    const fixture = await rememberedThenMaybeForgotten(true);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(
+        fixture.sourceEvent,
+        fixture.forgottenText,
+        fixture.proposalText,
+      )],
+    });
+
+    const result = await hourlyPoll(fixture.principalId, provider);
+
+    expect(pollDetail(result)).toContain("Memory nothing_new, 0 created");
+    expect(await distilledItemCount(fixture.principalId)).toBe(0);
+    expect(JSON.stringify(provider.requests)).not.toContain(fixture.forgottenText);
+  });
+
+  it("mints that memory from the same fixture when the owner did not forget it", async () => {
+    const fixture = await rememberedThenMaybeForgotten(false);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(
+        fixture.sourceEvent,
+        fixture.forgottenText,
+        fixture.proposalText,
+      )],
+    });
+
+    const result = await hourlyPoll(fixture.principalId, provider);
+
+    expect(pollDetail(result)).toContain("Memory succeeded, 1 created");
+    expect(await distilledItemCount(fixture.principalId)).toBe(1);
+    expect(JSON.stringify(provider.requests)).toContain(fixture.forgottenText);
   });
 
   it("drains multiple production-default steps per hour while only eligible owner events consume the event budget", async () => {
