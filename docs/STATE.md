@@ -88,5 +88,5 @@ Full list, including the four smaller authority gaps, in `KNOWN_ISSUES.md` and t
 | Why is it built this way? | [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](../DECISIONS.md) |
 | What is broken or unproven? | [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) |
 | What stopped working and why? | [AGENT_LOG.md](AGENT_LOG.md) — **search it, do not read it** |
-| What is meant to exist? | [the roadmap](plan/2026-09-03-jarvis-roadmap.md) — a plan, not a status |
+| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The 2026-09-03 milestone roadmap is superseded |
 | Who builds and reviews what? | [BUILDING.md](BUILDING.md) |

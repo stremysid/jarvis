@@ -1,5 +1,24 @@
 # Jarvis roadmap and plan
 
+> # SUPERSEDED — 2026-09-19
+>
+> **The authoritative roadmap is
+> [`2026-09-19-jarvis-roadmap.md`](2026-09-19-jarvis-roadmap.md), written by Sid.**
+> Read that instead. This file is kept only as the record of what was planned
+> before it.
+>
+> This document is organised by milestone — R0, R1, R2, R5 — and each milestone
+> got its own wiring site, so a capability landed wherever its milestone lived.
+> That is how the phone and Telegram became two separately composed assistants
+> sharing a model: voice was composed 2026-09-13 when no tools existed anywhere,
+> tools arrived 2026-09-16 on Telegram only, and nothing went back. The new
+> roadmap is organised around one brain with tools, which is the shape that
+> prevents it.
+>
+> Its milestone verdicts and exit tests no longer bind. Do not open work against
+> an `R` number from this file.
+
+
 Written 2026-09-03 against `main` at `aadd5b2`, then revised the same day
 around Sid's decisions (section 5). This is a planning document. It changes
 no code. Every statement about the code was checked against the pushed
