@@ -52,7 +52,10 @@ repository is the only thing every session reads.**
 | The only Windows user profile on this machine is **`Sid`**. The `Ksid1` profile named by older documents never existed | The filesystem; a corrected `AGENTS.md` trap | 2026-09-18 | yes |
 | `python` on `PATH` resolves to a real Python 3.12.6, and `uv` is on `PATH`. The older "python is a broken stub" claim is retracted | `python -V`; corrected `AGENTS.md` | 2026-09-18 | yes |
 | The agent presets are **outside the repository**, under `~/.dsh/.agent-presets/` — `jarvis-builder` and `jarvis-auditor`. They carry the standing rules for headless sessions | The preset files; `reviewer-tools/dsh-relay.ps1` layers them | 2026-09-19 | yes |
-| **Contested:** `README.md` calls the Twilio number *"a purchase"* while the roadmap says Sid already owns the number and credentials. One of the two is wrong and neither cites evidence | Two documents disagree; no citation in either | 2026-09-19 | **unknown — confirm with Sid** |
+| **Contested:** `README.md` calls the Twilio number *"a purchase"* while the roadmap says Sid already owns the number and credentials. One of the two is wrong and neither cites evidence | Two documents disagree; no citation in either | 2026-09-19 | **resolved 2026-09-19 — see the row below** |
+| **RESOLVED 2026-09-19:** the Twilio number and its credentials **work** — a real call was placed through the gateway. *"A purchase"* and *"he already owns it"* describe the same thing, and the question above is terminology rather than a disagreement about capability | Sid placed the call; the credentials are demonstrably live | 2026-09-19 | yes |
+| **A real Twilio call has been placed and it worked.** The only defect observed was that **calling had no memory attached**. This retracts `STATE.md`'s *"No real call has ever been placed"*, which was stale, and its *"switched off by missing secrets"* — the secrets are loaded | Sid stated it directly | 2026-09-19 | yes |
+| Calling's remaining gap is the **brain**, not the phone plumbing: the voice path composes its own adapter, has **zero tools**, and uses `D1ContextRetriever` rather than the real retriever, so a call can talk and cannot act and has no meaning search | `docs/plan/2026-09-19-roadmap-gap.md`, checked against `main` | 2026-09-19 | yes |
 
 ## Adding a row
 

@@ -19,8 +19,8 @@ Last regenerated: 2026-09-18, by a builder session, against the revision printed
 | Milestone | Verdict | The one thing missing |
 |---|---|---|
 | R0 Green and deployed | **UNMET** (declared passed 2026-09-11) | CI is red and cannot go green before 2026-10-01, and the watchdog has never recorded a gateway heartbeat. The heartbeat clause was removed from the exit test rather than met |
-| R1 Phone Jarvis from the car — **v1.0** | **UNMET** | No real call has ever been placed; the release gate is built to fail until one is. The code path is wired and switched off by missing secrets |
-| R2 Cloud memory with every PC off | **UNMET** | Distillation, recall and meaning search all run; production has published **0 active facts** (36 runs, 5 items, all `proposed`) |
+| R1 Phone Jarvis from the car — **v1.0** | **UNMET** | **Corrected 2026-09-19: a real call has been placed and it worked**, so the phone plumbing is proven and the secrets are loaded — the previous row said the opposite and was stale. What is missing is the **brain**: the voice path composes its own adapter, has zero tools and uses `D1ContextRetriever` instead of the real retriever, so a call can talk and cannot act. The release gate has also never been run, so there is no committed evidence |
+| R2 Cloud memory with every PC off | **UNMET** | Distillation, recall and meaning search all run; production has published **0 active facts** (36 runs, 5 items, all `proposed`). **The cause is found and fixed in PR #125 and is inert until that lands and `0038` is applied** — the promotion rule required the fact to be the owner's entire message verbatim, which no conversation satisfies |
 | R3 Hands: device control | **UNMET** | Not started. No command route to any machine exists |
 | R5 School and university | **UNMET, exit test unsatisfiable as written** | Names a Classroom deadline and a Brightspace deadline. Neither can be obtained on this board — see `docs/runbooks/` and PR #105 |
 | R5A Proactive study coach | **UNMET** | Answers when asked and rides the morning digest; it never initiates |
