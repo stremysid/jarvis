@@ -1044,9 +1044,25 @@ export class MemoryBackupService {
       }
       const created = await retryTransient(() => this.repository.captureRun(runDate, this.options.clock.now()));
       return this.withStaleAlert(runDate, await this.advance(created));
-    } catch {
-      await this.alert(runDate, null, MEMORY_BACKUP_FAILURE_CODES.operation);
-      return { outcome: "failed", code: MEMORY_BACKUP_FAILURE_CODES.operation };
+    } catch (error) {
+      // A `MemoryBackupError` already carries the code that says what went
+      // wrong. This catch used to discard it and report every one of them as
+      // `operation`, so a failure with its own name -- a binding that was never
+      // bound, a readback that did not match, a cut that moved -- arrived as a
+      // generic fault. The catch below has always preserved the code, which is
+      // what makes this an inconsistency rather than a decision.
+      const code = error instanceof MemoryBackupError
+        ? error.code
+        : MEMORY_BACKUP_FAILURE_CODES.operation;
+      // An unexpected error still has to report `operation`, because the stored
+      // code is a closed set with a CHECK constraint behind it. But the reason
+      // is not thrown away with it: losing the cause is what turned a missing
+      // migration into an unattributable failure and cost a session of hunting.
+      if (code === MEMORY_BACKUP_FAILURE_CODES.operation) {
+        console.error(MEMORY_BACKUP_FAILURE_CODES.operation, error);
+      }
+      await this.alert(runDate, null, code);
+      return { outcome: "failed", code };
     }
   }
 

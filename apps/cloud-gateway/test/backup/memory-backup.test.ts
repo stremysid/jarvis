@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
   MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
@@ -687,6 +687,38 @@ describe("nightly verified memory backup", () => {
     ).bind(runDate).first<{ cursor_key: number | null; next_object_number: number }>();
     expect(second).toEqual({ cursor_key: 1, next_object_number: 4 });
     expect((await finishBackup(service(), { outcome: "pending", detail: "continue" })).outcome).toBe("verified");
+  });
+
+  it("keeps the reason for an unattributable failure instead of only its generic code", async () => {
+    // The stored code is a closed set with a CHECK behind it, so an unexpected
+    // failure has to report `operation`. What it must not do is lose the reason
+    // with it: dropping the cause is what turned a missing migration into an
+    // unattributable failure and cost a session of hunting. A `MemoryBackupError`
+    // keeps its own code instead, which is what the neighbouring catch has always
+    // done and this one did not.
+    const logged: unknown[][] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      logged.push(args);
+    });
+    onTestFinished(() => { spy.mockRestore(); });
+    const unavailable = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return () => { throw new Error("memory_backup_database_unavailable"); };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function"
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as D1Database;
+
+    const outcome = await service({ database: unavailable }).runNightly(runDate);
+
+    expect(outcome).toEqual({ outcome: "failed", code: "memory_backup_operation_failed" });
+    const flat = logged.flat();
+    expect(flat).toContain("memory_backup_operation_failed");
+    expect(flat.some((entry) => entry instanceof Error)).toBe(true);
   });
 
   it("alerts once for a missing binding and records only the fixed code", async () => {
