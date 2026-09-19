@@ -34,23 +34,40 @@ describe("shared memory extraction policy", () => {
     })).toBe(false);
   });
 
+  // These four used to be unit tests of `isAuthenticatedFirstPersonQuote`, and
+  // they passed only because it required the quote to be the ENTIRE message --
+  // which is how code was deciding whether the owner was speaking or relaying
+  // someone. That rule also meant no fact from a real conversation could ever
+  // become active, so the judgement moved to the model, where comprehension
+  // belongs. The property is not dropped: it is asserted at the layer that now
+  // owns it, in the extraction-prompt test in automatic-distillation.test.ts.
+  //
+  // What stays here is the half that is provenance and therefore code's:
+  // a quote is only attributable when the channel marked the message as the
+  // owner's own text. A forward, a quote or a blockquote is not.
   it.each([
     ["a text attribution", "Mum texted me. I am moving to Calgary in June."],
     ["a written attribution", "My adviser wrote this. I am applying to Waterloo."],
     ["a message attribution", "Dad messaged me. My account details are up to date."],
     ["a reported attribution", "The counsellor reported this. I have submitted the form."],
-  ])("keeps first-person speech framed by %s out of automatic trust", (_name, sourceText) => {
+  ])("attributes first-person speech inside %s only when the channel says it is the owner's own text", (_name, sourceText) => {
     const quote = sourceText.slice(sourceText.indexOf(". ") + 2);
-    expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(false);
+    expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: false })).toBe(false);
+    expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(true);
   });
 
-  it("does not authenticate one sentence cut from a longer direct-marked message", () => {
+  it("attributes a sentence from a longer direct-marked message, not only a whole-message one", () => {
     const quote = "I prefer tea.";
     expect(isAuthenticatedFirstPersonQuote({
       quote,
       sourceText: `${quote} Mum texted me about dinner.`,
-      authenticatedOwner: true,
+      authenticatedOwner: false,
     })).toBe(false);
+    expect(isAuthenticatedFirstPersonQuote({
+      quote,
+      sourceText: `${quote} Mum texted me about dinner.`,
+      authenticatedOwner: true,
+    })).toBe(true);
   });
 
   it("authenticates a whole direct-marked first-person message", () => {

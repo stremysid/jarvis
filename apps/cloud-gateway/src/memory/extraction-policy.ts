@@ -142,6 +142,30 @@ function wholeSentenceMatch(sourceText: string, quote: string, offset: number): 
 }
 
 /**
+ * Find the quote as one whole sentence of the owner's own message.
+ *
+ * It used to have to be the ENTIRE message. No real conversational turn is: Sid
+ * says "I'm renovating St. Remy" in the middle of a longer message, the clause
+ * failed on that alone, and so every fact the model recorded from a conversation
+ * stayed `proposed` forever -- live D1 held five proposed and zero active, and
+ * `memory_retrievable_item_versions` requires `active`. Jarvis decides what is
+ * worth remembering; code decides only whether the words are the owner's.
+ *
+ * Scanning for the sentence keeps every boundary rule intact, because each
+ * candidate offset still has to pass `wholeSentenceMatch`: a quote cut out of a
+ * hedge, a question, a conditional, reported speech, a denial or a paraphrase
+ * still fails, and a quote that is only part of a longer word still fails.
+ */
+function locatedAsWholeSentence(sourceText: string, quote: string): boolean {
+  let offset = sourceText.indexOf(quote);
+  while (offset >= 0) {
+    if (wholeSentenceMatch(sourceText, quote, offset)) return true;
+    offset = sourceText.indexOf(quote, offset + 1);
+  }
+  return false;
+}
+
+/**
  * Classify only one complete, unframed sentence that is both verbatim and
  * attributable to the owner. A model paraphrase, question, conditional,
  * hedge, negation, or report of speech cannot manufacture the trusted origin.
@@ -155,11 +179,7 @@ export function isAuthenticatedFirstPersonQuote(input: FirstPersonQuoteInput): b
   // Provenance supplies direct-owner authority. Structure supplies the other
   // half: a model cannot cut one sentence out of a forward or pasted exchange
   // and relabel it as the owner's own words.
-  const sourceIsWholeQuote = sourceText === quote
-    || sourceText.length === quote.length + 1
-      && sourceText.startsWith(quote)
-      && SENTENCE_PUNCTUATION.has(sourceText.at(-1) ?? "");
-  return sourceIsWholeQuote && wholeSentenceMatch(sourceText, quote, 0);
+  return locatedAsWholeSentence(sourceText, quote);
 }
 
 /** Apply the same closed promotion allowlist as the Python local agent. */
