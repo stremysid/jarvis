@@ -383,11 +383,24 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       turnId: input.correlationId,
     });
     if (candidates.length !== 1) {
+      // Also the answer when the only match is hidden. A memory the owner hid is
+      // retained in the ledger and a suppression can be lifted, so a receipt
+      // that said "the memory is gone" would be a lie in the other direction.
+      // The wording is deliberately the ambiguous-match one: it asks for words
+      // without asserting whether the memory exists, and it names nothing.
       return Object.freeze({
         receipt: "Which memory do you mean? Tell me a few words from it; I changed nothing.",
         itemIds: Object.freeze([]),
       });
     }
+    // selectControlTargets has already refused an item whose creation event or
+    // any source is suppressed, so this read is reached only for an item the
+    // owner may be shown. readItemVisibility is deliberately not used here: it
+    // is the wrong test for these intents twice over. Its suppression flags
+    // cannot disagree with the anti-join, and its retrievable flag is false for
+    // every proposed memory, so gating on it -- the way the explain path does
+    // -- would blank the "Memory:" line of a receipt that tells the owner what
+    // a forget or a lift just did to a proposal.
     const item = await new MemoryRepository(this.options.database)
       .readCurrentItem(input.principalId, candidates[0]!);
     const itemIds = Object.freeze([item.itemId]);

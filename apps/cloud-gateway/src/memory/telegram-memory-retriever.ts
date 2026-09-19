@@ -1836,8 +1836,37 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       JOIN memory_item_state state
         ON state.principal_id = version.principal_id
         AND state.current_version_id = version.version_id
+      JOIN memory_items item
+        ON item.principal_id = state.principal_id AND item.item_id = state.item_id
       WHERE memory_item_fts MATCH ? AND state.principal_id = ?
         AND state.lifecycle_state IN (${stateSql})
+        -- The same two predicates readCandidates already applies on its own
+        -- full-text path, and for the same reason: the owner says "forget X",
+        -- one of X's sources stops being readable, and every other memory built
+        -- from that source stops being nameable with it. memory_item_fts is not
+        -- the gate -- it indexes every version ever written and keeps them --
+        -- so without this anti-join the controls path selects a hidden item and
+        -- telegram-memory-controls quotes its text back to the owner as the
+        -- "Memory:" line of a receipt. Applied before LIMIT, not after, so a
+        -- hidden match frees its candidate slot instead of silently making the
+        -- remaining match look ambiguous.
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions suppression
+          WHERE suppression.principal_id = item.principal_id
+            AND (suppression.target_event_id = item.creation_event_id
+              OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                AND suppression.end_event_sequence)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_item_sources source
+          JOIN memory_active_event_suppressions suppression
+            ON suppression.principal_id = source.principal_id
+            AND (suppression.target_event_id = source.event_id
+              OR source.event_sequence BETWEEN suppression.start_event_sequence
+                AND suppression.end_event_sequence)
+          WHERE source.principal_id = version.principal_id
+            AND source.item_id = version.item_id AND source.version_id = version.version_id
+        )
       ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
       .bind(terms, principalId, MAX_CONTROL_TARGETS).all<CandidateRow>();
     const rows = candidateRows(result.results);

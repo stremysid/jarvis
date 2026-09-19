@@ -1682,6 +1682,200 @@ describe("Telegram forget recall safety", () => {
   });
 });
 
+// Two memories built from one turn are a shape this project already relies on --
+// a forget reports the siblings it hid -- and that is what makes the controls
+// path reachable for a hidden memory. Forgetting the first one suppresses the
+// turn, which hides the second without ever transitioning it out of 'active',
+// so the full-text index still matches it and selectControlTargets has to
+// refuse it on its own.
+//
+// The excerpts have to appear in the turn verbatim, case included: the
+// repository refuses a source whose excerpt is not an exact substring of its
+// event.
+const HIDDEN_SIBLING_TEXT = "My revision timetable starts on Monday";
+const SIBLING_TEXT = "My biology practical is on Tuesday";
+const FORGET_HIDDEN_SIBLING = "Forget the memory about revision timetable.";
+const FORGET_SIBLING = "Forget the memory about biology practical.";
+// The same subject recorded in its own later turn, which is what lets the
+// creation-event half of the anti-join be tested on its own.
+const SEPARATE_TURN_SIBLING_TEXT = "Biology practical, Tuesday, second reminder";
+
+interface SiblingMemories {
+  readonly owner: ServicePrincipal;
+  readonly telegram: FakeTelegramProvider;
+  /** Forgotten by the fixture, which suppresses the turn both items cite. */
+  readonly forgottenSiblingItemId: ReturnType<typeof newUlid>;
+  /** Never transitions out of 'active'; only the suppression hides it. */
+  readonly hiddenSiblingItemId: ReturnType<typeof newUlid>;
+}
+
+/**
+ * Both memories are excerpts of the one turn, which is what a repository append
+ * requires of an excerpt and what makes them siblings of one source.
+ *
+ * With `separateSource`, the second memory still cites the first turn as its
+ * creation event but takes its one source from a later turn, so the forget
+ * suppresses the creation event only and the source predicate has nothing to
+ * match. That is the only shape that pins the creation-event predicate; every
+ * other fixture here suppresses both.
+ */
+async function seedSiblingMemories(
+  label: string,
+  options: Readonly<{ separateSource?: boolean }> = {},
+): Promise<SiblingMemories> {
+  const owner = await seedServicePrincipal(label);
+  const telegram = new FakeTelegramProvider();
+  await sendProduction({
+    who: owner,
+    ownerPrincipalId: owner.principalId,
+    text: "My revision timetable starts on Monday. My biology practical is on Tuesday.",
+    model: new RecordingModel(),
+    telegram,
+  });
+  const creation = await latestUserEvent(owner.principalId);
+  const forgottenSiblingItemId = await commitTestItem({
+    principalId: owner.principalId,
+    text: HIDDEN_SIBLING_TEXT,
+    creation,
+  });
+  let source = creation;
+  if (options.separateSource === true) {
+    await insertRetrievalConversations(
+      owner.principalId,
+      [SEPARATE_TURN_SIBLING_TEXT],
+      Date.parse(creation.occurredAt) + 2_000,
+    );
+    const events = await env.DB.prepare(`SELECT event_id, sequence, occurred_at FROM events
+      WHERE subject_id = ? AND event_type = 'conversation.user_committed'
+      ORDER BY sequence DESC LIMIT 1`).bind(owner.principalId)
+      .first<{ event_id: string; sequence: number; occurred_at: string }>();
+    if (events === null) throw new Error("telegram_control_suppression_event_missing");
+    source = Object.freeze({
+      eventId: events.event_id as ReturnType<typeof newUlid>,
+      sequence: events.sequence,
+      occurredAt: events.occurred_at,
+    });
+  }
+  const hiddenSiblingItemId = await commitTestItem({
+    principalId: owner.principalId,
+    text: options.separateSource === true ? SEPARATE_TURN_SIBLING_TEXT : SIBLING_TEXT,
+    creation,
+    source,
+  });
+  return Object.freeze({ owner, telegram, forgottenSiblingItemId, hiddenSiblingItemId });
+}
+
+function forgetSibling(fixture: SiblingMemories, text: string) {
+  return sendProduction({
+    who: fixture.owner,
+    ownerPrincipalId: fixture.owner.principalId,
+    text,
+    model: new RecordingModel(),
+    telegram: fixture.telegram,
+  });
+}
+
+describe("Telegram control target suppression", () => {
+  it("refuses a suppressed memory as a control target though full-text search still matches it", async () => {
+    const fixture = await seedSiblingMemories("control-target-suppressed");
+    await forgetSibling(fixture, FORGET_HIDDEN_SIBLING);
+
+    const targets = new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE });
+    const selected = await targets.findControlTargets({
+      principalId: fixture.owner.principalId,
+      operation: "forget",
+      query: "biology practical",
+    });
+    const hiddenState = await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? AND item_id = ?`)
+      .bind(fixture.owner.principalId, fixture.hiddenSiblingItemId)
+      .first<{ lifecycle_state: string }>();
+    const matching = await env.DB.prepare(`SELECT version.item_id FROM memory_item_fts
+      JOIN memory_item_versions version ON version.version_rowid = memory_item_fts.rowid
+      WHERE memory_item_fts MATCH ? AND version.principal_id = ?`)
+      .bind(`"biology" AND "practical"`, fixture.owner.principalId)
+      .all<{ item_id: string }>();
+
+    // The fixture is only meaningful while the index still holds the hidden
+    // sibling, because that is what the anti-join has to refuse.
+    expect(matching.results.map((row) => row.item_id)).toContain(fixture.hiddenSiblingItemId);
+    expect(hiddenState?.lifecycle_state).toBe("active");
+    expect(selected).toEqual([]);
+  });
+
+  // A memory whose creation event was the forgotten turn, but which was sourced
+  // from a later one. The source predicate cannot see it; only the
+  // creation-event predicate can, so this is the test that pins the second half
+  // of the anti-join.
+  it("refuses a memory hidden through its creation event when its own source was not", async () => {
+    const fixture = await seedSiblingMemories(
+      "control-target-creation-event",
+      { separateSource: true },
+    );
+    await forgetSibling(fixture, FORGET_HIDDEN_SIBLING);
+
+    const hiddenState = await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? AND item_id = ?`)
+      .bind(fixture.owner.principalId, fixture.hiddenSiblingItemId)
+      .first<{ lifecycle_state: string }>();
+    const visibleSource = await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_sources source
+      JOIN memory_active_event_suppressions suppression
+        ON suppression.principal_id = source.principal_id
+        AND (suppression.target_event_id = source.event_id
+          OR source.event_sequence BETWEEN suppression.start_event_sequence
+            AND suppression.end_event_sequence)
+      WHERE source.principal_id = ? AND source.item_id = ?`)
+      .bind(fixture.owner.principalId, fixture.hiddenSiblingItemId)
+      .first<{ count: number }>();
+    const selected = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE })
+      .findControlTargets({
+        principalId: fixture.owner.principalId,
+        operation: "forget",
+        query: "second reminder",
+      });
+
+    // The fixture is only the creation-event case while its own source stays
+    // unsuppressed, and only meaningful while the words still match the index.
+    expect(visibleSource?.count).toBe(0);
+    expect(hiddenState?.lifecycle_state).toBe("active");
+    expect(selected).toEqual([]);
+  });
+
+  it("never quotes a suppressed memory in a reply through the named receipt", async () => {
+    const fixture = await seedSiblingMemories("control-target-quote");
+    const siblingStates = await env.DB.prepare(`SELECT item_id, lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? ORDER BY item_id`)
+      .bind(fixture.owner.principalId).all<{ item_id: string; lifecycle_state: string }>();
+    await forgetSibling(fixture, FORGET_HIDDEN_SIBLING);
+    const reply = await forgetSibling(fixture, FORGET_SIBLING);
+
+    // The leaking sibling never leaves 'active'; it is only hidden, which is why
+    // the index and the state filter alone let it through before the fix.
+    expect(siblingStates.results.map((row) => row.lifecycle_state)).toEqual(["active", "active"]);
+    expect(siblingStates.results.map((row) => row.item_id)).toContain(fixture.hiddenSiblingItemId);
+    expect(reply.outcome).toBe("telegram_delivered");
+    expect(fixture.telegram.requests.at(-1)?.text).toMatch(/Which memory do you mean/u);
+    expect(fixture.telegram.requests.at(-1)?.text).not.toContain("biology");
+    expect(fixture.telegram.requests.at(-1)?.text).not.toContain("tuesday");
+  });
+
+  // The control: the same fixture with the forget left out is selected and
+  // named, so the tests above fail on the suppression rather than on a fixture
+  // where nothing was ever selectable.
+  it("CONTROL: without the forget the same fixture is selected and named", async () => {
+    const fixture = await seedSiblingMemories("control-target-unforgotten");
+    const reply = await forgetSibling(fixture, FORGET_SIBLING);
+
+    expect(reply.outcome).toBe("telegram_delivered");
+    expect(fixture.telegram.requests.at(-1)?.text).toContain(SIBLING_TEXT);
+    const forgotten = await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? AND item_id = ?`)
+      .bind(fixture.owner.principalId, fixture.hiddenSiblingItemId)
+      .first<{ lifecycle_state: string }>();
+    expect(forgotten?.lifecycle_state).toBe("forgotten");
+  });
+});
+
 describe("Telegram owner memory correction", () => {
   it("recalls only the wording Sid last stated and retains the earlier one in the ledger", async () => {
     const owner = await seedServicePrincipal("memory-correction");

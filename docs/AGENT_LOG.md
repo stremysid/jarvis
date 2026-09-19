@@ -3,6 +3,270 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 00:41 UTC — DeepSeek V4.1 Flash, `codex/control-targets-suppression`: a forgotten memory was quotable in a control receipt
+
+**Effort level.** `C:\Users\Sid\.dsh\settings.yaml` sets the agent default to
+`deepseek-flash` with `reasoningEffort: high`, which is what this session ran
+at. The inherited `CLAUDE_EFFORT=xhigh` belongs to the Claude desktop session
+that launched this one, not to this agent.
+
+**Branch:** `codex/control-targets-suppression`, cut from `origin/main` at
+`5a8acf3` in the worktree `C:\Users\Sid\jarvis-ctl-leak`. No migration, and
+none needed — see the FTS trigger decision below. The worktree is left in
+place for inspection.
+
+### The defect, confirmed by reading the code
+
+`selectControlTargets` is the only full-text control path. It searched
+`memory_item_fts`, joined the current version and the current
+`memory_item_state`, filtered on the operation's lifecycle states, and then
+`telegram-memory-controls.ts` read the single hit with `readCurrentItem` and
+put its text in the reply through `namedReceipt`'s `Memory: "..."` line. An
+item hidden by an active suppression is still `active`, so the state filter
+passed it and the index still held it; the text came back to the owner.
+
+### What was built
+
+**1. The anti-join, copied rather than invented.** I followed
+`readCandidates` in the same file — its two `AND NOT EXISTS` blocks at
+`telegram-memory-retriever.ts:2078-2100` on main — which is the other
+full-text (`memory_item_fts MATCH`) path in this codebase.
+It is a closer fit than `context-retriever.ts`'s fact-projection anti-join,
+which walks `json_each(f.sources_json)` because a projected fact carries its
+sources as JSON; a memory item carries them as rows in `memory_item_sources`,
+and `literal-history.ts` is keyed on indexed history chunks rather than on
+items. The two predicates are the same pair `readCandidates` uses, in the same
+form:
+
+- creation event: `suppression.target_event_id = item.creation_event_id OR
+  item.creation_event_sequence BETWEEN suppression.start_event_sequence AND
+  suppression.end_event_sequence`;
+- every current-version source, via `memory_item_sources` joined to
+  `memory_active_event_suppressions`.
+
+Applied **before** `LIMIT`, not after. One principal can match two items and
+have the anti-join drop one; filtering a limited page post-hoc would leave the
+single visible survivor looking like an ambiguous match and the owner would be
+asked "which memory?" about the only memory he has. `context-retriever.ts`
+already carries that argument in a comment and I am following it.
+
+**2. `readCurrentItem` at the call site: kept, deliberately.** This is the
+decision the brief asked me to argue rather than make blindly.
+
+`readItemVisibility` could not have prevented this leak even if it had been
+called. Its suppression flags (`creationEventSuppressed`,
+`suppressedSourceIds`) are produced by exactly the predicate now in the
+anti-join, so after step 1 they cannot disagree with it — adding it would be
+dead code that only reads as safety.
+
+Its third field, `retrievable`, is a strictly different and **wrong** test
+here. `memory_retrievable_item_versions` requires
+`lifecycle_state = 'active'`, and the item at that call site is a candidate
+for `forget`, `lift` or `explain` — so it may legitimately be `proposed`.
+Gating on `retrievable` the way `explain` does (which redacts to
+`text: null` and prints "Explained 1 hidden memory without revealing its
+text") would blank the `Memory:` line of the receipt that tells the owner what
+his forget or lift just did to an unconfirmed memory. That is a regression,
+not a defence.
+
+So: `readCurrentItem` stays, and the invariant is stated where it is relied
+on. The comment at the call site says why, so the next session does not
+"harden" it into a bug.
+
+**3. The receipt when the only match is suppressed: unchanged wording.** It is
+the existing ambiguous-match line, "Which memory do you mean? Tell me a few
+words from it; I changed nothing." A memory hidden by a forget is retained in
+the ledger and the suppression can be lifted, so a receipt saying it does not
+exist would be the lie in the other direction. That sentence asserts nothing
+about existence, asks for words, states that nothing changed, and names no
+text. The brief offered it as the model and I could not improve on it; I
+recorded the reasoning in a comment and left the string alone rather than
+inventing a second one.
+
+**4. The FTS delete trigger: out of scope, and actively wrong here.**
+`memory_item_fts` is `content='memory_item_versions'`. The rows it indexes are
+append-only ledger rows that are never deleted, so there is nothing for a
+delete trigger to fire on. And FTS membership was never the gate: the index
+deliberately holds every version ever written, including superseded and
+expired ones, and visibility is decided by lifecycle state plus suppression.
+A trigger that removed rows would be maintenance on a table that does not
+change, sitting under a gate that is not the one being tested. `0038` stays
+free; no migration.
+
+**One thing I did not fix, and am not claiming to.** The other control path,
+`findLastReferencedTarget`, resolves a `null` query ("forget that memory")
+from the previous reply and has no suppression check of its own. The brief
+scoped step 1 to `selectControlTargets`, and widening it would have been a
+second, unargued change to a path whose whole input is a recorded item
+reference; I am flagging it instead of silently taking it. If a hidden item
+can reach that path — the owner would have to have been shown it in a prior
+delivered reply — it is a follow-up, not something this diff covers.
+
+### The tests, and the control
+
+New block `describe("Telegram control target suppression")` in
+`apps/cloud-gateway/test/memory/telegram-memory.test.ts`, driven through the
+real production service (`sendProduction`), the real `MemoryOwnerControlsService`,
+the real `TelegramMemoryRetriever` and the real `namedReceipt` — no mock of
+the receipt path.
+
+The fixture is two memories built from **one owner turn**, which the project
+already relies on (`forget` reports the siblings it hid, and
+`countSiblingItemsHiddenByForget` exists to count them). Forgetting the first
+suppresses the turn; the second is never transitioned out of `active`, so the
+index still matches it and only a suppression check can refuse it.
+
+| Test | What it pins |
+|---|---|
+| `refuses a suppressed memory as a control target though full-text search still matches it` | asserts the raw FTS query still returns the hidden item, that it is still `active`, and that `findControlTargets` returns `[]` |
+| `refuses a memory hidden through its creation event when its own source was not` | the source predicate cannot see this one: the item's creation event is the forgotten turn and its own source is a later turn, so only the creation-event anti-join can refuse it |
+| `never quotes a suppressed memory in a reply through the named receipt` | asserts both siblings were `active` before the forget, then that the delivered reply matches "Which memory do you mean" and contains neither "biology" nor "tuesday" |
+| `CONTROL: without the forget the same fixture is selected and named` | the same fixture with the forget left out: the reply **does** contain `my biology practical is on Tuesday` and the item **does** reach `forgotten` |
+
+The control test is why the other three are not passing for a broken reason. The
+creation-event test exists because the first fixture suppresses creation event
+and source together, so it cannot tell the two predicates apart — and a
+predicate never shown to bite is indistinguishable from one that does nothing.
+
+### Neutering: the named tests fail, then pass
+
+The anti-join's two `AND NOT EXISTS` blocks were deleted from
+`selectControlTargets` (replaced by a `NEUTERED` marker), nothing else
+touched.
+
+**Neutered — 2 failed, 1 passed:**
+
+```
+ × |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > refuses a suppressed memory as a control target though full-text search still matches it 484ms
+   → expected [ '01m2vgrdvts70mb9na30j5ph46' ] to deeply equal []
+ × |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > never quotes a suppressed memory in a reply through the named receipt 585ms
+   → expected 'Forgot 1 memory and hid 0 of 1 source…' to match /Which memory do you mean/u
+ ✓ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > CONTROL: without the forget the same fixture is selected and named 445ms
+
+⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > refuses a suppressed memory as a control target though full-text search still matches it
+AssertionError: expected [ '01m2vgrdvts70mb9na30j5ph46' ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "01m2vgrdvts70mb9na30j5ph46",
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/telegram-memory.test.ts:1770:22
+    1768|     expect(matching.results.map((row) => row.item_id)).toContain(fixtu…
+    1769|     expect(hiddenState?.lifecycle_state).toBe("active");
+    1770|     expect(selected).toEqual([]);
+       |                      ^
+    1771|   });
+    1772|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > never quotes a suppressed memory in a reply through the named receipt
+AssertionError: expected 'Forgot 1 memory and hid 0 of 1 source…' to match /Which memory do you mean/u
+
+- Expected:
+/Which memory do you mean/u
+
++ Received:
+"Forgot 1 memory and hid 0 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again. Memory: \"My biology practical is on Tuesday\""
+
+ ❯ apps/cloud-gateway/test/memory/telegram-memory.test.ts:1786:52
+```
+
+That `+ Received:` line **is** the defect: the owner asked to forget the
+timetable, and the reply quotes the biology memory the same forget had just
+hidden. The `CONTROL` test stays green under the neutering, which is the point
+of it.
+
+**Neutered again, creation-event block only — the creation test fails and the
+other three stay green:**
+
+```
+ ✓ |default| ... > Telegram control target suppression > refuses a suppressed memory as a control target though full-text search still matches it 301ms
+ × |default| ... > Telegram control target suppression > refuses a memory hidden through its creation event when its own source was not 5394ms
+   → expected [ '01m2vhtc9tpaevhpd2hy2b6kw0' ] to deeply equal []
+ ✓ |default| ... > Telegram control target suppression > never quotes a suppressed memory in a reply through the named receipt 348ms
+ ✓ |default| ... > Telegram control target suppression > CONTROL: without the forget the same fixture is selected and named 263ms
+
+⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯
+      Tests  1 failed | 3 passed | 70 skipped (74)
+```
+
+Each predicate is therefore shown to be load-bearing on its own: removing the
+source block fails the quote test, removing the creation block fails the
+creation test, and no other test moves either time.
+
+**Restored — 4 passed:**
+
+```
+ ✓ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > refuses a suppressed memory as a control target though full-text search still matches it 941ms
+ ✓ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > refuses a memory hidden through its creation event when its own source was not 321ms
+ ✓ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > never quotes a suppressed memory in a reply through the named receipt 353ms
+ ✓ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram control target suppression > CONTROL: without the forget the same fixture is selected and named 258ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 70 skipped (74)
+```
+
+### The gate, as actually run
+
+| Command | Result |
+|---|---|
+| `pnpm lint` | **pass** — 5 projects, all `Done` |
+| `pnpm typecheck` | **pass** — 5 projects, all `Done` |
+| `pnpm test` (run 1) | **3 failed \| 196 passed (199) files**; **3 failed \| 5342 passed (5345) tests**, 197.37 s |
+| `pnpm test` (run 2, final code) | **7 failed \| 192 passed (199) files**; **9 failed \| 5337 passed (5346) tests**, 197.70 s |
+
+Every failure in both runs was `Error: Test timed out in 5000ms.` except one:
+`preserves exact receipt-time attribution for a UUID owner containing a
+six-digit run` in `tests/acceptance/fake/voice-telegram-call.test.ts` asserted
+`delivery_unknown` where it wanted `telegram_delivered`. The two full runs share
+no failing name. Re-run alone:
+
+| File | Run 1 alone | Run 2 alone | Run 3 alone |
+|---|---|---|---|
+| `tests/acceptance/fake/voice-telegram-call.test.ts` | **PASS, 44/44** | **PASS, 44/44** | — |
+| `test/memory/meaning-search.test.ts` | **PASS, 70/70** | **PASS, 70/70** | — |
+| `test/memory/automatic-distillation.test.ts` | FAIL — `stops a counted re-file pass after ten failed write attempts` | FAIL — `keeps the conditional child-cap insert effective when a sibling wins the commit race` | — |
+| `tests/acceptance/fake/voice-owner-call-step-up.test.ts` | FAIL — `reserves one outbound-owner slot when two inbound owner relays are waiting in pre-auth` | **PASS, 35/35** | — |
+| `apps/cloud-gateway/test/voice/call-session-do.test.ts` | **PASS, 126/126** | FAIL — `shares the production guest proof issuer…` | FAIL — `terminalizes through the exact idempotent callback RPC…` **and** `keeps cleanup pending on provider failure…` |
+
+**The failing names roam between runs of the same file**, and the two full-suite
+runs are disjoint — the known noise from the brief, not this diff. The isolated
+runs move too: `voice-owner-call-step-up` passed 35/35 the second time, and
+`call-session-do` passed 126/126 the first time before failing two different
+tests on its third. That file is 126 tests in 177–185 s, averaging about 1.4 s
+each, so at a 5000 ms default its tail is thin. No failing name in either full
+run is in memory controls, control targets or the receipt path.
+
+`apps/cloud-gateway/test/memory/` on its own, final code: **423 tests**, all
+passed except one 5000 ms timeout in `meaning-search.test.ts` that then passed
+70/70 twice alone.
+
+There is also one genuine Python failure on main (`test_owner_passphrase.py`)
+that `pnpm test` does not run and that is not mine.
+
+### What this does not cover
+
+- `findLastReferencedTarget` (the "that memory" path) is unchanged; see above.
+- The `owner-telegram-agent.ts` tool path calls `findControlTargets` only with
+  `query: null`, so the FTS anti-join does not reach it. Its own tool receipts
+  read the item with `readCurrentItem` at four call sites. That is a separate
+  path with separate eligibility checks and I did not open it.
+- No statement-count or latency assertion was added for the new predicate. The
+  statement budget is unchanged — the anti-join adds subqueries to a statement
+  that already existed, not new statements — and the existing control-target
+  budget (`TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS.d1Statements = 384`) is
+  untouched.
+- The creation-event test proves that predicate bites through
+  `findControlTargets`. The receipt path is exercised only on the fixture where
+  both predicates match.
+
 ## 2026-09-18 20:26 UTC — DeepSeek V4.1 Flash, PR #98 F1: the requested clause test, and why it cannot bite
 
 **Effort level: I could not determine it, so I am not naming one.** Nothing in
