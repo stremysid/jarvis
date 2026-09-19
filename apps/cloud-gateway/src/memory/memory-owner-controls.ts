@@ -20,6 +20,7 @@ import { ArchivalService, type ArchiveBucket } from "../archive/archival-service
 import { MemoryRepository } from "./memory-repository.js";
 import {
   MemoryRepositoryError,
+  MEMORY_CONTROL_INTENTS,
   type CanonicalMemoryItem,
   type CommitInitialMemoryInput,
   type ConfirmMemoryItemInput,
@@ -39,9 +40,6 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
-const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>([
-  "remember", "forget", "lift", "confirm", "explain", "correct",
-]);
 const REMEMBER_CONTROL_PREFIXES = [
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,

@@ -215,6 +215,30 @@ export interface AutomaticInboxRefilingResult {
 
 export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain" | "correct";
 
+/**
+ * The members of `MemoryControlIntent`, written once.
+ *
+ * `satisfies Readonly<Record<MemoryControlIntent, true>>` is the part that
+ * matters: adding a member to the union without adding it here is a compile
+ * error, so the set below cannot drift from the type. It is written as a map
+ * rather than as an array precisely so that the check runs in the direction that
+ * catches an omission -- `as const satisfies readonly MemoryControlIntent[]`
+ * would only prove every listed value is a valid intent, never that every intent
+ * is listed.
+ *
+ * This exists because those six strings used to be written out in two places,
+ * here and inline in `memory-repository.ts`'s owner-turn validation, and nothing
+ * made them agree: the compiler could not see a missing member because both were
+ * complete-looking lists rather than one list and one derivation. That is the
+ * same shape as a migration missing from two hand-kept lists.
+ */
+const MEMORY_CONTROL_INTENT_MEMBERS = Object.freeze({
+  remember: true, forget: true, lift: true, confirm: true, explain: true, correct: true,
+} satisfies Readonly<Record<MemoryControlIntent, true>>);
+
+export const MEMORY_CONTROL_INTENTS: ReadonlySet<MemoryControlIntent> =
+  new Set(Object.keys(MEMORY_CONTROL_INTENT_MEMBERS) as MemoryControlIntent[]);
+
 export interface MemoryOwnerTurnInput {
   readonly principalId: string;
   readonly eventId: Ulid;

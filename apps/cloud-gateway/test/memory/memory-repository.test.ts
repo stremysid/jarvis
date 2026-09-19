@@ -16,6 +16,7 @@ import {
 import type { ArchivedEventReader } from "../../src/archive/tiered-event-reader.js";
 import type { AppendedEvent } from "../../src/persistence/event-repository.js";
 import {
+  MEMORY_CONTROL_INTENTS,
   MEMORY_INBOX_DISPLAY_NAME,
   MEMORY_ROOT_DISPLAY_NAME,
   MemoryRepositoryError,
@@ -942,6 +943,43 @@ describe("MemoryRepository", () => {
       }, "remember")).resolves.toBe(text);
     } finally {
       await cleanupHandoffArchive(archived.segmentId);
+    }
+  });
+
+  it("accepts every memory control intent the shared set defines", async () => {
+    // The six intent strings used to be written out twice -- here in the
+    // repository's owner-turn validation and again in memory-owner-controls --
+    // with nothing making the two agree. Both looked complete, so the compiler
+    // could not see one missing a member. This drives the real validator with
+    // every member of the shared set, so a second copy that drifts fails here.
+    //
+    // The completeness half is not a test: `MEMORY_CONTROL_INTENT_MEMBERS` is
+    // declared `satisfies Readonly<Record<MemoryControlIntent, true>>`, so adding
+    // a member to the union without adding it there fails `pnpm typecheck`.
+    // Types are erased at runtime, so this is the half that needs a test.
+    const principalId = await seedPrincipal("human");
+    const text = "Please remember that every intent shares one list.";
+    const source = await seedEvent(principalId, text);
+    const repository = new MemoryRepository(env.DB);
+    const members = [...MEMORY_CONTROL_INTENTS];
+    expect(members.length).toBeGreaterThan(0);
+
+    for (const intent of members) {
+      await expect(repository.validateOwnerTurn({
+        principalId,
+        eventId: source.eventId,
+        eventSequence: source.sequence,
+        occurredAt: source.occurredAt,
+        channel: "telegram",
+        memoryIntent: intent,
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }, intent)).resolves.toBe(text);
     }
   });
 
