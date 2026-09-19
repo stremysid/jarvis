@@ -31,6 +31,7 @@ import {
   type LiftMemoryItemInput,
   type LiftMemoryItemResult,
   type MemoryBasis,
+  MEMORY_CONTROL_INTENTS,
   type MemoryControlIntent,
   type MemoryFilingSource,
   type MemoryKind,
@@ -1951,9 +1952,7 @@ export class MemoryRepository {
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
-      const intent = inputEnum(expectedIntent, new Set([
-        "remember", "forget", "lift", "confirm", "explain", "correct",
-      ] as const));
+      const intent = inputEnum(expectedIntent, MEMORY_CONTROL_INTENTS);
       const flags = [
         input.forwarded,
         input.quoted,
@@ -2004,9 +2003,7 @@ export class MemoryRepository {
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
-      inputEnum(input.memoryIntent, new Set([
-        "remember", "forget", "lift", "confirm", "explain", "correct",
-      ] as const));
+      inputEnum(input.memoryIntent, MEMORY_CONTROL_INTENTS);
       const flags = [
         input.forwarded,
         input.quoted,
