@@ -232,8 +232,51 @@ vertical rather than an addition. Measured, not guessed:
 I stopped rather than start that vertical, because a half-wired tool is worse than a missing
 one: it would be defined, classified, dispatched, and refuse at runtime.
 
-Also still open: `memory_save` taking `expires_at` (with expiry propagated onto the
-`correct` and `confirm` versions, or the `0038` coupling trigger aborts them), `confidence`
+### `expires_at` landed, and it cost two things worth not rediscovering
+
+`memory_remember` now takes an optional `lifetime`/`expiresAt` pair and the
+propagation is on all four writers of a version: `remember` honours what the model
+said, `correct` inherits the lifetime of the wording it replaces, `confirm` already
+carried `valid_to` across from the current version, and distillation is explicitly
+durable rather than guessing an expiry — a guessed expiry there would be code
+deciding something the roadmap gives to the model.
+
+**1. There is a third registration place, and #124's parity guard did not cover it.**
+The guard checks two hand-kept *lists*. The per-migration apply chains are *code*:
+`applyMemoryIngressMigration`, `applyMemoryLivingNotesMigration`,
+`applyNewestRuntimeMigration`. When the memory fixtures stopped at `0019`, an INSERT
+naming `lifetime` failed as **`memory_unavailable` from every commit — which reads as
+a database fault, not as a missing migration**, and cost an hour chasing the wrong
+layer. The guard now has a third assertion: apply each chain and assert the applied
+set contains the newest migration on disk, compared against the glob rather than a
+list. It asserts the applied *set*, not the last receipt, because receipt order
+depends on which chain ran first in the file.
+
+Mutation-verified, and the second result needs its explanation recorded:
+
+| mutation | result |
+|---|---|
+| drop `0038` from `applyMemoryIngressMigration` | `× applies the newest migration on disk through the memory fixture chain` |
+| drop `0038` from `applyNewestRuntimeMigration` | **passes — and it is explained, not a survivor**: that chain reaches `applyMemoryIngressMigration` through `applyMemoryBackupMigration` → `applyMemoryDistillationMigration` → `applyArchiveLiteralHistoryMigration`, so 0038 is still applied. The explicit entry in the terminal chain is now redundant. |
+
+**2. The gateway's tests are not typechecked at all, and that is a separate PR.**
+`apps/cloud-gateway/tsconfig.json` has `"include": ["src/**/*.ts"]`, so
+`pnpm typecheck` never sees a test. Making `lifetime` required on
+`CommitInitialMemoryInput` **compiled clean and broke forty tests at runtime**;
+`typecheck:tests` reports 144 errors in 32 files, so it is not a gate and pulling it
+into one is its own argument. Do not widen the tsconfig from a feature branch. The
+practical rule this bought: **run the suites, do not trust the typecheck** — for a
+change to a type a test constructs, the compiler is silent and the suite is the only
+signal.
+
+Also: a 500 ms latency assertion inside a parallel suite measures the machine rather
+than the code. `retrieves archived-source memories and archived history within 500 ms`
+was 1557 ms under load and green three times alone. That is *explained*, and it is a
+different thing from the flake class sweep 5 measured — but "it passes alone" is
+exactly the rule that was wrong at this revision, so it is stated with the number
+rather than as a passing count.
+
+Also still open: `memory_save` taking `expires_at` (now done), `confidence`
 as a projection of `basis`, the hourly review wake-up, and the deletion PR for
 `telegram-memory-language.ts`.
 - **Correction to my own earlier report:** I told Sid `git grep setAlarm` returns nothing. It
