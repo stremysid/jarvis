@@ -19,11 +19,11 @@ two checker scripts (PR #107); `docs/REVIEW-PROTOCOL.md` (PR #108).
 
 | # | Item | Impact | Effort | Risk if not done |
 |---|---|---|---|---|
-| A1 | `/shadow off` claims a safety control that has no caller | High | 10 min | The owner believes he has a guarantee he does not |
-| A2 | Distillation re-ingests forgotten turns, hourly | **High** | 1 h | The memory promise is silently defeated |
+| ~~A1~~ | ~~`/shadow off` claims a safety control that has no caller~~ **CLOSED by #106** | — | done | — |
+| ~~A2~~ | ~~Distillation re-ingests forgotten turns, hourly~~ **CLOSED by #110** | — | done | — |
 | A3 | 4-digit PIN and passphrase match no redaction rule | **High** | 2 h | A spoken secret is stored verbatim |
 | D1 | Voice has no tool dispatch | **High** | 1–2 sessions | v1.0 is a chatbot; the owner's actual goal |
-| E1 | Suite failures are unattributable (5 s timeouts) | High | 30 min | No gate can be trusted; CI is red forever |
+| E1 | Suite failures are unattributable (5 s timeouts) | **Highest remaining** | 30 min | No gate can be trusted. **CI is alive again as of 2026-09-19**, so this now gates real merges rather than a dead pipeline |
 | E6 | Python tests failing in CI, cause unknown | High | ? | Unknown breakage on the local agent |
 | B1–B4 | Four authority holes in the tier-3 confirmation path | Medium | 3 h | Becomes high the day email lands |
 | A4–A7 | Four smaller authority/observability gaps | Medium | 3 h | Silent leaks and unguarded paths |
@@ -40,6 +40,8 @@ Order of work is in §8. Sections 2–7 give the implementation.
 ## 2. Live defects — fix first
 
 ### A1. A live command reassures the owner about a control that does not exist
+
+> **CLOSED by [#106](https://github.com/stremysid/jarvis/pull/106), merged 2026-09-18.** `AutonomyService` is constructed at `index.ts:305` and `OwnerTelegramAgentAdapter` gates tool calls on it. The evidence below was true at `5a8acf3` and is kept for the record; do not re-report it.
 **Evidence `[M]`** `apps/cloud-gateway/src/channels/telegram/command-handler.ts:179`
 answers `/shadow off` with *"Shadow mode off. Tier-2 actions run; tier 3 still asks
 first."* `AutonomyService.evaluate` has **zero callers** in `src`. The test at
@@ -60,6 +62,8 @@ leaves it green.
 stays green.
 
 ### A2. Forgetting has a back door, and it runs hourly
+
+> **CLOSED by [#110](https://github.com/stremysid/jarvis/pull/110), merged 2026-09-18.** The hourly distillation path now honours the suppression ledger. The evidence below was true at `5a8acf3`; do not re-report it.
 **Evidence `[M]`** `apps/cloud-gateway/src/memory/automatic-distillation.ts` contains
 **no suppression reference at all**. Eligibility is
 `envelope.subjectId === principalId && payload.historyEligible` (`:422`), with no
