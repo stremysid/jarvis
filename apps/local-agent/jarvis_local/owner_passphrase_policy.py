@@ -10,7 +10,15 @@ from collections.abc import Set
 CANONICALIZER_VERSION = "ascii-v1"
 WORD_LIST_VERSION = "eff-long-cmudict-2026-09-v2"
 DOMAIN = b"jarvis.owner-passphrase/v1"
-ITERATIONS = 600_000
+# Production workerd rejects a single PBKDF2 call above 100,000 iterations, so the
+# Worker reaches its 600,000-iteration work factor as six chained passes over the
+# same salt, each taking the previous 32-byte result as its password. One 600,000
+# iteration call is NOT the same derivation, and the shared known-answer fixture
+# exists to catch exactly that divergence: this side follows the chain, not the
+# total. ITERATIONS stays as the documented total for anything reporting the cost.
+PASSES = 6
+PASS_ITERATIONS = 100_000
+ITERATIONS = PASSES * PASS_ITERATIONS
 _IDENTITY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$", re.ASCII)
 _IGNORED = frozenset("!\"',.:;?")
 _WHITESPACE = frozenset("\t\n\v\f\r ")
@@ -67,7 +75,10 @@ def derive_owner_passphrase_digest(
     ))
     peppered = hmac.digest(pepper, material, "sha256")
     try:
-        return hashlib.pbkdf2_hmac("sha256", peppered, salt, ITERATIONS, dklen=32)
+        derived = peppered
+        for _ in range(PASSES):
+            derived = hashlib.pbkdf2_hmac("sha256", derived, salt, PASS_ITERATIONS, dklen=32)
+        return derived
     finally:
         # bytes are immutable in CPython. The production Worker uses mutable
         # Uint8Arrays and clears its copies; this helper exists only for KATs.
