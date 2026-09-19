@@ -15,7 +15,9 @@ it is not the level I ran at.
 Both parts of
 `C:\Users\Sid\jarvis-gate\reviewer-tools\relay\fix-0036-and-checker-prompt.txt`.
 
-**Pushed branches:** `codex/email-read-everything-0037` at `5b96207` (part 1) and
+**Pushed branches:** `codex/email-read-everything-0037`, whose part-1 code commit
+is `5b96207` and which carries this entry on top of it — read its head with
+`git log`, not from this line, which cannot name the commit it is inside — and
 `codex/migration-collision-check` at `248454f` (part 2, on top of `bc6951a`).
 
 ### Part 1 — `0036` is down to one claim; this branch moved to `0037`
