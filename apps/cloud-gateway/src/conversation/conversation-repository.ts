@@ -345,32 +345,48 @@ function assistantStagePayload(
   decision: ReturnType<typeof takePendingTelegramReplyMarkup>,
 ) {
   const payload = historyPayload("telegram", text, false);
-  const issuedItemIds = memoryItemIds.map((itemId) => {
-    const issued = sanitizeRedaction(itemId);
-    if (!issued.ok) throw new Error("assistant_memory_reference_redaction_failed");
+  // Item ids, the decision id and the callback token are identifiers the platform
+  // minted, not owner content, and they take the structural redaction path. On
+  // the content path a six-digit run inside the ULID -- roughly one id in a few
+  // hundred -- is rewritten to `[REDACTED_AUTH_DIGITS]` in place, and the id then
+  // reads back from storage as invalid, which refused the delivery.
+  const issueStructural = (value: string, error: string) => {
+    const issued = sanitizeRedaction(value, undefined, true);
+    if (!issued.ok) throw new Error(error);
     return issued;
-  });
+  };
+  const issuedItemIds = memoryItemIds.map(
+    (itemId) => issueStructural(itemId, "assistant_memory_reference_redaction_failed"),
+  );
   if (decision === null) {
     return issuedItemIds.length === 0
       ? payload
       : Object.freeze({ ...payload, memoryItemIds: Object.freeze(issuedItemIds) });
   }
+  // The label is owner-visible text and stays on the content path. The callback
+  // token is structural, but only once the grammar this module owns has accepted
+  // it -- otherwise the exemption would be a way to store arbitrary text, which
+  // is the property the redaction contract is built to prevent.
   const issue = (value: string) => {
     const issued = sanitizeRedaction(value);
     if (!issued.ok) throw new Error("assistant_reply_markup_redaction_failed");
     return issued;
   };
+  const issueCallbackData = (value: string) => {
+    if (parseDecisionCallbackData(value) === null) throw new Error("assistant_reply_markup_redaction_failed");
+    return issueStructural(value, "assistant_reply_markup_redaction_failed");
+  };
   const replyMarkup = Object.freeze({
     inline_keyboard: Object.freeze(decision.replyMarkup.inline_keyboard.map((row) =>
       Object.freeze(row.map((button) => Object.freeze({
         text: issue(button.text),
-        callback_data: issue(button.callback_data),
+        callback_data: issueCallbackData(button.callback_data),
       }))))),
   });
   return Object.freeze({
     ...payload,
     ...(issuedItemIds.length === 0 ? {} : { memoryItemIds: Object.freeze(issuedItemIds) }),
-    decisionId: issue(decision.decisionId),
+    decisionId: issueStructural(decision.decisionId, "assistant_reply_markup_redaction_failed"),
     replyMarkup,
   });
 }

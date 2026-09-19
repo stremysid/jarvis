@@ -3,6 +3,126 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 03:30 UTC — DeepSeek V4.1 Flash builder: the `delivery_unknown` flake has a cause, and it is a redaction bug
+
+**The brief was wrong about this in four ways, and the corrections are the work.**
+It described "a deterministic test failure" reporting "exactly 1 failed / 95
+passed on every run", in "the test driving `prepareConfirmedForget`". What is
+actually there:
+
+| Brief said | Observed |
+|---|---|
+| deterministic | **roams.** `owner-telegram-agent.test.ts` alone, unfixed: `origin/main` 4 runs → 0, 0, 0, **2** failures; PR #116's head 3 runs → **1**, 0, **1**. A different test each time. |
+| the `prepareConfirmedForget` test | **never that test.** It is defined at `:389`, not `:412` (the brief took `:412` from #116's own PR body, which is also wrong); the `:2438` call site is right. No failure I saw landed on it. |
+| a real defect hidden by load noise | real, but **not** load noise: the failure is an `AssertionError` on `outcome`, never a timeout. #116's diff is 13 lines of `testTimeout` and cannot produce it. |
+| awaiting review: #108/#109/#111/#113/#115/#116 | #108, #109, #111, #113 open; **#115 is already merged**; #116 is the timeout PR. |
+
+`docs/AGENT_LOG.md` already knew: the roaming name, and a control at `385c052`
+with none of the tier-3 code "**2 failures in 11 runs (~18%)**". Earlier sessions
+recorded it and stopped. Nobody had the cause.
+
+### The cause, proven
+
+`assistantStagePayload` (`conversation-repository.ts`) ran **identifiers** through
+the **content** redactor. `AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g`
+(`packages/contracts/src/calls.ts`) rewrites any six-digit run, and a ULID is
+Crockford base32, so six consecutive digits are legal inside one. Sampled 200,000
+`newUlid()` values: **470 hits, 0.235%**, e.g. `01m2vtda8px3kjtgvr6d837300`. A test
+file mints hundreds of ids, which is the roaming ~20%-per-run rate.
+
+Instrumented the swallowed throw at `ConversationService.deliver` (in a throwaway
+worktree at PR #116's head — not part of this change), then tagged every throw
+site in `validateStagedContent` with its own marker. Both lines are first-hand:
+
+```
+DISPATCH_THREW Error: CSS_AT_1348
+CSS1348 {..."memoryItemIds":["01m2vsf6x[REDACTED_AUTH_DIGITS]a1b2c3d4e5f"],"badUlid":[...]}
+```
+
+The marker **inside the id** is the gateway's own redactor, already written into
+the stored payload, and `badUlid` is computed from that payload — so the payload
+is not a valid ULID. Chain: mangled id → `claimDelivery` throws
+`conversation_staged_event_invalid` → `deliver`'s catch → `outcome:
+"delivery_unknown"` → the roaming assertion. A second path, the decision id, came
+out as `conversation_decision_id_invalid` at `requireUlid` — same cause, different
+symptom, which is why the two never looked like one defect.
+
+**Theories killed:** not the timeout config (#116's diff cannot do this, and these
+are assertions); not load (they reproduce idle); not test-order or shared state
+(`ownerHarness` mints a fresh principal per harness, `circuitBreaker` is per-turn);
+not the `telegram-reply-markup` 256-entry eviction map (evicting drops a keyboard,
+it does not corrupt an id).
+
+### The fix
+
+Identifiers take the structural redaction path. Two new deterministic tests decide
+it — an item id `01m2vsf6x123456a1b2c3d4e5f` and a decision id
+`01m2vsf6y654321a1b2c3d4e5f`. On unfixed code they fail **every run**, with the
+mangled id and `conversation_decision_id_invalid` respectively.
+
+**My first attempt was abandoned and the reason matters:** I added a public
+`sanitizeStructuralIdentifier` to contracts. `AGENT_LOG.md:8468` (finding N7) had
+already ruled that out — a public structural issuer "weakens the single-issuer
+rule" — and it was deliberately removed, with `envelope.test.ts:92` pinning the
+absence. Instead the *existing* structural escape learned the decision-callback
+grammar. The token is **gated by `parseDecisionCallbackData`** before it takes the
+exemption, so this cannot become a way to store arbitrary text. That grammar now
+has two literals on purpose: the parser in `telegram-keyboard.ts` keeps its own
+because a Telegram client returns those bytes weeks later, and `envelope.ts:132`
+("must be an issued redaction token, not raw text") means the mint has to live in
+contracts. They are held together by a test at the boundary, not an import.
+
+### Mutations — every one run, all reported
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | blank a `docs/FACTS.md` source cell | exit 1 — `:46: no source. A fact without a source is a rumour.` |
+| M2 | set `Observed` to `yesterday` | exit 1 — `:46: the Observed cell is not a YYYY-MM-DD date.` |
+| M3 | drop `BLOCKS` from `docs/QUEUE.md` | exit 1 — `no BLOCKS column.` |
+| M4 | point a `docs/STATE.md` link at a missing file | exit 1 — `link to a file that does not exist` |
+| — | restore all four | exit 0 |
+| M5 | put item ids + decision id back on the content path | **both named tests fail** |
+| M6 | remove the `parseDecisionCallbackData` gate | **the named gate test fails** |
+| — | restore M5 and M6 | 32/32 pass |
+
+### Gates, and what each covers
+
+- `pnpm test` (root vitest: cloud-gateway + contracts + acceptance) — **201/201 files, 5363/5363 tests, exit 0.** This is not `test:all`.
+- `pnpm typecheck` — clean, 5 projects. `pnpm lint` — exit 0.
+- `pnpm test:watchdog` — 8/8 files, 119/119 tests.
+- `test/persistence/conversation-repository.test.ts` — 32/32.
+- `owner-telegram-agent.test.ts` alone, fixed, idle — **96/96 on ten consecutive runs, zero `delivery_unknown`, zero timeouts.**
+- `pnpm test:runtime` — **4 pre-existing failures**, the documented set: `sbom-integrity-round2` (2), `sbom-security-review3` (1), `source-lock` (1). No hermes file is touched. I did not capture its totals — the run was still going when this was written — so the failure *set* is what I observed, not a count.
+- **One earlier 10-run loop is void and I am not using it:** it overlapped my own source edits and concurrent test runs, so run 3 caught a half-applied import (35 failures) and runs 4–7 were 5–8 s load timeouts.
+
+### What I did not do, and why
+
+- **Task B was already in flight and I did not duplicate it.** The brief told me to wire `scripts/check-state.mjs` into CI. **PR #117 (`claude/wire-state-check`) already does exactly that** — same job, same command, plus a `check:state` script, and it regenerates FACTS/QUEUE/STATE. It was open before this brief reached me and its CI is green. I wrote the job, found #117, reverted `.github/workflows/ci.yml`, and also dropped my edit to `check-state.mjs`'s header: that header says "NOTHING RUNS THIS YET", which #117 makes false, but naming #117's job in a *different* PR would assert something that is only true if #117 merges. **#117 should update that header; do not merge two `state-carriers` jobs.** The M1–M4 mutations above still stand — they exercise the exact command #117's job runs.
+- Did not merge, deploy, apply a migration, or touch a secret.
+- Did not touch `STATE.md`, `FACTS.md` or `QUEUE.md`: #117 regenerates all three and editing them here would conflict with an in-flight PR for no gain. **Two of `STATE.md`'s lines are wrong and #117 is the right fix.** It says CI is "Dead since 2026-09-12" and "cannot go green before 2026-10-01", while `FACTS.md` (2026-09-19) says CI returned when the repo moved to the organisation. I verified from the API rather than the doc: `gh run list` shows runs at 03:22, 03:25, 03:47, 03:52 and 03:57 today, successes and failures alike — **CI is alive; `FACTS.md` is right and `STATE.md` is stale.** Its `pnpm test` row (199 files / 5,342 tests) is now 201/5363, of which 4 are mine.
+- Did not fix the **other** half of the suite's unattributability: the 5–10 s load timeouts. That is #116's subject and it is still needed.
+
+### Named, not fixed
+
+- `scripts/test/` has three `.mjs` suites **no workflow runs** (`check-memory-backup-restore-target`, `prepare-d1-scratch-baseline`, `voice-release-gate`); only `deploy.test.mjs` runs. This is the same defect `check-state.mjs`'s own header describes, and #117's new job does not close it either.
+- `check-state.mjs`'s stale-row report is warn-only by design; I left it.
+- The defect class does **not** extend to `memory-owner-controls.redactPayload` (it refuses when the redactor changes the value, and passes ids an `_ids` field) or the `telegram-webhook.ts` ingress (content only, field `"text"`). I checked both instead of assuming, and that is why the fix is one function rather than a sweep.
+
+### A mistake I made, recorded so it is not repeated
+
+A diagnostic write used a .NET relative path while PowerShell's `cd` was the
+worktree. .NET resolves against `[Environment]::CurrentDirectory`, which stays at
+the process start directory — so it **wrote `C:\javis\docs\STATE.md`, the live
+checkout.** I caught it in the next command, confirmed the diff was only my
+mutation, reverted it with `git checkout -- docs/STATE.md`, and verified
+`git -C C:\javis status` showed nothing but the pre-existing untracked
+`.venv-jarvis/`. Use absolute paths with `[System.IO.File]`: `Get-Location`
+following `cd` is not enough.
+
+Built by **DeepSeek V4.1 Flash**. The reasoning-effort level was not exposed to the
+session — `$env:DSH_*` carries no effort value and I could not determine it — so I
+am not naming one rather than guessing.
+
 ## 2026-09-18 — Claude Opus 5 reviewer: I read the full audit, and six findings survive
 
 Sid commissioned a second-vendor deep dive and told me to read it whole rather

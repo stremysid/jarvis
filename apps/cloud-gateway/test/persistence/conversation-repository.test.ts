@@ -6,6 +6,7 @@ import {
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
+import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import {
   createVoiceStreamDelivery,
   snapshotVoiceSentReceipt,
@@ -20,6 +21,7 @@ import {
   ConversationRepository,
 } from "../../src/conversation/conversation-repository.js";
 import { recordPendingTelegramReplyMarkup } from "../../src/channels/telegram/telegram-reply-markup.js";
+import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
 import { encodeDecisionCallbackData } from "../../src/decisions/telegram-keyboard.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { ProviderFailure, ProviderIdempotencyConflictError } from "../../src/providers/provider-types.js";
@@ -366,6 +368,92 @@ describe("ConversationRepository", () => {
     });
     await expect(repo.recordDeliverySuccess({ capability: claim.capability, receipt, now: LATER }))
       .rejects.toThrow("conversation_decision_delivery_invalid");
+  });
+
+  it("keeps a referenced memory id intact when it contains six consecutive digits", async () => {
+    // A ULID is Crockford base32, so six consecutive digits are legal in one and
+    // occur by chance -- and the content redactor rewrites any such run as an
+    // authentication code, in place, without knowing the value is an identifier.
+    // The id is chosen rather than generated because the window is a few in a
+    // thousand: a generated one would make this test flaky in the same way the
+    // defect is, which is how it stayed hidden.
+    const itemId = "01m2vsf6x123456a1b2c3d4e5f" as Ulid;
+    const repo = repository();
+    const { claim } = await admitAndClaim(repo);
+    recordPendingTelegramMemoryReferences(TURN_ID, [itemId]);
+
+    const staged = await repo.stageAssistantDelivery({
+      claim: claim.capability,
+      text: redacted("safe answer"),
+      targetIdentityId: "identity:telegram",
+      replyToMessageId: 42,
+      now: LATER,
+    });
+
+    const event = await env.DB.prepare(
+      "SELECT envelope_json FROM events WHERE event_type = 'conversation.assistant_staged'",
+    ).first<{ envelope_json: string }>();
+    expect(JSON.parse(event?.envelope_json ?? "null").payload.memoryItemIds).toEqual([itemId]);
+    await expect(repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER }))
+      .resolves.toMatchObject({ kind: "claimed" });
+  });
+
+  it("keeps a decision callback intact when its decision id contains six consecutive digits", async () => {
+    const decisionId = "01m2vsf6y654321a1b2c3d4e5f" as Ulid;
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: encodeDecisionCallbackData(decisionId, "confirm"),
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+
+    await expect(repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER }))
+      .resolves.toMatchObject({ kind: "claimed" });
+  });
+
+  it("agrees with the redactor about which callback tokens are structural", async () => {
+    // The redactor holds its own copy of the `d1:<ulid>:<option key>` grammar so
+    // it can tell a platform-minted identifier from owner text. If the encoder
+    // ever emits a token that copy rejects, the token would silently fall back to
+    // the content path and be corrupted rather than refused -- so pin the two
+    // together here, at the boundary, instead of trusting them to stay in step.
+    const decisionId = "01m2vsf6x123456a1b2c3d4e5f" as Ulid;
+    const issued = sanitizeRedaction(encodeDecisionCallbackData(decisionId, "confirm"), undefined, true);
+
+    expect(issued).toEqual({
+      ok: true, text: `d1:${decisionId}:confirm`, markers: [],
+    });
+  });
+
+  it("refuses to stage callback data that is not a decision token rather than exempting it", async () => {
+    // The structural path skips the content redactor, so it has to be gated by
+    // the grammar or it becomes a way to store arbitrary text unredacted. This
+    // pins the gate: six digits in the callback slot -- exactly what the content
+    // path rewrites -- must fail the stage rather than ride the exemption.
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId: EVENT_IDS[6]!,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: "123456",
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { claim } = await admitAndClaim(repo);
+
+    await expect(repo.stageAssistantDelivery({
+      claim: claim.capability,
+      text: redacted("safe answer"),
+      targetIdentityId: "identity:telegram",
+      replyToMessageId: 42,
+      now: LATER,
+    })).rejects.toThrow("assistant_reply_markup_redaction_failed");
   });
 
   it("atomically commits one canonical user event and turn, replays exact material, and conflicts changed material", async () => {
