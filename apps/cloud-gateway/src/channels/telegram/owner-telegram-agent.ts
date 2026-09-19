@@ -24,6 +24,7 @@ import {
   type MemoryExplanation,
 } from "../../memory/memory-owner-controls.js";
 import { composeCoreProfile, readCoreProfile } from "../../memory/core-profile.js";
+import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
 import { MemoryRepository } from "../../memory/memory-repository.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { recordPendingTelegramReplyMarkup } from "./telegram-reply-markup.js";
@@ -128,82 +129,7 @@ ${coreProfile}`;
 }
 
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  Object.freeze({
-    name: "memory_remember",
-    description: "Remember one fact Sid explicitly states now, or one direct answer Sid gives now to Jarvis's immediately previous offer to note it. Preserve Sid's exact supporting excerpt.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity"],
-      properties: {
-        fact: { type: "string", minLength: 1, maxLength: 4096 },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-        evidenceClass: { enum: ["stated", "confirmed"] },
-        previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096 },
-        kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
-        sensitivity: { enum: ["normal", "sensitive"] },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_correct",
-    description: "Replace one memory Sid already has with a new version he now states, when he says a fact, preference, plan, decision or relationship changed. Pass the id of the memory being replaced, the new wording drawn from his current message, and supportingExcerpt copied exactly from that message. The earlier memory stops being current and stays in the ledger; never use memory_remember for a change like this, because that leaves both wordings current.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"],
-      properties: {
-        itemId: { type: "string" },
-        newFact: { type: "string", minLength: 1, maxLength: 4096 },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-        kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
-        sensitivity: { enum: ["normal", "sensitive"] },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_forget",
-    description: "Hide one exact memory by item id, grounded by supportingExcerpt copied from Sid's current words. If more than one item could be meant, pass every candidate id and omit the excerpt so code asks Sid to confirm instead of changing anything.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["itemIds"],
-      properties: {
-        itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_restore",
-    description: "Restore one forgotten memory by an eligible item id. supportingExcerpt must be copied exactly from Sid's current request.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: {
-        itemId: { type: "string" },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_confirm",
-    description: "Confirm one proposed uncertain memory. supportingExcerpt must contain confirmation language copied exactly from Sid's current message. A model-inferred proposal is never promoted from this text; code presents its exact stored wording on a Confirm or Discard keyboard.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: { itemId: { type: "string" }, supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 } },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_explain",
-    description: "Explain one eligible memory item when supportingExcerpt is copied exactly from Sid's current request.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: {
-        itemId: { type: "string" },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
+  ...MEMORY_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
     description: "Run the validated school catch-up pipeline for Sid's current message and conversation context.",
