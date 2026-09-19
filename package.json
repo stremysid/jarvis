@@ -22,7 +22,6 @@
     "test:runtime": "pnpm --filter @jarvis/hermes-runtime test",
     "test:all": "pnpm test && pnpm test:runtime && pnpm test:watchdog",
     "test:watchdog": "pnpm --filter @jarvis/watchdog test",
-    "check:state": "node scripts/check-state.mjs",
     "check:state": "node scripts/check-state.mjs"
   },
   "devDependencies": {
