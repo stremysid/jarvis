@@ -285,6 +285,45 @@ as a projection of `basis`, the hourly review wake-up, and the deletion PR for
 
 Built by **DeepSeek V4.1 Flash**. Reasoning-effort level was not exposed to the session.
 
+### Handoff, 2026-09-19: what is next and what it costs
+
+**Sid placed a real call and it worked.** `STATE.md`'s R1 row said the opposite and was
+stale; corrected in PR #126, with a register row. The remaining R1 gap is the **brain**,
+not the phone — the voice path composes its own adapter, has zero tools and uses
+`D1ContextRetriever` instead of the real retriever, which is exactly the defect he saw
+("memory wasn't connected to calling").
+
+**Order agreed and being followed:** merge the gap doc (#120) → ~~place a real call~~ done →
+`memory_search` → the two confirmation holes → **the one brain** → tiers as judgement →
+wake-ups → code-decides cleanup → SMS (after Sid decides whether Telegram is the door).
+The watchdog's permanent `status 404` is an integrity bug worth its own session.
+
+**`memory_search` is a real vertical, and NOT because of the dependency.** Only four
+construction sites exist for `OwnerTelegramAgentAdapter`, so adding a port is trivial, and
+`TelegramMemoryRetriever` already takes an injectable `meaningSearch?: MeaningSearchReader`
+to copy. The cost is elsewhere: **`MeaningSearchHit` carries a `versionId`, not text**
+(`meaning-search.ts:70-83` — `vectorId`, `score`, `itemKind`, `itemId`, `contentHash`), and
+there is **no read path from a hit to retrievable memory text outside the retriever's own
+pipeline**. `readMeaningContexts` (`telegram-memory-retriever.ts:1381`) does hits → canonical
+reads → ranking, wrapped in statement budgets and timeouts, and it is private. So the builder
+must first decide one of:
+
+1. a new repository read — hits → retrievable text, respecting suppression, reusing the
+   `memory_retrievable_item_versions` view so a forgotten fact cannot be returned; or
+2. a public seam on the retriever — which risks the tool inheriting (or duplicating) the
+   automatic path's budgets and skip rules.
+
+**Option 1 is the one to take.** A tool the model calls deliberately must not silently return
+nothing because a budget was exhausted or a query looked like an acknowledgement, which is
+what `shouldSkipMeaningSearch` does to the automatic path. Do not reuse that path wholesale.
+
+Also note the tool's description must say it **drops hidden and expired** memories, because it
+does — and that has to be true of whichever read is added, tested against a forgotten fact.
+
+**Still open from the memory increment:** `confidence` as a projection of `basis`,
+the hourly-review wake-up's payload, and the deletion PR for `telegram-memory-language.ts`.
+
+
 ## 2026-09-19 03:30 UTC — DeepSeek V4.1 Flash builder: the `delivery_unknown` flake has a cause, and it is a redaction bug
 
 **The brief was wrong about this in four ways, and the corrections are the work.**
