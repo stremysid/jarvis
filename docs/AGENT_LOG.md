@@ -167,6 +167,54 @@ observation, and the result belongs in the PR rather than asserted here before i
 seven jobs, including the workspace suite. So the review-response commit is green in CI as well as
 in the file-alone runs above.
 
+### #125 merged as a squash, and a rebase was not possible — read this before trying one
+
+**#125 landed as `f61cd9b`, a single squashed commit on `main`.** That broke the stack in a way
+worth recording, because the obvious remedy does not work and the failure is not obvious.
+
+**A rebase cannot be made clean.** My branch carried #125's **20 commits** — the same content
+`main` has, in one commit. Replaying them onto `f61cd9b` conflicts, because each of the 20 now
+duplicates content that is already there: `14c388d` failed at once with an add/add conflict on
+`0038_memory_lifetime_and_pins.sql`. `--reapply-cherry-picks` does not help, and that is measured,
+not assumed — `git cherry origin/main 8732233` reports **0 applied, 24 unapplied**, because a
+squash commit's patch-id is not the patch-id of the commits it squashed. So a rebase would have
+meant resolving conflicts across twenty commits of code this session does not own, dropping
+nothing and changing nothing, with every chance of silently rewriting somebody else's work.
+
+**What I did instead, and why it is provably equivalent.** Merge `main` into the branch and take
+this branch's side for the three source files. `git checkout --ours` is safe here for a reason I
+verified rather than assumed: `git diff --name-only origin/main 8732233` is **exactly the eight
+files this PR changes** — 1,571 insertions and 9 deletions — so this branch's tree *is* `main`'s
+content plus this work, and taking its side discards nothing of main's.
+
+`docs/AGENT_LOG.md` resolves the same way for the same reason: this branch's log is a superset.
+Both sides were kept, verified by set rather than by eye — **427 headings at the new head, 426 on
+`main`, and `missing from main: 0`**. My entry is first. There was no entry on `main` that this
+branch lacked.
+
+**The merge tree is byte-identical to the reviewed head.** `git diff --stat 8732233 HEAD` is
+**empty**, so the content is exactly what Claude cleared at `8732233` and no source file was
+touched by the resolution. The commit is `06ed9d9`, first parent `f61cd9b` (main) and second
+parent `8732233`. `git merge-tree --write-tree origin/main HEAD` exits **0** with no conflicts, and
+the PR now reads `mergeable: MERGEABLE` against `baseRefName: main` with 8 files, +1,571 / −9.
+
+**One self-inflicted delay, recorded so the next session does not repeat it.** My first attempt was
+`git rebase --onto origin/main 8732233`, which is a **silent no-op**: `--onto A B` replays `B..HEAD`,
+and the target branch was at `8732233`, so the range was empty. It reported "Successfully rebased"
+and moved the branch to `main`, dropping this work locally. The remote was untouched and nothing
+was lost, but the lesson is that `--onto <tip> <tip>` looks like a rebase and is not one; use an
+explicit fork point, or `git rebase --onto <new> <old> <branch>`.
+
+### Gates at the merge head
+
+`test/memory/memory-search.test.ts` **19 passed** alone and `pnpm --filter @jarvis/cloud-gateway
+typecheck` exit 0 at `06ed9d9`. CI run `35529774273` at that head is **`completed success`** on all
+seven jobs, workspace suite included. The reviewer's clearance was of the **content** at `8732233`;
+the content is unchanged by the merge (empty tree diff above), but the reviewer asked to re-run the
+gates on a new head rather than carry a clearance across rewritten history, so that is a fresh
+measurement to be made by them, not assumed from this one.
+
+
 ### One line of shared code I changed
 
 `MAX_QUERY_RESULTS` in `meaning-search.ts` **4 → 16**. It is a cap on what a *caller may request*,
