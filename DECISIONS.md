@@ -4,6 +4,23 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## Who builds and who reviews (2026-09-20, owner decision)
+
+**DeepSeek builds. Claude reviews. Both do the deep final review.**
+
+Every milestone is built by DeepSeek, and every PR is reviewed by Claude at its
+exact head before merge, so the cross-vendor gate holds without a per-milestone
+vendor table. On top of that, both vendors take part in a **deep final review of
+everything**: it is not scoped to a PR, it runs at milestone exit, and it is the
+only review that may call something finished. A cleared PR is a statement about
+one diff at one revision; a cleared deep final review is a statement about the
+system as it stands. Neither substitutes for the other.
+
+This supersedes the per-milestone vendor table and the `R4` row in
+`docs/BUILDING.md`, and the "Models" line of the 2026-09-03 planning-session
+record below. St. Remy is out of scope for this repository, so nothing here
+assigns it a vendor.
+
 ## Applied migration text was rewritten for fresh-database replay (2026-09-16, reviewer decision)
 
 Production applied migrations `0001`, `0002` and `0006` with trigger guards in

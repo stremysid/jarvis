@@ -8,9 +8,29 @@ milestone on its own. The moment it is genuinely stuck, it stops, commits
 what works, and tells Sid which senior to call. It does not grind, and it
 does not guess its way forward.
 
-Milestones R0 to R10 are defined in
-[the roadmap](plan/2026-09-03-jarvis-roadmap.md), section 7. Each has an
-exit test a person can perform.
+The roadmap is [the 2026-09-19 roadmap](plan/2026-09-19-jarvis-roadmap.md),
+written by Sid: seven phases, and no milestone numbers. The `R` numbers in this
+file are names carried over from the superseded `2026-09-03-jarvis-roadmap.md`
+§7 and have **not** been re-mapped to those phases. Do not open work against an
+`R` number from the old file.
+
+---
+
+## The arrangement
+
+**DeepSeek builds. Claude reviews. Both do the deep final review.**
+
+| Layer | Who | What it is |
+|---|---|---|
+| **Build** | DeepSeek | Writes the code for every milestone, runs the gates, pushes. A builder never merges its own work. |
+| **PR review** | Claude | Every PR, at its exact head, before merge — so one vendor builds and a different one reviews, and nothing merges on its own author's sign-off. |
+| **Deep final review** | DeepSeek **and** Claude | Not scoped to a PR. A whole-system pass at milestone exit, and the only review that may call something finished. |
+
+The two review layers are not substitutes. A cleared PR is a statement about
+one diff at one revision; the deep final review is a statement about the system
+as it stands. A milestone can exit with every PR cleared and still fail the deep
+final review — that is the second layer doing its job, not contradicting the
+first.
 
 ---
 
@@ -31,24 +51,29 @@ stop.
 
 | Milestone | Build with | Review with |
 |---|---|---|
-| R0 Deploy what exists | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R1 Calling (v1.0) | GPT-5.6 Sol, xhigh | **Claude Opus 5, max** |
-| R2 Cloud memory | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R3 Hermes and PC control | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R4 St. Remy | **Claude Opus 5, max** | GPT-5.6 Sol, xhigh |
-| R5 Deadlines | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R6 Send on command, Siri | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R7 Profile and manager | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R8 Errands, Tesla, wake word | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R9 Dashboard, voice notes | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R10 Later | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R0 Deploy what exists | DeepSeek | Claude |
+| R1 Calling (v1.0) | DeepSeek | **Claude, max** |
+| R2 Cloud memory | DeepSeek | Claude |
+| R3 Hermes and PC control | DeepSeek | Claude |
+| R5 Deadlines | DeepSeek | Claude |
+| R6 Send on command, Siri | DeepSeek | Claude |
+| R7 Profile and manager | DeepSeek | Claude |
+| R8 Errands, Tesla, wake word | DeepSeek | Claude |
+| R9 Dashboard, voice notes | DeepSeek | Claude |
+| R10 Later | DeepSeek | Claude |
 
-Two milestones are not on the default setting, and both for the same
-reason — a quiet mistake there is expensive and hard to notice:
+The vendor pair no longer varies by milestone, so this table assigns work rather
+than models: **DeepSeek V4.1 Flash** builds and **Claude Opus 5** reviews, both
+at their default effort unless a row says otherwise.
+
+One milestone is not on the default setting, for the reason the old table gave
+for two — a quiet mistake there is expensive and hard to notice:
 
 - **R1** is the release gate. Its review runs at max.
-- **R4** touches a real business and a machine Sid's parents rely on. Claude
-  builds it and GPT reviews, the reverse of everywhere else.
+
+**St. Remy is out of scope for this repository.** Its code lives in its own
+dedicated chat and is not to be touched from a Jarvis session (`AGENTS.md`).
+There is no R4 row here any more: do not re-add one from the superseded roadmap.
 
 One kind of change is not on the default either, whatever milestone it lands
 in: **a PR that applies a migration to live data gets reviewed at max.** Code
@@ -60,7 +85,7 @@ cross-vendor gate from
 [the builder prompt](plan/2026-08-jarvis-builder-prompt.md): nothing merges
 on a single model's own sign-off.
 
-Two models not to use here. **GPT Luna** is the cheap high-volume tier —
+Models not to use here. **GPT Luna** is the cheap high-volume tier —
 right for the product's own distillation later, wrong for writing this code.
 **Claude Fable 5.1** costs roughly double Opus 5 per token; it is the top of
 the ladder below, not a default.
@@ -107,9 +132,9 @@ effort** — and that ordering is deliberate.
 
 | Rung | Who | Effort |
 |---|---|---|
-| 1 | GPT-5.6 Sol | xhigh |
-| 2 | Claude Opus 5 | xhigh |
-| 3 | Claude Opus 5 | max |
+| 1 | DeepSeek — the builder, in a fresh session | default |
+| 2 | Claude — a different vendor | xhigh |
+| 3 | Claude | max |
 | 4 | Claude Fable 5.1 | high |
 
 Most stuck sessions are stuck on a wrong assumption, not on insufficient
@@ -121,9 +146,6 @@ tier for two days returned very little over the level below.
 So: **fresh eyes before more effort.** Rung 4 is rare. If rung 4 is stuck,
 the milestone's scope is wrong and the roadmap needs changing, not the
 model.
-
-When R4 is the milestone, the ladder starts at rung 3 and steps up to
-rung 4; its reviewer escalates to Claude Opus 5 at max instead.
 
 ---
 

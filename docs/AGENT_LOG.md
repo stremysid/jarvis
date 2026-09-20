@@ -3,6 +3,155 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-20 16:30 UTC — DeepSeek V4.1 Flash builder, effort high: the arrangement is DeepSeek builds / Claude reviews, and R4 is deleted
+
+**What changed and why.** Sid's instruction was to update everything to reflect
+that **DeepSeek is the builder and Claude is the reviewer, with both doing the
+deep final review of everything**. Two rounds of questions settled the details,
+and the answers changed the shape of the change rather than just its wording.
+
+| File | Change |
+|---|---|
+| `docs/BUILDING.md` | New **## The arrangement** section: DeepSeek builds, Claude reviews, **both** do the deep final review. The per-milestone vendor table now names DeepSeek/Claude. **The `R4` row is deleted**, its two supporting lines are deleted, and the milestone banner now points at the 2026-09-19 roadmap rather than the superseded one. Escalation ladder rung 1 was `GPT-5.6 Sol` and is now DeepSeek. |
+| `AGENTS.md` | The cross-vendor rule now names the vendors instead of saying "one vendor"; "Two sessions build this project" became "a builder and a reviewer". |
+| `DECISIONS.md` | New owner decision recording the arrangement and explicitly superseding the per-milestone table, the `R4` row, and the "Models" line of the 2026-09-03 planning-session record. |
+| `docs/FACTS.md` | Two register rows: the arrangement, and that the authoritative roadmap has seven phases and no `R` numbers. |
+| `docs/HANDOFF.md` | One line only: "#96 ... hand it to a Claude builder — never Fable" is now "hand it to the DeepSeek builder". |
+
+**The deep-final-review layer is defined so it is not a slogan**: a separate
+whole-system pass at milestone exit by both vendors, and the only review that may
+call something finished. Sid chose this over "every PR gets two verdicts". The
+distinction is stated in `BUILDING.md` because the failure mode is exactly that
+"both reviewed it" gets read as the per-PR gate having already covered it.
+
+**R4 is deleted, and the reason is not the one I expected.** I asked whether to
+keep the deliberate R4 vendor reversal (Claude builds / GPT reviewed) or flatten
+it. Sid's answer: **neither — R4 does not exist any more.** I verified both
+halves rather than taking them:
+- `docs/plan/2026-09-19-jarvis-roadmap.md` has seven phases and **no `R` numbers**.
+  Its only occurrence of `R0`/`R4`/`R10` is the prose in the supersession note,
+  `grep` at `53c4d56`.
+- `docs/plan/2026-09-03-jarvis-roadmap.md` does carry a `> # SUPERSEDED —
+  2026-09-19` banner whose own words are *"Do not open work against an R number
+  from this file."*
+So the row was assigning a vendor to a milestone that no longer exists, and a
+vendor assignment for St. Remy is an instruction to a session that `AGENTS.md`
+forbids from touching that codebase at all.
+
+**Out of scope, named rather than fixed — the milestone table is orphaned.**
+`docs/BUILDING.md` assigns vendors per milestone in ten remaining `R` rows, and
+**every one of them is orphaned by #119** the same way the `R4` row was. Sid's
+instruction was explicit: report it, do not re-map it in this PR, because
+"rewriting against the phases, not patching" is a separate change with a separate
+argument. Carried forward unchanged and unfixed:
+- `docs/BUILDING.md:54-63` — ten `R` rows, no phase mapping.
+- `docs/BUILDING.md` still uses dead `R` numbers in prose: "R0 cannot deploy
+  before it fixes the config" (parallel-session section) and "R5 and R6 qualify
+  once R3 is done".
+- `docs/BUILDING.md:143` — the ladder's *evidence* sentence still says "running
+  **Sol** at its top tier for two days returned very little over the level below".
+  Left as written: it is the record of a measurement Sid made, and rewriting the
+  model name would misattribute it.
+- `docs/STATE.md:30` and `NEXT_STEPS.md:12` still point at the **superseded**
+  2026-09-03 roadmap. Only `BUILDING.md`'s own pointer was corrected, because
+  leaving a session pointed at a file whose banner says "read that instead" is
+  the repository disagreeing with itself.
+- `docs/HANDOFF.md` is 823 lines and contains nothing but stale 2026-09-17/18
+  housekeeping (#96, #84, a status page dated 2026-09-18). **Not regenerated
+  here**; one role line was corrected because it named a builder.
+- `AGENTS.md:192` still says "the handoff is what a new session is told to read
+  first", which no live carrier does any more. Reported, not rewritten: the
+  sentence is the mechanism of a past failure, and the rule it justifies stands.
+- `docs/BUILDING.md` says a new guard must be mutation-verified, and **this PR
+  has no code and therefore no mutation.** There is nothing to neuter; saying so
+  rather than listing an empty table.
+
+**The three state carriers are stamped 2026-09-18 and today is 2026-09-20.**
+`STATE.md`, `QUEUE.md` and `OWNER-ACTIONS.md` are all two days stale by their own
+"Last regenerated" lines. I did not regenerate them — that is a separate change
+against current revisions. Flagged so the next session does not treat the stamp
+as current.
+
+**Gates run, and exactly what covers what.** `node scripts/check-state.mjs`
+**passes**: `state check passed: 3 carriers, STATE.md within budget, links
+resolve, BLOCKS present.` That is the only automated gate that covers this change
+and it is **not in CI** — wiring it into CI is a separate queued task and is not
+done here. CI's jobs (`deployment-scripts`, `workspace`, `watchdog`,
+`hermes-runtime`, `local-agent`, `line-endings`, from `.github/workflows/ci.yml`)
+are unchanged by a docs-only diff; I make **no claim** about their result — check
+the run. No test suite was run for this change, because no code changed: **this
+is not a green suite, it is a PR with no suite to run**, and I am saying which.
+
+**Also in this session, on the memory PR.** `#125` was rebased onto `origin/main`
+`53c4d56` (one conflict, `docs/AGENT_LOG.md`, resolved as a union and verified
+structurally — the tail is byte-identical to `origin/main`'s), pushed at
+**`c57e84e`**, 20 commits ahead. I was asked to restate in its PR body that the
+redundant `0038` entry in `applyNewestRuntimeMigration` is **order-significant**
+rather than merely dead. **I tested that and it did not reproduce**, so I did not
+write it: deleting the entry, each file alone, `migration-list-parity` **5/5** and
+`memory-backup` + `memory-backup-restore` **37/37**, all passing. It cannot be
+order-significant structurally either — `allCloudGatewayMigrationNames()` reads a
+different declaration, and `0038`'s only view dependency is
+`memory_retrievable_item_versions` from `0016`, not `0019`. My first attempt at
+that probe reported 24 files / 100 tests failing, but that was
+`pnpm --filter @jarvis/cloud-gateway test -- <pattern>`, which **does not filter**
+and ran all 184 files under load; the pattern must go through
+`pnpm exec vitest --config vitest.workspace.ts run <path>`. The falsification is
+in the PR body with its commands, and I have asked the reviewer to name a
+different experiment if one was meant.
+
+**`#125`'s CI is red, and it is not that branch's fault — but the way I found out
+is the useful part.** `workspace suite` fails at `c57e84e` on one test,
+`apps/cloud-gateway/test/memory/meaning-search.test.ts:910`,
+`Test timed out in 30000ms`; `1 failed | 5394 passed`. The file is **not in the
+diff**. The whole file passes **70/70** on the head locally (111 s). It fails on
+the PR's **exact base** `53c4d56` too, and worse — the whole file **3 failed /
+67 passed**, 190 s of test time. And **`origin/main` is itself red**: run
+`35469628262` at `53c4d56` fails the same suite with 3 timeouts in two *other*
+memory files, `memory/literal-history.test.ts` and `memory/telegram-memory.test.ts`,
+`2 failed | 199 passed (201)`. The mode is a timeout and `testTimeout` is unset
+repo-wide, which is exactly why the failing file moves between runs.
+
+I nearly got this wrong, and the wrong answer was the convenient one. My first
+probe filtered to the single test with `-t`, where it **fails on my head and
+passes on `fbd3f0b`** — which reads as "my branch did it". Two things were wrong:
+a single filtered test does not represent a 70-test file, and **`fbd3f0b` is 8
+commits behind `53c4d56`** — a strict ancestor, **not** a diverged branch. I first
+published the ancestry the wrong way round ("not an ancestor... have diverged"),
+which is false, and corrected it in the PR body and in a follow-up comment rather
+than leaving it standing. So `fbd3f0b` is not this PR's base and cannot attribute
+anything about the branch; only the exact base can, and the exact base fails. The
+two filtered runs do differ by those 8 commits, but both are unrepresentative
+`-t` runs, so **I draw no conclusion from either direction**. A conclusion from
+either probe alone would have been wrong, in opposite directions.
+
+**Two standing claims this contradicts, named rather than quietly dropped.**
+`local-agent (windows-latest)` **passes** at this head, and the last brief and
+`docs/AGENT_LOG.md` record it as failing on a passphrase-digest assertion.
+`hermes-runtime suite (windows)` **passes**, which matches the record. And
+`workspace suite` being red **on `main` itself** was not recorded anywhere — no
+carrier says the suite is currently unreliable, so the next session will read a
+red `workspace suite` as its own defect. It is not; check whether `main` is red
+first. `C:\w\to`, on branch `chore/test-timeout-and-typecheck-count`, looks like
+another session already working the `testTimeout` item — named, not touched.
+
+
+**A slip I made, caught, and fixed — and the check that now catches it.** My first
+insert used the log's own top heading as the edit anchor and **replaced** it,
+which orphaned the `03:30` entry's body underneath mine. Fixed by re-inserting
+the heading, then verified structurally rather than by eye: the heading count is
+`origin/main`'s **+1**, the file from the old line 6 onward is **byte-identical**
+to `origin/main`, and the diff is **104 insertions / 0 deletions**. This is the
+second time in two sessions that an anchor-based edit consumed a heading in this
+file, so the check is now how I edit it rather than something I do afterwards.
+
+Not merged, not deployed, no migration applied, no secret read or changed, no
+money spent, nothing signed up for, nobody contacted. `C:\javis` was not used as
+a working tree; this branch is `C:\w\proc`.
+
+— DeepSeek V4.1 Flash, effort **high** (`~/.dsh/settings.yaml`, no preset
+override; I cannot read my own running effort from inside the harness).
+
 ## 2026-09-19 03:30 UTC — DeepSeek V4.1 Flash builder: the `delivery_unknown` flake has a cause, and it is a redaction bug
 
 **The brief was wrong about this in four ways, and the corrections are the work.**

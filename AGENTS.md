@@ -10,8 +10,8 @@ builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
 has already had.
 
-**Two sessions build this project and they cannot talk to each other.**
-Whatever one needs the other to know goes in
+**Two sessions work this project — a builder and a reviewer — and they cannot
+talk to each other.** Whatever one needs the other to know goes in
 [docs/AGENT_LOG.md](docs/AGENT_LOG.md) — append at the top, sign it, and
 write it to be read late. **Search it; do not read it.** It is more than
 thirteen thousand lines of evidence and none of it is current state.
@@ -223,9 +223,13 @@ fact that only lives in one chat is a question he has to answer again.
 
 ## A reviewer-authored PR gets an independent pass before it merges
 
-The cross-vendor rule -- one vendor builds, a different vendor reviews -- holds
-everywhere in this project **except where the reviewer is the author**, and that
-exception was never written down or argued for. It just happened.
+The cross-vendor rule -- **DeepSeek builds, Claude reviews**, so no diff merges
+on a single model's own sign-off -- holds everywhere in this project **except
+where the reviewer is the author**, and that exception was never written down or
+argued for. It just happened.
+
+Who does which, and the second review layer both vendors owe, is
+[docs/BUILDING.md](docs/BUILDING.md).
 
 **Measured, 2026-09-18:** PR #104 was opened and merged **fourteen seconds
 apart**, 2,215 lines, by the session that curated it. PRs #101-#104 (3,661 lines)

@@ -693,8 +693,8 @@ management, wake word, St. Remy, the profile/manager milestone. **None serves
 
 ### Reviewer housekeeping — small; do not present this as the roadmap
 
-- **#96 stuck**: 11 tests pass together and fail in isolation. Hand it to a
-  Claude builder — **never Fable**.
+- **#96 stuck**: 11 tests pass together and fail in isolation. Hand it to the
+  DeepSeek builder.
 - **#84** stale since 2026-09-17, never triaged.
 - **Merge `claude/reviewer-gate-tools` to `main`** (§4.4).
 - Give `memory_item_transitions_insert_guard` in migration `0016` a
