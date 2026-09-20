@@ -34,6 +34,52 @@ Jarvis decides everything else: what's worth remembering, what an email means, w
 
 If you catch yourself writing an `if` statement that makes a judgment call, stop. That belongs in the system prompt or a tool description, not in code.
 
+### The test
+
+Sid's rule, 2026-09-20, and the fastest way to settle any argument about whether
+something belongs in code:
+
+> **If a chat model could do it, assuming every permission were granted, there is
+> no need to code it.**
+
+Think of the API as a brain and everything here as body parts. A model can read
+bad spelling, infer intent, tell a statement from a guess, judge whether an email
+matters. None of that needs code, and code written for it will be worse.
+
+**The test is "can the model do it at all", not "might the model get it wrong."**
+That distinction is the whole rule. A model that might be wrong still owns the
+decision, because being occasionally wrong is what judgment is. Code does not get
+the job back by being more predictable.
+
+### The four things a model genuinely cannot do
+
+These are the only reasons for code, and every one of the four categories above
+reduces to one of them:
+
+1. **Know what the channel said.** Was this forwarded? Is this a private chat? Is
+   this the owner's own text? That is provenance, and it comes from outside the
+   conversation. The model cannot see it, so code must carry it.
+2. **Enforce its own decision against a later prompt.** Jarvis can decide an email
+   needs a tap. It cannot stop a later message talking it out of that. **This is
+   why tier 3 stays** — not because the judgment is untrusted, but because the
+   judgment cannot enforce itself.
+3. **Remember, or wake up.** Storage and alarms.
+4. **Prove something happened.** A receipt the model writes is a claim. A receipt
+   code writes is evidence.
+
+Everything else is Jarvis's: certainty, attribution, what is worth remembering,
+what an email means, how long a fact lasts, when to interrupt, when to stay quiet.
+
+### What Jarvis is, in one line
+
+A personal chat model outside the sandbox, with memory that does not end at a
+context window and permissions its owner has actually granted. It can send the
+email, book the table and use the card **because it was asked to and is
+authorized**, not because a safety rule was removed. The gates in Phase 4 exist
+so the owner knows before money moves — the same courtesy a human assistant
+would extend — and not because the model is distrusted.
+
+
 ## Architecture
 
 - **Twilio:** your phone number for texts and calls

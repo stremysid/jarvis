@@ -26,6 +26,7 @@ Last regenerated: 2026-09-18, against `main` = run `git log --oneline origin/mai
 | `/shadow off` tells the owner tier 3 still asks first, and it does not | **live defect** | #106 for the control; change the two strings today either way | builder | v1.0 trust |
 | Forgetting has a back door: distillation re-ingests suppressed turns, hourly | **live defect** | Add the suppression anti-join two other retrieval paths already carry | builder | R2 |
 | A four-digit PIN and the owner passphrase match no redaction rule | **live defect** | Add the rules; re-aim the test at `conversation.turn.text` | builder | v1.0 |
+| The model cannot state its own certainty | **decided, not started** | Sid ruled 2026-09-20 that certainty is the model's. Remove the certainty assignment at `extraction-policy.ts`'s validation boundary and drop it from `FORBIDDEN_PROPOSAL_KEYS`, so `basis` carries what Jarvis concluded. **Keep origin and lifecycle code-assigned** — those are provenance and enforcement, which the model cannot do | builder | R2 |
 | Voice has no tool dispatch — a call is a chatbot | not started | Compose the tool-calling agent into `CallSessionCore` | builder | **v1.0 as the owner means it** |
 | State carriers (`STATE.md`, this file, `OWNER-ACTIONS.md`) | awaiting-review | Branch `codex/state-carriers` | builder | none |
 
