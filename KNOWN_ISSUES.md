@@ -506,50 +506,6 @@ with external HTTP stubbed. Live Twilio delivery remains item 3 acceptance.
 The delayed-initialization test's `call_session_termination_uninitialized`
 workerd diagnostic is expected and traced, not a swallowed production error.
 
-## Current R0 checkpoint, 2026-09-11
-
-PR #5 `edac272` supersedes the historical CI failures below. Codex reviewed
-the exact head and found no merge blocker; all seven jobs were observed
-green. [Review and limitations](docs/reviews/r0-pr5-edac272.md), including
-the inherited Linux skip/manual extended suites and an independent persistent
-Windows-handle retry probe. The transient race explanation is plausible,
-not a locally reproduced root cause.
-
-Items 6/7 wiring was reviewed by Claude Opus 5 at high effort, merged in
-PR #6, and is now deployed. No security check or existing assertion was
-loosened. Gateway health is coarse HTTP liveness with a per-isolate rate
-limit; it is not dependency readiness. The hourly archive run claims its
-hour without GitHub configuration, so a credential added later in that
-hour is picked up on the next hour. Archive errors fail that run; normal
-five-minute gateway heartbeats do not certify hourly archive success.
-
-The baseline gateway test-type backlog is **122 errors**, reproduced in an
-isolated `edac272` checkout with the same installed dependencies, and the
-same on this branch. No changed file adds a diagnostic. The historical 117
-count below must not be used as the current baseline.
-
-**Deployment is complete; live acceptance is not.** PRs #5-#7 are merged;
-current main `2b506c8` has green CI. Read-only checks verified migrations
-0008-0013 and newer deployed versions listed in HANDOFF. Successful gateway
-cron runs and a current watchdog self-row were observed at 05:11 UTC,
-but no `cloud-gateway` heartbeat row existed and its DOWN alert remained
-open. The real 05:15 cron's heartbeat returned `rejected: status 404` at
-05:15:20 UTC, an external unauthenticated POST to the public `/heartbeat`
-endpoint returned 401 at 05:19:30 UTC, and the 05:30 cron still returned 404
-after both settings had been re-set. Deployed metadata had no public-fetch
-flag and no watchdog service binding. **Those two status codes have a single
-cause, and it is not the URL and not the secret** -- see the section below.
-Sid deferred the whole issue at about 06:00 UTC and took it off R0's exit
-test. PR #8 carries the one-line fix and passed Claude Opus 5 high review;
-it needs a gateway redeploy, and only a real cron after that proves recovery,
-since local mocks cannot establish Cloudflare's same-zone routing behaviour.
-Telegram command replies and the scheduled morning digest remain untested.
-The external UptimeRobot monitor remains owner-blocked; follow
-[the runbook](docs/runbooks/deploy.md). Nothing watches the watchdog until
-that external step is complete.
-
-## Historical checkpoints (superseded where noted above)
-
 ## Fact projection revalidates each source event once per citing fact
 
 Filed from the PR #16 review, against head `08baca4`. Not a merge blocker and
@@ -885,7 +841,7 @@ CHECK constraints make unwriteable, so a mutant planted in either would
 survive the suite. Testing them needs the table rebuilt without its
 constraints, which was judged too invasive for what it proves.
 
-## The cloud-gateway tests were never typechecked, and 117 errors remain
+## The cloud-gateway tests were never typechecked, and 144 errors remain
 
 `apps/cloud-gateway/tsconfig.json` includes only `src/**`, so `pnpm typecheck`
 walked past every test in the app. Vitest transpiles without checking types,
@@ -894,7 +850,7 @@ working in different subsystems hit this independently on the same afternoon,
 which is how it was found.
 
 `tsconfig.test.json` now covers the test tree and `pnpm --filter
-@jarvis/cloud-gateway typecheck:tests` runs it. It reports **117 errors**, all
+@jarvis/cloud-gateway typecheck:tests` runs it. It reports **144 errors in 32 files**, measured 2026-09-19, all
 in test directories written before it existed: `providers`, `sync`, `voice`,
 `policy`, `model`, `security`, `archive`, `conversation`, `calls`, `http`, and
 one each in `observability` and `channels`. They are mostly implicit `any` on

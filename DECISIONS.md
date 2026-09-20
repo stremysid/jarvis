@@ -40,7 +40,7 @@ active R1 calling and R2 cloud-memory work, and is ordered ahead of R3 hands
 and R4 St. Remy. Its early catch-up conversation and minimal university tracker
 do not wait for R1, R2 or either school platform integration.
 Its deadline-only name is superseded by the school and university milestone in
-[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md).
+`docs/plan/2026-09-19-jarvis-roadmap.md`, Phase 3.
 
 Jarvis gathers Sid's courses, school context and target programs through
 conversation, not homework forms. It provides a per-course catch-up plan,
@@ -234,7 +234,7 @@ vault state part of cloud memory.
 ## Planning-session record from 2026-09-03 (unconfirmed and superseded in part)
 
 Recorded from a planning session; the reasoning is in
-`docs/plan/2026-09-03-jarvis-roadmap.md`, section 5. The Linux home node and
+`docs/plan/2026-09-19-jarvis-roadmap.md`. The Linux home node and
 git-backed editable Obsidian implementation in this historical list were
 planning choices, not choices Sid made. The 2026-09-14 decision above
 supersedes both.

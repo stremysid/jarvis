@@ -52,7 +52,6 @@ talk and cannot act. It is a builder task, and it is in the queue.
 
 | Action | Notes |
 |---|---|
-| Confirm the doc consolidation is acceptable | Merging `CLAUDE.md` into `AGENTS.md`, folding `NEXT_STEPS.md` into `STATE.md`, marking the seven documents roadmap §6 already ordered superseded. The only fact that must survive the merge is the fleet paragraph in `CLAUDE.md` |
 | Re-check disk load after the agents serialise their test runs | See below — this is a decision about whether $260 is needed |
 
 ## Rule

@@ -169,5 +169,5 @@ deployment.
 | Understand the security posture | `apps/cloud-gateway/src/channels/telegram/telegram-webhook.ts` (the ordering is the design), then `.../security/redaction.ts` |
 | Understand what is memory | `apps/local-agent/jarvis_local/memory/promotion.py` |
 | Know what to distrust | [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) |
-| Know what to build next | [NEXT_STEPS.md](../NEXT_STEPS.md) |
+| Know what to build next | [QUEUE.md](QUEUE.md) |
 | Know why something is the way it is | [DECISIONS.md](../DECISIONS.md), then the module's own docstring |
