@@ -30,7 +30,6 @@ Last regenerated: 2026-09-18, against `main` = run `git log --oneline origin/mai
 | Voice has no tool dispatch — a call is a chatbot | not started | Compose the tool-calling agent into `CallSessionCore` | builder | **v1.0 as the owner means it** |
 | State carriers (`STATE.md`, this file, `OWNER-ACTIONS.md`) | awaiting-review | Branch `codex/state-carriers` | builder | none |
 
-| Carried forward from `NEXT_STEPS.md` | | | | |
 | `typecheck:tests` reports 144 errors in 32 files | awaiting-triage | Fix them or gate them; the docs say ~117 and are stale | builder | none |
 | Telegram rate limiter and the provider circuit breaker are per-isolate | not started | Move both into a Durable Object | builder | none |
 | `handleReadiness` has zero call sites | awaiting-triage | Route it, or delete it — liveness is routed and readiness is not | builder | none |

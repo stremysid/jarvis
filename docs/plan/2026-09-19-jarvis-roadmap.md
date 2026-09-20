@@ -1,19 +1,18 @@
 # Jarvis Roadmap
 
 **This is the owner's own document, written by Sid on 2026-09-19, and it is the
-authoritative plan.** It supersedes
-[`2026-09-03-jarvis-roadmap.md`](2026-09-03-jarvis-roadmap.md) entirely.
+authoritative plan.**
 
 Read this before any other plan in this repository. Where a design document, a
 milestone, a handoff or an existing implementation disagrees with it, **this
 document wins and the other one is stale.** Say so in the pull request that
 fixes the other one rather than working around the contradiction.
 
-The old roadmap was organised by milestone — R0, R1, R2, R5 — and each milestone
-got its own wiring, so capabilities landed wherever their milestone lived. That
-is why the phone and Telegram ended up as two separately composed assistants.
-This document is organised around one brain with tools, which is the shape that
-prevents it.
+This document is organised around one brain with tools. The milestone roadmaps
+that preceded it are deleted, not archived: each milestone had its own wiring, so
+capabilities landed wherever their milestone lived, which is how the phone and
+Telegram became two separately composed assistants. **There are no `R` numbers.**
+Anything citing one is reading something that no longer exists.
 
 ---
 

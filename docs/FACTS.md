@@ -5,7 +5,7 @@ the code.**
 
 This file exists because of a specific, repeated failure. On 2026-09-17 Sid said his
 school account cannot reach Google Cloud Console. That fact went into an agent's private
-memory. `docs/HANDOFF.md` went on calling Classroom consent *"SID'S ACTION, one sitting.
+memory. `docs/HANDOFF.md`, since deleted, went on calling Classroom consent *"SID'S ACTION, one sitting.
 Highest value per hour in the whole plan"*, so on 2026-09-18 another session read the
 handoff, opened the runbook, and walked him through an impossible setup a second time.
 The same shape had already happened with the D2L calendar feed.
