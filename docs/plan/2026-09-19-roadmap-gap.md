@@ -37,7 +37,7 @@ Also structural, and worth saying once rather than in every row:
 
 | Roadmap says | Reality |
 |---|---|
-| Claude API | DeepSeek. `DeepSeekModelAdapter`, `DEEPSEEK_MODEL`, `DEEPSEEK_API_KEY` |
+| ~~Claude API~~ **RESOLVED 2026-09-20** | DeepSeek V4.1 Flash, by Sid's decision. The roadmap now says so; the code always did. Not a gap |
 | Text is **SMS via Twilio** | Text is **Telegram**. Twilio is voice-only — `git grep twilio` hits voice routes, callbacks and the outbound call dispatcher, and nothing that sends a message |
 | Queues for slow work | No Queues binding in `wrangler.toml` |
 | External watchdog (Healthchecks.io) | An internal `apps/watchdog` Worker. Nothing pings an outside service — `git grep -E "healthcheck|uptimerobot|hc-ping"` returns nothing |
