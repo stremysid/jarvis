@@ -216,6 +216,73 @@ async function remember(
 }
 
 /**
+ * A committed, retrievable item with wording the caller chooses.
+ *
+ * Committed through the repository rather than through `remember` on purpose.
+ * The owner path refuses to create a second *active* memory with the same
+ * wording -- `findActiveItemByNormalizedText` is the duplicate guard -- so two
+ * live versions sharing a `text_hash` are not reachable that way. What is under
+ * test here is the read: given two rows that differ only by version id, does it
+ * return the one the hit named.
+ */
+async function liveItem(
+  principalId: string,
+  text: string,
+): Promise<Readonly<{ itemId: string; versionId: string; eventId: string }>> {
+  const repository = new MemoryRepository(env.DB);
+  const topics = await repository.bootstrapTopics(principalId);
+  const turn = await seedTurn(principalId, `Remember that ${text}`, "remember");
+  const itemId = newUlid();
+  const versionId = newUlid();
+  await repository.commitInitialItem({
+    principalId,
+    itemId,
+    kind: "preference",
+    creationEventId: turn.eventId,
+    creationEventSequence: turn.eventSequence,
+    version: {
+      versionId,
+      text,
+      textHash: await sha256Hex(text),
+      basis: "stated",
+      origin: "authenticated_first_person",
+      uncertain: false,
+      sensitivity: "normal",
+      validFrom: null,
+      validTo: null,
+      extractorVersion: "memory-search-test-v1",
+      extractorModelId: null,
+    },
+    sources: [{
+      sourceId: newUlid(),
+      eventId: turn.eventId,
+      eventSequence: turn.eventSequence,
+      sourceLocation: "live",
+      r2SegmentId: null,
+      excerpt: text,
+      excerptHash: await sha256Hex(text),
+      channel: "telegram",
+      occurredAt: turn.occurredAt,
+    }],
+    transition: {
+      transitionId: newUlid(),
+      lifecycleState: "active",
+      reason: "memory search test",
+      policyVersion: "memory-search-test-v1",
+    },
+    placement: {
+      placementId: newUlid(),
+      placementEventId: newUlid(),
+      topicId: topics.inbox.topicId,
+      filingSource: "rule",
+      confidence: 0.4,
+      reason: "memory search test",
+    },
+  });
+  return Object.freeze({ itemId, versionId, eventId: turn.eventId });
+}
+
+/**
  * A temporary memory, written the way the writer writes one.
  *
  * `memory_item_versions` is immutable by trigger, so a test cannot stamp an end
@@ -368,6 +435,48 @@ describe("memory search cannot return what Sid has forgotten or what has expired
     // The version is genuinely retrievable, so the empty result is the hash
     // predicate refusing a mismatched claim rather than the item being hidden.
     expect(item.version.textHash).not.toBe("f".repeat(64));
+  });
+
+  it("resolves a hit to the item it names, not to another item with the same wording", async () => {
+    // The version id is not decoration on the join, and two live versions that
+    // share a `text_hash` is the case that shows it. Two facts Sid phrased
+    // identically -- "I take my coffee black" said once in September and once in
+    // October -- are two items with byte-identical wording and the same hash. A
+    // read that resolved a hit on the hash alone would answer with the wrong
+    // item's provenance: the right sentence attributed to the wrong message.
+    //
+    // The second failure mode is underneath that one and is worse: two rows for
+    // one requested ordinal is a shape the read treats as a corrupt index and
+    // refuses, so the search fails outright rather than answering.
+    const principalId = await seedPrincipal("same-wording");
+    const first = await liveItem(principalId, "I take my coffee black");
+    const second = await liveItem(principalId, "I take my coffee black");
+
+    // The premise, asserted rather than assumed: same wording, different rows,
+    // and one hash. That last equality is what makes the hash useless as an
+    // identity on its own.
+    const stored = await env.DB.prepare(`SELECT version_id, text_hash
+      FROM memory_item_versions WHERE principal_id = ? ORDER BY version_id`)
+      .bind(principalId).all<{ version_id: string; text_hash: string }>();
+    expect(stored.results).toHaveLength(2);
+    expect(new Set(stored.results.map((row) => row.version_id)).size).toBe(2);
+    expect(new Set(stored.results.map((row) => row.text_hash)).size).toBe(1);
+    expect(second.versionId).not.toBe(first.versionId);
+    expect(second.itemId).not.toBe(first.itemId);
+
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([Object.freeze({
+      vectorId: "b".repeat(64) as Sha256Hex,
+      score: 0.88,
+      itemKind: "item" as const,
+      itemId: second.versionId,
+      contentHash: await sha256Hex("I take my coffee black") as Sha256Hex,
+    })]);
+    const results = await serviceWith(index).search({ principalId, query: "coffee", now: NOW });
+
+    expect(results.map((result) => result.itemId)).toEqual([second.itemId]);
+    expect(results.map((result) => result.versionId)).toEqual([second.versionId]);
+    expect(results[0]?.sources[0]?.eventId).toBe(second.eventId);
   });
 
   it("treats an expired memory as gone at the instant of its end, not after it", async () => {

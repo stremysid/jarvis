@@ -70,14 +70,50 @@ found — asserted against the staged envelope's `memoryItemIds`, which is the f
 | Ignore the `valid_to` clock (`valid_to > '9999-…'`) | **8 failed**, including both expiry tests. The by-hand mutation also changed the binding count, so this run is not a clean isolation — recorded as it happened rather than tidied |
 | Drop the result cap (`if (resolved.length >= maximum) break`) | **1 failed**: "bounds one call to the number of ids a turn may cite" |
 | Drop the `text_hash` join predicate | **Survived** — 18/18 green |
-| Collapse the join to `text_hash` alone (drop `version_id`) | **Survived** — 18/18 green |
+| Drop the `version_id` join predicate | **Survived** — 18/18 green. Reported as unpinned at the time, **and Claude reproduced it independently**. Closed below |
 
 The `text_hash` predicate surviving is the useful result. It was unpinned, so I added "returns
 nothing for a hit whose content hash does not match the stored wording", and re-ran the same
 neuter: **that test fails with the predicate removed** and passes with it restored. The
-`version_id` half is *not* independently pinned — it is redundant against the hash for every
-input this fake can produce, and I am saying so rather than implying otherwise. Restored state:
-18/18 pass.
+`version_id` half was *not* independently pinned either, and at the time this entry first
+recorded that plainly rather than implying otherwise. It is pinned now.
+
+### The review caught the one thing I had only reported
+
+Claude reproduced the surviving `version_id` mutation by hand and asked for the test that belongs
+with it, and was right about why it survived: two versions with identical wording share a
+`text_hash`, so hash-alone resolution cannot tell them apart. My file had no case with two such
+versions, which is exactly why the neuter was green.
+
+**What the new test does.** `"resolves a hit to the item it names, not to another item with the
+same wording"` commits two live items with byte-identical text and asserts the premise rather than
+assuming it — two distinct `version_id`s, two distinct `item_id`s, and **one** `text_hash`, read
+back out of `memory_item_versions`. It then asks for the second version by id and asserts the item,
+the version *and* the source event all come from the second item.
+
+**Where the mutation lands, which is worse than the review predicted.** The review expected "right
+text, wrong provenance". With the predicate removed the query returns **two rows for one requested
+ordinal**, which the read treats as a corrupt index: the failure is
+`TypeError: memory_search_results_invalid` from the duplicate-ordinal guard, so the search fails
+outright rather than answering. Both are defects and the test catches it either way, but the
+observed one is a refusal rather than a wrong answer, and which one it is is worth recording.
+
+**Why the two items are committed through the repository and not through `remember`.** The owner
+path refuses to create a second *active* memory with the same wording —
+`findActiveItemByNormalizedText` is the duplicate guard — so forgetting the first and repeating the
+sentence does **not** produce the case: the forgotten version is already out of the retrievable
+view, leaving one row and a green mutation. I tried that first and it pinned nothing. Two live
+versions sharing one hash have to be committed directly, which is also the right level — the read
+is what is under test, not the write.
+
+| Mutation, second pass | Result |
+|---|---|
+| Drop the `version_id` join predicate, with the new test in place | **1 failed**: "resolves a hit to the item it names, not to another item with the same wording", `memory_search_results_invalid` |
+
+Restored: **19/19 pass**, `pnpm --filter @jarvis/cloud-gateway typecheck` exit 0, and the commit
+touches the test file only — `git diff --stat` against the shipped head reads
+`1 file changed, 109 insertions(+)`, so production behaviour is unchanged and this is a pin, not a
+fix.
 
 ### Gates, and which suites they cover
 
@@ -85,7 +121,7 @@ Run file-alone as `pnpm exec vitest --config vitest.workspace.ts run <path>`:
 
 | Suite | Result |
 |---|---|
-| `test/memory/memory-search.test.ts` (this change) | **18 passed** |
+| `test/memory/memory-search.test.ts` (this change) | **19 passed** — 18 at the first head, 19 after the review round |
 | `test/memory/meaning-search.test.ts` (the file whose constant I raised) | **70 passed** |
 | `test/autonomy/tool-classification.test.ts` | **2 passed** |
 | `test/channels/owner-telegram-agent.test.ts` | **100 passed** |
@@ -116,6 +152,16 @@ passphrase-digest failure recorded in the standing brief is not present at this 
 snapshot warns the four hermes tests named in reviewer-tools/gate.ps1's
 `$KnownPreExistingFailures` predate the CI revival, and this run is consistent with that. What I
 observed is this run; I have not re-derived which of those four were ever real.
+
+**The reviewer's own numbers, for comparison:** 445/445 in `test/memory` run alone and 287/287 in
+`test/channels` run alone, with the two failures in the combined run attributed to the wall-clock
+latency class. That attribution matches the recorded defect — no `testTimeout` is configured, and
+#116 is the open PR that sets one. I have not independently reproduced the combined-run failures;
+what I am recording is that the reviewer saw them, named the class, and named the fix.
+
+**Still to come on this head:** CI re-runs on the review-response commit. The previous head's run
+is green (`35525160182`); the new commit is test-only, so a green re-run is the expectation, not an
+observation, and the result belongs in the PR rather than asserted here before it exists.
 
 ### One line of shared code I changed
 
