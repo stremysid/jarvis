@@ -15,9 +15,9 @@ Last regenerated: 2026-09-18. Order within a section is the order to do them in.
 
 | Action | Exact steps | State |
 |---|---|---|
-| Load the R1 bindings on the gateway | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164` — plus `DEEPSEEK_API_KEY` if not already set. Runbook: `docs/runbooks/deploy.md` | **not started** |
+| ~~Load the R1 bindings on the gateway~~ — done; a real call has been placed | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164` — plus `DEEPSEEK_API_KEY` if not already set. Runbook: `docs/runbooks/deploy.md` | **not started** |
 | Enroll the owner phone | `docs/runbooks/owner-phone-enrollment.md`. `/call` dials "your verified phone"; without this it has nothing to dial | **not started** |
-| Apply pending migrations, then deploy | `docs/runbooks/deploy.md` — migrate **before** deploying, in that order | **not started** |
+| ~~Apply pending migrations, then deploy~~ | Done 2026-09-20: `0038` applied, Worker `74f2a003` and watchdog `c940f9b7` deployed | **done** |
 | Run the live smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever been run against production | **not started** |
 
 **Not yet on this list, and deliberately so:** composing the tool-calling agent into

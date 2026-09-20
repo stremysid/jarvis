@@ -16,19 +16,18 @@ Last regenerated: 2026-09-18, by a builder session, against the revision printed
 
 ## Where the project actually stands
 
-| Milestone | Verdict | The one thing missing |
+| Phase | Verdict | The one thing missing |
 |---|---|---|
-| R0 Green and deployed | **UNMET** (declared passed 2026-09-11) | CI is red and cannot go green before 2026-10-01, and the watchdog has never recorded a gateway heartbeat. The heartbeat clause was removed from the exit test rather than met |
-| R1 Phone Jarvis from the car — **v1.0** | **UNMET** | **Corrected 2026-09-19: a real call has been placed and it worked**, so the phone plumbing is proven and the secrets are loaded — the previous row said the opposite and was stale. What is missing is the **brain**: the voice path composes its own adapter, has zero tools and uses `D1ContextRetriever` instead of the real retriever, so a call can talk and cannot act. The release gate has also never been run, so there is no committed evidence |
-| R2 Cloud memory with every PC off | **UNMET** | Distillation, recall and meaning search all run; production has published **0 active facts** (36 runs, 5 items, all `proposed`). **The cause is found and fixed in PR #125 and is inert until that lands and `0038` is applied** — the promotion rule required the fact to be the owner's entire message verbatim, which no conversation satisfies |
-| R3 Hands: device control | **UNMET** | Not started. No command route to any machine exists |
-| R5 School and university | **UNMET, exit test unsatisfiable as written** | Names a Classroom deadline and a Brightspace deadline. Neither can be obtained on this board — see `docs/runbooks/` and PR #105 |
-| R5A Proactive study coach | **UNMET** | Answers when asked and rides the morning digest; it never initiates |
-| R7 Assistant manager | **UNMET** | Not started |
+| 1 The brain | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
+| 2 Memory | **code-complete, unproven** | Schema, promotion fix, core profile, nine tools, expiry and pins all merged and **live as of 2026-09-20**. Production still reads 5 `proposed`, 0 `active` because the fix applies only to facts extracted after the deploy. **The open question is whether real conversation now produces an active fact** |
+| 3 School | **works, minus two impossible sources** | Deadlines arrive by D2L notification email. Classroom needs a Cloud Console this board cannot reach; Brightspace exposes no iCal feed. Neither is a gap to close |
+| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
+| 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call has **zero tools** and the weaker retriever, so it can talk and cannot act. The release gate has never been run |
+| 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
+| 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
-Measured against each milestone's own exit test in
-`docs/plan/2026-09-03-jarvis-roadmap.md` §7. Source: the 2026-09-18 sweep, which
-found every claimed capability by symbol and then checked for a production caller.
+Measured against the phases in
+[`plan/2026-09-19-jarvis-roadmap.md`](plan/2026-09-19-jarvis-roadmap.md).
 
 ## The one thing that changes what Jarvis is
 
@@ -42,13 +41,21 @@ tool-calling agent composed into `CallSessionCore`.
 
 ## Production
 
-`[R]` **Relayed, never observed here.** No session has `wrangler` credentials, so
-these are the last figures a session with access reported, and they are the least
-trustworthy lines in this file:
+**Observed directly on 2026-09-20**, not relayed — a session with `wrangler`
+applied the migration and deployed:
 
-- Worker version `555c1414`, deployed 2026-09-18.
-- D1 at migration `0034`. Two older documents say `0032` and `0015`; both are wrong.
-  **One read-only query of `d1_migrations` settles it permanently.**
+- Worker `74f2a003-cd87-4eee-a359-222b07c1db0b`, deployed 2026-09-20.
+- Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`, same evening.
+- **D1 at migration `0038`.** Verified by querying `d1_migrations`, and the three
+  objects it creates exist.
+- **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway`
+  at `2026-09-20T23:10:06.810Z`. Every cron before this deploy logged
+  `status 404`; it had never once been recorded. The fix needed a redeploy to
+  prove and the redeploy proved it.
+- Memory: **5 `proposed`, 0 `active`**. The promotion fix is live but applies only
+  to facts extracted after the deploy — it does not reach back for the five.
+
+Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
 
 ## The gates, and whether they can be trusted
 
@@ -67,17 +74,22 @@ a local run alone.
 
 ## Live defects
 
-Three, all verified on 2026-09-18 and all still present at the time of writing:
+Verified 2026-09-18, re-checked against `main` on 2026-09-20:
 
-1. `/shadow off` tells the owner *"tier 3 still asks first"*, and `AutonomyService`
-   has zero callers. The test asserts the sentence, not the control. PR #106 wires it.
-2. Forgetting has a back door: automatic distillation has no suppression predicate,
-   so a forgotten turn can be distilled into a fresh, retrievable memory. Hourly.
-3. A four-digit PIN and the owner passphrase match no redaction rule, and the test
-   that appears to cover it asserts against a field no production call site uses.
+1. ~~`/shadow off` claims a control with no caller~~ — **closed** by #106.
+2. ~~Forgetting has a back door through distillation~~ — **closed** by #110.
+3. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
+   a token on the line after `Authorization:`. Confirmed by executing
+   `sanitizeRedaction`. The test that appears to cover it asserts against
+   `guest.pin`, a field no production call site passes. PR #96 fixes the digit
+   half only.
+4. `explain` / `forget` / `restore` print the memory text in the same tool result
+   that says it was withheld.
+5. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
+   and that index has no delete trigger.
 
-Full list, including the four smaller authority gaps, in `KNOWN_ISSUES.md` and the
-2026-09-18 sweep report.
+Items 4 and 5 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live
 
