@@ -3,7 +3,143 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-19 — DeepSeek builder: `memory_search`, the deliberate read
+## 2026-09-20 19:20 UTC — builder: PR #116 rebased onto main, and what its 15 s `testTimeout` is sized against
+
+**Branch `codex/test-timeout` (Codex's PR). I changed no source.** Replaying `1739b3a`
+(base `70b1c02`) onto `main` at `4f85b29` — 11 commits — is a clean single-commit rebase with
+no conflict, because nothing between the base and `main` touches `vitest.workspace.ts`
+(`git log 70b1c02..origin/main -- vitest.workspace.ts` is empty). New head **`65c1d6f`**.
+I re-read the remote tip with `git ls-remote` immediately before pushing and used
+`--force-with-lease` against that exact old value, so the force could not drop anyone's commit.
+
+The brief's reading of the checks is right and the API confirms it for run `35416616321`
+(2026-09-19T02:45Z): both `local-agent` jobs failed on the passphrase digest (fixed by #115,
+merged after), and `workspace suite` failed **1 of 5,359** on `owner-telegram-agent.test.ts` —
+an `AssertionError` expecting `outcome: "telegram_delivered"` and receiving
+`"delivery_unknown"`, not a timeout. That is #121's ULID redaction bug, merged as `87dc8c5`
+after this run. **The string `timed out in` does not occur once in that job's log**, so none of
+the three red checks was a load timeout.
+
+### The number, measured rather than repeated
+
+The PR body has to say what `testTimeout` is and what it is sized against, so I measured the
+distribution instead of reusing the ~170 ms average from the sweep that queued this work. One
+full run at `65c1d6f`, `pnpm exec vitest --config vitest.workspace.ts run --reporter=json`,
+2026-09-20 19:11 UTC, **5,395 tests across the root suite, 345 s wall** (CI's equivalent run
+reports 203 files):
+
+| statistic | value |
+|---|---|
+| mean test duration | 421 ms |
+| median | 5 ms |
+| p90 | 798 ms |
+| p99 | 5,247 ms |
+| tests ≥ 1 s / ≥ 5 s / ≥ 10 s / ≥ 15 s | 473 / 58 / 22 / 14 |
+| slowest test | 58,916 ms |
+| **slowest test with no per-test budget of its own** | **7,217 ms** |
+
+16 test files already pass an explicit per-test budget — 79 occurrences, most often as
+`}, 30_000)`, spread from 15 s to 300 s — and that is the whole reason 15 s is safe: every one of
+the 14 tests that ran past 15 s **passed**, and each could only have done so on its own budget. The row that sizes
+the number is the last one. 7,217 ms is `archival-service.test.ts` ("seeks a many-segment tail
+read and accesses only the terminal manifest object"), the slowest duration reported by any test
+with no budget of its own, so 15 s is a little over twice the worst unprotected test in a
+contended run; 30 s would double how long a genuine hang takes to surface and buy nothing.
+
+**The tail is real, and no project-wide default can cover it.** CI run `35469836873` (workspace
+suite, 2026-09-19T21:15Z) reports `Error: Test timed out in 30000ms` at
+`meaning-search.test.ts:910:3` — a test that carries `{ timeout: 30_000 }` and was killed by its
+own budget. This machine reaches that band too: in my run `meaning-search.test.ts`'s bge-m3 test
+took **29,470 ms against its own 30,000 ms**, 530 ms of margin. That is a named risk, not a
+defect of this PR.
+
+### Mutations — every one run, all reported
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | `testTimeout` 15_000 → 50 in the shared `project()` helper | `owner-access-service.test.ts`, default project: **6 failed of 6**, every one named, `Error: Test timed out in 50ms` |
+| M2 | same mutation | `voice-production-worker.test.ts`, tagged `voice-production-socket`: **3 failed of 17**, same message — so **both** projects inherit the shared value |
+| M3 | M1 still in force, run `voice-production-socket.test.ts` | **3/3 passed** at 1,224 / 1,474 / 1,295 ms — each carries `}, 15_000)`, so a per-test budget overrides the project default |
+| — | restore 15_000 | M1's file, M2's file and M3's file together: **26/26 passed** |
+| M4 | not a mutation: the 15 s run above | 14 tests exceeded 15 s and passed — the same override, at suite scale |
+
+### Gates, and what each covers
+
+- `pnpm lint` — exit 0. `pnpm typecheck` — exit 0, 5 projects.
+- `pnpm test` (root vitest: cloud-gateway + contracts + acceptance — **not** `test:all`):
+  **5,395 tests, 5,394 passed, 1 failed**, 345 s.
+- That one failure is `telegram-memory.test.ts:2650`,
+  `expect(contexts.some((entry) => entry.text.startsWith("History evidence [R2 "))).toBe(true)`
+  — a **content** assertion, not the 500 ms wall-clock bound at `:2652` further down the same
+  test. Alone: **70/70 in 27.31 s**. So it is "fails in a full parallel run, passes alone"; the
+  cause is unproven and I did not chase it.
+
+### The brief was wrong about one thing, and it is the thing I was told had landed
+
+The brief says the wall-clock latency class "has landed since". What is in front of me says
+otherwise for at least one member: at the rebased head `telegram-memory.test.ts:2652` still
+asserts `expect(elapsedMs).toBeLessThanOrEqual(500)` against `performance.now()`, and a
+`git diff 70b1c02..origin/main` restricted to test files contains no added or removed line
+matching `timeout`, `Date.now()` or `performance.now()`. I did not look further than that. The
+thing that *did* land for this PR's old red run is #121.
+
+### Named, not fixed
+
+- The `telegram-memory.test.ts:2650` parallel-run flake above.
+- `meaning-search.test.ts`'s bge-m3 test at 29,470/30,000 ms here and `:910` killed at its own
+  30 s in CI. The heavy files' budgets are running close to their edges.
+- `docs/STATE.md:58`'s `pnpm test` row (199 files / 5,342 tests, "No `testTimeout` is
+  configured") is stale on the count and becomes half-false the moment #116 merges;
+  `docs/QUEUE.md` has no row for #116 at all. I regenerated neither — that is the state-carriers
+  job, not this branch.
+
+### What I did not do
+
+No merge, no deploy, no migration, no secret. I did not run `pnpm test:runtime`,
+`pnpm test:watchdog`, `test:all`, the local-agent suite or the hermes suite, so I have no
+numbers for them and I am not quoting any. I did not change `testTimeout`, its comment, or any
+line of the PR's code — the only code in the diff is the 13 lines Codex wrote. I did not fix the
+flake I found, and I did not touch `STATE.md`, `FACTS.md` or `QUEUE.md`.
+
+**No new fact about Sid or his environment to file, so `docs/FACTS.md` is untouched.**
+
+**The push carries three things:** the replayed commit `65c1d6f`, this entry as a second
+(docs-only) commit, and the rewritten PR body. The body now also corrects two claims it made
+that are false — that the failure it exposed was deterministic, and that it was in "the test that
+drives `prepareConfirmedForget`". It roams (recorded 2026-09-19: `0,0,0,2` failures on `main`,
+`1,0,1` at this PR's old head), `prepareConfirmedForget` is defined at test line **389** at the
+rebased head (not 412), no observed failure landed on it, and its cause was #121.
+
+### CI, observed and not predicted
+
+Run `35532044202` (2026-09-20T19:21:39Z–19:33:37Z) — the run for this rebase, on a head that
+differs from the one below only by this paragraph — came back **all seven jobs green**:
+`workspace suite`, `local-agent (windows-latest)`, `local-agent (ubuntu-latest)`,
+`hermes-runtime suite (windows)`, `watchdog suite`, `deployment scripts (windows)` and
+`byte-exact files unchanged by checkout`. The workspace suite that failed 1 of 5,359 on
+2026-09-19 passes now, which is #121 doing what the entry above said it would, and both
+`local-agent` jobs that failed on the passphrase digest pass on #115. Nothing needed fixing in
+the PR itself, which is what the brief predicted.
+
+**A second run of the identical code went red the other way, and that is the more useful
+observation.** Pushing this entry — docs only, the two heads differ in `docs/AGENT_LOG.md` and
+nothing else — triggered run `35532739198` on the same tree otherwise:
+`workspace suite` failed **1 of 5,395** on `owner-telegram-agent.test.ts:1134`, the test
+`replays a model-inference Confirm tap`, expecting two replies containing `Memory: "I like art"`
+and receiving two `"I couldn't finish that confirmed memory change. Tap Confirm again to retry
+safely."` That is an assertion, not a timeout, and not the `delivery_unknown` assertion #121
+fixed. The other six jobs passed. **So `owner-telegram-agent.test.ts` still roams after #121**:
+identical code, two CI runs, one green and one red, a different test in the same file each time
+(the file also has 100 tests now, not the 96 of the 2026-09-19 run — #125 added four). I did not
+chase it; it is a defect class of its own, and it is named here rather than left to look like
+this rebase's fault.
+
+**Signature.** From configuration rather than proof: `~/.dsh/settings.yaml`'s
+`agent-default-model` is `deepseek-official` / `deepseek-flash`, `reasoningEffort: low`. The
+session record carries no model field and `DSH_*` exposes no model id, so that is this harness's
+configured default, not a per-session fact I can demonstrate.
+
+## 2026-09-19 - DeepSeek builder: `memory_search`, the deliberate read
 
 Branch **`codex/memory-search`**, one commit on top of **`c57e84e`**, which is PR #125's head.
 **#125 is still open** (`gh pr view 125` → `"state":"OPEN"`, `mergeCommit: null`), so this is

@@ -9,7 +9,7 @@ what works, and tells Sid which senior to call. It does not grind, and it
 does not guess its way forward.
 
 Milestones R0 to R10 are defined in
-[the roadmap](plan/2026-09-03-jarvis-roadmap.md), section 7. Each has an
+[the roadmap](plan/2026-09-19-jarvis-roadmap.md). Each has an
 exit test a person can perform.
 
 ---
@@ -150,7 +150,7 @@ session. A stuck session that leaves a dirty working tree costs two, because
 the next one spends its first half working out what state the repository is
 in.
 
-Then update `NEXT_STEPS.md` with what is left in the milestone, and add
+Then update `docs/QUEUE.md` with what is left, and add
 anything you discovered to `KNOWN_ISSUES.md`. Those two files are how the
 next session avoids repeating your dead end.
 

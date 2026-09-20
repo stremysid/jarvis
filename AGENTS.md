@@ -189,11 +189,11 @@ has decided — writing it to agent memory alone means the next session, or the
 next vendor, never sees it.
 
 Worse, a load-bearing repo document that says the opposite will actively steer
-that session wrong. Memory cannot outvote `docs/HANDOFF.md`, because the handoff
+that session wrong. Memory cannot outvote `docs/STATE.md`, because the state carriers
 is what a new session is told to read first.
 
 **The failure, concretely.** On 2026-09-17 Sid said his school account cannot
-reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md` went
+reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md`, since deleted, went
 on listing *"A1. Google Classroom consent — SID'S ACTION, one sitting. Highest
 value per hour in the whole plan"*, so on 2026-09-18 another session read the
 handoff, opened the runbook, and walked him through an impossible setup a second

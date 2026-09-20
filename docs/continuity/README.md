@@ -27,8 +27,8 @@ The durable records are elsewhere and are what a ledger defers to:
 |---|---|
 | Decisions and why | [DECISIONS.md](../../DECISIONS.md) |
 | What is weaker than it looks | [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) |
-| What to do next | [NEXT_STEPS.md](../../NEXT_STEPS.md) |
-| Current state | [HANDOFF.md](../HANDOFF.md) |
+| What to do next | [QUEUE.md](../QUEUE.md) |
+| Current state | [STATE.md](../STATE.md) |
 
 ## Ledgers
 
