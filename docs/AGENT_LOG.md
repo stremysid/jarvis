@@ -384,6 +384,41 @@ Flagged because it is adjacent to a live path.
   trap section still says `tsconfig.test.json` reports 117 errors. Those carriers have an owner
   and a regeneration rule, so I have not edited them from a feature branch.
 
+### Merge three: #116 landed its own log entry, and the resolution is additive
+
+`#116` (`2d21010`, the 15 s `testTimeout`) landed while this PR was in review and added its own
+AGENT_LOG entry, so the stack collided on `docs/AGENT_LOG.md` again — **and on nothing else**. Per
+the merge base rather than tip-versus-tip:
+
+```
+git merge-base origin/main HEAD                      -> f61cd9b
+git diff --stat f61cd9b 48c3233                      -> this PR's 8 files
+git diff --stat f61cd9b origin/main                  -> main's: docs, plus vitest.workspace.ts
+files touched by BOTH sides                          -> docs/AGENT_LOG.md, and only that
+```
+
+So this merge reverts nothing. It did remove four documents my branch still carried because
+`#131` deleted them on main — `CHANGELOG.md`, `NEXT_STEPS.md`, `docs/HANDOFF.md` and seven
+`docs/plan/` files — which is the merge working, not damage.
+
+**Ordering, which is not "both at the top".** #116's entry is dated **2026-09-20 19:20 UTC** and
+this one **2026-09-19**, so newest-first puts #116's *above* mine, not beside it. Verified after
+the merge: **428 headings against main's 427**, my entry once, #116's entry once, and
+`missing from main: 0` by set comparison. Both sides' inserted regions were diffed against each
+other first — their 15,081-line shared tails hashed identically — so the common region could not
+be lost either way.
+
+**Two traps now in `AGENTS.md`,** per that file's own rule that a trap which cost time goes in its
+trap section rather than only here:
+
+- *A rebase whose upstream is the branch's own head is a silent no-op* — this cost a session's
+  local branch on 2026-09-20 (mine), and the entry says to check `git rev-list --count B..HEAD` and
+  the reflog rather than trust `Successfully rebased`.
+- *Compare against the merge base, never tip versus tip* — measured the same day, when a reviewer
+  read `git diff --name-only main HEAD` as a pending revert of another PR and sent a builder to fix
+  a problem that did not exist. Writing it down is the point: the tip-versus-tip reading is
+  intuitive and wrong in both directions.
+
 ### Still open
 
 `history_chunk` search, `confidence` as a projection of `basis`, the hourly-review wake-up's
