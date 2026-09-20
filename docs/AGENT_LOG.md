@@ -163,6 +163,10 @@ what I am recording is that the reviewer saw them, named the class, and named th
 is green (`35525160182`); the new commit is test-only, so a green re-run is the expectation, not an
 observation, and the result belongs in the PR rather than asserted here before it exists.
 
+**It is now an observation.** Run `35527773412` at `e43eb10` is **`completed success`** on all
+seven jobs, including the workspace suite. So the review-response commit is green in CI as well as
+in the file-alone runs above.
+
 ### One line of shared code I changed
 
 `MAX_QUERY_RESULTS` in `meaning-search.ts` **4 → 16**. It is a cap on what a *caller may request*,
