@@ -5,6 +5,9 @@ export const MEMORY_INBOX_DISPLAY_NAME = "Inbox / Needs filing";
 export const MEMORY_TOPIC_REDIRECT_LIMIT = 64;
 
 export type MemoryKind = "fact" | "preference" | "plan" | "decision" | "relationship";
+/** Durable facts have no end. Temporary ones carry one and lapse from recall. */
+export type MemoryLifetime = "durable" | "temporary";
+
 export type MemoryBasis = "stated" | "confirmed" | "observed" | "inferred" | "third_party";
 export type MemoryOrigin =
   | "authenticated_first_person"
@@ -56,6 +59,22 @@ export interface AppendActiveMemorySourceInput {
   readonly source: InitialMemorySourceInput;
 }
 
+export interface AppendMemoryPinInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  readonly pinId: Ulid;
+  readonly authorizingEventId: Ulid;
+  readonly occurredAt: string;
+}
+
+export interface MemoryPinState {
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  /** False when the item was already in that state, so nothing was appended. */
+  readonly appended: boolean;
+}
+
 export interface InitialMemoryVersionInput {
   readonly versionId: Ulid;
   readonly text: string;
@@ -74,6 +93,16 @@ export interface CommitInitialMemoryInput {
   readonly principalId: string;
   readonly itemId: Ulid;
   readonly kind: MemoryKind;
+  /**
+   * Whether the fact stops being true on its own.
+   *
+   * Optional, and derived from the version's end when absent, so that every
+   * caller written before the column existed keeps its exact behaviour: no end
+   * means durable. Set at creation because nothing updates it -- `memory_items`
+   * is insert-only -- and the coupling trigger in `0038` then holds the
+   * version's `valid_to` to it.
+   */
+  readonly lifetime?: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: InitialMemoryVersionInput;
@@ -213,7 +242,8 @@ export interface AutomaticInboxRefilingResult {
   readonly failedItemCount: number;
 }
 
-export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain" | "correct";
+export type MemoryControlIntent =
+  | "remember" | "forget" | "lift" | "confirm" | "explain" | "correct" | "pin" | "unpin";
 
 /**
  * The members of `MemoryControlIntent`, written once.
@@ -234,6 +264,7 @@ export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "
  */
 const MEMORY_CONTROL_INTENT_MEMBERS = Object.freeze({
   remember: true, forget: true, lift: true, confirm: true, explain: true, correct: true,
+  pin: true, unpin: true,
 } satisfies Readonly<Record<MemoryControlIntent, true>>);
 
 export const MEMORY_CONTROL_INTENTS: ReadonlySet<MemoryControlIntent> =

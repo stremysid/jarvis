@@ -72,6 +72,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "memory_event_suppressions",
   "memory_event_suppression_lifts",
   "memory_item_links",
+  "memory_item_pins",
   "memory_topics",
   "memory_topic_events",
   "memory_topic_aliases",
@@ -606,7 +607,7 @@ class MemoryBackupRepository {
        ) SELECT ?, ?, 'running', name,
          json_object('eventsAfter', (SELECT sealed_through FROM archive_state WHERE singleton = 1)),
          0, NULL, 0, 0, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL
-       FROM d1_migrations ORDER BY id DESC LIMIT 1`,
+       FROM d1_migrations ORDER BY name DESC LIMIT 1`,
     ).bind(runDate, runId, timestamp, timestamp));
     descriptors.forEach((descriptor, tableIndex) => {
       const table = quoteIdentifier(descriptor.table);

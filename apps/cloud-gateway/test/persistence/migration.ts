@@ -35,6 +35,7 @@ import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_l
 import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_notification_email.sql?raw";
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
 import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
+import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -58,6 +59,7 @@ let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
 let memoryBackupMigrated: Promise<void> | undefined;
 let memoryLivingNotesMigrated: Promise<void> | undefined;
 let d2lNotificationEmailMigrated: Promise<void> | undefined;
+let memoryLifetimeAndPinsMigrated: Promise<void> | undefined;
 
 export { splitMigration };
 
@@ -125,6 +127,16 @@ export async function applyMemoryIngressMigration(): Promise<void> {
   await applyOwnerCallStepUpMigration();
   memoryIngressMigrated ??= applyD1Migrations(env.DB, [
     { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+    // 0038 belongs here and not only in `applyNewestRuntimeMigration`: it alters
+    // `memory_items`, so every memory fixture needs it, and one that stopped at
+    // 0019 built an item table with no `lifetime` column. That surfaced as
+    // `memory_unavailable` from every commit -- which reads as a database fault
+    // rather than a missing migration, the same shape as 0038 missing from the
+    // other two lists.
+    {
+      name: "0038_memory_lifetime_and_pins.sql",
+      queries: splitMigration(memoryLifetimeAndPinsSql),
+    },
   ]);
   await memoryIngressMigrated;
 }
@@ -272,8 +284,7 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
 }
 
 /**
- * Applies the newest prefix of the runtime schema: the D2L notification-email
- * receipt and the detail column on `scheduled_runs`.
+ * Applies the newest prefix of the runtime schema.
  *
  * Named for the migration that introduced it and extended here, so every
  * fixture that already asked for the current schema keeps getting the current
@@ -287,6 +298,10 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     {
       name: "0035_autonomy_tool_capabilities.sql",
       queries: splitMigration(autonomyToolCapabilitiesSql),
+    },
+    {
+      name: "0038_memory_lifetime_and_pins.sql",
+      queries: splitMigration(memoryLifetimeAndPinsSql),
     },
   ]);
   await newestRuntimeMigrated;
@@ -332,7 +347,24 @@ const allCloudGatewayMigrations = Object.freeze([
     name: "0035_autonomy_tool_capabilities.sql",
     queries: splitMigration(autonomyToolCapabilitiesSql),
   },
+  {
+    name: "0038_memory_lifetime_and_pins.sql",
+    queries: splitMigration(memoryLifetimeAndPinsSql),
+  },
 ]);
+
+/**
+ * The names this fixture applies, for the parity guard in
+ * `migration-list-parity.test.ts`.
+ *
+ * Exported because the defect that guard exists for was exactly this list
+ * drifting: `0038` was added to `applyNewestRuntimeMigration` and nowhere else,
+ * so the restore fixture rebuilt a target without its tables and a healthy
+ * backup then failed as though it were an operational fault.
+ */
+export function allCloudGatewayMigrationNames(): readonly string[] {
+  return allCloudGatewayMigrations.map(({ name }) => name);
+}
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
 export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void> {

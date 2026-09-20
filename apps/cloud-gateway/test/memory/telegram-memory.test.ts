@@ -1910,7 +1910,12 @@ describe("Telegram memory retrieval", () => {
     const principalId = await markerPrincipal("uncertain-recall");
     const sourceText = "I keep my project notes concise. The meeting notes were long.";
     const fact = "I keep my project notes concise.";
-    const classified = classifyMarkerText(sourceText);
+    // Marked forwarded, so this turn is not the owner's own text and the fact
+    // stays a proposal. It used to stay proposed merely for being one sentence
+    // of a longer message, which is how every fact from a real conversation was
+    // stuck at `proposed` too; that rule is gone, so the fixture now says what
+    // it means rather than relying on it.
+    const classified = classifyMarkerText(sourceText, { forward_origin: { type: "user" } });
     const events = new EventRepository(env.DB);
     const conversations = buildTelegramConversationRepository(
       env.DB,

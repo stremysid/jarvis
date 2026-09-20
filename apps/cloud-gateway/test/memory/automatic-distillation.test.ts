@@ -574,7 +574,7 @@ beforeEach(async () => {
 });
 
 describe("automatic memory distillation", () => {
-  it("authenticates a whole first-person fact only when the event explicitly marks direct owner text", async () => {
+  it("authenticates a first-person fact when the event marks direct owner text, and leaves attribution to the prompt", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const text = "I wrote my Western essay.";
@@ -610,8 +610,18 @@ describe("automatic memory distillation", () => {
     expect(provider.requests[0]).toMatchObject({ operation: "completeJson", purpose: "memory_distillation" });
     const request = provider.requests[0];
     if (request?.operation !== "completeJson") throw new Error("automatic_distillation_prompt_missing");
-    const parsedPrompt = JSON.parse(request.prompt) as { instructions: unknown[] };
+    const parsedPrompt = JSON.parse(request.prompt) as { instructions: string[] };
     expect(parsedPrompt.instructions).toContain(MEMORY_EXTRACTION_JSON_CONTRACT);
+    // Attribution is comprehension, not provenance, so it moved out of the
+    // classifier and onto this prompt. The property the four removed unit tests
+    // asserted is asserted here instead, with the same sentences, and it is
+    // pinned the same way: delete the instruction and this test fails.
+    const attribution = parsedPrompt.instructions.find(
+      (line) => line.includes("is relaying is not a fact about the owner"),
+    );
+    expect(attribution).toBeDefined();
+    expect(attribution).toContain("Mum texted me. I am moving to Calgary in June.");
+    expect(attribution).toContain("I prefer tea. Mum texted me about dinner.");
     const schema = JSON.parse(MEMORY_EXTRACTION_JSON_SCHEMA) as {
       properties: { proposals: { items: { required: string[]; properties: Record<string, unknown> } } };
     };
@@ -1513,9 +1523,16 @@ describe("automatic memory distillation", () => {
     expect(counted.queryCount()).toBeLessThanOrEqual(AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING);
   });
 
-  it("keeps a sentence extracted from a direct-marked multi-sentence message uncertain", async () => {
+  it("authenticates a sentence from a direct-marked multi-sentence message, leaving attribution to the prompt", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
+    // That sentence is Mum's, not Sid's. Code cannot tell, and deciding it by
+    // requiring the quote to be the whole message is exactly what held every
+    // fact from a real conversation at `proposed` -- live D1 had five proposed
+    // and zero active, and only `active` is retrievable. So code does the half
+    // it can prove: verbatim words from a message the channel marked as Sid's
+    // own text. The rule that this sentence says nothing about Sid now lives in
+    // the extraction prompt, and the test above pins that it still does.
     const sourceText = "Mum sent this. I am moving to Calgary in June.";
     const fact = "I am moving to Calgary in June.";
     const event = await appendConversation(events, principalId, sourceText, { directOwnerText: true });
@@ -1525,11 +1542,10 @@ describe("automatic memory distillation", () => {
 
     await workflow(principalId, provider).runNext({ runKey: `attributed:${newUlid()}` });
 
-    expect(await storedItem(principalId)).toEqual({
-      origin: "model",
-      uncertain: 1,
-      lifecycle_state: "proposed",
-      display_name: "Inbox / Needs filing",
+    expect(await storedItem(principalId)).toMatchObject({
+      origin: "authenticated_first_person",
+      uncertain: 0,
+      lifecycle_state: "active",
     });
   });
 

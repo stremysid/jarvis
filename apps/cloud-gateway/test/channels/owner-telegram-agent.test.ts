@@ -2462,6 +2462,142 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
+  it("pins a memory into the core profile when Jarvis decides it belongs there", async () => {
+    // The end of the thread that started with the `memory_item_pins` table: a
+    // table, a view, a reader, an injection seam and now a way to actually set
+    // one. Without this the core profile is structurally always empty.
+    const harness = await ownerHarness("pin-tool");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("pin-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:pin-seed"] }]),
+      ]),
+    });
+    const rows = await memoryRows(harness.principalId);
+    const itemId = rows[0]?.item_id;
+    if (itemId === undefined) throw new Error("pin_fixture_item_missing");
+
+    await runTurn({
+      harness,
+      text: "keep that in mind from now on",
+      context: rows.map(memoryContext),
+      provider: new FakeAgentProvider([
+        called(tool("pin-1", "memory_pin", { itemId })),
+        stopped("Pinned.", [{ sentence: "Pinned.", receiptIds: ["receipt:pin-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT pinned FROM memory_current_pins
+      WHERE principal_id = ? AND item_id = ?`).bind(harness.principalId, itemId).first())
+      .toEqual({ pinned: 1 });
+  });
+
+  it("records a temporary fact with the end Sid gave it", async () => {
+    // Phase 2 asks for temporary facts to drop out of recall after their end.
+    // The column and every recall filter already understood that; nothing ever
+    // wrote a value, so no fact could be temporary. This is the writer.
+    const harness = await ownerHarness("temporary-fact");
+    const expiresAt = "2026-09-18T04:00:00.000Z";
+    await runTurn({
+      harness,
+      text: "I'm tired today",
+      provider: new FakeAgentProvider([
+        called(tool("temp-1", "memory_remember", {
+          fact: "I'm tired today",
+          supportingExcerpt: "I'm tired today",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+          lifetime: "temporary",
+          expiresAt,
+        })),
+        stopped("Noted.", [{ sentence: "Noted.", receiptIds: ["receipt:temp-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "temporary", valid_to: expiresAt });
+  });
+
+  it("still records a fact as durable when the model says nothing about its lifetime", async () => {
+    // The schema gained two optional fields, so every call that predates them
+    // must behave exactly as it did: durable, with no end.
+    const harness = await ownerHarness("durable-default");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("dur-1", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:dur-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "durable", valid_to: null });
+  });
+
+  it("gives Jarvis the facts Sid pinned on every turn", async () => {
+    // The point of pinning, asserted where it is observable rather than at the
+    // function that composes it: a pinned fact has to reach the provider on a
+    // turn that never asked for it and matches nothing by relevance.
+    const harness = await ownerHarness("core-profile");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("core-profile-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:core-profile-seed"] }]),
+      ]),
+    });
+    const itemId = (await memoryRows(harness.principalId))[0]?.item_id;
+    if (itemId === undefined) throw new Error("core_profile_fixture_item_missing");
+    const pinnedAt = NOW.toISOString();
+    await env.DB.prepare(`INSERT INTO memory_item_pins (
+      pin_id, principal_id, item_id, pin_number, pinned,
+      authorizing_event_id, occurred_at, created_at
+    ) VALUES (?, ?, ?, 1, 1, ?, ?, ?)`).bind(
+      newUlid(), harness.principalId, itemId, newUlid(), pinnedAt, pinnedAt,
+    ).run();
+
+    const later = new FakeAgentProvider([stopped("Morning.")]);
+    await runTurn({ harness, text: "morning", provider: later });
+
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("I hate mornings");
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("never instructions");
+  });
+
   it("refuses repeated over-cap calls without executing either", async () => {
     const harness = await ownerHarness("over-cap");
     const args = {

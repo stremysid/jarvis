@@ -17,6 +17,7 @@ import {
   MemoryRepositoryError,
   type BootstrapMemoryTopicsResult,
   type AppendActiveMemorySourceInput,
+  type AppendMemoryPinInput,
   type AutomaticInboxRefilingResult,
   type AutomaticTopicPathResult,
   type CanonicalMemoryItem,
@@ -35,7 +36,9 @@ import {
   type MemoryControlIntent,
   type MemoryFilingSource,
   type MemoryKind,
+  type MemoryLifetime,
   type MemoryLifecycleState,
+  type MemoryPinState,
   type MemoryOrigin,
   type MemoryOwnerTurnInput,
   type PreparedMemoryForget,
@@ -354,6 +357,7 @@ interface CapturedInput {
   readonly principalId: string;
   readonly itemId: Ulid;
   readonly kind: MemoryKind;
+  readonly lifetime: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: Readonly<{
@@ -878,6 +882,18 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
   const validFrom = input.version.validFrom === null ? null : inputTimestamp(input.version.validFrom);
   const validTo = input.version.validTo === null ? null : inputTimestamp(input.version.validTo);
   if (validFrom !== null && validTo !== null && validTo <= validFrom) refuse();
+  // Derived from the end when the caller does not say, so a caller written
+  // before this column existed -- every fixture in the suite, and the
+  // distillation writer -- keeps behaving exactly as it did. Only a genuine
+  // contradiction is refused: durable with an end, or temporary without one.
+  const lifetime = input.lifetime === undefined
+    ? (validTo === null ? "durable" as const : "temporary" as const)
+    : inputEnum(input.lifetime, new Set(["durable", "temporary"] as const));
+  // The same coupling the `0038` trigger enforces, checked here as well so a
+  // caller that gets it wrong receives a repository refusal naming the field
+  // rather than a D1 ABORT from the trigger. The trigger stays the authority:
+  // it is the one that also covers paths that do not come through this capture.
+  if ((lifetime === "durable") !== (validTo === null)) refuse();
   const extractorModelId = optionalInputText(input.version.extractorModelId, 192);
   if (extractorModelId !== null && !PROVIDER_MODEL.test(extractorModelId)) refuse();
   if (!Array.isArray(input.sources) || input.sources.length < 1 || input.sources.length > 8) refuse();
@@ -926,6 +942,7 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
     principalId,
     itemId: inputUlid(input.itemId),
     kind,
+    lifetime,
     creationEventId: inputUlid(input.creationEventId),
     creationEventSequence: inputInteger(input.creationEventSequence, 1, Number.MAX_SAFE_INTEGER),
     version: Object.freeze({
@@ -1218,6 +1235,51 @@ export class MemoryRepository {
         }
       }
       return null;
+    });
+  }
+
+  /**
+   * Append one pin state for an item.
+   *
+   * Unpinning appends rather than deletes, so "was this ever pinned" stays
+   * answerable and the table's immutability guards have nothing to protect
+   * against. The sequence number is computed inside the statement rather than
+   * read and then written, because the insert guard requires max + 1 and a
+   * read-then-write would leave a window where two writers agree on one number.
+   */
+  async appendPin(input: AppendMemoryPinInput): Promise<MemoryPinState> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const itemId = inputUlid(input.itemId);
+      const pinId = inputUlid(input.pinId);
+      const authorizingEventId = inputUlid(input.authorizingEventId);
+      const occurredAt = inputTimestamp(input.occurredAt);
+      const pinned = input.pinned === true;
+      await this.requireActivePrincipal(principalId);
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      // A pin exists to put a fact in front of Jarvis on every turn. Pinning one
+      // that is not retrievable would store a preference that can never take
+      // effect, so it is refused rather than silently ignored -- a pin that does
+      // nothing is worse than a refusal, because Sid would believe it worked.
+      if (item.lifecycle.state !== "active") refuse();
+      const current = await this.database.prepare(`SELECT pinned FROM memory_current_pins
+        WHERE principal_id = ?1 AND item_id = ?2`).bind(principalId, itemId)
+        .first<{ pinned: number }>();
+      // Already in the requested state: appending again would add a row that
+      // says nothing new, and replay should be cheap rather than row-producing.
+      if (current !== null && (current.pinned === 1) === pinned) {
+        return Object.freeze({ itemId, pinned, appended: false });
+      }
+      await this.database.prepare(`INSERT INTO memory_item_pins (
+        pin_id, principal_id, item_id, pin_number, pinned,
+        authorizing_event_id, occurred_at, created_at
+      ) SELECT ?1, ?2, ?3, COALESCE((
+        SELECT max(pin.pin_number) + 1 FROM memory_item_pins pin
+        WHERE pin.principal_id = ?2 AND pin.item_id = ?3
+      ), 1), ?4, ?5, ?6, ?6`).bind(
+        pinId, principalId, itemId, pinned ? 1 : 0, authorizingEventId, occurredAt,
+      ).run();
+      return Object.freeze({ itemId, pinned, appended: true });
     });
   }
 
@@ -3118,12 +3180,13 @@ export class MemoryRepository {
   ): D1PreparedStatement[] {
     const statements: D1PreparedStatement[] = [
       this.database.prepare(`INSERT INTO memory_items (
-        item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?)`)
+        item_id, principal_id, kind, lifetime, creation_event_id, creation_event_sequence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .bind(
           input.itemId,
           input.principalId,
           input.kind,
+          input.lifetime,
           input.creationEventId,
           input.creationEventSequence,
           createdAt,

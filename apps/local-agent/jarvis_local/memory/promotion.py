@@ -142,6 +142,25 @@ def _is_whole_trusted_sentence(source_text: str, quote: str, offset: int) -> boo
     return not any(pattern.search(quote) for pattern in _FIRST_PERSON_UNTRUSTED_FRAMING)
 
 
+def _located_as_whole_sentence(source_text: str, quote: str) -> bool:
+    """Find the quote as one whole sentence of the owner's own message.
+
+    It used to have to be the ENTIRE message. No real conversational turn is, so
+    every fact the model recorded from a conversation stayed `proposed` forever.
+    Jarvis decides what is worth remembering; code decides only whether the
+    words are the owner's.
+
+    Scanning for the sentence keeps every boundary rule intact, because each
+    candidate offset still has to pass `_is_whole_trusted_sentence`.
+    """
+    offset = source_text.find(quote)
+    while offset >= 0:
+        if _is_whole_trusted_sentence(source_text, quote, offset):
+            return True
+        offset = source_text.find(quote, offset + 1)
+    return False
+
+
 def is_authenticated_first_person_quote(
     *,
     quote: str,
@@ -158,16 +177,7 @@ def is_authenticated_first_person_quote(
     if _FIRST_PERSON_TOKEN.search(normalized_quote) is None:
         return False
 
-    source_is_whole_quote = normalized_source == normalized_quote or (
-        len(normalized_source) == len(normalized_quote) + 1
-        and normalized_source.startswith(normalized_quote)
-        and normalized_source[-1] in _SENTENCE_PUNCTUATION
-    )
-    return source_is_whole_quote and _is_whole_trusted_sentence(
-        normalized_source,
-        normalized_quote,
-        0,
-    )
+    return _located_as_whole_sentence(normalized_source, normalized_quote)
 
 
 def is_uncertain_origin(origin: FactOrigin) -> bool:

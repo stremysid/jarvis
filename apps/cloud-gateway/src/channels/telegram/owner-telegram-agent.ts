@@ -23,6 +23,8 @@ import {
   MemoryOwnerControlsService,
   type MemoryExplanation,
 } from "../../memory/memory-owner-controls.js";
+import { composeCoreProfile, readCoreProfile } from "../../memory/core-profile.js";
+import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
 import { MemoryRepository } from "../../memory/memory-repository.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { recordPendingTelegramReplyMarkup } from "./telegram-reply-markup.js";
@@ -96,83 +98,38 @@ export const OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT = `You are Jarvis, Sid's private
 
 When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPLE}. When tools are needed, call one tool and do not also answer. After tool results, return the same JSON shape. claimedActions must list every sentence in reply that says Jarvis did or is doing an action. Each entry is {"sentence": the exact complete sentence from reply, "receiptIds": [the supporting receipt ids from this turn]}. Use an empty list for advice, offers, drafts, inability statements, and actions Sid reports doing. Never repeat or paraphrase a receipt in reply because code displays receipts verbatim.`;
 
+/**
+ * The owner-agent prompt, plus the core profile when there is one.
+ *
+ * Phase 2 asks for pinned facts to be given to Jarvis on every turn rather than
+ * found by relevance, so this must not sit behind the retrieval budget -- that
+ * pipeline can time out or skip a stage, and a profile that is usually present
+ * is the thing the roadmap explicitly did not ask for.
+ *
+ * A read that failed is **stated**, not swallowed. Silently handing the model no
+ * memory is a defect this repository already has once -- a search that times out
+ * or finds an open circuit returns nothing and tells nobody -- and a missing
+ * core profile is worse, because everything in it is something Sid deliberately
+ * put in front of Jarvis in every conversation.
+ */
+export function ownerTelegramAgentSystemPrompt(
+  coreProfile: string | null,
+  coreProfileFailed: boolean,
+): string {
+  if (coreProfileFailed) {
+    return `${OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT}
+
+Your core profile could not be read this turn, so you do not have the facts Sid pinned. Say so if it matters to the answer, and do not guess at them.`;
+  }
+  return coreProfile === null
+    ? OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT
+    : `${OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT}
+
+${coreProfile}`;
+}
+
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  Object.freeze({
-    name: "memory_remember",
-    description: "Remember one fact Sid explicitly states now, or one direct answer Sid gives now to Jarvis's immediately previous offer to note it. Preserve Sid's exact supporting excerpt.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity"],
-      properties: {
-        fact: { type: "string", minLength: 1, maxLength: 4096 },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-        evidenceClass: { enum: ["stated", "confirmed"] },
-        previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096 },
-        kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
-        sensitivity: { enum: ["normal", "sensitive"] },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_correct",
-    description: "Replace one memory Sid already has with a new version he now states, when he says a fact, preference, plan, decision or relationship changed. Pass the id of the memory being replaced, the new wording drawn from his current message, and supportingExcerpt copied exactly from that message. The earlier memory stops being current and stays in the ledger; never use memory_remember for a change like this, because that leaves both wordings current.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"],
-      properties: {
-        itemId: { type: "string" },
-        newFact: { type: "string", minLength: 1, maxLength: 4096 },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-        kind: { enum: ["fact", "preference", "plan", "decision", "relationship"] },
-        sensitivity: { enum: ["normal", "sensitive"] },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_forget",
-    description: "Hide one exact memory by item id, grounded by supportingExcerpt copied from Sid's current words. If more than one item could be meant, pass every candidate id and omit the excerpt so code asks Sid to confirm instead of changing anything.",
-    parameters: Object.freeze({
-      type: "object",
-      additionalProperties: false,
-      required: ["itemIds"],
-      properties: {
-        itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_restore",
-    description: "Restore one forgotten memory by an eligible item id. supportingExcerpt must be copied exactly from Sid's current request.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: {
-        itemId: { type: "string" },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_confirm",
-    description: "Confirm one proposed uncertain memory. supportingExcerpt must contain confirmation language copied exactly from Sid's current message. A model-inferred proposal is never promoted from this text; code presents its exact stored wording on a Confirm or Discard keyboard.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: { itemId: { type: "string" }, supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 } },
-    }),
-  }),
-  Object.freeze({
-    name: "memory_explain",
-    description: "Explain one eligible memory item when supportingExcerpt is copied exactly from Sid's current request.",
-    parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
-      properties: {
-        itemId: { type: "string" },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
-      },
-    }),
-  }),
+  ...MEMORY_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
     description: "Run the validated school catch-up pipeline for Sid's current message and conversation context.",
@@ -327,6 +284,27 @@ function parseArgumentsWithOptionalExcerpt(
     decoded = parseArguments(call, [...requiredFields, "supportingExcerpt"]);
   }
   return decoded;
+}
+
+/**
+ * `memory_remember`'s arguments, with or without the lifetime pair.
+ *
+ * `parseArguments` insists on an exact key set, which is what makes a
+ * hallucinated argument a refusal rather than a silently dropped field, so an
+ * optional field is expressed as a second accepted shape instead of by
+ * loosening that check. `lifetime` and `expiresAt` are one shape and not two,
+ * because they are coupled: durable carries no end, temporary requires one, so
+ * a call sending just one of them is not a call this tool can mean.
+ */
+function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown> {
+  const required = [
+    "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
+  ];
+  try {
+    return parseArguments(call, required);
+  } catch {
+    return parseArguments(call, [...required, "lifetime", "expiresAt"]);
+  }
 }
 
 function safeUlid(value: unknown): Ulid {
@@ -659,6 +637,18 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       throw new RangeError("owner_agent_turn_timeout_invalid");
     }
     const timeoutMs = Math.min(input.timeoutMs, remainingTurnTimeoutMs);
+    // Read once per turn, before any provider call, so every later use of the
+    // prompt in this turn carries the same profile.
+    let coreProfile: string | null = null;
+    let coreProfileFailed = false;
+    try {
+      coreProfile = composeCoreProfile(
+        await readCoreProfile(this.dependencies.database, this.dependencies.ownerPrincipalId),
+      );
+    } catch {
+      coreProfileFailed = true;
+    }
+    const systemPrompt = ownerTelegramAgentSystemPrompt(coreProfile, coreProfileFailed);
     const timer = setTimeout(() => {
       deadlineHit = true;
       controller.abort();
@@ -675,7 +665,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         first = await this.dependencies.provider.completeAgent({
           correlationId: input.correlationId,
           principalId: input.principalId,
-          systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
+          systemPrompt,
           userText: input.userText,
           context: input.context,
           tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
@@ -720,7 +710,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         second = await this.dependencies.provider.completeAgent({
           correlationId: input.correlationId,
           principalId: input.principalId,
-          systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
+          systemPrompt,
           userText: input.userText,
           context: input.context,
           tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
@@ -862,6 +852,8 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       if (call.name === "memory_restore") return this.restore(input, call);
       if (call.name === "memory_confirm") return this.confirm(input, call);
       if (call.name === "memory_explain") return this.explain(input, call);
+      if (call.name === "memory_pin") return this.setPin(input, call, true);
+      if (call.name === "memory_unpin") return this.setPin(input, call, false);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, "I refused that tool call because this is not Sid's direct private Telegram text. Nothing changed.");
@@ -1028,9 +1020,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async remember(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
-    const args = parseArguments(call, [
-      "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
-    ]);
+    const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
@@ -1055,6 +1045,18 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
       throw new TypeError("owner_agent_memory_arguments_invalid");
     }
+    // Shape only. Whether the pair is *consistent* -- durable with no end,
+    // temporary with one -- is the capture's call, so that judgment lives in one
+    // place rather than being re-implemented here and drifting from it.
+    const lifetime = args.lifetime === undefined ? "durable" : args.lifetime;
+    if (lifetime !== "durable" && lifetime !== "temporary") {
+      throw new TypeError("owner_agent_memory_lifetime_invalid");
+    }
+    const expiresAt = args.expiresAt === undefined ? null : args.expiresAt;
+    if (expiresAt !== null
+      && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
+      throw new TypeError("owner_agent_memory_expiry_invalid");
+    }
     const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
     const result = await this.controls().remember({
       ownerTurn: await this.ownerTurn(input, "remember"),
@@ -1064,6 +1066,8 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       normalizedFromSource: grounding.authoritative,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
+      lifetime,
+      validTo: expiresAt,
     });
     return successfulTool(
       call,
@@ -1148,6 +1152,38 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       ownerTurn: await this.ownerTurn(input, "lift"),
       candidateItemIds: Object.freeze([itemId]),
     });
+    return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
+  }
+
+  /**
+   * `memory_pin` and `memory_unpin`. One method, because they differ only in the
+   * intent they claim and the flag they carry, and splitting them would be two
+   * copies of the eligibility check that could drift apart.
+   *
+   * No excerpt is required: pinning is Jarvis's own judgement about what belongs
+   * in front of it, which the roadmap puts under "Jarvis decides", so unlike
+   * `remember` there is no owner wording for it to be grounded in.
+   */
+  private async setPin(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+    pinned: boolean,
+  ): Promise<ExecutedTool> {
+    const intent = pinned ? "pin" : "unpin";
+    const args = parseArguments(call, ["itemId"]);
+    const itemId = safeUlid(args.itemId);
+    await this.requireEligibleItem(input, intent, itemId);
+    const item = await new MemoryRepository(this.dependencies.database)
+      .readCurrentItem(input.principalId, itemId);
+    const result = pinned
+      ? await this.controls().pin({
+        ownerTurn: await this.ownerTurn(input, intent),
+        candidateItemIds: Object.freeze([itemId]),
+      })
+      : await this.controls().unpin({
+        ownerTurn: await this.ownerTurn(input, intent),
+        candidateItemIds: Object.freeze([itemId]),
+      });
     return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
   }
 

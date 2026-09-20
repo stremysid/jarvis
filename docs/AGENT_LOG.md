@@ -3,6 +3,327 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-19 — DeepSeek V4.1 Flash builder: memory rebuild, paused mid-increment
+
+Branch **`codex/memory-rebuild`**, four commits from `1b9cec5`. Everything is pushed and the
+tree is clean. **No PR is open** — nine tests are red, see below. Sid stopped the session;
+this entry is how the next one resumes without re-deriving anything.
+
+**Scope, set by Sid, and it overrides `docs/BUILDING.md`**, which routes R2 Cloud memory to
+GPT-5.6 Sol: build the memory part here, memory only, keep DeepSeek for now, do not touch
+`topic-tree.ts` or `living-notes.ts`, and **build the tools so both channels consume them
+from one place** — do not hang them off the Telegram agent, because that is how voice ended
+up with zero tools.
+
+### Sid's correction, and the reason this is not a rewrite
+
+I had framed the options as "fresh flat `facts` table" versus "keep the ~14k-line ledger".
+That framing was wrong and he corrected it. The 3,061 lines of `0016_cloud_memory.sql` are
+**75 immutability triggers** — `insert_guard` / `immutable_update` / `immutable_delete` —
+which is category 4 of the core rule, *enforcing a decision Jarvis already made*. The
+judgment is elsewhere and it is small: **`extraction-policy.ts` 221 lines and
+`telegram-memory-language.ts` 95 lines, about 316 lines total.** Delete those and the
+judgment is gone; replacing the store would not have deleted them and keeping the store does
+not preserve them. So this is **additive**: columns, a table, two views, and a promotion fix.
+
+**Do not rewrite suppression.** Forgetting is the highest-consequence behaviour here, its
+failure mode is a thing Sid asked to forget coming back, and it demonstrably works —
+anti-joins on every retrieval path that feeds model context, applied before `LIMIT` so a
+filter cannot silently shorten a window, with mutation-killed tests. Rebuilding that to gain
+an `expires_at` column would trade a working guarantee for a tidier schema.
+
+### What landed
+
+1. **`0038_memory_lifetime_and_pins.sql`**, additive. `memory_items.lifetime`
+   (`durable|temporary`); an append-only `memory_item_pins`; `memory_current_pins` and
+   `memory_pinned_item_versions` views; two triggers coupling `lifetime` to the version's
+   `valid_to`; and `item.pin` / `item.unpin` added to the owner-command ingress allowlist.
+
+   Four decisions a reviewer should check, each made because the obvious version was wrong:
+   - **`kind` is taken.** `memory_items.kind` already means the subject taxonomy
+     (`fact|preference|plan|decision|relationship`) with a CHECK, so the durable/temporary
+     axis is `lifetime`.
+   - **`pinned` is a table, not a column.** `memory_item_state_update_guard` requires every
+     update to advance a transition. A pin is not a lifecycle change, so a column there meant
+     relaxing the invariant that makes the state machine trustworthy, to store a preference.
+   - **`expires_at` is the tool's word for the existing `valid_to`.** Every recall path
+     already filters on it and the nightly job already transitions on it. **What was missing
+     was a writer, not a column** — and a second expiry column gives the system two ways to
+     say a fact lapsed.
+   - **The core profile is built on `memory_retrievable_item_versions`, not on the pins**, so
+     a pinned fact Sid later forgets leaves the profile by the same suppression enforcement
+     every other read path uses. The profile is injected into every prompt, which makes it the
+     one read most likely to be trusted and least likely to be questioned.
+2. **The promotion fix**, the item Sid said was the one that mattered. See below.
+3. Nine tests over `0038`, each **mutation-verified**: neutering a guard fails exactly the
+   test that names it.
+
+### The promotion fix, and the tradeoff Sid chose
+
+`isAuthenticatedFirstPersonQuote` required the remembered fact to be the owner's **ENTIRE
+message verbatim**. No conversational turn is, so nothing ever promoted: live D1 held five
+`proposed` and **zero active**, and `memory_retrievable_item_versions` is
+`WHERE lifecycle_state = 'active'`. The feature was inert.
+
+Code now keeps the half that is provenance and checkable — the words are verbatim, from a
+message the channel marked as the owner's own text, forming a whole sentence rather than a
+fragment — and **stops deciding whether the owner is speaking or relaying somebody**, which
+is comprehension. That judgment moved to the extraction prompt, which now carries the rule
+with both examples: *"Mum texted me. I am moving to Calgary in June."* says nothing about the
+owner, nor does the first sentence of *"I prefer tea. Mum texted me about dinner."*
+
+**I stopped and asked before doing this, and that was the right call.** Four existing tests
+were passing *because* of the whole-message rule: `"Mum texted me. I am moving to Calgary in
+June."` and its siblings were rejected by position, not by an attribution check. Loosening
+the rule exposed that there was no attribution guard at all. Sid chose to move attribution to
+the model rather than add a reporting-clause word list — a word list is code making a
+judgment, which is the pattern this work exists to delete, and it fails on "Mum mentioned",
+"she goes", "per my teacher", or no verb at all.
+
+**The four tests were moved, not deleted**, and the PR must not claim otherwise: the property
+is now pinned by the extraction-prompt test in `automatic-distillation.test.ts`, which fails
+if that instruction is removed.
+
+He also corrected me on a fact: I said the forwarded/quoted/pasted flags were hardcoded false
+and carried nothing. Those flags are in `readTelegramMemoryOwnerTurn`, a different and dead
+path. **`telegram-types.ts:265` computes `isDirectText` against eight real Telegram keys**
+(`forward_origin`, `forward_from`, `forward_from_chat`, `forward_sender_name`, `forward_date`,
+`is_automatic_forward`, `external_reply`, `via_bot`) and `isAuthenticatedFirstPersonQuote`
+reads it through `authenticatedOwner`. My "revert and wait for a channel signal" option was
+out on a false premise.
+
+Both runtimes changed, because a shared vector fixture holds them in step:
+`extraction-policy.ts`, `jarvis_local/memory/promotion.py`, and
+`tests/fixtures/memory-extraction-policy.json`.
+
+### Green, and what each number covers
+
+- `test/memory/` — **426 passed**, after every promotion edit.
+- `apps/local-agent` `tests/memory` — **231 passed**; `ruff` and `mypy --platform win32` clean.
+- `test/persistence/` — **800 passed** with 0038 applied.
+- `test/backup/` — **43 passed**, all three files.
+- `pnpm test` (root, the whole workspace) — **5361 of 5373, 193/201 files, with 12 failures
+  across 8 files.** Every one of the twelve re-runs green on its own:
+  `test/backup/memory-backup.test.ts` 26/26 and `test/memory/telegram-memory.test.ts` 70/70
+  when run alone, and the rest the same. All twelve are 5–33 s durations, so they are the
+  documented load timeouts (5,000 ms with no `testTimeout` configured — PR #116's subject),
+  not assertions. **This is a load-timeout finding, not a green suite**, and it is the class of
+  non-determinism that has not been fixed.
+
+### The nine red restore tests were a missing migration in two hand-kept lists, not the trigger classifier
+
+**I diagnosed this wrong the first time and am recording both the wrong answer and the right
+one**, because the wrong one was plausible and cost nothing to correct only because the failure
+message was read properly the second time.
+
+What I wrote first: that `assertRestoreTargetPreflight` was mismatching the live trigger set
+because `0038` drops and re-creates the ingress guard. **That was not the cause.** The failure
+was never in the restore preflight at all — it was in `finishBackup`, i.e. the *backup* step
+returning `{"outcome":"failed","code":"memory_backup_operation_failed"}` and every test that
+calls it failing behind it.
+
+What it actually was, and it is the same defect twice: **a migration must be added to every
+hand-kept list, and I had only added it to one.**
+
+1. `allCloudGatewayMigrations` (`test/persistence/migration.ts`) ended at `0035`, and
+   `recreateFreshDatabaseForBackupRestoreTest` builds the restore target from that list alone
+   (`:403`). So the fresh target had no `memory_item_pins` and no `lifetime`, and a healthy
+   backup of a partial schema failed. That file's own comment at `:409` names this exact
+   failure mode: *"A partial schema makes a healthy backup look like an operational failure."*
+2. `MEMORY_BACKUP_RESTORE_MIGRATIONS` (`memory-backup-restore-migrations.ts`) is a
+   **transcribed** import list the operator uses, and it also ended at `0035`. With the
+   manifest at `0038`, `migrationSqlThrough` (`:270`) could not find the applied version and
+   reported `memory_backup_restore_migrations_missing`.
+
+**For the next migration, all five lists need it, not one:** `allCloudGatewayMigrations`,
+`applyNewestRuntimeMigration`, the operator's `MEMORY_BACKUP_RESTORE_MIGRATIONS`, the
+`remote-d1-migration-syntax` inventory, and `MEMORY_BACKUP_TABLES` / the derived excludes if it
+declares a table. A guard exists for the last one and for the inventory; **nothing guards the
+first three**, which is why 0038 passed its own test files and broke the backup. That missing
+guard is worth more than the fix: one test asserting every migration file on disk appears in
+every transcribed list would have caught this before I pushed it.
+
+Also worth knowing, and unrelated to the above: the migration's leading comment originally
+contained a **semicolon inside a `--` comment**, the trap `AGENTS.md` names. The splitter
+divides on `;`, so the comment became a statement with no SQL in it and D1 refused the migration
+with `SQL code did not contain a statement`. Worse, my first mutation pass reported **five
+guards as verified when only one ran** and the rest were skipped behind a failing `beforeAll`.
+The harness now checks that a mutation still splits and refuses to report a result otherwise. A
+green suite that never ran is not evidence.
+
+### Not done, deliberately
+
+- `telegram-memory-language.ts` and `TelegramMemoryControlModelAdapter` are **still there**.
+  Verified unreachable: the adapter is constructed only in `test/memory/telegram-memory.test.ts`,
+  and `controlAuthority` is passed by nobody. Its own PR, per Sid.
+- `topic-tree.ts` and `living-notes.ts` **untouched**, per Sid: separate reasoning, separate PR.
+- No tool surface and no wake-ups yet. The hourly review wake-up is a cron and is next.
+  The **quiet-conversation alarm is blocked on the DO work** and must be declared as such
+  rather than half-built against `CallSession`: there is one DO binding (`CALL_SESSION`) and
+  its alarms are the voice step-up deadline.
+
+### Addendum: the core-profile reader is in, and the injection seam is an open decision
+
+`src/memory/core-profile.ts` reads `memory_pinned_item_versions` and renders the block, or
+`null` when nothing is pinned. It lives in `src/memory` rather than the Telegram adapter so
+both channels can import it, which is the constraint Sid set. Mutation-verified both ways:
+a reader that bypasses the retrievable view fails the suppression test, and a reader that
+ignores the pins fails the newest-pin test. The suppression test asserts **through the
+reader**, not against the view, which is what makes that mutation catchable at all.
+
+**It is not yet injected, and that is deliberate rather than forgotten.** Two seams, and the
+choice has a consequence worth deciding rather than discovering:
+
+- **The Telegram adapter** (`owner-telegram-agent.ts`, where the system prompt is built).
+  Always present, cannot be dropped by a budget — but its dependency list is a strict
+  validated allowlist and **it has no logger or telemetry port at all**. A core-profile read
+  that failed there would have to be swallowed silently, and *silent omission* is the exact
+  defect class `docs/plan/2026-09-19-memory-redesign.md` §2 names ("when a search times out
+  or the circuit is open the model silently receives no memory and is never told").
+- **The retriever** (`TelegramMemoryRetriever.retrieve`), which already has budgets,
+  timeouts and telemetry. But that pipeline can skip or time out, so the profile could be
+  dropped — against "injected on every turn".
+
+**Recommendation for whoever picks this up:** the adapter, plus a small telemetry port added
+to `OwnerTelegramAgentDependencies` so a failed profile read is recorded rather than
+swallowed. The dependency list is validated by design, so adding one is a deliberate act and
+a compile error at every construction site — which is the property that made the tier gate
+unskippable. Do not wire it into the retriever to avoid that work; a profile that is usually
+there is the thing the roadmap explicitly did not ask for.
+
+**Settled, because I said it was unattributed and it was worth an hour to not leave it
+that way:** `test/channels/` is flaky **at the parent commit too**, so the extra per-turn
+read did not introduce it. Measured at `6b386c8` — which has the reader but not the wiring —
+three consecutive runs of the same set: `280/280`, `280/280`, then **1 failed** on "falls back
+to the saved receipt when an honesty-repair call fails" at 105 ms. That is the same profile as
+the failures I saw with the wiring: fast, a different test each time, and every one of them
+green when its file is run alone. So this is a **pre-existing non-determinism in this file
+set**, now measured rather than assumed, and it is **not** the load-timeout class (those are
+5–30 s and are #116's subject). It deserves its own item.
+
+### The three missing tools cost more than they look, and here is the bill
+
+The memory tool definitions now live in `src/memory/memory-tools.ts` so both channels can
+import them, with descriptions written to the roadmap's standard — what it does, when it is
+useful with an example, and what each input means. **None of the six had an example or an
+input explanation before, and no parameter carried a `description` at all.**
+
+Six tools exist. `memory_search`, `memory_pin` and `memory_unpin` do not, and each is a
+vertical rather than an addition. Measured, not guessed:
+
+- **`memory_search`** — meaning search is not reachable from the agent at all. Only
+  `TelegramMemoryRetriever` consults Vectorize, through `MemoryMeaningService`. Dispatching
+  the tool means a new dependency on `OwnerTelegramAgentAdapter`, whose dependency list is a
+  validated allowlist, so every construction site is a compile error until updated.
+- **`memory_pin` / `memory_unpin`** — the write path is gated by a **closed intent set**.
+  `OwnerTelegramAgentAdapter.ownerTurn(input, intent)` chooses the intent in code per tool
+  (`"remember"`, `"forget"`, `"correct"`, `"lift"`, `"confirm"`, `"explain"`), and
+  `requireMemoryIntent` refuses when `turn.memoryIntent !== operation`
+  (`memory-owner-controls.ts:277`). The set is `MEMORY_CONTROL_INTENTS`
+  (`memory-owner-controls.ts:42`), re-validated in `memory-repository.ts:2007`, and the owner
+  command's `operation` is a third closed set in the `0019` ingress guard, which I already
+  extended with `item.pin` / `item.unpin`. Adding the tools means extending the union, both
+  runtime sets, the payload codec, the repository write, and the dispatch — **and then
+  answering a design question first: does a pin need the same owner-command ceremony as a
+  forget?** A forget hides evidence and is irreversible in effect; a pin is a preference and
+  is undone by appending a row. If the answer is "no", the pin should not go through
+  `requireMemoryIntent` at all, and that decision changes the shape of the work.
+
+I stopped rather than start that vertical, because a half-wired tool is worse than a missing
+one: it would be defined, classified, dispatched, and refuse at runtime.
+
+### `expires_at` landed, and it cost two things worth not rediscovering
+
+`memory_remember` now takes an optional `lifetime`/`expiresAt` pair and the
+propagation is on all four writers of a version: `remember` honours what the model
+said, `correct` inherits the lifetime of the wording it replaces, `confirm` already
+carried `valid_to` across from the current version, and distillation is explicitly
+durable rather than guessing an expiry — a guessed expiry there would be code
+deciding something the roadmap gives to the model.
+
+**1. There is a third registration place, and #124's parity guard did not cover it.**
+The guard checks two hand-kept *lists*. The per-migration apply chains are *code*:
+`applyMemoryIngressMigration`, `applyMemoryLivingNotesMigration`,
+`applyNewestRuntimeMigration`. When the memory fixtures stopped at `0019`, an INSERT
+naming `lifetime` failed as **`memory_unavailable` from every commit — which reads as
+a database fault, not as a missing migration**, and cost an hour chasing the wrong
+layer. The guard now has a third assertion: apply each chain and assert the applied
+set contains the newest migration on disk, compared against the glob rather than a
+list. It asserts the applied *set*, not the last receipt, because receipt order
+depends on which chain ran first in the file.
+
+Mutation-verified, and the second result needs its explanation recorded:
+
+| mutation | result |
+|---|---|
+| drop `0038` from `applyMemoryIngressMigration` | `× applies the newest migration on disk through the memory fixture chain` |
+| drop `0038` from `applyNewestRuntimeMigration` | **passes — and it is explained, not a survivor**: that chain reaches `applyMemoryIngressMigration` through `applyMemoryBackupMigration` → `applyMemoryDistillationMigration` → `applyArchiveLiteralHistoryMigration`, so 0038 is still applied. The explicit entry in the terminal chain is now redundant. |
+
+**2. The gateway's tests are not typechecked at all, and that is a separate PR.**
+`apps/cloud-gateway/tsconfig.json` has `"include": ["src/**/*.ts"]`, so
+`pnpm typecheck` never sees a test. Making `lifetime` required on
+`CommitInitialMemoryInput` **compiled clean and broke forty tests at runtime**;
+`typecheck:tests` reports 144 errors in 32 files, so it is not a gate and pulling it
+into one is its own argument. Do not widen the tsconfig from a feature branch. The
+practical rule this bought: **run the suites, do not trust the typecheck** — for a
+change to a type a test constructs, the compiler is silent and the suite is the only
+signal.
+
+Also: a 500 ms latency assertion inside a parallel suite measures the machine rather
+than the code. `retrieves archived-source memories and archived history within 500 ms`
+was 1557 ms under load and green three times alone. That is *explained*, and it is a
+different thing from the flake class sweep 5 measured — but "it passes alone" is
+exactly the rule that was wrong at this revision, so it is stated with the number
+rather than as a passing count.
+
+Also still open: `memory_save` taking `expires_at` (now done), `confidence`
+as a projection of `basis`, the hourly review wake-up, and the deletion PR for
+`telegram-memory-language.ts`.
+- **Correction to my own earlier report:** I told Sid `git grep setAlarm` returns nothing. It
+  returns two hits, `voice/call-session-do.ts:1801` and `:1806`. His conclusion still held, for
+  a better reason than the one given.
+
+Built by **DeepSeek V4.1 Flash**. Reasoning-effort level was not exposed to the session.
+
+### Handoff, 2026-09-19: what is next and what it costs
+
+**Sid placed a real call and it worked.** `STATE.md`'s R1 row said the opposite and was
+stale; corrected in PR #126, with a register row. The remaining R1 gap is the **brain**,
+not the phone — the voice path composes its own adapter, has zero tools and uses
+`D1ContextRetriever` instead of the real retriever, which is exactly the defect he saw
+("memory wasn't connected to calling").
+
+**Order agreed and being followed:** merge the gap doc (#120) → ~~place a real call~~ done →
+`memory_search` → the two confirmation holes → **the one brain** → tiers as judgement →
+wake-ups → code-decides cleanup → SMS (after Sid decides whether Telegram is the door).
+The watchdog's permanent `status 404` is an integrity bug worth its own session.
+
+**`memory_search` is a real vertical, and NOT because of the dependency.** Only four
+construction sites exist for `OwnerTelegramAgentAdapter`, so adding a port is trivial, and
+`TelegramMemoryRetriever` already takes an injectable `meaningSearch?: MeaningSearchReader`
+to copy. The cost is elsewhere: **`MeaningSearchHit` carries a `versionId`, not text**
+(`meaning-search.ts:70-83` — `vectorId`, `score`, `itemKind`, `itemId`, `contentHash`), and
+there is **no read path from a hit to retrievable memory text outside the retriever's own
+pipeline**. `readMeaningContexts` (`telegram-memory-retriever.ts:1381`) does hits → canonical
+reads → ranking, wrapped in statement budgets and timeouts, and it is private. So the builder
+must first decide one of:
+
+1. a new repository read — hits → retrievable text, respecting suppression, reusing the
+   `memory_retrievable_item_versions` view so a forgotten fact cannot be returned; or
+2. a public seam on the retriever — which risks the tool inheriting (or duplicating) the
+   automatic path's budgets and skip rules.
+
+**Option 1 is the one to take.** A tool the model calls deliberately must not silently return
+nothing because a budget was exhausted or a query looked like an acknowledgement, which is
+what `shouldSkipMeaningSearch` does to the automatic path. Do not reuse that path wholesale.
+
+Also note the tool's description must say it **drops hidden and expired** memories, because it
+does — and that has to be true of whichever read is added, tested against a forgotten fact.
+
+**Still open from the memory increment:** `confidence` as a projection of `basis`,
+the hourly-review wake-up's payload, and the deletion PR for `telegram-memory-language.ts`.
+
+
 ## 2026-09-19 03:30 UTC — DeepSeek V4.1 Flash builder: the `delivery_unknown` flake has a cause, and it is a redaction bug
 
 **The brief was wrong about this in four ways, and the corrections are the work.**

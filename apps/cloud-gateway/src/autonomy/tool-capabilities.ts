@@ -52,6 +52,11 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_restore: "memory.write",
   memory_confirm: "memory.write",
   memory_explain: "memory.read",
+  // Pinning changes a stored preference rather than an item's existence, so it is
+  // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
+  // the whole reason these two needed no migration: `0035` already seeds the tier.
+  memory_pin: "memory.write",
+  memory_unpin: "memory.write",
   school_update: "school.track",
   university_update: "university.track",
   study_coach: "study.coach",
