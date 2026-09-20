@@ -55,7 +55,7 @@ trustworthy lines in this file:
 | Gate | State |
 |---|---|
 | CI | **Dead since 2026-09-12** (billing), resets 2026-10-01. Every push since is red in 5–11 s |
-| `pnpm test` | 199 files, 5,342 tests, **0 skipped — and unattributable**: three runs gave 12, 8 and 3 failures with no name repeated. No `testTimeout` is configured |
+| `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. One file still roams: `owner-telegram-agent.test.ts` has gone green then red on trees differing only in a log entry |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
