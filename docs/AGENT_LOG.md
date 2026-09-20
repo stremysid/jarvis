@@ -101,11 +101,21 @@ green, so the constant I raised regressed nothing. File names that do not exist 
 rather than guessed at: there is no `test/memory/core-profile.test.ts` (I passed that path and
 vitest ran nothing for it).
 
-**I did not run the whole gateway suite.** The brief says it is red on the base commit with
-timeout failures in `test/memory`, and `docs/STATE.md` says three runs gave 12, 8 and 3 failures
-with no name repeated and no `testTimeout` configured — so a whole-suite number from here would
-be unattributable. What is here is every suite the change can reach, each run alone, plus their
-baseline where the baseline existed.
+**I did not run the whole gateway suite locally.** The brief says it is red on the base commit
+with timeout failures in `test/memory`, and `docs/STATE.md` says three runs gave 12, 8 and 3
+failures with no name repeated and no `testTimeout` configured — so a whole-suite number from
+here would be unattributable. What is here is every suite the change can reach, each run alone,
+plus their baseline where the baseline existed.
+
+**CI then ran the whole thing, and it is green at this head** — run `35525160182`, the first
+run on this branch: **workspace suite 204 files / 5,413 tests passed, 0 failed, 621 s**, plus
+`hermes-runtime suite (windows)`, `local-agent (ubuntu-latest)`, `local-agent (windows-latest)`,
+`deployment scripts (windows)`, `watchdog suite` and `byte-exact files unchanged by checkout`,
+all `success`. **Both `local-agent` jobs passed**, including the Windows one — so the
+passphrase-digest failure recorded in the standing brief is not present at this head. The
+snapshot warns the four hermes tests named in reviewer-tools/gate.ps1's
+`$KnownPreExistingFailures` predate the CI revival, and this run is consistent with that. What I
+observed is this run; I have not re-derived which of those four were ever real.
 
 ### One line of shared code I changed
 
