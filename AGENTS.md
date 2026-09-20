@@ -124,6 +124,44 @@ Not a type, not a helper. It exists so the failure that kills the gateway
 cannot kill the thing reporting it, and an import recouples them. Two files
 are transcribed copies kept in step by hand; both say so.
 
+### A rebase whose upstream is the branch's own head is a silent no-op
+
+`git rebase --onto A B` replays `B..HEAD`. If `B` is where the branch already
+is, that range is **empty**, so the rebase replays nothing, prints
+`Successfully rebased and updated`, and resets the branch onto `A` — looking
+for all the world like it worked.
+
+Measured 2026-09-20, costing a session's local branch: the command was
+`git rebase --onto origin/main 8732233` while the checked-out branch *was*
+`8732233`, and it moved the branch to `main` and dropped four commits. The
+remote was untouched, so nothing was lost, but only because the work had
+already been pushed.
+
+**Check it, do not read the message.** `git rev-list --count B..HEAD` must be
+non-zero before you start, and `git reflog` must show a
+`rebase (start)`/`rebase (finish)` pair with replays between them. Never
+rebase without an upstream you have confirmed differs from the branch.
+
+### Compare against the merge base, never tip versus tip
+
+`git diff --name-only main HEAD` compares two **trees**. A branch that is
+merely behind `main` on files it never touched shows those files as
+differences, and reading that as "what this branch would revert" is wrong in
+both directions: it invents reverts that do not exist and hides the real
+collision set.
+
+The patch a merge applies comes from the merge base:
+
+```bash
+git merge-base origin/main HEAD          # the base the merge actually uses
+git diff --stat $(git merge-base origin/main HEAD) HEAD   # what this PR applies
+git merge-tree --write-tree origin/main HEAD              # simulate, name conflicts
+```
+
+Measured 2026-09-20: a reviewer read a tip-versus-tip diff as a pending revert
+of another PR and sent a builder to fix a problem that did not exist. The
+collision set from the merge base was one file.
+
 ## Conventions
 
 - **pnpm**, Node 24.19.0 or later in the Node 24 line.

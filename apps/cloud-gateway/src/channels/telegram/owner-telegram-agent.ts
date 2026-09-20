@@ -25,6 +25,11 @@ import {
 } from "../../memory/memory-owner-controls.js";
 import { composeCoreProfile, readCoreProfile } from "../../memory/core-profile.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
+import {
+  composeMemorySearchResults,
+  MemorySearchService,
+} from "../../memory/memory-search.js";
+import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { MemoryRepository } from "../../memory/memory-repository.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { recordPendingTelegramReplyMarkup } from "./telegram-reply-markup.js";
@@ -159,6 +164,16 @@ interface OwnerTelegramAgentDependencies {
   /** Telegram's durable pointer when Sid swipes on one of Jarvis's messages. */
   readonly replyToBotMessageId?: number | null;
   readonly targets: TelegramMemoryTargetFinder;
+  /**
+   * Meaning search, for `memory_search`.
+   *
+   * Optional because the bindings it needs (`AI`, `MEMORY_VECTORS`) are absent
+   * in some environments, and a caller without them has no index to read. It is
+   * *not* defaulted to "returns nothing": a search with no index behind it says
+   * so, because an empty result is indistinguishable from "no memory matched"
+   * and that is the answer Sid would act on.
+   */
+  readonly memorySearch?: MeaningSearchReader;
   readonly decisions: {
     raise(input: RaiseDecisionInput): Promise<DecisionItem>;
   };
@@ -427,6 +442,30 @@ function informationalTool(
   return Object.freeze({
     providerResult: toolResult(call, "pending_confirmation", null, receipt),
     receipt,
+    receiptId: null,
+    referencedItemIds,
+  });
+}
+
+/**
+ * A tool whose result is *evidence for the reply* rather than an action.
+ *
+ * The distinction that matters is `receiptId`: `memory_search` changes nothing,
+ * so it must not mint one. A receipt id is what lets the model claim in prose
+ * that something happened, and a search that hands one out lets "I searched your
+ * memory and you never said that" pass the truthfulness guard on the strength of
+ * having looked. `receipt` is null for the same reason -- the retrieved text is
+ * the model's reference data, and showing it verbatim in the reply is `explain`'s
+ * job, not this one.
+ */
+function unactionedTool(
+  call: ModelFunctionCall,
+  evidence: string,
+  referencedItemIds: readonly Ulid[],
+): ExecutedTool {
+  return Object.freeze({
+    providerResult: toolResult(call, "completed", null, evidence),
+    receipt: null,
     receiptId: null,
     referencedItemIds,
   });
@@ -854,6 +893,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       if (call.name === "memory_explain") return this.explain(input, call);
       if (call.name === "memory_pin") return this.setPin(input, call, true);
       if (call.name === "memory_unpin") return this.setPin(input, call, false);
+      if (call.name === "memory_search") return this.search(input, call);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, "I refused that tool call because this is not Sid's direct private Telegram text. Nothing changed.");
@@ -1249,6 +1289,39 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       candidateItemIds: Object.freeze([itemId]),
     });
     return successfulTool(call, explanationReceipt(explanation, item.version.text), Object.freeze([itemId]));
+  }
+
+  /**
+   * `memory_search`: a deliberate read, not the automatic retrieval path.
+   *
+   * The two things this does NOT do are the point of it.
+   *
+   * It does not consult `shouldSkipMeaningSearch`. That predicate exists so the
+   * every-turn path does not spend an embedding call asking whether "thanks"
+   * means anything; a query the model chose to search on is not an
+   * acknowledgement, and answering it with an empty list would be the tool
+   * lying in the one direction nobody can see.
+   *
+   * It does not take a receipt. Searching changes nothing, so there is nothing
+   * to receipt, and the ids that come back are recorded as references so a
+   * later `memory_forget` or `memory_correct` can name what this turn found.
+   */
+  private async search(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
+    if (this.dependencies.memorySearch === undefined) {
+      return refusedTool(call, "I cannot search memory right now: this deployment has no memory index bound, so nothing was searched. Tell Sid that rather than answering from memory.");
+    }
+    const args = parseArguments(call, ["query"]);
+    const query = safeText(args.query, 4_096);
+    const results = await new MemorySearchService({
+      database: this.dependencies.database,
+      meaningSearch: this.dependencies.memorySearch,
+    }).search({ principalId: input.principalId, query });
+    const composed = composeMemorySearchResults(results);
+    return unactionedTool(
+      call,
+      composed ?? "Memory search returned no matching memory. Nothing matched, which is not a failure; say you do not have anything on it.",
+      Object.freeze(results.map((result) => result.itemId as Ulid)),
+    );
   }
 
   private async runPipeline(

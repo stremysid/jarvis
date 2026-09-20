@@ -220,16 +220,20 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         telegramTurn: true,
         telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
       }));
+      // One reader, two callers: the automatic retrieval path and the explicit
+      // `memory_search` tool. They differ in their gates, not in how they reach
+      // the index, and two instances would be two places to configure a model.
+      const meaningSearch = env.AI === undefined || env.MEMORY_VECTORS === undefined
+        ? undefined
+        : new MemoryMeaningService({
+          database: env.DB,
+          embeddings: new WorkersAiMemoryEmbeddingProvider(env.AI),
+          vectors: new VectorizeMemoryVectorStore(env.MEMORY_VECTORS),
+        });
       const memory = new TelegramMemoryRetriever({
         database: env.DB,
         archive: env.ARCHIVE,
-        meaningSearch: env.AI === undefined || env.MEMORY_VECTORS === undefined
-          ? undefined
-          : new MemoryMeaningService({
-            database: env.DB,
-            embeddings: new WorkersAiMemoryEmbeddingProvider(env.AI),
-            vectors: new VectorizeMemoryVectorStore(env.MEMORY_VECTORS),
-          }),
+        meaningSearch,
         observeMeaningSearch: (observation) => observer.recordMeaningSearch(observation),
         observeRetrieval: (metrics) => observer.observeMemoryRetrieval(metrics),
       });
@@ -297,6 +301,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           authorityText: accepted.text,
           replyToBotMessageId: accepted.replyToBotMessageId,
           targets: memory,
+          memorySearch: meaningSearch,
           decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
           // The capability gate. Constructed here so every owner tool call is
           // classified against the database tiers before it acts, which is what

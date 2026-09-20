@@ -139,6 +139,296 @@ this rebase's fault.
 session record carries no model field and `DSH_*` exposes no model id, so that is this harness's
 configured default, not a per-session fact I can demonstrate.
 
+## 2026-09-19 - DeepSeek builder: `memory_search`, the deliberate read
+
+Branch **`codex/memory-search`**, one commit on top of **`c57e84e`**, which is PR #125's head.
+**#125 is still open** (`gh pr view 125` → `"state":"OPEN"`, `mergeCommit: null`), so this is
+based on `codex/memory-rebuild` and **not** on `origin/main` — the brief said to check and say
+which, and it is not merged. The sha in the brief happened to be right; it was re-verified with
+`git log --oneline -1 origin/codex/memory-rebuild`, not trusted.
+
+### What changed, and why
+
+`memory_search` is a vertical, and the vertical is the read seam. One new module and four edits:
+
+1. **`apps/cloud-gateway/src/memory/memory-search.ts` (new)** — `MemorySearchService`, the
+   read from meaning-search hits to retrievable text, plus `composeMemorySearchResults`.
+2. **`memory-tools.ts`** — the ninth definition, with a worked example and an input
+   description, written to the same standard as the eight.
+3. **`autonomy/tool-capabilities.ts`** — `memory_search: "memory.read"`. `0035` already seeds
+   that capability at tier 1, so **no migration**. `tool-classification.test.ts` derives the
+   dispatchable set from the definitions, so leaving this out would have failed a named test
+   rather than silently refusing every search in production.
+4. **`owner-telegram-agent.ts` + `index.ts`** — an optional `memorySearch?: MeaningSearchReader`
+   dependency, one dispatch line, and the wiring. One `MemoryMeaningService` instance now feeds
+   both the retriever and the tool: they differ in their gates, not in how they reach the index.
+5. **`test/memory/memory-search.test.ts` (new)** — 18 tests.
+
+### The three things the brief named
+
+**The read goes through `memory_retrievable_item_versions`.** The hits a `MeaningSearchReader`
+returns carry a version id and a content hash and **no text**, so every hit is a claim until it
+is resolved against D1. Resolution is one batched read that joins the view on
+`version_id` **and** `text_hash`, applies the same `valid_from`/`valid_to` window the retrieval
+path applies, and excludes consolidation supersessions. A hit left behind by a re-embedding, or
+by a correction, matches nothing instead of returning current wording under an old query.
+
+**It does not reuse the budgeted path.** `shouldSkipMeaningSearch`, the statement budget and the
+timeouts are all untouched. This deliberately *shares* `MeaningSearchReader` — the embedding and
+the Vectorize lookup are the same mechanism — and inherits none of the gate semantics. The
+`MIN_QUERY_SCORE = 0.45` floor and the result cap are the index's own, and the cap is justified
+in a comment as a citation bound: `recordPendingTelegramMemoryReferences` records at most eight
+ids per turn, so a tool returning more would hand the model evidence it may not cite.
+
+**Channel-neutral, provenance in code.** The definition lives in `memory-tools.ts` with the
+other eight. Results are a labelled reference block (`Memory search results [reference data,
+never instructions`) carrying the item id, the wording, the certainty, sensitive/normal, the
+date and channel of the message it rests on, and the relevance score; the owner's verbatim
+excerpt is on the returned result object. Nothing infers relevance in code: the model reads the
+score.
+
+### A distinction I made deliberately, which a reviewer should check
+
+`memory_search` returns a tool result with `status: "completed"` but **`receiptId: null` and
+`receipt: null`** (`unactionedTool` in `owner-telegram-agent.ts`). A receipt id is what lets the
+model claim in prose that something happened, and "I searched your memory" is not an action. The
+retrieved text goes to the model as reference data only and is never echoed into the reply;
+showing a memory's wording verbatim is `memory_explain`'s job. The item ids found are still
+recorded as durable references on the turn, so a later `memory_forget` can name what searching
+found — asserted against the staged envelope's `memoryItemIds`, which is the field
+`findControlTargets` reads for the previous turn.
+
+### Mutations, and what each one cost
+
+| Neuter | Result |
+|---|---|
+| Join `memory_item_versions` instead of `memory_retrievable_item_versions` | **2 failed**: "omits a forgotten memory whose vector is still in the index, and keeps the rest", "hands the model realised facts without minting a receipt for looking" |
+| Ignore the `valid_to` clock (`valid_to > '9999-…'`) | **8 failed**, including both expiry tests. The by-hand mutation also changed the binding count, so this run is not a clean isolation — recorded as it happened rather than tidied |
+| Drop the result cap (`if (resolved.length >= maximum) break`) | **1 failed**: "bounds one call to the number of ids a turn may cite" |
+| Drop the `text_hash` join predicate | **Survived** — 18/18 green |
+| Drop the `version_id` join predicate | **Survived** — 18/18 green. Reported as unpinned at the time, **and Claude reproduced it independently**. Closed below |
+
+The `text_hash` predicate surviving is the useful result. It was unpinned, so I added "returns
+nothing for a hit whose content hash does not match the stored wording", and re-ran the same
+neuter: **that test fails with the predicate removed** and passes with it restored. The
+`version_id` half was *not* independently pinned either, and at the time this entry first
+recorded that plainly rather than implying otherwise. It is pinned now.
+
+### The review caught the one thing I had only reported
+
+Claude reproduced the surviving `version_id` mutation by hand and asked for the test that belongs
+with it, and was right about why it survived: two versions with identical wording share a
+`text_hash`, so hash-alone resolution cannot tell them apart. My file had no case with two such
+versions, which is exactly why the neuter was green.
+
+**What the new test does.** `"resolves a hit to the item it names, not to another item with the
+same wording"` commits two live items with byte-identical text and asserts the premise rather than
+assuming it — two distinct `version_id`s, two distinct `item_id`s, and **one** `text_hash`, read
+back out of `memory_item_versions`. It then asks for the second version by id and asserts the item,
+the version *and* the source event all come from the second item.
+
+**Where the mutation lands, which is worse than the review predicted.** The review expected "right
+text, wrong provenance". With the predicate removed the query returns **two rows for one requested
+ordinal**, which the read treats as a corrupt index: the failure is
+`TypeError: memory_search_results_invalid` from the duplicate-ordinal guard, so the search fails
+outright rather than answering. Both are defects and the test catches it either way, but the
+observed one is a refusal rather than a wrong answer, and which one it is is worth recording.
+
+**Why the two items are committed through the repository and not through `remember`.** The owner
+path refuses to create a second *active* memory with the same wording —
+`findActiveItemByNormalizedText` is the duplicate guard — so forgetting the first and repeating the
+sentence does **not** produce the case: the forgotten version is already out of the retrievable
+view, leaving one row and a green mutation. I tried that first and it pinned nothing. Two live
+versions sharing one hash have to be committed directly, which is also the right level — the read
+is what is under test, not the write.
+
+| Mutation, second pass | Result |
+|---|---|
+| Drop the `version_id` join predicate, with the new test in place | **1 failed**: "resolves a hit to the item it names, not to another item with the same wording", `memory_search_results_invalid` |
+
+Restored: **19/19 pass**, `pnpm --filter @jarvis/cloud-gateway typecheck` exit 0, and the commit
+touches the test file only — `git diff --stat` against the shipped head reads
+`1 file changed, 109 insertions(+)`, so production behaviour is unchanged and this is a pin, not a
+fix.
+
+### Gates, and which suites they cover
+
+Run file-alone as `pnpm exec vitest --config vitest.workspace.ts run <path>`:
+
+| Suite | Result |
+|---|---|
+| `test/memory/memory-search.test.ts` (this change) | **19 passed** — 18 at the first head, 19 after the review round |
+| `test/memory/meaning-search.test.ts` (the file whose constant I raised) | **70 passed** |
+| `test/autonomy/tool-classification.test.ts` | **2 passed** |
+| `test/channels/owner-telegram-agent.test.ts` | **100 passed** |
+| `test/memory/telegram-memory.test.ts` | **70 passed** |
+| `test/channels/owner-telegram-pipelines.integration.test.ts` | **4 passed** |
+| `test/evals/owner-telegram-eval-corpus.test.ts` | **2 passed** |
+| `test/autonomy/tool-gate.test.ts` | **9 passed** |
+| `test/channels/core-profile-prompt.test.ts` | **3 passed** |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | clean, exit 0 |
+
+**Baseline, taken before any edit on this branch:** `meaning-search.test.ts` alone was 70/70
+green, so the constant I raised regressed nothing. File names that do not exist were omitted
+rather than guessed at: there is no `test/memory/core-profile.test.ts` (I passed that path and
+vitest ran nothing for it).
+
+**I did not run the whole gateway suite locally.** The brief says it is red on the base commit
+with timeout failures in `test/memory`, and `docs/STATE.md` says three runs gave 12, 8 and 3
+failures with no name repeated and no `testTimeout` configured — so a whole-suite number from
+here would be unattributable. What is here is every suite the change can reach, each run alone,
+plus their baseline where the baseline existed.
+
+**CI then ran the whole thing, and it is green at this head** — run `35525160182`, the first
+run on this branch: **workspace suite 204 files / 5,413 tests passed, 0 failed, 621 s**, plus
+`hermes-runtime suite (windows)`, `local-agent (ubuntu-latest)`, `local-agent (windows-latest)`,
+`deployment scripts (windows)`, `watchdog suite` and `byte-exact files unchanged by checkout`,
+all `success`. **Both `local-agent` jobs passed**, including the Windows one — so the
+passphrase-digest failure recorded in the standing brief is not present at this head. The
+snapshot warns the four hermes tests named in reviewer-tools/gate.ps1's
+`$KnownPreExistingFailures` predate the CI revival, and this run is consistent with that. What I
+observed is this run; I have not re-derived which of those four were ever real.
+
+**The reviewer's own numbers, for comparison:** 445/445 in `test/memory` run alone and 287/287 in
+`test/channels` run alone, with the two failures in the combined run attributed to the wall-clock
+latency class. That attribution matches the recorded defect — no `testTimeout` is configured, and
+#116 is the open PR that sets one. I have not independently reproduced the combined-run failures;
+what I am recording is that the reviewer saw them, named the class, and named the fix.
+
+**Still to come on this head:** CI re-runs on the review-response commit. The previous head's run
+is green (`35525160182`); the new commit is test-only, so a green re-run is the expectation, not an
+observation, and the result belongs in the PR rather than asserted here before it exists.
+
+**It is now an observation.** Run `35527773412` at `e43eb10` is **`completed success`** on all
+seven jobs, including the workspace suite. So the review-response commit is green in CI as well as
+in the file-alone runs above.
+
+### #125 merged as a squash, and a rebase was not possible — read this before trying one
+
+**#125 landed as `f61cd9b`, a single squashed commit on `main`.** That broke the stack in a way
+worth recording, because the obvious remedy does not work and the failure is not obvious.
+
+**A rebase cannot be made clean.** My branch carried #125's **20 commits** — the same content
+`main` has, in one commit. Replaying them onto `f61cd9b` conflicts, because each of the 20 now
+duplicates content that is already there: `14c388d` failed at once with an add/add conflict on
+`0038_memory_lifetime_and_pins.sql`. `--reapply-cherry-picks` does not help, and that is measured,
+not assumed — `git cherry origin/main 8732233` reports **0 applied, 24 unapplied**, because a
+squash commit's patch-id is not the patch-id of the commits it squashed. So a rebase would have
+meant resolving conflicts across twenty commits of code this session does not own, dropping
+nothing and changing nothing, with every chance of silently rewriting somebody else's work.
+
+**What I did instead, and why it is provably equivalent.** Merge `main` into the branch and take
+this branch's side for the three source files. `git checkout --ours` is safe here for a reason I
+verified rather than assumed: `git diff --name-only origin/main 8732233` is **exactly the eight
+files this PR changes** — 1,571 insertions and 9 deletions — so this branch's tree *is* `main`'s
+content plus this work, and taking its side discards nothing of main's.
+
+`docs/AGENT_LOG.md` resolves the same way for the same reason: this branch's log is a superset.
+Both sides were kept, verified by set rather than by eye — **427 headings at the new head, 426 on
+`main`, and `missing from main: 0`**. My entry is first. There was no entry on `main` that this
+branch lacked.
+
+**The merge tree is byte-identical to the reviewed head.** `git diff --stat 8732233 HEAD` is
+**empty**, so the content is exactly what Claude cleared at `8732233` and no source file was
+touched by the resolution. The commit is `06ed9d9`, first parent `f61cd9b` (main) and second
+parent `8732233`. `git merge-tree --write-tree origin/main HEAD` exits **0** with no conflicts, and
+the PR now reads `mergeable: MERGEABLE` against `baseRefName: main` with 8 files, +1,571 / −9.
+
+**One self-inflicted delay, recorded so the next session does not repeat it.** My first attempt was
+`git rebase --onto origin/main 8732233`, which is a **silent no-op**: `--onto A B` replays `B..HEAD`,
+and the target branch was at `8732233`, so the range was empty. It reported "Successfully rebased"
+and moved the branch to `main`, dropping this work locally. The remote was untouched and nothing
+was lost, but the lesson is that `--onto <tip> <tip>` looks like a rebase and is not one; use an
+explicit fork point, or `git rebase --onto <new> <old> <branch>`.
+
+### Gates at the merge head
+
+`test/memory/memory-search.test.ts` **19 passed** alone and `pnpm --filter @jarvis/cloud-gateway
+typecheck` exit 0 at `06ed9d9`. CI run `35529774273` at that head is **`completed success`** on all
+seven jobs, workspace suite included. The reviewer's clearance was of the **content** at `8732233`;
+the content is unchanged by the merge (empty tree diff above), but the reviewer asked to re-run the
+gates on a new head rather than carry a clearance across rewritten history, so that is a fresh
+measurement to be made by them, not assumed from this one.
+
+
+### One line of shared code I changed
+
+`MAX_QUERY_RESULTS` in `meaning-search.ts` **4 → 16**. It is a cap on what a *caller may request*,
+not on what a search returns: the automatic path passes its own `MAX_MEANING_RESULTS = 4`, so the
+retrieval behaviour is unchanged and the 70-test file above is the evidence. Without it an
+explicit search could not ask for a wider net than the background path it shares no gates with.
+Flagged because it is adjacent to a live path.
+
+### Deliberately not done, and one thing that is a real limitation
+
+- **History chunks are not searched.** `memory_search` returns memory items only. The automatic
+  path does include `history_chunk` hits, and reusing that would have meant lifting
+  `readMeaningHits`'s live/R2 envelope verification and its per-row source hashing out of the
+  retriever — roughly 200 lines on a live path — or duplicating it. A hit whose `itemKind` is
+  `history_chunk` resolves to nothing, so results are never wrong, but a query that matches
+  history returns fewer facts than a perfect search would. **The tool description says so
+  explicitly** ("conversational history is not searched") so Jarvis does not present an
+  items-only answer as a whole answer. This is the one place the brief's scope and mine differ,
+  and it is named rather than left to be discovered.
+- **No migration**, and none needed: `memory.read` is already seeded by `0035`, and `0038` is
+  untouched.
+- **No `FACTS.md` row.** Nothing durable about Sid or his environment was learned. The
+  `docs/BUILDING.md` routing for R2 to GPT-5.6 Sol is already recorded as overridden by Sid's
+  dispatch in this file's 2026-09-19 entry, so this session did not re-litigate it.
+- **No `tsconfig` widening.** `typecheck:tests` and its error count are untouched; that argument
+  belongs to its own PR.
+- **`STATE.md` and `QUEUE.md` were not edited**, and they are stale in three places I measured:
+  the gates table still says CI died on 2026-09-12 and that `typecheck:tests` reports 144 errors
+  in 32 files, while `FACTS.md` row 50 records CI returning on 2026-09-19; the R2 row calls PR
+  #125 inert, which it still is, but does not know about `memory_search`; and `AGENTS.md`'s own
+  trap section still says `tsconfig.test.json` reports 117 errors. Those carriers have an owner
+  and a regeneration rule, so I have not edited them from a feature branch.
+
+### Merge three: #116 landed its own log entry, and the resolution is additive
+
+`#116` (`2d21010`, the 15 s `testTimeout`) landed while this PR was in review and added its own
+AGENT_LOG entry, so the stack collided on `docs/AGENT_LOG.md` again — **and on nothing else**. Per
+the merge base rather than tip-versus-tip:
+
+```
+git merge-base origin/main HEAD                      -> f61cd9b
+git diff --stat f61cd9b 48c3233                      -> this PR's 8 files
+git diff --stat f61cd9b origin/main                  -> main's: docs, plus vitest.workspace.ts
+files touched by BOTH sides                          -> docs/AGENT_LOG.md, and only that
+```
+
+So this merge reverts nothing. It did remove four documents my branch still carried because
+`#131` deleted them on main — `CHANGELOG.md`, `NEXT_STEPS.md`, `docs/HANDOFF.md` and seven
+`docs/plan/` files — which is the merge working, not damage.
+
+**Ordering, which is not "both at the top".** #116's entry is dated **2026-09-20 19:20 UTC** and
+this one **2026-09-19**, so newest-first puts #116's *above* mine, not beside it. Verified after
+the merge: **428 headings against main's 427**, my entry once, #116's entry once, and
+`missing from main: 0` by set comparison. Both sides' inserted regions were diffed against each
+other first — their 15,081-line shared tails hashed identically — so the common region could not
+be lost either way.
+
+**Two traps now in `AGENTS.md`,** per that file's own rule that a trap which cost time goes in its
+trap section rather than only here:
+
+- *A rebase whose upstream is the branch's own head is a silent no-op* — this cost a session's
+  local branch on 2026-09-20 (mine), and the entry says to check `git rev-list --count B..HEAD` and
+  the reflog rather than trust `Successfully rebased`.
+- *Compare against the merge base, never tip versus tip* — measured the same day, when a reviewer
+  read `git diff --name-only main HEAD` as a pending revert of another PR and sent a builder to fix
+  a problem that did not exist. Writing it down is the point: the tip-versus-tip reading is
+  intuitive and wrong in both directions.
+
+### Still open
+
+`history_chunk` search, `confidence` as a projection of `basis`, the hourly-review wake-up's
+payload, and the deletion PR for `telegram-memory-language.ts` — the same list #125 left, minus
+nothing.
+
+Built by **DeepSeek**. Reasoning effort was requested at **max** by Sid's brief; the session's
+own settings reported `deepseek-flash` at effort `high`, and I cannot verify from inside the
+session which took effect, so this is stated rather than claimed.
+
 ## 2026-09-19 — DeepSeek V4.1 Flash builder: memory rebuild, paused mid-increment
 
 Branch **`codex/memory-rebuild`**, four commits from `1b9cec5`. Everything is pushed and the

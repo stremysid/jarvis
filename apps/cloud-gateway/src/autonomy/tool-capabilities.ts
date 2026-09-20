@@ -52,6 +52,13 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_restore: "memory.write",
   memory_confirm: "memory.write",
   memory_explain: "memory.read",
+  // Read-only, and the only memory tool that neither names an item nor knows
+  // which one it wants: it asks the index a question. It shares
+  // `memory.read`'s tier-1 row with `memory_explain`, so classifying it needed
+  // no migration -- and, because `tool-classification.test.ts` derives the
+  // dispatchable set from the definitions, leaving it out would have failed a
+  // named test rather than silently refusing every search in production.
+  memory_search: "memory.read",
   // Pinning changes a stored preference rather than an item's existence, so it is
   // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
   // the whole reason these two needed no migration: `0035` already seeds the tier.
