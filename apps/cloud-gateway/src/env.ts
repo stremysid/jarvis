@@ -76,7 +76,7 @@ export interface Env {
   DEEPSEEK_API_KEY?: string;
 
   /**
-   * Overrides the model id. The foundation design pins deepseek-v4-pro;
+   * Overrides the model id. Sid chose deepseek-flash everywhere on 2026-09-20;
    * this exists so a provider rename can be corrected with a secret change
    * rather than a redeploy.
    */

@@ -45,7 +45,12 @@ export const MAX_MODEL_OUTPUT_TOKENS = 65_536;
  * without a code change -- a wrong model id returns 400 and, with replies
  * failing silently, looks exactly like the model never being called.
  */
-export const DEFAULT_MODEL = "deepseek-v4-pro";
+// Sid chose DeepSeek V4.1 Flash for every path on 2026-09-20: frontier models
+// are equivalent for an assistant's daily work, so the decision is cost and
+// latency. `DEEPSEEK_MODEL` overrides this, but the fallback has to agree with
+// the decision -- an unset binding must not silently run a model the owner did
+// not choose, at roughly seven times the price.
+export const DEFAULT_MODEL = "deepseek-flash";
 
 /** Never sent to the model. Retrieval decides what is allowed in a prompt. */
 const SYSTEM_PROMPT =

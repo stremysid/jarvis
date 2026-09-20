@@ -19,7 +19,7 @@ Last regenerated: 2026-09-18, by a builder session, against the revision printed
 | Phase | Verdict | The one thing missing |
 |---|---|---|
 | 1 The brain | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
-| 2 Memory | **code-complete, unproven** | Schema, promotion fix, core profile, nine tools, expiry and pins all merged and **live as of 2026-09-20**. Production still reads 5 `proposed`, 0 `active` because the fix applies only to facts extracted after the deploy. **The open question is whether real conversation now produces an active fact** |
+| 2 Memory | **code-complete, and split in two** | Schema, promotion fix, core profile, nine tools, expiry and pins are live as of 2026-09-20. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
 | 3 School | **works, minus two impossible sources** | Deadlines arrive by D2L notification email. Classroom needs a Cloud Console this board cannot reach; Brightspace exposes no iCal feed. Neither is a gap to close |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
 | 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call has **zero tools** and the weaker retriever, so it can talk and cannot act. The release gate has never been run |
@@ -52,8 +52,10 @@ applied the migration and deployed:
   at `2026-09-20T23:10:06.810Z`. Every cron before this deploy logged
   `status 404`; it had never once been recorded. The fix needed a redeploy to
   prove and the redeploy proved it.
-- Memory: **5 `proposed`, 0 `active`**. The promotion fix is live but applies only
-  to facts extracted after the deploy — it does not reach back for the five.
+- Memory: **5 `proposed`, 0 `active`** in `memory_items`, and **0 rows** in
+  `memory_fact_projection_facts`. The promotion fix is live but applies only to
+  facts extracted after the deploy. The projection is what a phone call reads,
+  and only the Windows local agent writes it, so it is empty.
 
 Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
 
