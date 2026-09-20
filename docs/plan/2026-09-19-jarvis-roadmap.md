@@ -21,7 +21,7 @@ prevents it.
 
 **Code builds tools. Jarvis makes every decision.**
 
-Code never decides what, when, whether, or how. It only gives Jarvis abilities and wakes it up. Jarvis is Claude with tools, and it uses judgment exactly like a person would.
+Code never decides what, when, whether, or how. It only gives Jarvis abilities and wakes it up. Jarvis is a chat model with tools, and it uses judgment exactly like a person would.
 
 Code is allowed to do only four things:
 
@@ -38,8 +38,8 @@ If you catch yourself writing an `if` statement that makes a judgment call, stop
 
 - **Twilio:** your phone number for texts and calls
 - **Worker (router):** receives Twilio webhooks, email, and HTTP requests, then passes them to Jarvis
-- **Durable Object (Jarvis):** one persistent instance that holds conversation state, runs the Claude loop, and calls tools. Texts, calls, emails, and wake-ups all go to this same brain.
-- **Claude API:** the intelligence, with tool calling
+- **Durable Object (Jarvis):** one persistent instance that holds conversation state, runs the model loop, and calls tools. Texts, calls, emails, and wake-ups all go to this same brain.
+- **DeepSeek V4.1 Flash:** the intelligence, with tool calling. See **The model** below
 - **D1:** structured data (facts, courses, deadlines, receipts, settings)
 - **Vectorize:** meaning search over memory
 - **Workers AI:** embeddings for Vectorize
@@ -48,6 +48,31 @@ If you catch yourself writing an `if` statement that makes a judgment call, stop
 - **Cron Triggers and DO alarms:** wake-ups
 - **External watchdog:** Healthchecks.io or UptimeRobot
 - **PC script:** Obsidian vault sync
+
+## The model
+
+**DeepSeek V4.1 Flash, everywhere.** Decided by Sid on 2026-09-20. Earlier drafts
+of this document said "Claude API"; the code has always called DeepSeek, and this
+resolves the contradiction in favour of the code.
+
+**The reasoning, so nobody re-opens it.** Frontier models differ on deep
+reasoning, long-context coding and heavy analysis. Jarvis does none of those
+daily. Answering a question, writing an email, reading a D2L notification,
+deciding what is worth remembering -- any modern model does these the way any
+competent assistant would. Once capability is equivalent, the decision is cost
+and latency, and nothing matches Flash on either.
+
+**Do not "fix" this back.** A session that reads "Claude" in an older document
+and changes the code is making the repository disagree with its owner.
+
+**The one place this could matter, and how to settle it.** This roadmap moves
+judgment out of code and into the model: attribution, what is worth remembering,
+how long a fact lives, which tier an action falls into. Those decisions are rare
+and they fail *silently* -- a wrong fact, not a crash. If that ever proves to be
+a problem, the seam already exists: `MEMORY_EXTRACTION_MODEL` (`env.ts`, read at
+`index.ts`) defaults to `DEEPSEEK_MODEL` and can point at a stronger model for
+extraction alone, with no code change. Settle it by observing real extractions
+after a deploy, not by argument.
 
 ## Phase 1: The Brain
 
@@ -59,7 +84,7 @@ If you catch yourself writing an `if` statement that makes a judgment call, stop
 - Jarvis email address on the domain with school emails auto-forwarding to it, received by an Email Worker
 - Twilio number with the SMS webhook pointed at the router Worker
 - Twilio request signature check on every webhook
-- The Jarvis Durable Object with the Claude loop: receive an event, build context, call Claude, run any tool calls, repeat until Claude replies, send the reply
+- The Jarvis Durable Object with the model loop: receive an event, build context, call the model, run any tool calls, repeat until it replies, send the reply
 - `send_text(message)`: sends you an SMS through Twilio
 - Conversation storage in the DO: recent messages kept in full, older ones summarized when context gets long (code triggers the summary, Jarvis writes it)
 - Tool-call logger: every tool call recorded with time, tool, input, result, and what triggered it (text, call, email, wake-up). This becomes Receipts.
