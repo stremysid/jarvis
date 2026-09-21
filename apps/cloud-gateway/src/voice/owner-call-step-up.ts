@@ -292,7 +292,10 @@ export class OwnerCallStepUpService {
   ): Promise<"suppress" | "continue"> {
     const at = iso(now);
     const status = await this.repeatStatus(sessionId, now);
-    if (status === "guard") return "suppress";
+    // `spent` is suppressed alongside `guard`. A repeat-check row exists, so the
+    // utterance is a repeat of this call's step-up text; "continue" would hand it
+    // on as ordinary text and the caller would store it as a turn.
+    if (status === "guard" || status === "spent") return "suppress";
     if (status !== "fragment" && status !== "available") return "continue";
     let canonical: Uint8Array;
     try { canonical = canonicalizeOwnerPassphrase(candidate); }
