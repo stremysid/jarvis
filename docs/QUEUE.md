@@ -8,10 +8,6 @@ moving. Regenerate it rather than appending to it.
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
 Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
-Updated on 2026-09-21 by `#137`: the `findControlTargets` row for the voice path, and the two
-Phase 5 rows given the seam decision from `DECISIONS.md`. The pull-request table already carried
-`#136`/`#137` on `main`. **The stale *"Apply `0038`, then deploy"* row was already gone on `main`
-and this branch does not touch it.**
 
 ## Pull requests
 
@@ -27,6 +23,7 @@ and this branch does not touch it.**
 | [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed. Conflicting |
 | [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Conflicting |
 | [#127](https://github.com/stremysid/jarvis/pull/127) | **blocked** | Rebase, and **do not resurrect `docs/HANDOFF.md`**, which #131 deleted | builder | none | Rewrites `BUILDING.md`, whose vendor table is still keyed to R0–R10. Conflicting |
+| [#138](https://github.com/stremysid/jarvis/pull/138) | **awaiting-review** | Reviewer reads it, after #137 merges | reviewer | Phase 5 | The register of decisions written in code, and the audit salvage preserved. Docs only |
 
 ## Work with no pull request yet
 

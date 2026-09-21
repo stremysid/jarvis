@@ -10,6 +10,15 @@ builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
 has already had.
 
+**Before you write a condition, read
+[docs/CODE-VS-JUDGMENT.md](docs/CODE-VS-JUDGMENT.md).** The roadmap's core rule
+is *"Code builds tools. Jarvis makes every decision."* That file is the register
+of every place in this codebase where a judgment got written in code instead,
+with the surface each one should move to. An `if` that decides how many results,
+what counts as relevant, or whether to act at all is a decision, not plumbing.
+The list is **partial** — say so on the page if you find another, and add it in
+the same pull request that you find it in.
+
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
 [docs/AGENT_LOG.md](docs/AGENT_LOG.md) — append at the top, sign it, and
