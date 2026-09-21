@@ -7,25 +7,29 @@ moving. Regenerate it rather than appending to it.
 `state` is one of `awaiting-review`, `changes-requested`, `awaiting-owner`,
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
-Last regenerated: 2026-09-20, against `main` = run `git log --oneline origin/main -1`.
+Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
 
 ## Pull requests
 
 | PR | State | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main`, then request review | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Its `\d{2,}` contextual rule is the fix for the four-digit PIN gap, verified by executing `sanitizeRedaction`. Conflicting since 2026-09-18 |
-| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set, then decide whether it is still needed | builder | none | `gate.ps1` isolation runs 1 → 3, classifying on the rate. #116 set a 15s timeout, so the load-timeout class it was written against is largely gone. Conflicting |
-| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | A second vendor reads it — not the reviewer who wrote it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored, so `AGENTS.md`'s rule applies. Conflicting |
-| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Re-check what is left of it now that #130 and #131 have landed | reviewer | none | Wired `check-state.mjs` into CI and regenerated the carriers. Reviewer-authored. Conflicting |
-| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed — the `local-agent` job is green. Conflicting |
-| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Reviewed once: one claim confirmed, one overstated, one did not reproduce. Conflicting |
-| [#127](https://github.com/stremysid/jarvis/pull/127) | awaiting-review | Reviewer reads it | reviewer | none | Process: who builds, who reviews, and the deep final review. Conflicting |
-| [#128](https://github.com/stremysid/jarvis/pull/128) | **cleared, one conflict left** | Merge `main` in — `docs/AGENT_LOG.md` only, since #116 landed its entry — then merge | builder | Phase 2 | `memory_search`. Cleared at `48c3233`: 28 files, 779 tests, zero failures, and the suppression property mutation-killed independently |
+| [#136](https://github.com/stremysid/jarvis/pull/136) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The passphrase repeat filter let the spent status through as ordinary text |
+| [#137](https://github.com/stremysid/jarvis/pull/137) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The voice seam is decided, and the spent passphrase repeat is pinned |
+| [#133](https://github.com/stremysid/jarvis/pull/133) | **awaiting-independent-pass** | DeepSeek reviews it, then merge | Sid | none | Reviewer-authored. Brings every carrier into line with production and sets the code's model default to `deepseek-flash`. **Until it merges, `main`'s carriers are stale** |
+| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main` | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Conflicting |
+| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set; likely no longer needed | builder | none | `gate.ps1` isolation re-runs. Conflicting |
+| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | DeepSeek reviews it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored. Conflicting |
+| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Keep only the CI wiring for `check-state.mjs`; the carrier content is superseded by #132 and #133 | reviewer | none | Reviewer-authored. Conflicting |
+| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed. Conflicting |
+| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Conflicting |
+| [#127](https://github.com/stremysid/jarvis/pull/127) | **blocked** | Rebase, and **do not resurrect `docs/HANDOFF.md`**, which #131 deleted | builder | none | Rewrites `BUILDING.md`, whose vendor table is still keyed to R0–R10. Conflicting |
 
 ## Work with no pull request yet
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
+| **Deploy** | **blocked on Sid** | #135 fixed pinning on `main`; production still throws until the gateway is redeployed. Same two commands as before: pull `C:\javis`, then `scripts/deploy.ps1 -Publish`. No migration this time | Sid | Phase 2 |
+| The operation guard in `findControlTargets` is a hand-kept list | **not started** | #135 added `pin`/`unpin` to it, but its test hand-lists the operations too: adding a member to `TelegramMemoryTargetOperation` passes the test and typecheck while the guard rejects it. Make the guard a `satisfies Readonly<Record<TelegramMemoryTargetOperation, true>>` map, as #124 did for the intent set. The fourth copy of this defect | builder | Phase 2 |
 | **Apply `0038`, then deploy** | **blocked on Sid** | Everything merged since 2026-09-18 is correct and inert until this happens — the promotion fix, the tier-3 gate, forgetting's back door, the whole memory rebuild | Sid, then reviewer | **everything** |
 | Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front and receipts on the voice channel | builder | **Phase 5** |
 | One brain: two composition sites for what should be one assistant | **not started** | The keystone. Until it lands, every capability added reaches one door only | builder | Phase 1 |
@@ -35,7 +39,7 @@ Last regenerated: 2026-09-20, against `main` = run `git log --oneline origin/mai
 | `explain` / `forget` / `restore` print the memory text in the result that says it was withheld | **live defect** | Pass the string the service already sanitised instead of re-reading the repository | builder | Phase 2 |
 | `selectControlTargets` reads `memory_item_fts` with no suppression anti-join | **live defect** | Copy the two `NOT EXISTS` clauses the FTS arm of `readCandidates` carries | builder | Phase 2 |
 | A confirmation binds `capability:argumentsHash`, not the tool name; and is never consumed | latent | Brief staged at `C:\w\briefs\conf.md`, worktree `C:\w\conf`. Not live — the gate merged after the last deploy | builder | first tier-3 hand |
-| The watchdog has never recorded a heartbeat, and declares none of its secrets | **not started** | Brief staged at `C:\w\briefs\wd.md`, worktree `C:\w\wd`. Nothing else is observable while it is mute | builder | Phase 7 |
+| The watchdog declares none of its alerting secrets | **not started** | The heartbeat itself **works as of 2026-09-20** — the redeploy proved it. What remains: `apps/watchdog/wrangler.toml` declares none of `WATCHDOG_TELEGRAM_BOT_TOKEN`, `_CHAT_ID` or `_HEARTBEAT_SECRET`, so a misconfigured watchdog deploys fine and cannot alert anyone. Brief staged at `C:\w\briefs\wd.md` | builder | Phase 7 |
 | `channel_identities` has no `BEFORE INSERT` trigger; `capability_tiers` has no update or delete guard | not started | One migration, four triggers. Next free number is **`0039`** — `0038` is taken | builder | Phase 2 |
 | `tool-gate.ts` returns `verdict: "permit"` as a literal | not started | Deny when the second evaluation is not the outcome the first one was. `verdictFor(confirmed)` is the **wrong** fix | builder | first tier-3 hand |
 | `telegram-provider.ts` clears its abort timer before the body read | not started | Keep the timer armed across `response.json()`, as `twilio-provider.ts` does | builder | none |

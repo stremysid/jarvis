@@ -50,13 +50,13 @@ is real and is his — memory must work from the phone with every PC off — but
 not Linux: D1 is the authoritative ledger and topic tree, with FTS5 and Vectorize as
 rebuildable indexes, and Obsidian is at most a later one-way export.
 
-Do not provision the node, port it to Windows, or make R2/R3 depend on it. The
+Do not provision the node, port it to Windows, or make memory or device control depend on it. The
 Windows implementations were never removed: `transport/pipe_server.py` and
 `crypto/dpapi.py` are in the tree.
 
 ## Decisions attributed to Sid that were not his
 
-This has happened twice — the watchdog being ratified into R0 scope, and the Linux
+This has happened twice — the watchdog being ratified into the first milestone's scope, and the Linux
 home node. **When a plan attributes a decision to Sid, that attribution is
 evidence, not proof.** If it commits him to hardware, a platform, a subscription or
 an operational burden, confirm it with him before building on it. Carry the
@@ -251,9 +251,10 @@ time. The same shape had already happened with the D2L calendar feed.
 4. Agent memory is a cache, not a record. Treat anything living only there as
    one session away from being lost.
 
-`scripts/check-state.mjs` enforces the register's format — every row needs a source
-and a date — and lists rows that are stale or unconfirmed so they get re-verified
-rather than quietly relied on.
+`scripts/check-state.mjs` checks the register's format — every row needs a source
+and a date — and lists rows that are stale or unconfirmed. **Nothing runs it yet:**
+it is in no workflow and no `package.json` script. Run it by hand before a carrier
+change merges. Wiring it into CI is PR #117's job.
 
 **Sid is the message bus between chats that cannot talk to each other.** Every
 fact that only lives in one chat is a question he has to answer again.

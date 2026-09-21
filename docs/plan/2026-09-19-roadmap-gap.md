@@ -37,14 +37,13 @@ Also structural, and worth saying once rather than in every row:
 
 | Roadmap says | Reality |
 |---|---|
-| ~~Claude API~~ **RESOLVED 2026-09-20** | DeepSeek V4.1 Flash, by Sid's decision. The roadmap now says so; the code always did. Not a gap |
 | Text is **SMS via Twilio** | Text is **Telegram**. Twilio is voice-only — `git grep twilio` hits voice routes, callbacks and the outbound call dispatcher, and nothing that sends a message |
 | Queues for slow work | No Queues binding in `wrangler.toml` |
 | External watchdog (Healthchecks.io) | An internal `apps/watchdog` Worker. Nothing pings an outside service — `git grep -E "healthcheck|uptimerobot|hc-ping"` returns nothing |
 
 ---
 
-## Phase 1: The Brain
+## Phase 1: The Nervous System
 
 | Item | Verdict | Detail |
 |---|---|---|
@@ -67,7 +66,7 @@ promotion rule is the defect**, and it is the reason memory feels absent.
 | Item | Verdict | Detail |
 |---|---|---|
 | `facts` table with the listed columns | ◐ | `memory_item_state` / `memory_item_versions` cover text, source, versioning, hidden and superseded |
-| `kind` durable vs temporary, `expires_at` | ◐ | **Corrected 2026-09-19.** The original row said the column does not exist, from a grep for the roadmap's name. The repo calls it **`valid_to`**: it is in `0016_cloud_memory.sql`, six memory modules read it (`memory-repository.ts` alone 21 times), and the nightly job transitions on it. **No writer ever sets it**, so nothing is temporary in practice — the gap is a writer, not a column. `memory_items.kind` is also already taken, meaning the subject taxonomy, so the durable/temporary axis needs its own name |
+| `kind` durable vs temporary, `expires_at` | ◐ | The repo calls it **`valid_to`**: it is in `0016_cloud_memory.sql`, six memory modules read it (`memory-repository.ts` alone 21 times), and the nightly job transitions on it. **No writer ever sets it**, so nothing is temporary in practice — the gap is a writer, not a column. `memory_items.kind` is also already taken, meaning the subject taxonomy, so the durable/temporary axis needs its own name |
 | `confidence` stated / inferred / confirmed | ◐ | An `uncertain` flag plus an origin of `authenticated_first_person` or `model`. Not the three-value field |
 | `pinned` and a core profile in the prompt | ⛔ | `git grep -E "pinned\|core profile"` returns **nothing**. Nothing is injected into every turn |
 | Embeddings → Vectorize | ✅ | Workers AI + `jarvis-memory-bge-m3`, indexed by the hourly job |

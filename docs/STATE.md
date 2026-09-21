@@ -11,73 +11,94 @@ them down.
 If this file disagrees with a longer document, this file is right and the longer
 document is stale — say so in the pull request that fixes it.
 
-Last regenerated: 2026-09-18, by a builder session, against the revision printed by
-`git log --oneline origin/main -1`. Regenerate it; do not append to it.
+Last regenerated: 2026-09-21, by the reviewer, against production queried directly
+and the revision printed by `git log --oneline origin/main -1`. Regenerate it; do not
+append to it.
 
 ## Where the project actually stands
 
-| Milestone | Verdict | The one thing missing |
+| Phase | Verdict | The one thing missing |
 |---|---|---|
-| R0 Green and deployed | **UNMET** (declared passed 2026-09-11) | CI is red and cannot go green before 2026-10-01, and the watchdog has never recorded a gateway heartbeat. The heartbeat clause was removed from the exit test rather than met |
-| R1 Phone Jarvis from the car — **v1.0** | **UNMET** | **Corrected 2026-09-19: a real call has been placed and it worked**, so the phone plumbing is proven and the secrets are loaded — the previous row said the opposite and was stale. What is missing is the **brain**: the voice path composes its own adapter, has zero tools and uses `D1ContextRetriever` instead of the real retriever, so a call can talk and cannot act. The release gate has also never been run, so there is no committed evidence |
-| R2 Cloud memory with every PC off | **UNMET** | Distillation, recall and meaning search all run; production has published **0 active facts** (36 runs, 5 items, all `proposed`). **The cause is found and fixed in PR #125 and is inert until that lands and `0038` is applied** — the promotion rule required the fact to be the owner's entire message verbatim, which no conversation satisfies |
-| R3 Hands: device control | **UNMET** | Not started. No command route to any machine exists |
-| R5 School and university | **UNMET, exit test unsatisfiable as written** | Names a Classroom deadline and a Brightspace deadline. Neither can be obtained on this board — see `docs/runbooks/` and PR #105 |
-| R5A Proactive study coach | **UNMET** | Answers when asked and rides the morning digest; it never initiates |
-| R7 Assistant manager | **UNMET** | Not started |
+| 1 The nervous system | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
+| 2 Memory | **code-complete, split in two, and pinning broken** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. **Pinning is broken in production:** the operation guard in `findControlTargets` lists five operations and omits `pin` and `unpin`, so both tools throw `telegram_memory_target_invalid` on every call and the core profile stays empty. **Fixed on `main` by #135, not yet deployed.** **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
+| 3 School | **built, and receiving nothing** | The D2L email handler is deployed and has **never received a single email** — `d2l_email_messages` and `d2l_email_failure_state` are both empty in production, so not even a malformed message has arrived. The Cloudflare routing rule for `school@onesid.ca` most likely still points at Gmail (unverified; see [OWNER-ACTIONS.md](OWNER-ACTIONS.md)). Separately, Classroom and the Brightspace feed are impossible on this board and are not gaps to close |
+| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
+| 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
+| 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
+| 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
-Measured against each milestone's own exit test in
-`docs/plan/2026-09-03-jarvis-roadmap.md` §7. Source: the 2026-09-18 sweep, which
-found every claimed capability by symbol and then checked for a production caller.
+Measured against the phases in
+[`plan/2026-09-19-jarvis-roadmap.md`](plan/2026-09-19-jarvis-roadmap.md).
 
 ## The one thing that changes what Jarvis is
 
-**The voice channel has no tool dispatch.** `apps/cloud-gateway/src/voice` contains
-no tool, function-call or tool-call reference at all, while the Telegram path has
-nine tools. A deployed R1 today is a phone call that can talk and cannot act.
+**There are two assistants, not one.** Telegram and a phone call are composed
+separately, and they differ at every layer:
 
-R1's exit test does not require a tool, which is why both statements are true:
-v1.0-as-written is configuration-blocked, and v1.0-as-the-owner-means-it needs the
-tool-calling agent composed into `CallSessionCore`.
+| | Telegram | Phone call |
+|---|---|---|
+| Tools | nine | **none, and none possible** — `ModelAdapterStreamInput` has no `tools` field, so this is a type change, not a wiring call |
+| Memory it reads | `memory_items` | `memory_fact_projection_*` — a **different store**, written only when the Windows local agent pushes, and **empty** in production |
+| Core profile | injected every turn | never |
+
+So a call can talk and cannot act, and nothing Sid tells Jarvis by text reaches a
+call. The roadmap's answer is one brain that both doors reach. It is the keystone:
+until it lands, every capability added reaches one door only.
 
 ## Production
 
-`[R]` **Relayed, never observed here.** No session has `wrangler` credentials, so
-these are the last figures a session with access reported, and they are the least
-trustworthy lines in this file:
+**Observed directly on 2026-09-20**, not relayed — a session with `wrangler`
+applied the migration and deployed:
 
-- Worker version `555c1414`, deployed 2026-09-18.
-- D1 at migration `0034`. Two older documents say `0032` and `0015`; both are wrong.
-  **One read-only query of `d1_migrations` settles it permanently.**
+- Worker `74f2a003-cd87-4eee-a359-222b07c1db0b`, deployed 2026-09-20.
+- Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`, same evening.
+- **D1 at migration `0038`.** Verified by querying `d1_migrations`, and the three
+  objects it creates exist.
+- **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway`
+  at `2026-09-20T23:10:06.810Z`. Every cron before this deploy logged
+  `status 404`; it had never once been recorded. The fix needed a redeploy to
+  prove and the redeploy proved it.
+- Memory: **5 `proposed`, 0 `active`** in `memory_items`, and **0 rows** in
+  `memory_fact_projection_facts`. The promotion fix is live but applies only to
+  facts extracted after the deploy. The projection is what a phone call reads,
+  and only the Windows local agent writes it, so it is empty.
+
+Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
 
 ## The gates, and whether they can be trusted
 
 | Gate | State |
 |---|---|
-| CI | **Dead since 2026-09-12** (billing), resets 2026-10-01. Every push since is red in 5–11 s |
+| CI | **Alive, and green on `main`.** It was dead on billing from 2026-09-12 and came back on 2026-09-19 when the repository moved into the organisation. The last five runs on `main` all pass. Across all 33 non-cancelled runs on `main` it is 7 green and 26 red, because most of the red predates the fixes that landed on 2026-09-20 (T6, the ULID redaction bug, `testTimeout`). Query it: `gh run list --repo stremysid/jarvis --branch main` |
 | `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. One file still roams: `owner-telegram-agent.test.ts` has gone green then red on trees differing only in a log entry |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**Consequence, stated plainly: a green local run may not be banked, and a red one
-cannot be attributed.** Until that changes, nothing may be merged on the strength of
-a local run alone.
+**A timeout is now a signal.** With `testTimeout` set and `main` green, a red run
+means something — except in `owner-telegram-agent.test.ts`, which still roams and
+should be re-run before a failure there is attributed. Merge on CI, not on a local
+run alone.
 
 ## Live defects
 
-Three, all verified on 2026-09-18 and all still present at the time of writing:
+Re-checked against `main` and production on 2026-09-21:
 
-1. `/shadow off` tells the owner *"tier 3 still asks first"*, and `AutonomyService`
-   has zero callers. The test asserts the sentence, not the control. PR #106 wires it.
-2. Forgetting has a back door: automatic distillation has no suppression predicate,
-   so a forgotten turn can be distilled into a fresh, retrievable memory. Hourly.
-3. A four-digit PIN and the owner passphrase match no redaction rule, and the test
-   that appears to cover it asserts against a field no production call site uses.
+1. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
+   a token on the line after `Authorization:`. Confirmed by executing
+   `sanitizeRedaction`. The test that appears to cover it asserts against
+   `guest.pin`, a field no production call site passes. PR #96 fixes the digit
+   half only.
+2. `explain` / `forget` / `restore` print the memory text in the same tool result
+   that says it was withheld.
+3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
+   and that index has no delete trigger.
+4. **`memory_pin` and `memory_unpin` throw on every call in production.** Fixed on
+   `main` by #135; **not deployed**, so still broken live until the next deploy.
 
-Full list, including the four smaller authority gaps, in `KNOWN_ISSUES.md` and the
-2026-09-18 sweep report.
+Items 2 to 4 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live
 
@@ -88,5 +109,5 @@ Full list, including the four smaller authority gaps, in `KNOWN_ISSUES.md` and t
 | Why is it built this way? | [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](../DECISIONS.md) |
 | What is broken or unproven? | [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) |
 | What stopped working and why? | [AGENT_LOG.md](AGENT_LOG.md) — **search it, do not read it** |
-| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The 2026-09-03 milestone roadmap is superseded |
+| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The milestone roadmaps that preceded it are deleted |
 | Who builds and reviews what? | [BUILDING.md](BUILDING.md) |

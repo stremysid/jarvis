@@ -16,58 +16,71 @@ Anything citing one is reading something that no longer exists.
 
 ---
 
-## The Core Rule
+## We are not building the brain
 
-**Code builds tools. Jarvis makes every decision.**
+**Jarvis is the brain. We build the body.**
 
-Code never decides what, when, whether, or how. It only gives Jarvis abilities and wakes it up. Jarvis is a chat model with tools, and it uses judgment exactly like a person would.
+Every hour spent here goes into four things, and only four:
 
-Code is allowed to do only four things:
+- **Hands** — tools. Small, concrete, single-purpose. Save this fact. Read this
+  email. Place this call. A tool performs. It never decides whether to perform.
+- **Senses** — wake-ups and provenance. A cron, an alarm, a webhook saying
+  *something happened*, or *it's time*. And the facts the model cannot see for
+  itself: is this forwarded? is this the owner's own text? is this a private chat?
+- **Memory** — storage, the ledger, backups, the indexes.
+- **Proof** — receipts, enforced taps, audit rows. If Jarvis says it happened,
+  code must be able to show it happened.
 
-1. **Tools:** small functions that do one concrete thing (save a fact, read an email, send a text, place a call). A tool never contains logic about whether it should be used.
-2. **Wake-ups:** cron, alarms, and webhooks that tell Jarvis "something happened" or "it's time." They never decide what Jarvis does about it.
-3. **Storage and plumbing:** databases, files, backups, webhooks, the watchdog.
-4. **Enforcing a decision Jarvis already made:** for example, when Jarvis decides an action needs your approval, the code holds it until you say YES.
+Everything else is judgment, and judgment is Jarvis's.
 
-Jarvis decides everything else: what's worth remembering, what an email means, whether a deadline is new or updated, what goes in the digest, when to call you, what to ask permission for, how to talk to you, and when to stay quiet.
+What is worth remembering. What an email means. Whether a deadline is new or
+updated. How long a fact lasts. When to call rather than text. How to speak on a
+phone. When to stay quiet.
 
-If you catch yourself writing an `if` statement that makes a judgment call, stop. That belongs in the system prompt or a tool description, not in code.
+We do not write those. We write the surface it decides from — the tool
+description, the system prompt — and then we get out of the way.
 
-### The test
+### Why it has to be this way
 
-Sid's rule, 2026-09-20, and the fastest way to settle any argument about whether
-something belongs in code:
+Because a model's judgment has four hard limits, and each one is a harness, not a
+competitor to it:
 
-> **If a chat model could do it, assuming every permission were granted, there is
-> no need to code it.**
-
-Think of the API as a brain and everything here as body parts. A model can read
-bad spelling, infer intent, tell a statement from a guess, judge whether an email
-matters. None of that needs code, and code written for it will be worse.
-
-**The test is "can the model do it at all", not "might the model get it wrong."**
-That distinction is the whole rule. A model that might be wrong still owns the
-decision, because being occasionally wrong is what judgment is. Code does not get
-the job back by being more predictable.
-
-### The four things a model genuinely cannot do
-
-These are the only reasons for code, and every one of the four categories above
-reduces to one of them:
-
-1. **Know what the channel said.** Was this forwarded? Is this a private chat? Is
-   this the owner's own text? That is provenance, and it comes from outside the
-   conversation. The model cannot see it, so code must carry it.
-2. **Enforce its own decision against a later prompt.** Jarvis can decide an email
-   needs a tap. It cannot stop a later message talking it out of that. **This is
-   why tier 3 stays** — not because the judgment is untrusted, but because the
-   judgment cannot enforce itself.
-3. **Remember, or wake up.** Storage and alarms.
-4. **Prove something happened.** A receipt the model writes is a claim. A receipt
+1. **It cannot know what the channel said.** Provenance lives outside the
+   conversation.
+2. **It cannot enforce its own decision against a later prompt.** It can decide an
+   email needs a tap; it cannot stop the next message talking it out of that. This
+   is the entire reason tier 3 exists — not distrust of the judgment, but the
+   judgment's inability to enforce itself.
+3. **It cannot remember, and it cannot wake up.**
+4. **It cannot prove anything.** A receipt the model writes is a claim. A receipt
    code writes is evidence.
 
-Everything else is Jarvis's: certainty, attribution, what is worth remembering,
-what an email means, how long a fact lasts, when to interrupt, when to stay quiet.
+So code does those four and nothing more. Not because the model is untrusted —
+because those are the things it structurally cannot do.
+
+The body parts map onto the limits exactly: **Senses** answer limit 1, **Proof**
+answers limits 2 and 4, **Memory** answers limit 3, and **Hands** are how the
+judgment reaches the world at all.
+
+### The check, and it is one question
+
+> **Am I writing code that decides, or code that enables?**
+
+If you catch yourself writing an `if` that makes a judgment call — how many
+results, what counts as relevant, whether to act at all — stop. That `if` is a
+decision, and decisions belong in the prompt or a tool description.
+
+A sharper form of the same check, for settling an argument: **if a chat model
+could do it, assuming every permission were granted, there is no need to code it.**
+The question is always whether the model *can* do it at all — never whether it
+*might get it wrong*. Being occasionally wrong is what judgment is, and code does
+not win the job back by being more predictable.
+
+There are already nine recorded instances of this in the codebase. Each one is a
+piece of Jarvis's brain that got written in the wrong language. A tenth is not
+progress. (They are inventoried in the memory redesign spec, PR #122 — unmerged
+at the time of writing, and its first entry describes a path that exists in the
+tree but is not wired in production.)
 
 ### What Jarvis is, in one line
 
@@ -119,7 +132,7 @@ a problem, the seam already exists: `MEMORY_EXTRACTION_MODEL` (`env.ts`, read at
 extraction alone, with no code change. Settle it by observing real extractions
 after a deploy, not by argument.
 
-## Phase 1: The Brain
+## Phase 1: The Nervous System
 
 **Goal:** text Jarvis any time and have a real conversation with it.
 
