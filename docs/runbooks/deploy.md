@@ -1,7 +1,7 @@
 # Deploy the gateway and watchdog
 
-R0 deploys the existing Workers. Calling remains R1. Complete the R0 review
-with Claude Opus 5 at high effort before publishing. Record the reviewed
+How to deploy the gateway and watchdog Workers. Deploy only a commit that has
+passed review and CI on `main`. Record the deployed
 commit and obtain the owner's production confirmation before migrations or
 deployment. A successful bundle is not evidence that production works.
 
@@ -71,7 +71,7 @@ create, retain, rotate, or delete a stored secret. Test configuration uses
 synthetic values for all four; it never needs production credentials.
 
 All other string bindings are optional in `env.ts`, so they stay out of
-`required`. Their presence still determines which R0 capabilities work:
+`required`. Their presence determines which capabilities work:
 
 | Capability | Optional binding names to configure for that capability |
 |---|---|
@@ -82,9 +82,7 @@ All other string bindings are optional in `env.ts`, so they stay out of
 | Scheduled jobs and digest | `OWNER_PRINCIPAL_ID`, `DIGEST_TIMEZONE` |
 | Gateway heartbeat | `WATCHDOG_HEARTBEAT_URL`, `WATCHDOG_HEARTBEAT_SECRET` |
 | Private repository polling | `GITHUB_TOKEN` with read-only access to tracked repositories |
-| R1 calling, deferred | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
-| ~~Classroom ingestion, owner setup after review~~ **NOT OBTAINABLE** | ~~`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`~~ — Sid's school account cannot reach Google Cloud Console, so these three can never be set. Do not ask for them. See the [Google Classroom OAuth runbook](google-classroom-oauth.md), which now opens with this. |
-| Brightspace calendar ingestion, owner setup after review | `BRIGHTSPACE_ICAL_URL`; see the [Brightspace calendar-feed runbook](brightspace-calendar-feed.md) |
+| Calling (set in production) | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
 
 `OWNER_PRINCIPAL_ID` must identify the existing owner. `DIGEST_TIMEZONE`
 is the owner's IANA timezone, and `TELEGRAM_BOT_USERNAME` omits the `@`.
@@ -98,11 +96,11 @@ The watchdog has its own settings and must use its own bot and chat:
 | Independent alert channel | `WATCHDOG_TELEGRAM_BOT_TOKEN`, `WATCHDOG_TELEGRAM_CHAT_ID` |
 | Authenticated heartbeat reception | `WATCHDOG_HEARTBEAT_SECRET` |
 | Optional self-monitoring overrides | `WATCHDOG_SELF_COMPONENT`, `WATCHDOG_SELF_INTERVAL_SECONDS` |
-| Must-report components | `WATCHDOG_REQUIRED_COMPONENTS` (non-secret var, R0: `cloud-gateway`) |
+| Must-report components | `WATCHDOG_REQUIRED_COMPONENTS` (non-secret var: `cloud-gateway`) |
 
-The must-report list is comma-separated component names, not URLs. Its R0
-default and checked-in value are `cloud-gateway`. Add local nodes only when
-their later milestone deploys them. Missing rows alert without fabricating
+The must-report list is comma-separated component names, not URLs. Its
+default and checked-in value are `cloud-gateway`. Add a local node only once it
+is deployed and reporting. Missing rows alert without fabricating
 heartbeats; duplicate names are assessed once. Empty names or malformed
 lists make watchdog health return 503 and prevent a healthy cycle record.
 Verify the effective dashboard value too: deployment preserves existing vars.
@@ -154,21 +152,20 @@ sharing those runs can extend that time. A failed mutation leaves the
 `AI` or `MEMORY_VECTORS` bindings log `memory_meaning_bindings_missing`;
 distillation, literal FTS, and replies continue without meaning search.
 
-The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
-three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation
-of the old DeepSeek key. No values were shared. `PIN_VERIFIER_JSON` is
+Wrangler is logged in, the three peppers and the DeepSeek key on
+`jarvis-cloud-gateway` have been rotated, and the old DeepSeek key revoked
+(owner-confirmed; no values were shared). `PIN_VERIFIER_JSON` is
 absent from the configuration, its two generators are retired, and live
 gateway code has not constructed the legacy verifier. The stored legacy
 secret is deletable now as the separate owner-confirmed operation in step 5
 below; this repository change does not perform that operation.
 
-## R0 item 5: migrate, then deploy
+## Migrate, then deploy
 
-**Done 2026-09-11.** Migrations `0008`-`0013` applied at 04:39 UTC and
-verified against `d1_migrations`; both Workers published from the reviewed
-commit. The steps below remain the procedure for any later deployment, and
-for reconstructing what was done. Never assume live state from repository
-contents -- query it, as step 2 does.
+Never assume live state from repository contents -- query it, as step 2 does.
+Pull `C:\javis` first: `migrations list` reads the migrations directory of
+whatever revision is checked out there, so a stale checkout hides pending
+migrations.
 
 1. Finish local checks and the required cross-vendor review. Record the
    commit, the current deployed version IDs, and the D1 recovery point in a
@@ -180,11 +177,9 @@ contents -- query it, as step 2 does.
    & node $wrangler d1 migrations list jarvis --remote --config $gateway --env ''
    ```
 
-   For the initial R0 deploy, expect unapplied files from
-   `0008_autonomy.sql` through `0013_scheduled_runs.sql`. Stop on unexpected
-   earlier or later migrations and reconcile the database before applying.
-   Do not assume `migrations apply` is limited to those six files: it applies
-   every pending migration in the configured directory.
+   Stop on any unexpected migration and reconcile the database before
+   applying. `migrations apply` applies every pending migration in the
+   configured directory, not only the one you expect.
 3. After the owner's confirmation of that inventory and production target:
 
    ```powershell
@@ -275,9 +270,9 @@ present. Cloudflare documents both mechanisms:
    `component_liveness` row for `cloud-gateway`, and recovery of its open
    DOWN alert. Do not manually insert the row or post a fabricated heartbeat.
 
-## R0 item 6: owner action, external watchdog monitor
+## Owner action: external watchdog monitor
 
-1. After item 5, record the watchdog URL returned by the first deployment.
+1. After deploying, record the watchdog URL returned by the first deployment.
    The URL to monitor is
    `https://jarvis-watchdog.<sid-subdomain>.workers.dev/health`.
    The September 11 deployment's verified target is
@@ -304,7 +299,7 @@ present. Cloudflare documents both mechanisms:
    these actions are observed complete, **nothing watches the watchdog**.
    A timer inside the same Worker is not a substitute.
 
-## R0 items 6/7: code behavior to verify after deployment
+## Behaviour to verify after deployment
 
 The gateway now routes GET `/health` to its existing coarse liveness handler
 and supports a bodyless HEAD. It reveals no private readiness snapshot and
@@ -335,10 +330,8 @@ and the actual morning digest saying "nothing due". Keep payloads and
 credentials out of evidence. A manually invoked digest does not prove the
 morning schedule.
 
-A real cron followed by its watchdog heartbeat is **no longer required exit
-evidence** -- Sid removed it from R0's exit test on 2026-09-11; see
-NEXT_STEPS.md. Record it anyway once the redeploy above lands, because it is
-what proves the fix, but do not hold the milestone on it.
+Also record the first watchdog heartbeat after the deploy: `component_liveness`
+should hold `cloud-gateway` at a time after the deploy.
 
 If a deployed Worker regresses, stop further mutations, choose a previously
 recorded compatible version, and get owner confirmation before rollback:

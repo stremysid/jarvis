@@ -4,7 +4,7 @@ For anyone, human or model, changing this code. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first for the shape; this file
 is the traps.
 
-**If you are building a milestone, read
+**If you are building, read
 [docs/BUILDING.md](docs/BUILDING.md) before you start.** It says which model
 builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
@@ -45,11 +45,10 @@ bash, `systemd` or `chmod` instruction is not something he can run. There is als
 no server, no NAS and no VPS unless he says he has bought one.
 
 **The home PC is on 08:00–23:00 and off overnight while he sleeps**, so "always-on"
-means "on except overnight", not 24/7. Sid stated the hours on 2026-09-21; the
-previous wording gave no hours at all. Anything that must survive the overnight gap
-belongs in the cloud gateway, which genuinely is always-on.
+means "on except overnight", not 24/7 (Sid, 2026-09-21). Anything that must
+survive the overnight gap belongs in the cloud gateway, which genuinely is always-on.
 
-**Corrected the same day: "off overnight" does not mean "cloud only".** He is out
+**"Off overnight" does not mean "cloud only".** He is out
 of the house 08:00–11:00 and not home until 17:00–18:00, so **08:00 to about 17:00
 is unattended** — a guaranteed window, not a hopeful one. For most work the PC is
 the better host: it has a real filesystem, a real browser, and real credentials,
@@ -59,7 +58,7 @@ the PC for everything else. **Do not default to the cloud because the PC sleeps.
 ### The Linux node is a planning-session decision, not his
 
 `jarvis node` refuses to start on anything but Linux
-(`apps/local-agent/jarvis_local/node.py:239-240`) and the roadmap assumed "one small
+(`jarvis_local/node.py`, as of `0611803`) because a deleted plan assumed "one small
 Linux server", attributed to Sid and never provisioned. Sid says he never asked for
 it and told the original planning chat he is on Windows. The requirement behind it
 is real and is his — memory must work from the phone with every PC off — but it is
@@ -72,8 +71,8 @@ Windows implementations were never removed: `transport/pipe_server.py` and
 
 ## Decisions attributed to Sid that were not his
 
-This has happened twice — the watchdog being ratified into the first milestone's scope, and the Linux
-home node. **When a plan attributes a decision to Sid, that attribution is
+This has happened twice: the watchdog was written into scope as Sid's decision
+when it was not, and so was the Linux home node. **When a plan attributes a decision to Sid, that attribution is
 evidence, not proof.** If it commits him to hardware, a platform, a subscription or
 an operational burden, confirm it with him before building on it. Carry the
 requirement he stated forward rather than the implementation someone chose for it.
@@ -95,12 +94,9 @@ Run every local-agent command through **`uv`**, which is on `PATH`
 (WinGet shim, `uv 0.12.13`) — it uses the project's pinned environment.
 See [TESTING.md](TESTING.md).
 
-**Corrected 2026-09-18.** This file previously gave `uv` as
-`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist, <!-- docs-check:ignore: the dead path this correction retracts -- the same sentence says it does not exist -->
-and neither does the `Ksid1` user profile** — the only profile on this machine
-is `Sid`, so every command here failed with "not found". It also called
-`python` on PATH a broken stub; `python` now resolves to a real Python and
-reports `3.12.6`. Prefer `uv run` anyway, for the pinned environment.
+The only user profile on this machine is `Sid`; there is no `Ksid1` profile, and
+any path under one is wrong. `python` on PATH is a real Python 3.12.6. Prefer
+`uv run` anyway, for the pinned environment.
 
 ### No semicolons inside SQL comments
 
@@ -127,7 +123,7 @@ characters. Use the file-writing tool for anything containing escapes.
 ### The gateway's tests were never typechecked
 
 `tsconfig.json` covers only `src/**`. `tsconfig.test.json` covers the tests
-and reports 117 pre-existing errors, so it is not yet a CI gate. New code
+and reports 144 pre-existing errors (see `docs/STATE.md`), so it is not yet a CI gate. New code
 should keep its own directory clean:
 
 ```bash

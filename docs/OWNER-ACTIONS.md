@@ -15,9 +15,10 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
 | Action | Evidence |
 |---|---|
-| Load the calling bindings | A real call has been placed and worked, 2026-09-19 |
+| Load the calling bindings | Twilio secrets are set, and `call_sessions` holds six inbound owner calls from 2026-09-17, queried 2026-09-21 |
 | Enroll the owner phone | `channel_identities` holds an active `voice` identity in production, queried 2026-09-21 |
-| Apply `0038`, then deploy | 2026-09-20: `0038` applied, Worker `74f2a003` and watchdog `c940f9b7` deployed; the gateway heartbeat now records |
+| Apply `0038`, then deploy | `0038` applied 2026-09-20; Worker `78cb6e98` (2026-09-21) and watchdog `c940f9b7` deployed; the gateway heartbeat records |
+| Route the school email address to the Worker | Configured (Sid, 2026-09-21). It delivers nothing useful: D2L's notification email carries no deadline |
 | Is the deployed `DEFAULT_GUEST_PIN` the committed test value? | No — the committed `4827` is a placeholder. Sid, 2026-09-19 |
 | Does the reviewer keep merge authority? | Yes, for PRs it has cleared, at the exact reviewed head. Sid has directed merges throughout 2026-09-20 |
 | Who reviews reviewer-authored PRs? | DeepSeek reviews; GPT-5.6 Sol builds. Sid, 2026-09-20 |
@@ -30,7 +31,6 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 | Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
 | Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |
 | Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |
-| Point `school@onesid.ca` at the Worker | The `email()` handler is deployed and has **never received a single email** — both D2L tables are empty in production. The routing rule most likely still sends school mail to Gmail; check it in the Cloudflare dashboard under Email Routing. Until it points at the Worker, D2L deadlines never reach Jarvis | **not started** |
 
 **Not on this list, deliberately:** giving a phone call tools and one brain. That is
 builder work and it is in [QUEUE.md](QUEUE.md).
