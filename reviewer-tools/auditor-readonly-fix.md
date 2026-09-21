@@ -210,6 +210,72 @@ temporary and **will be cleaned up by Windows**. Their contents are transcribed 
 load-bearing ones are the per-run `relay\*-attempt1.log` files, and the quoted lines are the
 session's own words about its mode.
 
+## Correction: the subagent override is not a privilege escalation, and not the cause
+
+Claude read `dsh-subagent/lib/index.js:582` as a live path to a raised mode:
+
+```js
+if (overrides.sandboxMode !== void 0) childSession.append("sandbox/mode", { mode: overrides.sandboxMode, source: "delegation" });
+```
+
+**It does not raise anything, and the reason is narrow enough that nobody should re-chase it.** The
+value comes from `captureDelegatedPolicyOverrides` (:566):
+
+```js
+sandboxMode: parent.ctx.get("sandboxPolicy")?.overrideOf(parent.session)
+```
+
+and `overrideOf` is (`dsh-sandbox-policy/lib/index.js:154`):
+
+```js
+overrideOf(session) { return this.ctx.sessionProjections.stateOf(session, "sandboxMode") ?? void 0; }
+```
+
+**It returns only an *explicit* session override — never the default.** The subagent file says so
+itself (:559-561): *"Only the parent session's explicit sandbox override is captured — never
+deployment defaults or one-shot grants."*
+
+An auditor session at `read-only` **because of a schema default** has no explicit override, so
+`overrideOf` returns `undefined`, nothing is appended, and the child resolves to `read-only` itself.
+**A descendant is never more privileged than its ancestor through this path.** This also removes the
+subagent path as a candidate for the unexplained `workspace-write`.
+
+### It does confirm that disabling the plugin is not a privilege barrier
+
+`setSandboxMode` (`dsh-sandbox-policy/lib/index.js:41-43`) is a bare wrapper with no check:
+
+```js
+function setSandboxMode(session, mode) {
+  session.append("sandbox/mode", { mode });
+}
+```
+
+and the fold that consumes the event stays mounted with that service. So the disable removes one
+*caller*, not the *capability*. **Nothing in the current arrangement stops a session that holds its
+own session object from raising its mode.**
+
+### The writer set, which is now the entire search space
+
+Every `sandbox/mode` writer in the install, by exhaustive grep:
+
+| Writer | Mounted in the auditor preset? |
+|---|---|
+| `dsh-permission-presets/lib/index.js` (×3) | **disabled by the preset** |
+| `dsh-sandbox-policy/lib/index.js:41-42` (the wrapper) | yes — but a caller, not a policy |
+| `dsh-subagent/lib/index.js:582` | yes — but requires an explicit parent override |
+
+Given `workspace-write` was **observed**, exactly two explanations remain:
+
+1. **The preset's disable is not taking effect** where it ran, so
+   `permission.defaultPreset: danger-full-access` applies; or
+2. **The session already carried an explicit override** when it started — what the UI picker
+   produces.
+
+Neither is a subagent; neither is the launcher's variable. **Distinguishing them is the one
+experiment left.** Set `permission.defaultPreset: read-only`, set the composer picker to
+`Read-only`, restart the host, and re-run the write probe from the UI. Still writable means the
+disable is ineffective (1) or something else is writing the override (2).
+
 ## Consequence
 
 `AGENTS.md` requires reviewer-authored PRs to get *"an independent read-only auditor pass"*. On
