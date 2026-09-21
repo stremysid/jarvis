@@ -15,9 +15,9 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
 | Action | Evidence |
 |---|---|
-| Load the calling bindings | A real call has been placed and worked, 2026-09-19 |
+| Load the calling bindings | Twilio secrets are set, and `call_sessions` holds six inbound owner calls from 2026-09-17, queried 2026-09-21 |
 | Enroll the owner phone | `channel_identities` holds an active `voice` identity in production, queried 2026-09-21 |
-| Apply `0038`, then deploy | 2026-09-20: `0038` applied, Worker `74f2a003` and watchdog `c940f9b7` deployed; the gateway heartbeat now records |
+| Apply `0038`, then deploy | `0038` applied 2026-09-20; Worker `78cb6e98` (2026-09-21) and watchdog `c940f9b7` deployed; the gateway heartbeat records |
 | Is the deployed `DEFAULT_GUEST_PIN` the committed test value? | No — the committed `4827` is a placeholder. Sid, 2026-09-19 |
 | Does the reviewer keep merge authority? | Yes, for PRs it has cleared, at the exact reviewed head. Sid has directed merges throughout 2026-09-20 |
 | Who reviews reviewer-authored PRs? | DeepSeek reviews; GPT-5.6 Sol builds. Sid, 2026-09-20 |

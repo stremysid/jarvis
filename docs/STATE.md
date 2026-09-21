@@ -23,7 +23,7 @@ append to it.
 | 2 Memory | **code-complete, and split in two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
 | 3 School | **built, and receiving nothing** | The D2L email handler is deployed and has **never received a single email** — `d2l_email_messages` and `d2l_email_failure_state` are both empty in production, so not even a malformed message has arrived. The Cloudflare routing rule for `school@onesid.ca` most likely still points at Gmail (unverified; see [OWNER-ACTIONS.md](OWNER-ACTIONS.md)). Separately, Classroom and the Brightspace feed are impossible on this board and are not gaps to close |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
-| 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
+| 5 Calling | **plumbing proven, brain missing** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
 | 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
 | 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
@@ -37,7 +37,7 @@ separately, and they differ at every layer:
 
 | | Telegram | Phone call |
 |---|---|---|
-| Tools | nine | **none, and none possible** — `ModelAdapterStreamInput` has no `tools` field, so this is a type change, not a wiring call |
+| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach`. `send_email` and the Tesla entries are tier rows only — no tool exists | **none, and none possible** — `ModelAdapterStreamInput` has no `tools` field, so this is a type change, not a wiring call |
 | Memory it reads | `memory_items` | `memory_fact_projection_*` — a **different store**, written only when the Windows local agent pushes, and **empty** in production |
 | Core profile | injected every turn | never |
 
@@ -59,8 +59,9 @@ queried production after deploying:
   `status 404`; it had never once been recorded. The fix needed a redeploy to
   prove and the redeploy proved it.
 - Memory: **5 `proposed`, 0 `active`** in `memory_items`, and **0 rows** in
-  `memory_fact_projection_facts`. The promotion fix is live but applies only to
-  facts extracted after the deploy. The projection is what a phone call reads,
+  `memory_fact_projection_facts`. The promotion fix is live, but the 4 owner turns since it went
+  live were distilled and produced **no items at all**; the newest item is from
+  2026-09-17. Why is open in [QUEUE.md](QUEUE.md). The projection is what a phone call reads,
   and only the Windows local agent writes it, so it is empty.
 
 Re-query rather than trusting these; they were true at 21:25 UTC on 2026-09-21.
@@ -69,14 +70,14 @@ Re-query rather than trusting these; they were true at 21:25 UTC on 2026-09-21.
 
 | Gate | State |
 |---|---|
-| CI | **Alive, and green on `main`.** It was dead on billing from 2026-09-12 and came back on 2026-09-19 when the repository moved into the organisation. The last five runs on `main` all pass. Across all 33 non-cancelled runs on `main` it is 7 green and 26 red, because most of the red predates the fixes that landed on 2026-09-20 (T6, the ULID redaction bug, `testTimeout`). Query it: `gh run list --repo stremysid/jarvis --branch main` |
+| CI | **Alive, and green on `main` with one known flake.** It was dead on billing from 2026-09-12 and came back on 2026-09-19 when the repository moved into the organisation. Counted on 2026-09-21 at about 22:00Z, runs on `main` since 2026-09-19T00:00Z: 8 passed, 9 failed, 7 cancelled, 1 re-running. `gh run list` reports each run's **latest attempt**, so a re-run moves the count — an earlier count of 7 and 10 was the same runs before one re-run passed. Most failures predate the 2026-09-20 fixes; since then every run has passed except #135's merge (`352991e`), which failed one `hermes-runtime` timing test (`artifact-security-review3`, cancellation deadline) in code #135 did not touch, and **passed on re-run**. Re-running an older run cancels the newest one on `main` — CI's concurrency group is per branch. The count, exactly: `gh run list --repo stremysid/jarvis --branch main --limit 200 --json conclusion,createdAt --jq '[.[] \| select(.createdAt >= "2026-09-19T00:00:00Z")] \| group_by(.conclusion) \| map({c: .[0].conclusion, n: length})'` — filter on the UTC string; PowerShell's `ConvertFrom-Json` turns `createdAt` into local time and shifts the window |
 | `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. One file still roams: `owner-telegram-agent.test.ts` has gone green then red on trees differing only in a log entry |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**A timeout is now a signal.** With `testTimeout` set and `main` green, a red run
+**A timeout is now a signal.** With `testTimeout` set, a red run
 means something — except in `owner-telegram-agent.test.ts`, which still roams and
 should be re-run before a failure there is attributed. Merge on CI, not on a local
 run alone.

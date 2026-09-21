@@ -1,38 +1,24 @@
 # Requirements
 
-## Scope
+What Jarvis must do is [the roadmap](docs/plan/2026-09-19-jarvis-roadmap.md),
+written by Sid on 2026-09-19. It is the only source of scope. Each of its seven
+phases ends in a **done when** a person can check, and that sentence is the
+requirement.
 
-The source of truth for what Jarvis is meant to do is
-[the expansion plan](docs/plan/2026-08-jarvis-expansion-plan.md). Every
-capability in [README.md](README.md) traces to a numbered section of it, and
-its "Decisions -- resolved" list is the set of choices that are settled.
+Where a design document under `docs/superpowers/` or anywhere else disagrees
+with the roadmap, the roadmap wins and the other document is stale.
 
-[The builder prompt](docs/plan/2026-08-jarvis-builder-prompt.md) is the brief
-that started the build. It fixes the working rules -- tiered autonomy before
-any tier-2 action, shadow mode before autonomy, credentials never in source,
-and the St. Remy codebase strictly off limits.
+Standing rules that apply to every phase:
 
-## Detailed specifications
+- **Jarvis is the brain; the code is the body.** Code gives it tools, senses,
+  memory and receipts. Code does not decide what Sid meant.
+- **Ask first** before anything that spends money, affects another person, or
+  cannot be undone. Everyday actions do not ask.
+- **Credentials never in source.** Secrets are set in Cloudflare and are
+  write-only.
+- **St. Remy's codebase is off limits** from a Jarvis session.
+- **Windows only.** No Linux, anywhere in the fleet.
 
-Task-level plans and their approved designs:
-
-| Track | Spec | Plan |
-|---|---|---|
-| Foundation | [foundation design](docs/superpowers/specs/2026-08-29-jarvis-foundation-design.md) | [cloud](docs/superpowers/plans/2026-08-29-jarvis-foundation-cloud.md) |
-| Telegram and memory | -- | [telegram/memory release](docs/superpowers/plans/2026-08-29-jarvis-telegram-memory-release.md) |
-| Calling | -- | [calling](docs/superpowers/plans/2026-08-29-jarvis-calling.md) |
-| Voice access | [owner/guest call access](docs/superpowers/specs/2026-08-30-jarvis-owner-guest-call-access-design.md) | [voice access](docs/superpowers/plans/2026-08-30-jarvis-owner-guest-voice-access.md) |
-| Obsidian memory | [design](docs/superpowers/specs/2026-08-30-jarvis-obsidian-memory-design.md) | [implementation](docs/superpowers/plans/2026-08-30-jarvis-obsidian-memory-implementation.md) |
-| Hermes runtime | [design](docs/superpowers/specs/2026-08-30-jarvis-hermes-runtime-design.md) | [H1](docs/superpowers/plans/2026-08-31-jarvis-hermes-h1-implementation.md) |
-
-## Where the code deliberately differs from a plan
-
-Two places, both recorded with reasoning in [DECISIONS.md](DECISIONS.md):
-migration numbering, and the Obsidian adapter shipping in two stages. Where a
-plan and the code disagree on those points, the code and DECISIONS.md are
-current and the plan is not.
-
-## The release gate
-
-Version 1.0 ships when Sid can phone Jarvis from the car. Nothing else is the
-gate; the plan is explicit about it.
+How far the code is from each phase is in
+[the gap table](docs/plan/2026-09-19-roadmap-gap.md) and
+[docs/STATE.md](docs/STATE.md).

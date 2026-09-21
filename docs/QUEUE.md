@@ -15,21 +15,22 @@ Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/mai
 |---|---|---|---|---|---|
 | [#136](https://github.com/stremysid/jarvis/pull/136) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The passphrase repeat filter let the spent status through as ordinary text |
 | [#137](https://github.com/stremysid/jarvis/pull/137) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The voice seam is decided, and the spent passphrase repeat is pinned |
-| [#133](https://github.com/stremysid/jarvis/pull/133) | **awaiting-independent-pass** | DeepSeek reviews it, then merge | Sid | none | Reviewer-authored. Brings every carrier into line with production and sets the code's model default to `deepseek-flash`. **Until it merges, `main`'s carriers are stale** |
+| [#138](https://github.com/stremysid/jarvis/pull/138) | awaiting-review | Reviewer reads it | reviewer | none | The register of decisions written in code |
 | [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main` | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Conflicting |
 | [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set; likely no longer needed | builder | none | `gate.ps1` isolation re-runs. Conflicting |
 | [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | DeepSeek reviews it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored. Conflicting |
 | [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Keep only the CI wiring for `check-state.mjs`; the carrier content is superseded by #132 and #133 | reviewer | none | Reviewer-authored. Conflicting |
 | [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed. Conflicting |
 | [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Conflicting |
-| [#127](https://github.com/stremysid/jarvis/pull/127) | **blocked** | Rebase, and **do not resurrect `docs/HANDOFF.md`**, which #131 deleted | builder | none | Rewrites `BUILDING.md`, whose vendor table is still keyed to R0–R10. Conflicting |
+| [#127](https://github.com/stremysid/jarvis/pull/127) | **close** | Superseded: `BUILDING.md` is rewritten without milestones on `main`, and #127's version still carries the R table and re-adds the deleted `docs/HANDOFF.md` | Sid | none | Conflicting |
 
 ## Work with no pull request yet
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
 | The operation guard in `findControlTargets` is a hand-kept list | **not started** | #135 added `pin`/`unpin` to it, but its test hand-lists the operations too: adding a member to `TelegramMemoryTargetOperation` passes the test and typecheck while the guard rejects it. Make the guard a `satisfies Readonly<Record<TelegramMemoryTargetOperation, true>>` map, as #124 did for the intent set. The fourth copy of this defect | builder | Phase 2 |
-| **Apply `0038`, then deploy** | **blocked on Sid** | Everything merged since 2026-09-18 is correct and inert until this happens — the promotion fix, the tier-3 gate, forgetting's back door, the whole memory rebuild | Sid, then reviewer | **everything** |
+| **Memory has saved nothing since the promotion fix went live** | **open** | Since the 2026-09-20 deploy, 4 owner Telegram turns reached distillation as `eligible` and produced **zero** new memory items; the newest item is from 2026-09-17, and all 5 are still `proposed`. Not yet known whether those 4 turns held anything worth saving. Next: send Jarvis a plain fact, wait for the hourly run, and read the extraction output for that turn | reviewer | Phase 2 |
+| `hermes-runtime` `artifact-security-review3` is a timing flake | **open, unowned** | "uses one absolute cancellation deadline…" failed at 12,975 ms on `352991e`, in code that commit did not touch, and passed on re-run. Cause not yet established | builder | none |
 | Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front and receipts on the voice channel | builder | **Phase 5** |
 | One brain: two composition sites for what should be one assistant | **not started** | The keystone. Until it lands, every capability added reaches one door only | builder | Phase 1 |
 | The model cannot state its own certainty | **decided, not started** | Sid ruled 2026-09-20 that certainty is the model's. Remove the assignment at `extraction-policy.ts`'s validation boundary and drop it from `FORBIDDEN_PROPOSAL_KEYS`. **Keep `origin` and lifecycle code-assigned** — those are provenance and enforcement | builder | Phase 2 |

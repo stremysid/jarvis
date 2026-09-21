@@ -1,7 +1,7 @@
 # Gap: the roadmap against what is actually built
 
 **Companion to [`2026-09-19-jarvis-roadmap.md`](2026-09-19-jarvis-roadmap.md).**
-Every row was checked against the code on `main` on 2026-09-19, not against a
+Every row was checked against the code on `main` (as of `0611803`, 2026-09-21), and against production where it says so, not against a
 document. Where a row says something is missing, the check that establishes it is
 given, so it can be falsified rather than believed.
 
@@ -60,25 +60,24 @@ Also structural, and worth saying once rather than in every row:
 
 ## Phase 2: Memory
 
-The storage exists and is more elaborate than the roadmap asks for. **The
-promotion rule is the defect**, and it is the reason memory feels absent.
+The storage exists and is more elaborate than the roadmap asks for. **Memory is
+still empty in practice**: 5 items, all `proposed`, none `active`.
 
 | Item | Verdict | Detail |
 |---|---|---|
 | `facts` table with the listed columns | ◐ | `memory_item_state` / `memory_item_versions` cover text, source, versioning, hidden and superseded |
 | `kind` durable vs temporary, `expires_at` | ◐ | The repo calls it **`valid_to`**: it is in `0016_cloud_memory.sql`, six memory modules read it (`memory-repository.ts` alone 21 times), and the nightly job transitions on it. **No writer ever sets it**, so nothing is temporary in practice — the gap is a writer, not a column. `memory_items.kind` is also already taken, meaning the subject taxonomy, so the durable/temporary axis needs its own name |
 | `confidence` stated / inferred / confirmed | ◐ | An `uncertain` flag plus an origin of `authenticated_first_person` or `model`. Not the three-value field |
-| `pinned` and a core profile in the prompt | ⛔ | `git grep -E "pinned\|core profile"` returns **nothing**. Nothing is injected into every turn |
+| `pinned` and a core profile in the prompt | ◐ | Built for Telegram: `core-profile.ts` reads `memory_pinned_item_versions` and `owner-telegram-agent.ts` puts it in every turn's prompt. **Voice does not get it.** Production has 0 pins |
 | Embeddings → Vectorize | ✅ | Workers AI + `jarvis-memory-bge-m3`, indexed by the hourly job |
 | `memory_save` / `correct` / `forget` / `restore` / `confirm` / `explain` / `search` | ✅ | All exist as model-called tools with `toolChoice: "auto"` |
-| `memory_pin` / `memory_unpin` | ⛔ | Not built |
+| `memory_pin` / `memory_unpin` | ◐ | Model-called tools on Telegram, working in production since Worker `78cb6e98`. Voice has no tools at all |
 | Auto-extraction on a quiet-conversation alarm | ⛔ | No DO alarms anywhere — `git grep -E "setAlarm"` returns nothing |
-| Hourly auto-extraction | ✅ | Runs. Production shows 36 runs |
-| **Facts are usable without being asked** | ⛔ | **This is the one that matters.** Live D1: `proposed: 5, active: 0`. `memory_retrievable_item_versions` is `WHERE lifecycle_state = 'active'`, so recall returns nothing. Auto-promotion exists but requires the fact to be your **entire message verbatim** (`extraction-policy.ts:158`), which conversation never satisfies |
+| Hourly auto-extraction | ✅ | Runs. Last distillation 2026-09-21T21:00Z |
+| **Facts are usable without being asked** | ⛔ | **This is the one that matters.** Live D1 on 2026-09-21: `proposed: 5, active: 0`, newest item 2026-09-17. The promotion rule no longer needs the whole message — one whole sentence of it is enough (`locatedAsWholeSentence`, as of `0611803`) — and that fix is live. But the 4 owner turns since it went live were all distilled and produced no items at all, so there has been nothing to promote. Why is open in [QUEUE.md](../QUEUE.md) |
 
-**Phase 2's "done when" is not met and will not be met by adding anything.** It
-needs the promotion threshold changed and, per the roadmap, Jarvis deciding when
-to ask rather than code requiring a tap.
+**Phase 2's "done when" is not met.** The next question is why distillation
+extracts nothing from real conversation, not the promotion rule.
 
 ## Phase 3: School
 
@@ -122,7 +121,7 @@ Built, switched off, and missing the thing that makes it worth switching on.
 | Voice PIN, hashed | ✅ | Peppered HMAC + 600,000 chained PBKDF2. **But a spoken 4-digit PIN is not redacted from the transcript** — verified by executing `sanitizeRedaction`; PR #96 fixes the digit case only |
 | `guests` table, create / revoke, access in prompt | ✅ | Guest grants, PIN attempts capped at 3, durable |
 | **The call shares the brain** | ⛔ | **It does not.** Zero tools, and `D1ContextRetriever` instead of the real retriever — no meaning search, no `/why` |
-| A live call has ever happened | ⛔ | Never. Secrets not loaded |
+| A live call has ever happened | ◐ | **Inbound, yes**: Twilio secrets are set, and `call_sessions` holds 6 inbound owner calls, all on 2026-09-17 — one enrollment, one completed, three rejected, one failed. **Outbound, never**: `outbound_call_attempts` is empty |
 
 ## Phase 6: Daily Rhythm
 
@@ -131,7 +130,7 @@ Built, switched off, and missing the thing that makes it worth switching on.
 | `schedule_wakeup` / `list_wakeups` / `cancel_wakeup` | ⛔ | No DO alarms at all. Jarvis cannot schedule its own future |
 | Cron triggers | ✅ | Four: `*/5`, hourly, and two daily pairs |
 | Hourly poll | ✅ | Email, deadlines, distillation, meaning indexing |
-| Watchdog ping from the hourly run | ◐ | An internal watchdog exists. **It has never once recorded a gateway heartbeat** — every cron logs `status 404` |
+| Watchdog ping from the hourly run | ◐ | An internal watchdog, not an outside service. The gateway heartbeat records since the 2026-09-20 deploy |
 | **Jarvis chooses the digest time** | ⛔ | Digest time is a cron expression. Jarvis composes the content, not the timing |
 | Sunday retro | ✅ | Content is composed, but carries no workload or cost line |
 | Jarvis decides whether to interrupt | ⛔ | The hourly job decides |
@@ -152,9 +151,9 @@ The most complete phase.
 
 ## What this says about order
 
-1. **Memory promotion.** Phase 2's "done when" is the sentence the owner has
-   repeated most, and it fails today for one reason in one function. Smallest
-   change, largest visible difference.
+1. **Memory that fills itself.** Phase 2's "done when" is the sentence the
+   owner has repeated most. The promotion fix is live and memory is still
+   empty, because nothing new is being extracted. Find out why first.
 2. **One brain.** Until both doors compose the same agent, every capability
    added lands on one side. This is the defect that generates the others.
 3. **Tiers as judgement.** Phase 4 exists as the hardcoded inverse of what the

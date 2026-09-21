@@ -4,7 +4,7 @@ For anyone, human or model, changing this code. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first for the shape; this file
 is the traps.
 
-**If you are building a milestone, read
+**If you are building, read
 [docs/BUILDING.md](docs/BUILDING.md) before you start.** It says which model
 builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
@@ -43,7 +43,7 @@ morning.
 ### The Linux node is a planning-session decision, not his
 
 `jarvis node` refuses to start on anything but Linux
-(`apps/local-agent/jarvis_local/node.py:239-240`) and the roadmap assumed "one small
+(`jarvis_local/node.py`, as of `0611803`) because a deleted plan assumed "one small
 Linux server", attributed to Sid and never provisioned. Sid says he never asked for
 it and told the original planning chat he is on Windows. The requirement behind it
 is real and is his — memory must work from the phone with every PC off — but it is
@@ -56,8 +56,8 @@ Windows implementations were never removed: `transport/pipe_server.py` and
 
 ## Decisions attributed to Sid that were not his
 
-This has happened twice — the watchdog being ratified into the first milestone's scope, and the Linux
-home node. **When a plan attributes a decision to Sid, that attribution is
+This has happened twice: the watchdog was written into scope as Sid's decision
+when it was not, and so was the Linux home node. **When a plan attributes a decision to Sid, that attribution is
 evidence, not proof.** If it commits him to hardware, a platform, a subscription or
 an operational burden, confirm it with him before building on it. Carry the
 requirement he stated forward rather than the implementation someone chose for it.
