@@ -64,7 +64,7 @@ rejected by `scripts/check-state.mjs`'s doc job once it is wired.
 
 ### 3.3 `max` means something again
 
-`max` is reserved for R1 and for any PR whose migration touches live data — the rule
+`max` is reserved for calling (Phase 5) and for any PR whose migration touches live data — the rule
 `docs/BUILDING.md` already states. Everything else is `xhigh`. Because a tier is
 currently self-reported in a heading (one PR signed "max" and ran "high"), it must be
 recorded where it can be checked rather than asserted in a title.

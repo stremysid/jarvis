@@ -91,8 +91,7 @@ assignments page for every course, and pushes what it found.
 
 ## Why this is Phase 4/5 work wearing a Phase 3 hat
 
-D2L's email carries no deadline — see the `FACTS.md` row and the corrected banner in
-`docs/runbooks/brightspace-calendar-feed.md`. So school deadlines need a machine that can act,
+D2L's email carries no deadline — see the `FACTS.md` row. So school deadlines need a machine that can act,
 which is the same machinery Phase 5 needs. **Build the PC's ability to act and school follows.**
 Do not build a D2L-specific mechanism that ignores this.
 

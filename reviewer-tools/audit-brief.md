@@ -163,9 +163,6 @@ trusting them, and quote both sides of anything that does not hold. Known or sus
 previous session — confirm or refute each, and find more:
 
 - `AGENTS.md` says `scripts/check-state.mjs` *enforces* the register's format. Does anything run it?
-- `docs/STATE.md` keys its rows to `R` numbers and cites `docs/plan/2026-09-03-jarvis-roadmap.md`,
-  which was **deleted** — so its verdicts may be measured against a document that no longer exists.
-- `docs/BUILDING.md` routes by milestones `R0`–`R10` and cites a deleted builder prompt.
 - `docs/STATE.md`'s gate table: CI status, test counts, the `typecheck:tests` figure.
 - `docs/QUEUE.md` versus `gh pr list --state open` — including whether it lists **already-merged**
   PRs, which its own contract forbids.

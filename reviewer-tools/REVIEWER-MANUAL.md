@@ -268,7 +268,7 @@ sleep 10 && snap() { gh pr list --state all --limit 8 --json number,state,headRe
 
 1. Read `C:\Users\Sid\.claude\projects\C--javis\memory\MEMORY.md` and **every** file it lists. They are Sid's standing instructions.
 2. Read this manual, then `HANDOFF-2026-09-15.md` (or any newer HANDOFF) on `claude/reviewer-tools`.
-3. Read `CLAUDE.md`, `docs/BUILDING.md`, `docs/HANDOFF.md`, `NEXT_STEPS.md` and `DECISIONS.md` on `origin/main`.
+3. Read `CLAUDE.md`, `AGENTS.md`, `docs/BUILDING.md`, `docs/STATE.md` and `docs/QUEUE.md` on `origin/main`.
 4. Run `git fetch origin` and `gh pr list`. For each open PR branch, read the newest AGENT_LOG entries.
 5. Read the status page with `Artifact` `read`.
 6. Act on whatever changed since the handoff, start the watcher, and tell Sid in one bold line whether anything needs him.
