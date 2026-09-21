@@ -31,6 +31,7 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 | Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
 | Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |
 | Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |
+| Install the PC boot chain, elevated | Registering a scheduled task at `-RunLevel Highest` and writing `HKLM\...\Winlogon` both need an administrator session, and no builder session has one. Two commands, in the runbook: [the PC boot chain](runbooks/pc-boot-chain.md). Step 1 is a re-assertion — auto-login is **already configured** on this machine, and has been since before 2026-09-21 | **not started** |
 
 **Not on this list, deliberately:** giving a phone call tools and one brain. That is
 builder work and it is in [QUEUE.md](QUEUE.md).
