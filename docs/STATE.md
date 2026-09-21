@@ -20,7 +20,7 @@ append to it.
 | Phase | Verdict | The one thing missing |
 |---|---|---|
 | 1 The nervous system | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
-| 2 Memory | **code-complete, split in two, and pinning broken** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. **Pinning is broken in production:** the operation guard in `findControlTargets` lists five operations and omits `pin` and `unpin`, so both tools throw `telegram_memory_target_invalid` on every call and the core profile stays empty. **Fixed on `main` by #135, not yet deployed.** **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
+| 2 Memory | **code-complete, and split in two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
 | 3 School | **built, and receiving nothing** | The D2L email handler is deployed and has **never received a single email** — `d2l_email_messages` and `d2l_email_failure_state` are both empty in production, so not even a malformed message has arrived. The Cloudflare routing rule for `school@onesid.ca` most likely still points at Gmail (unverified; see [OWNER-ACTIONS.md](OWNER-ACTIONS.md)). Separately, Classroom and the Brightspace feed are impossible on this board and are not gaps to close |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
 | 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
@@ -47,15 +47,15 @@ until it lands, every capability added reaches one door only.
 
 ## Production
 
-**Observed directly on 2026-09-20**, not relayed — a session with `wrangler`
-applied the migration and deployed:
+**Observed directly on 2026-09-21**, not relayed — a session with `wrangler`
+queried production after deploying:
 
-- Worker `74f2a003-cd87-4eee-a359-222b07c1db0b`, deployed 2026-09-20.
+- Worker `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, deployed 2026-09-21.
 - Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`, same evening.
 - **D1 at migration `0038`.** Verified by querying `d1_migrations`, and the three
   objects it creates exist.
 - **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway`
-  at `2026-09-20T23:10:06.810Z`. Every cron before this deploy logged
+  at `2026-09-21T21:25:47Z`, after the redeploy. Every cron before this deploy logged
   `status 404`; it had never once been recorded. The fix needed a redeploy to
   prove and the redeploy proved it.
 - Memory: **5 `proposed`, 0 `active`** in `memory_items`, and **0 rows** in
@@ -63,7 +63,7 @@ applied the migration and deployed:
   facts extracted after the deploy. The projection is what a phone call reads,
   and only the Windows local agent writes it, so it is empty.
 
-Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
+Re-query rather than trusting these; they were true at 21:25 UTC on 2026-09-21.
 
 ## The gates, and whether they can be trusted
 
@@ -94,10 +94,8 @@ Re-checked against `main` and production on 2026-09-21:
    that says it was withheld.
 3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
    and that index has no delete trigger.
-4. **`memory_pin` and `memory_unpin` throw on every call in production.** Fixed on
-   `main` by #135; **not deployed**, so still broken live until the next deploy.
 
-Items 2 to 4 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+Items 2 and 3 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live

@@ -28,7 +28,6 @@ Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/mai
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
-| **Deploy** | **blocked on Sid** | #135 fixed pinning on `main`; production still throws until the gateway is redeployed. Same two commands as before: pull `C:\javis`, then `scripts/deploy.ps1 -Publish`. No migration this time | Sid | Phase 2 |
 | The operation guard in `findControlTargets` is a hand-kept list | **not started** | #135 added `pin`/`unpin` to it, but its test hand-lists the operations too: adding a member to `TelegramMemoryTargetOperation` passes the test and typecheck while the guard rejects it. Make the guard a `satisfies Readonly<Record<TelegramMemoryTargetOperation, true>>` map, as #124 did for the intent set. The fourth copy of this defect | builder | Phase 2 |
 | **Apply `0038`, then deploy** | **blocked on Sid** | Everything merged since 2026-09-18 is correct and inert until this happens — the promotion fix, the tier-3 gate, forgetting's back door, the whole memory rebuild | Sid, then reviewer | **everything** |
 | Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front and receipts on the voice channel | builder | **Phase 5** |
