@@ -3,6 +3,84 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-21 — DeepSeek builder: D2L's email route is dead, the PC is the host, and four carriers were stale
+
+Branch `codex/pc-controls` on `0611803`. **No product source.** One new brief, four carrier
+corrections, four `FACTS.md` rows.
+
+### The finding: there is now no automated D2L route, and that is new
+
+Sid spent an evening building the notification-email chain correctly — generated the capability
+token, set `SCHOOL_EMAIL_INGEST_ADDRESS`, pointed the Cloudflare Email Routing rule at the
+Worker — and then enabled **every** D2L notification option. **D2L's email carries no deadline.**
+It sends an activity summary: *"Activity summary for `<course>`"*, a count (*"76 New Emails"*),
+and a link. Per course and once for the board; both link to a login-walled inbox.
+
+So the handler, parser and authenticity checks are all correct and **their input cannot contain
+what they need**. Combined with the two routes already known dead (the board exposes no calendar
+tool; Classroom OAuth is credential-blocked), **school deadlines now have no route at all.**
+
+**Corroborating defect found on the way:** `SCHOOL_EMAIL_INGEST_ADDRESS`,
+`D2L_EMAIL_FROM_DOMAINS` and `D2L_EMAIL_ARC_SEALER_DOMAINS` were absent from production. The
+handler *throws* `school_email_configuration_invalid` on every message without them and `email()`
+has no try/catch, so mail failed delivery outright — the route could never have worked even if
+D2L had sent something useful. Two missing values would have quarantined anyway. Worth knowing
+that the failure was *configuration*, announced by a throw, and nobody had looked.
+
+### The unverified prohibition, which is the third of its kind
+
+Two runbooks forbade Jarvis holding a school password, on the stated grounds that it could not
+work. **Nothing in the repository recorded MFA** — the obstacle was assumed by a planning
+session, never measured. Sid confirmed 2026-09-21: **no MFA**, a password and a click, and a
+stale session needs a second attempt.
+
+**This is the third decision attributed to a need nobody checked**, after the Linux node and the
+watchdog. The pattern is worth naming: a planning session writes a prohibition with a technical
+justification, the justification is never tested, and the prohibition then steers every later
+session. The corrected row is in `FACTS.md`.
+
+### Also corrected
+
+- **`brightspace-calendar-feed.md`** — its banner said *"the live route is D2L notification email
+  into `school@onesid.ca`, which he has already configured."* Now false; corrected with the
+  measurement.
+- **`STATE.md`** Phase 3 — *"built, and receiving nothing"* → *"built, and cannot receive
+  anything useful"*. Different state, and it is the board's, not the code's.
+- **`AGENTS.md`** — the PC hours (08:00–23:00), and an explicit correction that "off overnight"
+  does **not** mean cloud-only: 08:00–17:00 is unattended and the PC is the better host for most
+  work.
+- **`docs/QUEUE.md`** — dropped the stale *"Apply `0038`, then deploy"* row (`0038` is applied;
+  the live blocker is the redeploy, which already had its own row). Added the PC-controls row and
+  named D2L's dead route.
+
+### New: `docs/briefs-pc-controls.md`
+
+Three stacked PRs. **P1** the boot chain — auto-login plus a logon-scheduled task at
+`-RunLevel Highest`, so Jarvis is elevated from the power button with no morning input. **P2**
+the PC reads D2L while logged in, credential in the existing DPAPI module, pushing through the
+already-enrolled device. **P3** the report on Telegram, which must state `last_success_at`.
+
+It records Sid's acceptance of the risks in one paragraph and instructs reviewers not to
+relitigate them. It also refuses a `D2LIfLoggedIn` guard by name.
+
+### What I did NOT do
+
+- **No product code.** No PR touches `src/`.
+- **Not the PC work itself.** Handed to a builder as a brief, per Sid's instruction to defer.
+- **Not the `typecheck:tests` errors, `KNOWN_ISSUES.md`, the roaming test, or the 31 salvaged
+  findings.** Named here so they are not lost; they belong to lower-priority sessions.
+- **No `AGENT_LOG` entry for the other open PRs.** #111, #113, #117, #118, #122, #127 remain
+  awaiting review or closure and are the reviewer's call, not mine.
+
+### Gates
+
+No suite run — nothing under `src/` or `test/` changed, and claiming a suite result for a
+docs-only diff would be claiming something not observed. `node scripts/check-state.mjs` **passes**
+and reports one re-verify candidate, `FACTS.md:61` (the `DEEPSEEK_MODEL` row), which is correct:
+secrets are write-only, so that row can only ever be confirmed by overwriting the value.
+
+Built by **DeepSeek**. Reasoning effort: not exposed to the session, so stated rather than guessed.
+
 ## 2026-09-20 — DeepSeek builder: `memory_pin` never worked, and 31 findings from a sweep that ran out of hours
 
 Branch `codex/audit-fixes` on `ca88bf4`. One source fix, one new test, one handoff.
