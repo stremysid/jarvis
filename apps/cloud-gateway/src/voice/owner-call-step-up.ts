@@ -292,7 +292,19 @@ export class OwnerCallStepUpService {
   ): Promise<"suppress" | "continue"> {
     const at = iso(now);
     const status = await this.repeatStatus(sessionId, now);
-    if (status === "guard") return "suppress";
+    // `spent` is suppressed alongside `guard`. `repeatStatus` returns `spent` as
+    // soon as a repeat-check row exists, and this guard previously sent it to
+    // "continue" -- which hands the utterance on as ordinary text, the opposite of
+    // what a repeat filter is for. The caller passes that text to the conversation
+    // service, so a `spent` repeat would be stored as a turn and sent to the model.
+    //
+    // NOT PROVEN BY A TEST. Nothing in this repository reaches the `spent` state:
+    // the harnesses that exist answer `inactive` or `fragment`, and reverting this
+    // line leaves every suite green. The argument above is from reading the status
+    // machine. It is a one-line tightening in the safe direction -- it can only
+    // turn a "continue" into a "suppress" -- but it is unverified behaviour rather
+    // than a measured fix, and it should be reviewed as such.
+    if (status === "guard" || status === "spent") return "suppress";
     if (status !== "fragment" && status !== "available") return "continue";
     let canonical: Uint8Array;
     try { canonical = canonicalizeOwnerPassphrase(candidate); }

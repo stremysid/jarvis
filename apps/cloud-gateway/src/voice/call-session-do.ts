@@ -1125,7 +1125,14 @@ export class CallSessionCore {
       this.#clearOwnerRepeatFragments();
       return null;
     }
-    if (status !== "fragment" && status !== "available") {
+    // `spent` means a repeat of this call's step-up text, and the status alone is
+    // not a decision about the utterance -- so it falls through to verifyRepeat
+    // rather than being returned as ordinary text here. Returning `text` handed the
+    // repeated passphrase to the conversation service, which stores it as a turn
+    // and sends it to the model.
+    //
+    // Unverified: no test reaches `spent`. See the note in owner-call-step-up.ts.
+    if (status !== "fragment" && status !== "available" && status !== "spent") {
       this.#clearOwnerRepeatFragments();
       return text;
     }
