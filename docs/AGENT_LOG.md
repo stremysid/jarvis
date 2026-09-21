@@ -3,6 +3,169 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
+
+**Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one
+index file; **no product source changed**, so no behaviour changed.
+
+### What changed, and why
+
+- **`docs/CODE-VS-JUDGMENT.md` — new.** The register of places where a judgment got written
+  in code. Nine entries, each stating **the symbol, the decision code is making, and the
+  surface it should move to**. AGENTS.md now points at it under the milestone clause, so a
+  session writing a condition meets it before it writes the condition.
+- **`docs/reviews/salvage-2026-09-20/` — new.** The audit's own two files
+  (`findings.json.txt`, `REPORT.md`) plus a `README.md` stating exactly what coverage the run
+  completed and exactly how the file is truncated. They lived on a scratch path and a cleanup
+  would have taken them.
+- `AGENTS.md` — one paragraph pointing at that file.
+- `docs/QUEUE.md` — `#138` added to the PR table, two rows added (the register, and the `issuedBy`
+  provenance gap that blocks `call_place`), the two Phase 5 rows updated, and the `memory_pin` row
+  rewritten in the past tense because **#135 fixed it**.
+
+**The list is not the population, and the page says so in its own header.** The audit that
+found it completed **two of about seven batches** — `memory`/`persistence` and
+`voice`/`channels`/`conversation`/`autonomy`/`security`/`sync`/`http`. `local-agent`,
+`contracts`, `scripts`, the watchdog and `hermes` were **never looked at**. "Nine" means
+nine found, not nine exist, and a tenth is the tenth *found*.
+
+### The salvage, secured first
+
+Source: `C:\w\audit\SALVAGED\findings.json.txt` (31 findings; 9 labelled `roadmap-violation`)
+and `REPORT.md` — scratch paths outside the repository. I copied them to `C:\w\p5b-salvage\`
+before touching anything, then **into the repository** at `docs/reviews/salvage-2026-09-20/`,
+because a backup on another scratch path is not durable either.
+
+**And then I checked whether the salvage was actually complete, which nobody had.** It is not:
+`findings.json.txt` carries **two `[truncated: N more characters]` markers**, at byte offsets
+50081 and 100203. The structure of all 31 findings survives — 31 `"title"`, 31 `"severity"`,
+across 14 `"path"` entries — but for anything inside a truncated span the `mechanism`,
+`what_it_breaks`, `fix` and `falsifier` text is **gone**. The per-batch workflow outputs are each
+about 50 KB, so this looks like a per-batch result cap rather than damage to one file. The
+`README.md` in that directory states all of this exactly, so no future session cites a mechanism
+out of a hole. The 20 `session-*` directories were **not** recovered.
+
+### Verification: what I checked, and what I did not
+
+Sid's instruction was to verify each entry against the code before writing it down, because
+the citations were `as of ca88bf4` and main moves. It has not moved — `origin/main` is still
+`ca88bf4` — so every citation was re-resolved at the **same** revision the audit read, and
+several had drifted within the file anyway. Corrected: `#snapshot`'s catch is at
+`:600-602`, not `:600`; the lifetime default is `captureInput` at `:889-891`; the four `0.6`
+literals are `memory-repository.ts:934/1891/1921` plus `automatic-distillation.ts:113`.
+
+**Every claim in the page was verified by reading the code at `ca88bf4`. Nothing was verified
+by mutation or by execution**, and the page does not imply otherwise. These are findings, not
+convictions: the audit could not run the suite either.
+
+Facts I checked directly rather than trusting the salvage:
+
+- `#guardOwnerRepeat` is defined at `:1121` and called at `:1413`. **Confirmed.**
+- `issuedBy: "telegram_call_command" | "local_cli"` at `packages/contracts/src/calls.ts:43`
+  — **no `model` member. Confirmed.** And a grep for `local_cli` over `apps/` finds the union
+  at `policy-engine.ts:9` and `:229` plus **tests only** — no production construction.
+  **Jarvis cannot place a call. Confirmed.**
+- Three separate lifetime defaults exist, one per layer:
+  `owner-telegram-agent.ts:1091`, `memory-owner-controls.ts:696`, `memory-repository.ts:889`.
+  **Confirmed**, and the tool schema at `memory-tools.ts:42` lists `lifetime` as *not*
+  required while its description says *"Leave it out and the fact is durable"*. So the model
+  is **invited to omit** the one field whose default the repository then decides.
+- Four `0.6` literals in `src` — counted repo-wide, not assumed. **Confirmed: exactly four.**
+- `PERMISSION_CAPABILITIES` at `owner-access-service.ts:109` has 17 keys over 16 distinct
+  capabilities, including `access.manage`, and `#snapshot`'s `catch` at `:600-602` collapses
+  every refusal into one `owner_access_permission_invalid`. **Confirmed.**
+
+### The correction that matters: item 9 was labelled wrong
+
+The salvage labelled `MemoryRepository.liftItem` as **"silently rewrites basis"**. Read at
+`:2287`, that is not what it does. `restoredLifecycleState` is *preserved* from the previous
+transition (`:2158`, read in `prepareLiftItem`) and then **asserted equal** at `:2333`, so the
+lifecycle state is not rewritten at all.
+
+The real code-owned decision is one block below, at `:2328-2331`:
+
+```
+const restoredBasis = item.version.origin === "authenticated_first_person"
+  && item.sources.every((source) => source.sourceLocation === "archived")
+  ? "confirmed"
+  : item.version.basis;
+```
+
+A memory's **basis** flips to `confirmed` silently, on a condition about archive storage
+location, and nothing in the lift receipt at `memory-owner-controls.ts:1450-1454` reports it.
+The page carries the corrected mechanism **and says the audit's label was wrong**, because a
+register that inherits an imprecise finding is a register the next session has to re-verify.
+
+### A tenth instance, found while verifying the first
+
+Sid said `#isFixedStepUpEcho` predates `#guardOwnerRepeat` and to enumerate it as a seventh.
+Following it turned up more than that, and `#handlePrompt` drops an owner utterance with no
+reply and no transcript row in **three** further shapes:
+
+- `#isFixedStepUpEcho` — an utterance equal to any of five code-authored constants.
+- `#ownerStepUpVerificationInFlight` — any final utterance arriving while a passphrase KDF is
+  running. An existing test covers this, but it asserts the **alarm**, not what the owner
+  hears, which is nothing.
+- A non-final frame, a non-`active` phase, and an empty utterance.
+
+Recorded as the same class as item 1, in that section, with the note that it predates my work
+rather than being found by the audit. I did **not** renumber the nine — the nine are the
+audit's, and moving one found later into that set would start a drift between the page and
+the salvage it came from.
+
+### Gate numbers
+
+- `node scripts/check-state.mjs` — `state check passed: 3 carriers, STATE.md within budget, links resolve, BLOCKS present.`
+- No test suite was run, because **no file under `src/` or `test/` was touched**. Saying
+  "tests pass" here would be claiming a result I did not observe. The docs-only diff is
+  `AGENTS.md`, `docs/CODE-VS-JUDGMENT.md`, `docs/QUEUE.md`, `docs/AGENT_LOG.md`.
+- `docs/AGENT_LOG.md` verified structurally against the merge base:
+  `git diff --numstat $(git merge-base origin/main HEAD) HEAD -- docs/AGENT_LOG.md` is
+  **0 deletions** (see the PR body for the insertion count).
+
+### What I did not do, and why
+
+- **Did not build the voice agent adapter.** Sid agreed the sequencing is mine and that
+  enumerating first is the right call: building voice's tool dispatch while nine unrecorded
+  instances sit around risks making the tenth. The adapter is next.
+- **Did not re-run the audit for batches 3 and 4.** That is a sweep, not a session, and doing
+  it badly would produce a list that disagrees with this one.
+- **Did not copy the other 22 findings into the repository.** They are defects with their own
+  home — `KNOWN_ISSUES.md` — and importing them here would put a backlog in a principles
+  document. But I **did** chase the severe one to the end rather than handing off a question,
+  and it is not a question any more.
+- **`memory_pin` / `memory_unpin` threw on every call — at `ca88bf4`.** `findControlTargets`
+  (`src/memory/telegram-memory-retriever.ts`) threw `telegram_memory_target_invalid` for any
+  operation outside `forget`/`lift`/`confirm`/`explain`/`correct`; `"pin"` and `"unpin"` were not
+  in that set — while `targetStates` had a branch written specifically for `pin`/`unpin`, which the
+  throw made unreachable. Its only production caller, `telegram-memory-controls.ts`, passed
+  `control.intent` straight through, and the pin path feeding it is
+  `MemoryOwnerControlsService.setPin`.
+
+  **FIXED by #135, which merged to `main` while this branch was open.** It corrected the guard and
+  added `test/memory/control-targets.test.ts`, derived from the declared union rather than
+  hand-listed, failing before the fix and passing after. **I wrote this up as a live defect on a
+  branch that no longer reflected `main`, and that is exactly the staleness this project keeps
+  paying for** — the correction is at the top of this entry rather than hidden here. #135's own log
+  entry is directly below this one; it found the same defect from the same evidence.
+
+  **Why it still matters, and this part is not stale:** the reason it survived is the pattern this
+  repository has already paid for — *"a real defect was memory_pin throwing on every call while the
+  entire suite stayed green, because every test injected a stub `findControlTargets`."* **The stubs
+  are still there**: `owner-telegram-agent.test.ts` (stubbed at two call sites),
+  `memory-search.test.ts`, and `owner-telegram-pipelines.integration.test.ts`, each returning a
+  fixed list without looking at the operation. I did **not** run the suite with a stub removed, so
+  I am not claiming no test anywhere reaches the real method — only that those three cannot catch a
+  dead tool. A stub in place of the code under test is a general hazard, not a `memory_pin` one,
+  and it is the half of this finding worth acting on. `docs/CODE-VS-JUDGMENT.md` carries it;
+  `QUEUE.md` keeps #135's own follow-up (the guard is still a hand-kept list).
+- Did not touch a migration, a secret, a deploy, a PR other than this one, or CI.
+
+### Signed
+
+**DeepSeek, reasoning effort not exposed to the session.** The harness did not surface the
+effort setting, so I am not naming one rather than guessing at it.
+
 ## 2026-09-20 — DeepSeek builder: `spent` is reachable (the fixture is two repeats, not one), and the voice seam is not a widening
 **Branch `codex/phase5-calling`, base `ca88bf4`.** Two commits: the PR #136 fixture,
 then the Phase 5 seam decision. No migration, no deploy, no secret touched.
