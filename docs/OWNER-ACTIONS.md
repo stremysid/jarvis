@@ -11,45 +11,29 @@ agent's memory and never in the repository.
 
 Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
-## Blocking v1.0 — "phone Jarvis from the car"
+## Done — kept so they are not asked for again
 
-| Action | Exact steps | State |
-|---|---|---|
-| ~~Load the R1 bindings on the gateway~~ — done; a real call has been placed | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164` — plus `DEEPSEEK_API_KEY` if not already set. Runbook: `docs/runbooks/deploy.md` | **not started** |
-| Enroll the owner phone | `docs/runbooks/owner-phone-enrollment.md`. `/call` dials "your verified phone"; without this it has nothing to dial | **not started** |
-| ~~Apply pending migrations, then deploy~~ | Done 2026-09-20: `0038` applied, Worker `74f2a003` and watchdog `c940f9b7` deployed | **done** |
-| Run the live smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever been run against production | **not started** |
-
-**Not yet on this list, and deliberately so:** composing the tool-calling agent into
-the call session. Until that exists, the four rows above buy a phone call that can
-talk and cannot act. It is a builder task, and it is in the queue.
-
-## Blocking the school half of the first release
-
-| Action | Exact steps | State |
-|---|---|---|
-| Send one real Google Classroom notification, forwarded, so a parser can be written | The Classroom REST route is dead on this board, so the notification email is the only route. A builder session stopped rather than inventing the format: *"guessing at the format and shipping tests built on a guessed fixture is worse than nothing, because it would look like coverage."* Forward one real notification to the school mailbox and say so | **not started** |
-| Say whether the forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. Automatic M365 forwarding (SRS) preserves the original DKIM signature; a classic Outlook *Forward* recomposes the body, destroys it, and every message then quarantines as `from_domain_unpinned`. The repository models the first and records the second as unsettled | **not started** |
-| Watch the first real D2L delivery land | Two assumptions in `d2l-email-authenticity.ts` are fail-closed only while they hold: Cloudflare's `authserv-id` string, and the delivered header order. Only a live delivery settles them, and the receipt keeps the evidence | **waiting on a real email** |
-
-## Decisions only you can make
-
-| Decision | Why it is yours | State |
-|---|---|---|
-| Is the deployed `DEFAULT_GUEST_PIN` equal to the committed test fixture value? | If it is, the guest PIN is in the repository. Only you can read the deployed secret | **unanswered** |
-| Does the reviewer keep merge authority? | It is your authority being delegated | **unanswered** |
-| Is there a second vendor for reviewer-authored PRs, or are they labelled unreviewed? | Needs a model you are willing to pay for | **unanswered** |
-
-## Merges waiting on you
-
-| PR | What it needs first |
+| Action | Evidence |
 |---|---|
+| Load the calling bindings | A real call has been placed and worked, 2026-09-19 |
+| Enroll the owner phone | `channel_identities` holds an active `voice` identity in production, queried 2026-09-21 |
+| Apply `0038`, then deploy | 2026-09-20: `0038` applied, Worker `74f2a003` and watchdog `c940f9b7` deployed; the gateway heartbeat now records |
+| Is the deployed `DEFAULT_GUEST_PIN` the committed test value? | No — the committed `4827` is a placeholder. Sid, 2026-09-19 |
+| Does the reviewer keep merge authority? | Yes, for PRs it has cleared, at the exact reviewed head. Sid has directed merges throughout 2026-09-20 |
+| Who reviews reviewer-authored PRs? | DeepSeek reviews; GPT-5.6 Sol builds. Sid, 2026-09-20 |
 
-## Standing, one-time, or later
+## Waiting on Sid
 
-| Action | Notes |
-|---|---|
-| Re-check disk load after the agents serialise their test runs | See below — this is a decision about whether $260 is needed |
+| Action | Why only you | State |
+|---|---|---|
+| Check which model `DEEPSEEK_MODEL` is set to | Secrets are write-only; the name is visible, the value is not. The code default is now `deepseek-flash`, but if the binding says `deepseek-v4-pro` Jarvis runs a model you did not choose at roughly seven times the price. Cloudflare dashboard → the `jarvis-cloud-gateway` Worker → Settings → Variables and Secrets | **unanswered** |
+| Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
+| Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |
+| Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |
+| Point `school@onesid.ca` at the Worker | The `email()` handler is deployed and has **never received a single email** — both D2L tables are empty in production. The routing rule most likely still sends school mail to Gmail; check it in the Cloudflare dashboard under Email Routing. Until it points at the Worker, D2L deadlines never reach Jarvis | **not started** |
+
+**Not on this list, deliberately:** giving a phone call tools and one brain. That is
+builder work and it is in [QUEUE.md](QUEUE.md).
 
 ## Rule
 

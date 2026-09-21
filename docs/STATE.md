@@ -11,18 +11,19 @@ them down.
 If this file disagrees with a longer document, this file is right and the longer
 document is stale — say so in the pull request that fixes it.
 
-Last regenerated: 2026-09-18, by a builder session, against the revision printed by
-`git log --oneline origin/main -1`. Regenerate it; do not append to it.
+Last regenerated: 2026-09-21, by the reviewer, against production queried directly
+and the revision printed by `git log --oneline origin/main -1`. Regenerate it; do not
+append to it.
 
 ## Where the project actually stands
 
 | Phase | Verdict | The one thing missing |
 |---|---|---|
 | 1 The brain | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
-| 2 Memory | **code-complete, and split in two** | Schema, promotion fix, core profile, nine tools, expiry and pins are live as of 2026-09-20. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
-| 3 School | **works, minus two impossible sources** | Deadlines arrive by D2L notification email. Classroom needs a Cloud Console this board cannot reach; Brightspace exposes no iCal feed. Neither is a gap to close |
+| 2 Memory | **code-complete, split in two, and pinning broken** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. **Pinning is broken in production:** the operation guard in `findControlTargets` lists five operations and omits `pin` and `unpin`, so both tools throw `telegram_memory_target_invalid` on every call and the core profile stays empty. PR #135 fixes it. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
+| 3 School | **built, and receiving nothing** | The D2L email handler is deployed and has **never received a single email** — `d2l_email_messages` and `d2l_email_failure_state` are both empty in production, so not even a malformed message has arrived. The Cloudflare routing rule for `school@onesid.ca` most likely still points at Gmail (unverified; see [OWNER-ACTIONS.md](OWNER-ACTIONS.md)). Separately, Classroom and the Brightspace feed are impossible on this board and are not gaps to close |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
-| 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call has **zero tools** and the weaker retriever, so it can talk and cannot act. The release gate has never been run |
+| 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
 | 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
 | 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
@@ -75,13 +76,14 @@ Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**Consequence, stated plainly: a green local run may not be banked, and a red one
-cannot be attributed.** Until that changes, nothing may be merged on the strength of
-a local run alone.
+**A timeout is now a signal.** With `testTimeout` set and `main` green, a red run
+means something — except in `owner-telegram-agent.test.ts`, which still roams and
+should be re-run before a failure there is attributed. Merge on CI, not on a local
+run alone.
 
 ## Live defects
 
-Verified 2026-09-18, re-checked against `main` on 2026-09-20:
+Re-checked against `main` and production on 2026-09-21:
 
 1. ~~`/shadow off` claims a control with no caller~~ — **closed** by #106.
 2. ~~Forgetting has a back door through distillation~~ — **closed** by #110.
@@ -94,8 +96,10 @@ Verified 2026-09-18, re-checked against `main` on 2026-09-20:
    that says it was withheld.
 5. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
    and that index has no delete trigger.
+6. **`memory_pin` and `memory_unpin` throw on every call** — see Phase 2 above.
+   Live in production; PR #135 fixes it.
 
-Items 4 and 5 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+Items 4 to 6 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live
@@ -107,5 +111,5 @@ companion here: it is 1,145 lines and still describes shipped work as open.
 | Why is it built this way? | [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](../DECISIONS.md) |
 | What is broken or unproven? | [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) |
 | What stopped working and why? | [AGENT_LOG.md](AGENT_LOG.md) — **search it, do not read it** |
-| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The 2026-09-03 milestone roadmap is superseded |
+| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The milestone roadmaps that preceded it are deleted |
 | Who builds and reviews what? | [BUILDING.md](BUILDING.md) |

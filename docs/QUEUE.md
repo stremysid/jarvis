@@ -7,20 +7,23 @@ moving. Regenerate it rather than appending to it.
 `state` is one of `awaiting-review`, `changes-requested`, `awaiting-owner`,
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
-Last regenerated: 2026-09-20, against `main` = run `git log --oneline origin/main -1`.
+Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
 
 ## Pull requests
 
 | PR | State | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main`, then request review | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Its `\d{2,}` contextual rule is the fix for the four-digit PIN gap, verified by executing `sanitizeRedaction`. Conflicting since 2026-09-18 |
-| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set, then decide whether it is still needed | builder | none | `gate.ps1` isolation runs 1 → 3, classifying on the rate. #116 set a 15s timeout, so the load-timeout class it was written against is largely gone. Conflicting |
-| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | A second vendor reads it — not the reviewer who wrote it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored, so `AGENTS.md`'s rule applies. Conflicting |
-| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Re-check what is left of it now that #130 and #131 have landed | reviewer | none | Wired `check-state.mjs` into CI and regenerated the carriers. Reviewer-authored. Conflicting |
-| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed — the `local-agent` job is green. Conflicting |
-| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Reviewed once: one claim confirmed, one overstated, one did not reproduce. Conflicting |
-| [#127](https://github.com/stremysid/jarvis/pull/127) | awaiting-review | Reviewer reads it | reviewer | none | Process: who builds, who reviews, and the deep final review. Conflicting |
-| [#128](https://github.com/stremysid/jarvis/pull/128) | **cleared, one conflict left** | Merge `main` in — `docs/AGENT_LOG.md` only, since #116 landed its entry — then merge | builder | Phase 2 | `memory_search`. Cleared at `48c3233`: 28 files, 779 tests, zero failures, and the suppression property mutation-killed independently |
+| [#135](https://github.com/stremysid/jarvis/pull/135) | **awaiting-review** | Review first — it is a live defect | reviewer | Phase 2 | `memory_pin` and `memory_unpin` threw on every call. Those tools are **deployed**, so pinning is broken in production today |
+| [#136](https://github.com/stremysid/jarvis/pull/136) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The passphrase repeat filter let the spent status through as ordinary text |
+| [#137](https://github.com/stremysid/jarvis/pull/137) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The voice seam is decided, and the spent passphrase repeat is pinned |
+| [#133](https://github.com/stremysid/jarvis/pull/133) | **awaiting-independent-pass** | DeepSeek reviews it, then merge | Sid | none | Reviewer-authored. Brings every carrier into line with production and sets the code's model default to `deepseek-flash`. **Until it merges, `main`'s carriers are stale** |
+| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main` | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Conflicting |
+| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set; likely no longer needed | builder | none | `gate.ps1` isolation re-runs. Conflicting |
+| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | DeepSeek reviews it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored. Conflicting |
+| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Keep only the CI wiring for `check-state.mjs`; the carrier content is superseded by #132 and #133 | reviewer | none | Reviewer-authored. Conflicting |
+| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed. Conflicting |
+| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Conflicting |
+| [#127](https://github.com/stremysid/jarvis/pull/127) | **blocked** | Rebase, and **do not resurrect `docs/HANDOFF.md`**, which #131 deleted | builder | none | Rewrites `BUILDING.md`, whose vendor table is still keyed to R0–R10. Conflicting |
 
 ## Work with no pull request yet
 
