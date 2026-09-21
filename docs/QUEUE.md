@@ -13,7 +13,6 @@ Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/mai
 
 | PR | State | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#135](https://github.com/stremysid/jarvis/pull/135) | **awaiting-review** | Review first — it is a live defect | reviewer | Phase 2 | `memory_pin` and `memory_unpin` threw on every call. Those tools are **deployed**, so pinning is broken in production today |
 | [#136](https://github.com/stremysid/jarvis/pull/136) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The passphrase repeat filter let the spent status through as ordinary text |
 | [#137](https://github.com/stremysid/jarvis/pull/137) | awaiting-review | Reviewer reads it | reviewer | Phase 5 | The voice seam is decided, and the spent passphrase repeat is pinned |
 | [#133](https://github.com/stremysid/jarvis/pull/133) | **awaiting-independent-pass** | DeepSeek reviews it, then merge | Sid | none | Reviewer-authored. Brings every carrier into line with production and sets the code's model default to `deepseek-flash`. **Until it merges, `main`'s carriers are stale** |
@@ -29,6 +28,8 @@ Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/mai
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
+| **Deploy** | **blocked on Sid** | #135 fixed pinning on `main`; production still throws until the gateway is redeployed. Same two commands as before: pull `C:\javis`, then `scripts/deploy.ps1 -Publish`. No migration this time | Sid | Phase 2 |
+| The operation guard in `findControlTargets` is a hand-kept list | **not started** | #135 added `pin`/`unpin` to it, but its test hand-lists the operations too: adding a member to `TelegramMemoryTargetOperation` passes the test and typecheck while the guard rejects it. Make the guard a `satisfies Readonly<Record<TelegramMemoryTargetOperation, true>>` map, as #124 did for the intent set. The fourth copy of this defect | builder | Phase 2 |
 | **Apply `0038`, then deploy** | **blocked on Sid** | Everything merged since 2026-09-18 is correct and inert until this happens — the promotion fix, the tier-3 gate, forgetting's back door, the whole memory rebuild | Sid, then reviewer | **everything** |
 | Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front and receipts on the voice channel | builder | **Phase 5** |
 | One brain: two composition sites for what should be one assistant | **not started** | The keystone. Until it lands, every capability added reaches one door only | builder | Phase 1 |

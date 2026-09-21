@@ -132,7 +132,7 @@ a problem, the seam already exists: `MEMORY_EXTRACTION_MODEL` (`env.ts`, read at
 extraction alone, with no code change. Settle it by observing real extractions
 after a deploy, not by argument.
 
-## Phase 1: The Brain
+## Phase 1: The Nervous System
 
 **Goal:** text Jarvis any time and have a real conversation with it.
 

@@ -5,7 +5,7 @@ the code.**
 
 This file exists because of a specific, repeated failure. On 2026-09-17 Sid said his
 school account cannot reach Google Cloud Console. That fact went into an agent's private
-memory. `docs/HANDOFF.md`, since deleted, went on calling Classroom consent *"SID'S ACTION, one sitting.
+memory. `docs/HANDOFF.md` went on calling Classroom consent *"SID'S ACTION, one sitting.
 Highest value per hour in the whole plan"*, so on 2026-09-18 another session read the
 handoff, opened the runbook, and walked him through an impossible setup a second time.
 The same shape had already happened with the D2L calendar feed.
@@ -50,7 +50,7 @@ repository is the only thing every session reads.**
 | CI was dead from 2026-09-12 on billing and **came back on 2026-09-19** when the repository moved into the organisation. **That was true repo-wide before it was true for `main`**: of 33 non-cancelled runs on `main` since then, 7 passed and 26 failed, and the passing ones all follow the fixes that landed on 2026-09-20. The last five on `main` pass | `gh run list --branch main`, counted 2026-09-21 | 2026-09-21 | yes |
 | **No payment method is attached to the personal GitHub account**, deliberately, after an unexpected usage charge. Metered usage there stops rather than bills | Sid | 2026-09-19 | yes |
 | The only Windows user profile on this machine is **`Sid`**. The `Ksid1` profile named by older documents never existed | The filesystem; a corrected `AGENTS.md` trap | 2026-09-18 | yes |
-| `python` on `PATH` resolves to a real Python 3.12.6, and `uv` is on `PATH`. The older "python is a broken stub" claim is retracted | `python -V`; corrected `AGENTS.md` | 2026-09-18 | yes |
+| `python` on `PATH` resolves to a real Python 3.12.6, and `uv` is on `PATH`. | `python -V`; corrected `AGENTS.md` | 2026-09-18 | yes |
 | The agent presets are **outside the repository**, under `~/.dsh/.agent-presets/` — `jarvis-builder` and `jarvis-auditor`. They carry the standing rules for headless sessions | The preset files; `reviewer-tools/dsh-relay.ps1` layers them | 2026-09-19 | yes |
 | **Jarvis runs on DeepSeek V4.1 Flash, everywhere.** Frontier models are equivalent for an assistant's daily work, so the decision is cost and latency, and nothing matches Flash on either. Do not "fix" the code toward Claude on the strength of an older document | Sid, asked directly | 2026-09-20 | yes |
 | **Telegram and voice read two different memory stores, with no bridge.** Telegram writes `memory_items`; `D1ContextRetriever` reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production holds 5 `memory_items` and **0 projection facts**, so a phone call reads an empty store and nothing said by text reaches it | Traced all three paths in the code, then queried both counts in production | 2026-09-20 | yes |
@@ -62,8 +62,7 @@ repository is the only thing every session reads.**
 | **The test for whether something belongs in code: if a chat model could do it with every permission granted, do not code it.** The test is "can the model do it at all", never "might the model get it wrong" | Sid, 2026-09-20. Recorded in the roadmap's core rule | 2026-09-20 | yes |
 | **Jarvis states its own certainty.** Whether a fact was stated, inferred or confirmed is judgment, and judgment is the model's. `extraction-policy.ts` currently assigns it at the validation boundary and `FORBIDDEN_PROPOSAL_KEYS` blocks the model from setting it — that is code doing a job the model can do, and it is queued to change | Sid, 2026-09-20, ruling on a question the reviewer raised | 2026-09-20 | yes |
 | **What Jarvis is: a personal chat model outside the sandbox**, with memory that does not end at a context window and permissions Sid has actually granted. It sends the email or uses the card because it was asked and is authorized, not because a safety rule was removed. Tier 3 and confirmations exist so Sid knows before money moves, not because the model is distrusted | Sid, 2026-09-20 | 2026-09-20 | yes |
-| **RESOLVED 2026-09-19:** the Twilio number and its credentials **work** — a real call was placed through the gateway. *"A purchase"* and *"he already owns it"* describe the same thing, and the question above is terminology rather than a disagreement about capability | Sid placed the call; the credentials are demonstrably live | 2026-09-19 | yes |
-| **A real Twilio call has been placed and it worked.** The only defect observed was that **calling had no memory attached**. This retracts `STATE.md`'s *"No real call has ever been placed"*, which was stale, and its *"switched off by missing secrets"* — the secrets are loaded | Sid stated it directly | 2026-09-19 | yes |
+| **A real Twilio call has been placed and it worked.** The only defect observed was that **calling had no memory attached**. | Sid stated it directly | 2026-09-19 | yes |
 | Calling's remaining gap is the **brain**, not the phone plumbing. The voice path composes its own adapter and **cannot carry tools as a matter of type**, and it reads a **different memory store** from Telegram — see the two rows above — so a call can talk, cannot act, and cannot recall anything said by text | Traced in code; store counts queried in production | 2026-09-21 | yes |
 
 ## Adding a row

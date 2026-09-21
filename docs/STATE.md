@@ -19,8 +19,8 @@ append to it.
 
 | Phase | Verdict | The one thing missing |
 |---|---|---|
-| 1 The brain | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
-| 2 Memory | **code-complete, split in two, and pinning broken** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. **Pinning is broken in production:** the operation guard in `findControlTargets` lists five operations and omits `pin` and `unpin`, so both tools throw `telegram_memory_target_invalid` on every call and the core profile stays empty. PR #135 fixes it. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
+| 1 The nervous system | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
+| 2 Memory | **code-complete, split in two, and pinning broken** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. **Pinning is broken in production:** the operation guard in `findControlTargets` lists five operations and omits `pin` and `unpin`, so both tools throw `telegram_memory_target_invalid` on every call and the core profile stays empty. **Fixed on `main` by #135, not yet deployed.** **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
 | 3 School | **built, and receiving nothing** | The D2L email handler is deployed and has **never received a single email** — `d2l_email_messages` and `d2l_email_failure_state` are both empty in production, so not even a malformed message has arrived. The Cloudflare routing rule for `school@onesid.ca` most likely still points at Gmail (unverified; see [OWNER-ACTIONS.md](OWNER-ACTIONS.md)). Separately, Classroom and the Brightspace feed are impossible on this board and are not gaps to close |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
 | 5 Calling | **plumbing proven, brain missing** | A real call has been placed and worked. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
@@ -85,21 +85,19 @@ run alone.
 
 Re-checked against `main` and production on 2026-09-21:
 
-1. ~~`/shadow off` claims a control with no caller~~ — **closed** by #106.
-2. ~~Forgetting has a back door through distillation~~ — **closed** by #110.
-3. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
+1. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
    a token on the line after `Authorization:`. Confirmed by executing
    `sanitizeRedaction`. The test that appears to cover it asserts against
    `guest.pin`, a field no production call site passes. PR #96 fixes the digit
    half only.
-4. `explain` / `forget` / `restore` print the memory text in the same tool result
+2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
-5. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
+3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
    and that index has no delete trigger.
-6. **`memory_pin` and `memory_unpin` throw on every call** — see Phase 2 above.
-   Live in production; PR #135 fixes it.
+4. **`memory_pin` and `memory_unpin` throw on every call in production.** Fixed on
+   `main` by #135; **not deployed**, so still broken live until the next deploy.
 
-Items 4 to 6 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+Items 2 to 4 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live
