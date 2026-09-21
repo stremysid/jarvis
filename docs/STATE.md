@@ -37,7 +37,7 @@ separately, and they differ at every layer:
 
 | | Telegram | Phone call |
 |---|---|---|
-| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach`. `send_email` and the Tesla entries are tier rows only — no tool exists | **none, and none possible** — `ModelAdapterStreamInput` has no `tools` field, so this is a type change, not a wiring call |
+| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach`. `send_email` and the Tesla entries are tier rows only — no tool exists | **none.** The seam is decided (`DECISIONS.md`, *"Voice gets tools behind `ModelAdapter`"*) and not built — see [QUEUE.md](QUEUE.md) |
 | Memory it reads | `memory_items` | `memory_fact_projection_*` — a **different store**, written only when the Windows local agent pushes, and **empty** in production |
 | Core profile | injected every turn | never |
 
@@ -47,38 +47,42 @@ until it lands, every capability added reaches one door only.
 
 ## Production
 
-**Observed directly on 2026-09-21**, not relayed — a session with `wrangler`
-queried production after deploying:
+**Observed directly at 23:20 UTC on 2026-09-21**, by querying production with `wrangler`:
 
-- Worker `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, deployed 2026-09-21.
-- Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`, same evening.
-- **D1 at migration `0038`.** Verified by querying `d1_migrations`, and the three
-  objects it creates exist.
-- **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway`
-  at `2026-09-21T21:25:47Z`, after the redeploy. Every cron before this deploy logged
-  `status 404`; it had never once been recorded. The fix needed a redeploy to
-  prove and the redeploy proved it.
-- Memory: **5 `proposed`, 0 `active`** in `memory_items`, and **0 rows** in
-  `memory_fact_projection_facts`. The promotion fix is live, but the 4 owner turns since it went
-  live were distilled and produced **no items at all**; the newest item is from
-  2026-09-17. Why is open in [QUEUE.md](QUEUE.md). The projection is what a phone call reads,
-  and only the Windows local agent writes it, so it is empty.
+- **Code:** Worker `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, uploaded 2026-09-21T21:27:49Z from
+  `352991e` (#135), 18 s before #133 merged. **Not deployed:** #133's model default (moot —
+  production runs Flash, see [FACTS.md](FACTS.md)) and #137's voice change. Deploying is in
+  [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
+- **Active version:** `64a184ce-4408-4962-b973-9ec3b6f48c9c`. Sid made three secret changes
+  between 21:42 and 21:55 UTC after that deploy; a secret change creates a new version with the
+  same code. Which secrets changed is not visible — values are write-only.
+- Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`.
+- **D1 at migration `0038`.** Verified by querying `d1_migrations`.
+- **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway` at
+  `2026-09-21T23:20:05Z`.
+- **Memory: 5 items, all `proposed`, 0 `active`**, and 0 rows in `memory_fact_projection_facts`.
+  The promotion fix is live, but the 4 owner Telegram turns since it went live were distilled
+  and produced **no items at all**; the newest item is from 2026-09-17. Why is open in
+  [QUEUE.md](QUEUE.md). The projection is what a phone call reads, and only the Windows local
+  agent writes it, so it is empty.
+- **Calls:** 6 inbound owner calls, all 2026-09-17; no outbound call ever.
+- **School email:** `d2l_email_messages` is empty.
 
-Re-query rather than trusting these; they were true at 21:25 UTC on 2026-09-21.
+Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
 
 ## The gates, and whether they can be trusted
 
 | Gate | State |
 |---|---|
-| CI | **Alive, and green on `main` with one known flake.** It was dead on billing from 2026-09-12 and came back on 2026-09-19 when the repository moved into the organisation. Counted on 2026-09-21 at about 22:00Z, runs on `main` since 2026-09-19T00:00Z: 8 passed, 9 failed, 7 cancelled, 1 re-running. `gh run list` reports each run's **latest attempt**, so a re-run moves the count — an earlier count of 7 and 10 was the same runs before one re-run passed. Most failures predate the 2026-09-20 fixes; since then every run has passed except #135's merge (`352991e`), which failed one `hermes-runtime` timing test (`artifact-security-review3`, cancellation deadline) in code #135 did not touch, and **passed on re-run**. Re-running an older run cancels the newest one on `main` — CI's concurrency group is per branch. The count, exactly: `gh run list --repo stremysid/jarvis --branch main --limit 200 --json conclusion,createdAt --jq '[.[] \| select(.createdAt >= "2026-09-19T00:00:00Z")] \| group_by(.conclusion) \| map({c: .[0].conclusion, n: length})'` — filter on the UTC string; PowerShell's `ConvertFrom-Json` turns `createdAt` into local time and shifts the window |
-| `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. One file still roams: `owner-telegram-agent.test.ts` has gone green then red on trees differing only in a log entry |
+| CI | **Alive; red on `main` only from flaky tests.** On 2026-09-21 the last passing run on `main` is `0611803`; the runs since were cancelled by newer pushes (#137, #138) or failed on one of two gateway tests that flake (#140, #139 — both docs-only merges). The flakes are rows in [QUEUE.md](QUEUE.md): re-run before attributing a failure to one. A newer push cancels an older run on the same branch (one concurrency group per branch), and re-running an older run cancels the newest. Latest runs: `gh run list --repo stremysid/jarvis --branch main --limit 10` |
+| `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. Three tests flake: `owner-telegram-agent.test.ts`, `telegram-memory.test.ts`'s 500 ms budget, and `hermes-runtime`'s `artifact-security-review3`. See [QUEUE.md](QUEUE.md) |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
 **A timeout is now a signal.** With `testTimeout` set, a red run
-means something — except in `owner-telegram-agent.test.ts`, which still roams and
+means something — except in the three flaky tests above, each of which
 should be re-run before a failure there is attributed. Merge on CI, not on a local
 run alone.
 
