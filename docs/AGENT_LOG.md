@@ -3,6 +3,84 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-20 — DeepSeek builder: `memory_pin` never worked, and 31 findings from a sweep that ran out of hours
+
+Branch `codex/audit-fixes` on `ca88bf4`. One source fix, one new test, one handoff.
+
+### Fixed: `memory_pin` and `memory_unpin` threw in production
+
+`findControlTargets` (`telegram-memory-retriever.ts:1811`) rejected any operation outside a list of
+five. `pin` and `unpin` were **not** on it, while `targetStates` **already had a case for both**
+(`:827`, with its own comment written). `setPin` reaches that guard on every call —
+`setPin` -> `requireEligibleItem(input, "pin" | "unpin", itemId)` -> `eligibleItemIds` ->
+`findControlTargets({operation: "pin"})` — so **both tools threw `telegram_memory_target_invalid`**
+and Sid saw the generic safety refusal.
+
+**Why the suite was green.** `findControlTargets` is the only production implementation of
+`TelegramMemoryTargetFinder`, and **every agent test injects a stub**:
+`targets: { async findControlTargets() { return [] } }`. The real guard was never called by any test,
+so the two pin tests passed against the stub. A mock is not the code under test — here it was the
+only thing tested.
+
+Fix: the two operations added to the guard. New `test/memory/control-targets.test.ts` calls the
+**real** finder, once per member of `TelegramMemoryTargetOperation`, derived from the union rather
+than hand-listed so the omission cannot recur silently; it also asserts an operation outside the type
+is still refused, so the guard is corrected rather than deleted.
+
+**Mutation-verified both ways:** before the fix the new test fails with
+`TypeError: telegram_memory_target_invalid`; after, 2/2 pass.
+
+### Handoff: a 31-finding sweep, killed mid-run at Sid's instruction (peak pricing)
+
+Two of about seven batches completed. All 31 findings — each with mechanism, citation, evidence,
+**fix** and **falsifier** — plus a `REPORT.md` are at `C:\w\audit\SALVAGED\`. That is a **scratch
+path**, so read it before it is cleaned; this entry is the durable summary.
+
+**Covered:** gateway memory + persistence, and voice + channels + conversation + autonomy + security
++ sync + http. **Not covered at all:** local-agent (Python), contracts, scripts, watchdog,
+hermes-runtime, school/university/jobs/archive/backup/model/providers. **No coverage manifest
+survived** — the parent was killed before assembling it, so there is no file-by-file record of what
+was actually read.
+
+**Triage, because "fix all 31" is not a real job:**
+
+| Kind | Count | What it is |
+|---|---|---|
+| dead-code | 10 | Naming is not proof. Check the caller before deleting: `DurableObjectCallSessionTerminator` is the documented shape of **intended future API** (reflection-based DO calls), so deleting it may be wrong. |
+| roadmap-violation | 9 | **Design work, not fixes.** These are the next steps of the product. |
+| mislead | 7 | Silent-failure paths; each needs individual care |
+| spend / time | 4 | Real |
+| data-leak | 1 | Traced, NOT fixed — below |
+
+### The one I did not fix, and why: the spoken passphrase leaks on its second repeat
+
+`OwnerCallStepUpService.verifyRepeat` (`voice/owner-call-step-up.ts:288`). Line 295 suppresses only
+`"guard"`; line 296 sends everything else to `"continue"`, including **`"spent"`** — which
+`repeatStatus` returns as soon as a repeat-check row exists (`:329`). The filter whose stated purpose
+is keeping a repeated passphrase out of the conversation therefore **lets it through on the second
+repeat**, into the model and the conversation store. A credential in the transcript; same class as
+the PIN defect already in this file's history.
+
+One line, but it is authentication behaviour, and the fix needs a test asserting the passphrase never
+reaches the model or the store. Stopped rather than half-do it with little context left. **This is
+the highest-value next action.**
+
+### What I did NOT do
+
+- Did not fix the leak, the 7 `mislead`, the 4 `spend`/`time`, or the 10 dead-code items.
+- Did not touch the 9 roadmap-violations. One of them — *Jarvis cannot place a call: the only issuer
+  of an outbound command is the owner's own Telegram message* — is Phase 5 itself.
+- **Did not bulk-delete anything the sweep called dead.** The label is a claim, not a measurement.
+- Did not run the full suite, or even the changed file's own suite. The new test and the fix are
+  verified; the regression surface is not.
+
+### Gates
+
+`test/memory/control-targets.test.ts` **2 passed**, and **1 failed before the fix** with
+`telegram_memory_target_invalid` — the mutation evidence is the fix itself. No other suite run.
+
+Built by **DeepSeek**. Reasoning effort: not exposed to the session, so stated rather than guessed.
+
 ## 2026-09-20 — DeepSeek builder: the auditor's read-only guarantee is an accident, and the setting that breaks it
 
 **Branch `codex/audit-tooling`, one commit on `b61ec00`.** No product source. `reviewer-tools/`

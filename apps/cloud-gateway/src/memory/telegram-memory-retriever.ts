@@ -1810,7 +1810,13 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     const principalId = safePrincipal(input.principalId);
     if (input.operation !== "forget" && input.operation !== "lift"
       && input.operation !== "confirm" && input.operation !== "explain"
-      && input.operation !== "correct") {
+      && input.operation !== "correct"
+      // `pin` and `unpin` were missing from this list, and the omission was
+      // invisible. Every agent test injects a STUB target finder, so nothing ever
+      // called the real one with them, while `targetStates` below already had a
+      // case written for both. `memory_pin` and `memory_unpin` therefore threw
+      // telegram_memory_target_invalid in production with a fully green suite.
+      && input.operation !== "pin" && input.operation !== "unpin") {
       throw new TypeError("telegram_memory_target_invalid");
     }
     const states = targetStates(input.operation);
