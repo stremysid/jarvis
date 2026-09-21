@@ -8,8 +8,31 @@
 > already recorded in `docs/plan/2026-08-jarvis-expansion-plan.md`, and PRs #49
 > and #51 built the feature anyway.
 >
-> **Never ask Sid for a D2L calendar or feed URL.** The live route is D2L
-> notification email into `school@onesid.ca`, which he has already configured.
+> **Never ask Sid for a D2L calendar or feed URL.**
+>
+> **CORRECTED 2026-09-21: the notification-email route is dead too.** This banner
+> previously said *"the live route is D2L notification email into
+> `school@onesid.ca`, which he has already configured"*. That was wrong, and it
+> was the fourth time this project pointed a session at a D2L route that cannot
+> work.
+>
+> Measured by Sid on 2026-09-21 with every notification option enabled: D2L's
+> email is an **activity summary** — *"Activity summary for `<course>`"*, a count
+> such as *"76 New Emails"*, and a link. **No assignment name, no course, no due
+> date.** It is sent per course and once for the board as a whole, and both link
+> to the same D2L inbox, which is behind a login.
+>
+> So the email carries nothing a parser can turn into a deadline, and the dates
+> live behind authentication. **There is no working automated D2L route for this
+> board.** Do not propose one without new evidence from the board.
+>
+> The live route is now the **PC reading D2L directly while logged in** — see the
+> PC-controls brief. That is Phase 4/5 work, because it needs a machine that can
+> act, not a cloud worker.
+>
+> Still current from this banner: the calendar tool does not exist, and the
+> ingestion code below is kept because its failure codes are real and would be
+> reused if the board ever exposes a feed.
 >
 > Kept because the ingestion code and its failure codes are real and would be
 > reused if that board ever exposes a feed.

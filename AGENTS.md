@@ -35,10 +35,17 @@ review or write runbooks for a Linux host without raising it with him first: a
 bash, `systemd` or `chmod` instruction is not something he can run. There is also
 no server, no NAS and no VPS unless he says he has bought one.
 
-**The home PC is off overnight while he sleeps**, so "always-on" means "on except
-overnight", not 24/7. Anything that must survive that window belongs in the cloud
-gateway, which genuinely is always-on, or has to tolerate catching up in the
-morning.
+**The home PC is on 08:00–23:00 and off overnight while he sleeps**, so "always-on"
+means "on except overnight", not 24/7. Sid stated the hours on 2026-09-21; the
+previous wording gave no hours at all. Anything that must survive the overnight gap
+belongs in the cloud gateway, which genuinely is always-on.
+
+**Corrected the same day: "off overnight" does not mean "cloud only".** He is out
+of the house 08:00–11:00 and not home until 17:00–18:00, so **08:00 to about 17:00
+is unattended** — a guaranteed window, not a hopeful one. For most work the PC is
+the better host: it has a real filesystem, a real browser, and real credentials,
+none of which a Worker has. Choose the gateway for what must survive the gap, and
+the PC for everything else. **Do not default to the cloud because the PC sleeps.**
 
 ### The Linux node is a planning-session decision, not his
 
