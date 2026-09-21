@@ -9,7 +9,7 @@ request. That failure has happened — Google Classroom consent was ruled out on
 2026-09-17 and walked through again on 2026-09-18, because the fact lived in an
 agent's memory and never in the repository.
 
-Last regenerated: 2026-09-18. Order within a section is the order to do them in.
+Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
 ## Blocking v1.0 — "phone Jarvis from the car"
 
@@ -37,7 +37,6 @@ talk and cannot act. It is a builder task, and it is in the queue.
 | Decision | Why it is yours | State |
 |---|---|---|
 | Is the deployed `DEFAULT_GUEST_PIN` equal to the committed test fixture value? | If it is, the guest PIN is in the repository. Only you can read the deployed secret | **unanswered** |
-| CI: pay to revive it now, or enable it at the free 2026-10-01 reset? | It is a recurring cost. Recommended: the reset, after the fix-first pass | **unanswered** |
 | Does the reviewer keep merge authority? | It is your authority being delegated | **unanswered** |
 | Is there a second vendor for reviewer-authored PRs, or are they labelled unreviewed? | Needs a model you are willing to pay for | **unanswered** |
 
@@ -45,8 +44,6 @@ talk and cannot act. It is a builder task, and it is in the queue.
 
 | PR | What it needs first |
 |---|---|
-| [#105](https://github.com/ksid1229-ops/jarvis/pull/105) | Reviewer clearance |
-| [#106](https://github.com/ksid1229-ops/jarvis/pull/106) | Reviewer clearance, and the `0035` comment corrected first |
 
 ## Standing, one-time, or later
 

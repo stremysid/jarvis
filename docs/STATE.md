@@ -31,13 +31,18 @@ Measured against the phases in
 
 ## The one thing that changes what Jarvis is
 
-**The voice channel has no tool dispatch.** `apps/cloud-gateway/src/voice` contains
-no tool, function-call or tool-call reference at all, while the Telegram path has
-nine tools. A deployed R1 today is a phone call that can talk and cannot act.
+**There are two assistants, not one.** Telegram and a phone call are composed
+separately, and they differ at every layer:
 
-R1's exit test does not require a tool, which is why both statements are true:
-v1.0-as-written is configuration-blocked, and v1.0-as-the-owner-means-it needs the
-tool-calling agent composed into `CallSessionCore`.
+| | Telegram | Phone call |
+|---|---|---|
+| Tools | nine | **none, and none possible** — `ModelAdapterStreamInput` has no `tools` field, so this is a type change, not a wiring call |
+| Memory it reads | `memory_items` | `memory_fact_projection_*` — a **different store**, written only when the Windows local agent pushes, and **empty** in production |
+| Core profile | injected every turn | never |
+
+So a call can talk and cannot act, and nothing Sid tells Jarvis by text reaches a
+call. The roadmap's answer is one brain that both doors reach. It is the keystone:
+until it lands, every capability added reaches one door only.
 
 ## Production
 
@@ -63,7 +68,7 @@ Re-query rather than trusting these; they were true at 23:10 UTC on 2026-09-20.
 
 | Gate | State |
 |---|---|
-| CI | **Dead since 2026-09-12** (billing), resets 2026-10-01. Every push since is red in 5–11 s |
+| CI | **Alive, and green on `main`.** It was dead on billing from 2026-09-12 and came back on 2026-09-19 when the repository moved into the organisation. The last five runs on `main` all pass. Across all 33 non-cancelled runs on `main` it is 7 green and 26 red, because most of the red predates the fixes that landed on 2026-09-20 (T6, the ULID redaction bug, `testTimeout`). Query it: `gh run list --repo stremysid/jarvis --branch main` |
 | `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. One file still roams: `owner-telegram-agent.test.ts` has gone green then red on trees differing only in a log entry |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
