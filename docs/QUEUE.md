@@ -8,6 +8,10 @@ moving. Regenerate it rather than appending to it.
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
 Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
+Updated on 2026-09-21 by `#137`: the `findControlTargets` row for the voice path, and the two
+Phase 5 rows given the seam decision from `DECISIONS.md`. The pull-request table already carried
+`#136`/`#137` on `main`. **The stale *"Apply `0038`, then deploy"* row was already gone on `main`
+and this branch does not touch it.**
 
 ## Pull requests
 
@@ -31,8 +35,9 @@ Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/mai
 | **Deploy** | **blocked on Sid** | #135 fixed pinning on `main`; production still throws until the gateway is redeployed. Same two commands as before: pull `C:\javis`, then `scripts/deploy.ps1 -Publish`. No migration this time | Sid | Phase 2 |
 | The operation guard in `findControlTargets` is a hand-kept list | **not started** | #135 added `pin`/`unpin` to it, but its test hand-lists the operations too: adding a member to `TelegramMemoryTargetOperation` passes the test and typecheck while the guard rejects it. Make the guard a `satisfies Readonly<Record<TelegramMemoryTargetOperation, true>>` map, as #124 did for the intent set. The fourth copy of this defect | builder | Phase 2 |
 | **PC controls: boot chain, D2L read, daily report** | **decided, not started** | Three stacked PRs. **P1** auto-login plus a logon-scheduled task at `-RunLevel Highest`, so Jarvis is elevated from the power button with no morning input. **P2** the PC logs into D2L and reads assignments, pushing through the already-enrolled device. **P3** the report on Telegram, and it must state `last_success_at` — a scraper that breaks silently is the failure that matters. Brief: `C:\javis\.brief-pc-controls.md`. **This is now the only route to Phase 3**, because D2L's email carries no deadlines | builder | **Phase 3 and Phase 4** |
-| Voice has no tool dispatch — a call can talk and cannot act | **decided, not started** | Compose the tool-calling agent into `CallSessionCore`, with the tier-3 gate in front and receipts on the voice channel | builder | **Phase 5** |
-| One brain: two composition sites for what should be one assistant | **not started** | The keystone. Until it lands, every capability added reaches one door only | builder | Phase 1 |
+| **`findControlTargets` is the only one of its two interfaces the voice path has** | **from `#137`** | `D1ContextRetriever implements ContextRetriever` only, while `TelegramMemoryRetriever` also implements `TelegramMemoryTargetFinder`. Voice therefore cannot name a memory to act on, so every memory tool that takes an `itemId` has nothing to resolve one from. Adding the finder to the voice path is part of the agent adapter, not a separate wiring call | builder | **Phase 5** |
+| Voice has no tool dispatch — a call can talk and cannot act | **seam decided, not built** | Build the voice agent adapter: a `ModelAdapter` whose `stream` drives `ModelAgentProvider` and runs the tool call, mirroring `OwnerTelegramAgentAdapter`, then extract the channel-neutral core. Decision and evidence: `DECISIONS.md`, *"Voice gets tools behind `ModelAdapter`"* | builder | **Phase 5** |
+| One brain: two composition sites for what should be one assistant | **seam decided, not built** | The keystone, and the same commit as the row above: Telegram composes its own agent adapter and voice composes a bare `DeepSeekModelAdapter` (`production-runtime.ts` vs `index.ts`) | builder | Phase 1 |
 | The model cannot state its own certainty | **decided, not started** | Sid ruled 2026-09-20 that certainty is the model's. Remove the assignment at `extraction-policy.ts`'s validation boundary and drop it from `FORBIDDEN_PROPOSAL_KEYS`. **Keep `origin` and lifecycle code-assigned** — those are provenance and enforcement | builder | Phase 2 |
 | `owner-telegram-agent.test.ts` roams | **open, unowned** | Still fails intermittently after #121, which fixed only the `delivery_unknown` ULID assertion. Green `35532044202`, red `35532739198` at `:1134`, on trees differing only in a log entry. `testTimeout` is set now, so this is an ordering defect rather than a load timeout | builder | every gate |
 | A spoken-word PIN, a phone number and the owner passphrase match no redaction rule | **live defect** | #96 fixes the digit half only | builder | Phase 5 |

@@ -46,6 +46,7 @@ import {
 import {
   OWNER_STEP_UP_REJECTED,
   OWNER_STEP_UP_REPEAT_MS,
+  OWNER_STEP_UP_REPEAT_FRAGMENT_MS,
   OwnerCallStepUpService,
 } from "../../src/voice/owner-call-step-up.js";
 import {
@@ -1455,6 +1456,60 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
     expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
       .toEqual({ count: 0 });
+  });
+
+  it("suppresses every repeat of the spoken passphrase, including one after the repeat check is spent", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await authenticateOwnerAdministration(harness);
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: "confirm",
+    });
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+
+    // First repeat: the status is `fragment`, so verifyRepeat reserves the
+    // repeat-check row and the utterance is suppressed.
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
+    });
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+    const spentAt = new Date(NOW.valueOf() + OWNER_STEP_UP_REPEAT_MS + 1);
+    expect(await harness.ownerStepUp.repeatStatus(harness.stored.sessionId, spentAt)).toBe("spent");
+
+    // Second repeat: the row now exists, so the status is `spent`. Returning the
+    // utterance here would store the passphrase as a conversation turn and send
+    // it to the model, which is the whole reason the repeat filter exists.
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
+    });
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+  });
+
+  it("suppresses a spent repeat at the step-up service itself", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await authenticateOwnerAdministration(harness);
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
+    });
+    const spentAt = new Date(NOW.valueOf() + OWNER_STEP_UP_REPEAT_MS + 1);
+    expect(await harness.ownerStepUp.repeatStatus(harness.stored.sessionId, spentAt)).toBe("spent");
+
+    await expect(
+      harness.ownerStepUp.verifyRepeat(harness.stored.sessionId, OWNER_TEST_PHRASE, spentAt),
+    ).resolves.toBe("suppress");
+  });
+
+  it("resumes ordinary conversation once the repeat fragment window has closed", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await authenticateOwnerAdministration(harness);
+    harness.advanceTime(OWNER_STEP_UP_REPEAT_FRAGMENT_MS);
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: "what is due this week",
+    });
+
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
   });
 
   it("invalidates an interrupted proposal and clears partial owner PIN input before a replacement", async () => {

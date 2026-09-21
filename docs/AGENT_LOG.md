@@ -3,6 +3,242 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-20 — DeepSeek builder: `spent` is reachable (the fixture is two repeats, not one), and the voice seam is not a widening
+**Branch `codex/phase5-calling`, base `ca88bf4`.** Two commits: the PR #136 fixture,
+then the Phase 5 seam decision. No migration, no deploy, no secret touched.
+
+### 1. PR #136 settles as a **fix**, not dead code — and the fixture is what settles it
+
+`PR #136` changed two lines so `repeatStatus === "spent"` is suppressed instead
+of being handed on as ordinary text, and disclosed that **nothing in the
+repository reached `spent`**, so reverting the lines left every suite green. It
+also recorded three fixture attempts that failed, all of which asked *"how does
+a session become verified-and-spent"* and then drove **one** repeat.
+
+**A fixture reaches `spent` on the second repeat.** The method the brief asked
+for — instrument the rows, not the reasoning — is what produced it. Printed
+inside a live test (scratch probe, deleted before commit):
+
+```
+after phrase    successes={verified_at:2026-08-30T12:00:00.000Z} repeats=none   phase=active  status=guard
+after +2001ms   successes={verified_at:...12:00:00.000Z}        repeats=none   phase=active  status=fragment
+after repeat 1  successes={...}                                 repeats={reserved_at:12:00:02.001Z, outcome:matched}  status=spent
+after repeat 2  ...same rows...                                  status=spent
+```
+
+The mechanism, all three parts of it read from `0018_owner_call_step_up.sql`:
+`repeatStatus` returns `"spent"` as soon as **any** row exists in
+`owner_call_step_up_repeat_checks`; that row is written by the **first** repeat
+check `verifyRepeat` reserves; and
+`owner_call_step_up_repeat_checks_insert_guard` requires
+`NEW.reserved_at > strftime(..., verified_at, '+2 seconds')` plus
+`session.phase = 'active'`. So `spent` is not a later life-cycle state at all —
+it is the state of the *next* repeat after one repeat has been checked. The
+three earlier attempts were one repeat short, and the `+2 s` guard means the
+window is reachable only after `verified_at + 2 s`, which
+`authenticateOwnerAdministration` already advances past.
+
+**Mutation, both lines, and BOTH ARE LOAD-BEARING.** At the fixed revision
+`pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-do.test.ts`
+is **129 passed, 0 failed** (127 skipped only in the `-t` runs). Measured at the reviewed head
+`15144cf`, which is `688fe02` plus this branch:
+
+- Neutering `status !== "spent"` in `CallSessionCore.#guardOwnerRepeat` alone → the core test
+  **fails** with `AssertionError: expected "vi.fn()" to be called once, but got 2 times`, and the
+  service test still passes. Restored → passes.
+- Neutering `|| status === "spent"` in `OwnerCallStepUpService.verifyRepeat` alone → **both**
+  tests fail: the core one with the same 2-times assertion, the service one with
+  `expected 'continue' to be 'suppress'`. Restored → passes.
+
+So the two guards are **not** belt-and-braces, and the caller-side line is **not** merely
+defensive: with only the service guard present, the outer status check returns `text` for `spent`
+and the utterance never reaches `verifyRepeat` at all, which is the leak.
+
+**A contradiction with the reviewer, resolved by re-measuring — and settled.** Sid reported the
+opposite of the first bullet: reverting the caller guard alone left the test passing, from which he
+concluded the service guard "alone carries" it and the caller change was unpinned. I reproduced his
+mutation and got a failure, and **reported my measurement rather than adopting his**, because they
+cannot both be true of one tree: if the service guard alone carried the test, then the core test
+would still pass with *both* guards reverted, which is the original defect.
+
+**Sid then re-ran both mutations on this branch's head `2165fac` and got my results exactly**, and
+retracted:
+
+> *"You were right and I was wrong. The caller line is load-bearing, not belt-and-braces, and my
+> earlier 'test still passes' was measured on my own branch rather than yours — a different tree,
+> which is exactly the contradiction you called out. I should have run it on the head under review
+> instead of assuming my branch was equivalent."*
+
+**Why the retraction is written down here rather than only in the PR.** The "belt-and-braces"
+reading came from the **reviewer**, and had it stood it would have licensed deleting the
+`CallSessionCore.#guardOwnerRepeat` line that the suite actually pins — re-opening the passphrase
+leak with a green suite. A retraction that a reviewer owes is part of the record, not a chat
+message; anything else leaves the objection standing in the next session's reading. The four
+commands are in this entry and both PR bodies so the next reader redoes them rather than trusting
+either account.
+
+**The general lesson, since this project runs on it:** the two accounts disagreed about *one
+revision*, so the disagreement was a measurement, not a judgment call, and it was settleable by
+naming the exact commands and the exact head. When a claim can only be settled by argument, write
+it down this way instead.
+
+**A correction to my own earlier claim in this entry.** I first wrote that the `verifyRepeat` line
+"is not reachable from the current core path" and was pinned only at the service seam. That was
+wrong, and the mutation above is what shows it: the caller guard deliberately *lets* `spent`
+through precisely so the service can suppress it, so `verifyRepeat` **is** reached with `spent`
+status in production. The earlier claim is retracted here rather than left standing.
+
+### 2. The Phase 5 seam decision: keep `ModelAdapter`, put the brain behind it
+
+Recorded in full in `DECISIONS.md` (*"Voice gets tools behind `ModelAdapter`,
+not by widening it"*). The short form:
+
+**Neither option in the brief, as stated.** The third option is the shape that
+already exists. At `ca88bf4`, `OwnerTelegramAgentAdapter implements ModelAdapter`
+(`src/channels/telegram/owner-telegram-agent.ts`) and its `stream` method calls
+`ModelAgentProvider.completeAgent`, executes the tool call, and yields one
+`ModelToken`. Telegram's tool-calling brain is *already* a `ModelAdapter`. Voice
+gets the same thing by composing the same shape, not by a new seam.
+
+Widening `ModelAdapterStreamInput` is ruled out by four obstacles, and the
+fourth is the one that decides it: `DefaultConversationService.handleTurn` runs
+**exactly one model request and settles once**. A tool turn is two requests with
+an execution between them, and voice has no text to speak after the first —
+`finish(finalText)` requires non-empty text and `createVoiceStreamDelivery`
+requires `pieces.join("") === finalText`
+(`src/conversation/conversation-types.ts` at `ca88bf4`), so a turn that ends on a
+tool call has **no legal way to finish**. Widening the interface does not avoid
+that; it moves it into a service whose settlement contract is built on one
+request per turn.
+
+Two supporting facts worth not rediscovering: `ModelStreamTextInput` has **no
+system-prompt field** and `buildMessages` hard-codes `SYSTEM_PROMPT`
+(`src/providers/deepseek-provider.ts`), so the core profile, the channel and the
+voice speaking style all need that path anyway; and `ModelToken` is
+`{index, text}` with no variant for a function call.
+
+**Pinned, mutation-verified.** New test in `test/model/model-adapter.test.ts`:
+`refuses a tool definition on the streaming input, which is how voice gets tools`.
+Mutation: adding `"tools"` to `INPUT_FIELDS` in `src/model/model-adapter.ts` makes
+it fail with `AssertionError: expected function to throw an error, but it didn't`
+(28 others still green). Restored → 29 passed. The mutation is the interesting
+result: the tool definition is **accepted and silently ignored**, which is why
+this needed a test rather than a comment.
+
+### Gate numbers, and which suites they cover
+
+**Every number below was re-measured at the rebased head `2165fac`, after the final commit.** The
+earlier revision of this entry reported three of these from `ca88bf4` with one combination that had
+never been run at all; that is corrected here rather than carried.
+
+- `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-do.test.ts`
+  — **129 passed, 0 failed** (file alone). This is the file the branch changes.
+- `… run apps/cloud-gateway/test/model/model-adapter.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/owner-call-step-up-alert.test.ts`
+  — **44 passed, 0 failed, 3 files** (29 + 11 + 4), file-alone, one run. **These three are unchanged
+  by this branch.** I had earlier reported them as unverified at this head; they are now measured,
+  and the honest version of that sentence is in this list rather than in a caveat.
+- `pnpm --filter @jarvis/cloud-gateway typecheck` — exit 0.
+- `pnpm --filter @jarvis/cloud-gateway typecheck:tests` — **144 errors in 32 files**, identical
+  to `STATE.md`'s recorded baseline, so this branch adds none; not a gate.
+- `node scripts/check-state.mjs` — `state check passed: 3 carriers, STATE.md within budget, links resolve, BLOCKS present.`
+
+I did not run the root `test:all`; its chain stops at the first failure across
+packages, so its numbers would not be cloud-gateway numbers. Every number above
+is a file-alone run.
+
+`docs/AGENT_LOG.md` verified structurally against the merge base:
+`git diff --numstat $(git merge-base origin/main HEAD) HEAD -- docs/AGENT_LOG.md`
+is **0 deletions** — see the pull request for the insertion count at the rebased head.
+
+### Rebased onto `0611803`, then `688fe02` — after #133, #135 and two carrier regenerations
+
+This branch was cut from `ca88bf4`; by the time it was reviewed, `main` was three commits on. Two
+of my claims did not survive contact with the newer carriers and are corrected above rather than
+left standing:
+
+1. **The `D1ContextRetriever` claim was wrong in both directions.** #133's `FACTS.md` said the
+   voice path "reads a **different** memory store" and my branch said "both channels use
+   `D1ContextRetriever`". I checked: `index.ts:233` composes **`TelegramMemoryRetriever`**, and
+   only `production-runtime.ts:110` composes `D1ContextRetriever`. **#133 was right and I was
+   wrong.** The sharper form, which is now in `FACTS.md` and `DECISIONS.md`:
+   `D1ContextRetriever implements ContextRetriever` **only**, while `TelegramMemoryRetriever` also
+   implements **`TelegramMemoryTargetFinder`** — so voice cannot name a specific memory to act on,
+   which is why every `itemId` tool has nothing to resolve one from. The rebase conflicted here and
+   resolving it is what surfaced this.
+2. **`memory_pin` is fixed.** #135 added `pin`/`unpin` to the fail-closed set in
+   `findControlTargets`, with `test/memory/control-targets.test.ts` derived from the declared union.
+   My branch's "cannot work at all" text is corrected to past tense. **The stub observation
+   survives and is the better half**: the reason it was invisible for so long is that three test
+   files stub the finder without looking at the operation, and #135's own commit message says the
+   same. #135 also files the follow-up — the guard is still a hand-kept list, so it will drift a
+   fifth time.
+
+**Two claims I made about the `QUEUE.md` row are now corrected, because `main` moved under them.**
+At the first rebase I recorded that *"the rebase also removed a stale `QUEUE.md` row that
+contradicted `FACTS.md` about `0038`"*. That was true of the tree I rebased onto and **false of the
+tree after `#140`**: on current `main` that row is already gone, and this branch no longer touches
+it. The earlier note is retracted here. The lesson is the same one this file keeps recording — a
+statement about a carrier is a statement about a revision, and `#140` regenerated the carriers while
+this branch was open. Re-read the carrier, do not trust the entry.
+
+### What I did not do, and why
+
+- **Did not build the voice agent adapter.** The brief makes the seam the first
+  commit's deliverable, and the extraction — a channel-neutral agent core, a
+  voice provenance boundary, and a shared home for the voice tool definitions —
+  is materially bigger than the ~200-line bound in `BUILDING.md` before it is
+  reviewable. Writing it here would have been the milestone, not the warm-up.
+- **Did not regenerate `docs/STATE.md` or `docs/QUEUE.md` wholesale.** One
+  targeted edit to the `QUEUE.md` voice row is included; the carriers are
+  regenerated rather than appended, and a full sweep is its own session.
+- **Did not run CI, and did not touch a migration, a secret, a deploy or a PR
+  other than this one.**
+
+### Out of scope, named rather than silently fixed
+
+- **The brief's paths are wrong.** Both files live under `apps/cloud-gateway/src/voice/`, not
+  `src/voice/`. The gateway package has its own `src/`; there is no repository-root `src/voice/`.
+- **The brief misstates the call graph, twice.** It says `verifyRepeat` "was reached: 21 calls across
+  `call-session-do.test.ts`" and treats the seam as core → service. There are exactly three call
+  sites, all inside `CallSessionCore.#guardOwnerRepeat`; the 21 is a count of *guard invocations*,
+  not of these lines. **And my first correction to it was itself wrong** — I wrote that the
+  service's `spent` branch "has no production caller at all". It does: the caller guard lets
+  `spent` through so the service can suppress it, which is exactly what the mutation above
+  demonstrates. Retracted.
+- **`docs/STATE.md` — checked at the rebase rather than repeated.** #133 regenerated the carriers
+  on 2026-09-21, so the claims I made from `ca88bf4` are re-verified here. The R1/"cannot act" row
+  is gone. What remains true and load-bearing: the voice path still has **zero tools**, and the
+  retrievers differ by type, not just by table (see §2 and the `FACTS.md` row).
+- **A stale `QUEUE.md` row — found, removed, and then un-found when `main` moved.** *"Apply `0038`,
+  then deploy — blocked on Sid"* contradicted `FACTS.md`, which records `0038` applied and the
+  gateway deployed. It existed on the revision I rebased onto, and `#140` removed it independently
+  before this branch reached `main`. **So: a real finding, correctly reported at the time, and now
+  no longer this branch's change.** Left written down rather than deleted, because the next session
+  comparing this entry to the diff would otherwise think the entry was wrong.
+- **The CI contradiction is closed, and it was the cheapest win the last session had.** This entry
+  first recorded that `STATE.md` said CI had been dead since 2026-09-12 while the standing brief
+  said it was green. The regenerated carriers answer it: **CI is alive and green on `main`**;
+  it was dead on billing from 2026-09-12 and came back on 2026-09-19. I still did not run it, so
+  nothing here is a CI result — only a corrected claim about what the carriers now say.
+- **`reviewer-tools/gate.ps1`'s `$KnownPreExistingFailures`** — the standing brief says it is stale.
+  At the rebase I did **not** re-check it, because on `main` it is now owned by #135's follow-up
+  rather than by this branch. Untouched.
+- **Phase 5's `pin_verify(pin)` duplicates a gate the core already implements.** Voice step-up is
+  synchronous today (`CallSessionCore` prompts, verifies, holds authority before any conversation
+  turn); the roadmap asks for it as a *tool*, which is the model deciding to ask. Two mechanisms
+  for one gate, and real-time voice makes a mid-turn multi-round tool loop expensive because the
+  relay's strict token stream has nothing to say while the call waits. Flagged in `DECISIONS.md`
+  as a design to argue, not decided here.
+
+### A durable environment fact
+
+The worktree's `.git` is a **file** (`gitdir: C:/javis/.git/worktrees/p5`), not a directory, so
+anything that writes inside `.git` — a commit-message file, for one — fails with `a parent path
+segment is not a directory`. Recorded as a row in `docs/FACTS.md`.
+
+Signed: **DeepSeek, reasoning effort not exposed to the session.** The harness did not surface the
+effort setting, so I am not naming one rather than guessing at it; the model family is DeepSeek.
+
 ## 2026-09-21 — DeepSeek builder: D2L's email route is dead, the PC is the host, and four carriers were stale
 
 Branch `codex/pc-controls` on `0611803`. **No product source.** One new brief, four carrier
