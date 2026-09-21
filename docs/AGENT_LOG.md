@@ -3,6 +3,125 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-20 — DeepSeek builder: the auditor's read-only guarantee is an accident, and the setting that breaks it
+
+**Branch `codex/audit-tooling`, one commit on `b61ec00`.** No product source. `reviewer-tools/`
+plus one report.
+
+### What changed
+
+- `reviewer-tools/dsh-audit.ps1` — three fixes, below.
+- `reviewer-tools/audit-brief.md` — **new.** The audit task brief, moved out of `C:\javis` where it
+  was untracked scratch.
+- `reviewer-tools/auditor-readonly-fix.md` — **new.** Root cause, fix, and what is still open.
+- `reviewer-tools/run-readonly-test.ps1` — **new, diagnostic only.** Says so at the top.
+
+The three launcher fixes: `DSH_PERMISSION_MODE` is **set** to `read-only` instead of deleted;
+`-WorkDir` defaults to `C:\javis` instead of `C:\Users\Sid\OneDrive\Documents\ChatGPT\jarvis` (a
+clone **449 commits behind**, on an abandoned branch, containing neither the roadmap nor the memory
+tools — an audit launched with that default would have measured a state that does not exist); and
+`relay\` and `dsh\` are created if absent, without which every run in a fresh scratch directory dies
+with `Could not find a part of the path ...\dsh\run-<name>.yml`.
+
+### The finding: read-only was never what the launcher thought
+
+`AGENTS.md` requires reviewer-authored PRs to get *"an independent read-only auditor pass"*. The
+launcher set `DSH_PERMISSION_MODE=read-only` and printed `(effort …, read-only)`. **That variable
+does nothing.**
+
+- `dsh-base/cordis.patch.yml:211` is its **only** consumer in the entire install:
+  `mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`.
+- `dsh-sandbox-policy/lib/index.js:98` declares
+  `mode: z.union([...]).default("read-only")`, and `:112` assigns `this.defaultMode = config.mode`
+  from the **validated** value.
+- An unset variable makes the expression `undefined`, and the schema default replaces it **before**
+  `defaultMode` is assigned. So `?? 'workspace-write'` is dead code.
+- A patch **replaces** a row's whole config — `dsh-app-boot/lib/index.js`: `target[key] = value`,
+  with no deep-merge helper anywhere — so a partial `config` also destroys `workspaceRoot`. That is
+  what produced the earlier `service "sandboxPolicy" has been registered` load failure.
+
+**Read-only held by Zod default, not by construction.**
+
+### The part that matters: the path the reviewer used is writable
+
+`~/.dsh/settings.yaml` contains `permission: defaultPreset: danger-full-access`, described by the
+picker itself as *"Choose the default permission mode for new sessions"*. `dsh-permission-presets`
+derives the mode from it: `const defaultPreset = config.defaultPreset ?? inferredDefault`.
+
+The two paths disagree, which is why my harness kept disagreeing with the auditor's runs:
+
+- **headless / `dsh-audit.ps1`** — the preset disables `dsh-permission-presets`, so that setting is
+  never consulted and the schema default gives `read-only`;
+- **UI / web** — the picker reads that setting, which says full access.
+
+**One auditor run wrote a file inside the live deploy checkout.** Content was the single line
+`probe`; it was found and deleted. Nothing was committed, merged, deployed or migrated, and no
+secret was touched.
+
+### Mutations, and one that cannot be run
+
+| Mutation | Result |
+|---|---|
+| Guard's write target outside the workspace | **survived** — both modes refuse there, so the property was never tested |
+| Guard's target left unsubstituted in the prompt | **survived** — session wrote a file named `$target`; the check looked elsewhere |
+| `mode: workspace-write` via the config patch | accepted; session still read-only |
+| `DSH_PERMISSION_MODE=workspace-write` in the env | ignored; policy reported `read-only` |
+| **`mode: bogus-mode-value` via the config patch** | **config validation error, boot refused** |
+
+That last row is the informative one. It proves the patch lands and is validated, so the two rows
+above are not "the patch did not apply" — `request.mode` or a session override outranks
+`defaultMode`, and neither is reachable from the command line. **There is therefore no way to make
+a headless auditor writable, and so no way to mutation-test a guard for this property.** A guard
+that cannot be shown to fail must not be shipped, so **none is**. `run-readonly-test.ps1` is a
+diagnostic with that stated at the top of the file.
+
+Two guards were built and **discarded** for exactly this reason; both are described in the report
+rather than committed. An earlier report was also superseded and deleted.
+
+### Gates
+
+No product source changed, so no suite is affected. Run: `pnpm --filter @jarvis/cloud-gateway
+typecheck` is untouched and **not run**. `run-readonly-test.ps1` was run **5 times** at
+`--effort low`, every one inside the workspace, and every one refused the write with a denial
+marker. `node scripts/check-state.mjs` passes. CI on this branch is the evidence for the repo as a
+whole, not for this change.
+
+### What I did NOT do
+
+- **No guard committed.** See above; the property is unpinnable from headless.
+- **No `FACTS.md` row.** The durable fact is a settings value on Sid's machine, and the report says
+  what to change it to; I did not edit his settings.
+- **Did not change `permission.defaultPreset`.** It is Sid's setting and the report recommends the
+  change rather than making it.
+- **Did not ship `.audit-brief.md` as an agent-preset update.** The preset's own REPO FACTS were
+  corrected in a prior session and live outside the repo; nothing there is versioned, and my
+  corrections to it will rot the same way. The brief carries the corrections instead.
+- **Did not verify the UI path** after the preset stopped mounting a sandbox row.
+
+### Out of scope, found and named
+
+A previous auditor run of this branch's precursor reported, unverified by me: the voice and Telegram
+paths read **two different memory stores** (`memory_items` written only at
+`memory-repository.ts:3182`; `memory_fact_projection_facts` only at `sync/memory-projection.ts:458`,
+reached only from `sync-routes.ts`); that `scripts/check-state.mjs` is wired into **nothing** while
+`AGENTS.md` says it *enforces* the register; that `STATE.md` grades against
+`docs/plan/2026-09-03-jarvis-roadmap.md`, which is **deleted**; and that `DEFAULT_MODEL` is
+`deepseek-v4-pro` while the roadmap says V4.1 Flash. I spot-checked six of its claims and all six
+held; I did not verify the rest.
+
+### Still open
+
+1. Whether the preset's `dsh-permission-presets: disabled` actually blocks a session from raising
+   its own mode — `resolve()` is `request.mode ?? sessionOverride ?? defaultMode`, and this was
+   never proved. This is the real "by construction" question.
+2. The UI path, untested since the preset changed.
+3. Whether setting `permission.defaultPreset: read-only` is enough, or the preset must also pin.
+4. A one-line mystery: one launcher run reported `DSH_PERMISSION_MODE` present-but-empty. Unexplained.
+5. No determinism data — every conclusion is 1–5 runs with no repeats and no rate.
+
+Built by **DeepSeek**. Reasoning effort: the harness exposes no variable naming its own model or
+effort, so this is stated rather than guessed.
+
 ## 2026-09-20 19:20 UTC — builder: PR #116 rebased onto main, and what its 15 s `testTimeout` is sized against
 
 **Branch `codex/test-timeout` (Codex's PR). I changed no source.** Replaying `1739b3a`
