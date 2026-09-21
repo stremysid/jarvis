@@ -8,9 +8,6 @@ moving. Regenerate it rather than appending to it.
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
 Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
-Updated on 2026-09-21: `#137` rebased onto `main` after #133, #135 and #140; `#138` stacked on it
-and listed below. **A stale *"Apply `0038`, then deploy"* row was found by `#137` and removed by
-`#140` independently**, so neither branch carries that change now.
 
 ## Pull requests
 
