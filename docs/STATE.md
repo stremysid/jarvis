@@ -19,16 +19,14 @@ append to it.
 ## In flight, and what each one would change here
 
 Five PRs are open and none is merged. **Every verdict below describes `main` without them.**
-Listed because four of the five would move a verdict in this file, and a reader who merges
-one should regenerate rather than patch.
+`#141`, `#148`, `#149` and `#150` merged on 2026-09-22; their content is on `main`.
 
 | PR | What it would change |
 |---|---|
-| [#141](https://github.com/stremysid/jarvis/pull/141) | Phase 4's PC boot chain: auto-login and an elevated logon task. Does not move a phase verdict on its own |
-| [#144](https://github.com/stremysid/jarvis/pull/144) | Removes a live defect: `selectControlTargets` could still present a memory whose originating event the ledger had suppressed |
-| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phase 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches an agent. Without it P1's exit test cannot pass and the PC-as-host work sits behind it |
-| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene, no verdict change |
-| [#147](https://github.com/stremysid/jarvis/pull/147) | **Phase 5 and the first line of Phase 1.** A call gets tool dispatch and the memory-target finder, and both channels share `OwnerAgentCore`. It would change Phase 5's "cannot carry tools" and Phase 1's "a capability added to one door does not reach the other" to *partly* addressed: the agent loop is shared, the memory read path is not, and the two composition sites remain |
+| [#147](https://github.com/stremysid/jarvis/pull/147) | **Phases 1, 2 and 5.** A call gets tool dispatch and the memory-target finder, and both channels share `OwnerAgentCore`. It rewrites the Phase 1, 2 and 5 rows and the two-assistants table below. **One fix still owed:** `previousAssistant` looks up Jarvis's last reply on any earlier call while its own comment says "same session". **And a decision before deploy:** a call now waits for the whole non-streaming loop, so the 8 s first-token ceiling became a 20 s turn deadline |
+| [#144](https://github.com/stremysid/jarvis/pull/144) | Restores a live-defect fix: `selectControlTargets` can still present a memory whose originating event the ledger suppressed. **When it lands, grep `memory-control-targets.ts` for `memory_active_event_suppressions`** — after `#147` moves that code, a lost hand-port is invisible to the tests for one of the two clauses |
+| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene — no verdict change |
+| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. This is what unblocks **P2 — the PC reading D2L**, which is the only remaining route to Phase 3's exit test |
 
 ## Where the project actually stands
 
