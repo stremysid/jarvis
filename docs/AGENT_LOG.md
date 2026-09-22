@@ -236,6 +236,56 @@ processes) rather than against a live one — the run printed above is that run.
   the next dispatch: **a brief can describe a target state the branch does not have yet**, and
   cherry-picking the branch it was written against is cheaper than discovering it halfway in.
 
+### Independent verification by the publishing session, on the rebased branch
+
+The parent session rebased this work onto PR #141's head and re-observed it, because the
+original branch's first commit was a cherry-pick of `c5a3d62` that had resolved the four
+carriers back to `d0ec419`'s version — which would have discarded #141's OWNER-ACTIONS and
+brief work on merge. Nothing of this session's code changed in the rebase.
+
+Gates re-run by the parent on the combined tree, at `2ccb8fc`:
+
+| Command | Result |
+|---|---|
+| `uv run --project . --group dev pytest -q` (cwd `apps/local-agent`) | **891 passed, 32 skipped** |
+| `uv run --project . --group dev pytest -q -k "windows or pipe or duplicate or serve"` | **99 passed, 5 skipped, 819 deselected** |
+| `uv run --project . --group dev mypy jarvis_local` | **Success, 58 source files** |
+| `uv run --project . --group dev ruff check .` | **All checks passed** |
+| `node scripts/check-state.mjs` | **passed** |
+
+**The exit test, observed by the parent from a genuinely clean machine** (zero `python`/`uv`
+processes first, because a stale agent makes every later observation lie):
+
+```
+probe with nothing running                  -> exit 3
+clean start of `jarvis serve`, held alive   -> `jarvis status` EXIT 0, and it answered:
+                                               status authentication
+                                               started_at 2026-09-22T00:55:32.366Z
+                                               cycles_recorded 1
+a second `serve`, same pipe                 -> refused: "the control endpoint
+                                               \\.\pipe\jarvis-local-agent already exists or is in use."
+```
+
+So the launcher binds the pipe, the CLI's own client reaches it, and the single-instance
+guard fires by name. The `authentication` state is this machine's locally generated,
+**unenrolled** device key being rejected by the gateway — expected, and pre-existing
+`run_node` behaviour, not a fault in this change.
+
+**A correction the parent owes this entry, and one open risk.** The parent first reported
+"the client cannot connect" as a defect here. That was false: the parent's harness reaps a
+detached child when the launching script exits, so three successive probes raced a dying or
+zombie agent. The client, `uv run`, and a binary-mode theory were each tested and eliminated,
+and the parent's experimental patch was reverted. **Do not chase this.** Recorded because a
+wrong defect report is worse than no report.
+
+The open risk, named and not fixed: **`ops/jarvis-boot.ps1` exits 0 the moment the pipe
+answers, and the service can exit 5 seconds later** when the gateway rejects the device.
+The logon task's `RestartCount 3` / `PT1M` is then the only recovery, and nothing tells the
+owner that the service they were told had started is gone. Worth a QUEUE row if this merges.
+
+**Nothing in this entry's own gates or mutations was re-run by the parent** — the 891/99/mypy/
+ruff numbers above are the parent's observations at this head, and the mutation table above
+them is this session's, unchanged.
 ## 2026-09-21 — DeepSeek builder: PR #141 rebased onto a moved main, its carrier conflicts resolved, and the Windows pipe-server brief written
 
 Branch `b/141-rebase` (rebases `codex/pc-controls-p1`, PR #141) on `d0ec419`. Cherry-picked
