@@ -18,14 +18,13 @@ append to it.
 
 ## In flight, and what each one would change here
 
-`#141`, `#147` and `#144` have merged (2026-09-22); `#145` and `#146` are open. **Every verdict below describes `main` without the two still open.**
+`#141`, `#147`, `#144` and `#146` have merged (2026-09-22); `#145` is open. **Every verdict below describes `main` without it.**
 Listed because four of the five would move a verdict in this file, and a reader who merges
 one should regenerate rather than patch.
 
 | PR | What it would change |
 |---|---|
 | [#145](https://github.com/stremysid/jarvis/pull/145) | **Phase 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches an agent. Without it P1's exit test cannot pass and the PC-as-host work sits behind it |
-| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene, no verdict change |
 
 ## Where the project actually stands
 
@@ -122,7 +121,9 @@ Re-checked against `main` and production on 2026-09-21:
 suppression anti-join, so a memory whose originating event the ledger had suppressed
 was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
 arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
-They live in `D1MemoryControlTargetFinder` (`memory-control-targets.ts`), where #147 moved the arm.
+The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #147 moved the arm), composes
+them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
+`creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
 
 Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
