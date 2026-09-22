@@ -512,7 +512,32 @@ Each was applied, run, then reverted with `git checkout --` and re-run green.
 
 Run at this head, each file alone.
 
-*(filled in immediately below — see the gate block in this entry)*
+Re-measured by the publishing session at this head, each file run alone, with the retriever's
+source hash recorded so the numbers are tied to a revision:
+
+```
+apps/cloud-gateway/src/memory/telegram-memory-retriever.ts
+  sha256 C83713B91FBDC341873D0E9510C154DFD932A9B4F2DE6E8D253C14ED9C722744
+```
+
+| Command | Result |
+|---|---|
+| `suppression-predicate-parity.test.ts` alone | **8 passed** (1 file) |
+| the same + `control-target-suppression.test.ts` | **11 passed** (2 files) |
+| `telegram-memory.test.ts` + `living-notes.test.ts` + `memory-search.test.ts` | **105 passed, 1 failed** |
+| `node scripts/check-state.mjs` | **passed** |
+
+**The one failure is pre-existing, and that was established rather than assumed.**
+`telegram-memory.test.ts > retrieves archived-source memories and archived history within 500 ms
+at 25 ms per D1 round trip` fails when the file is run **alone** here, which rules out load, and
+it also fails at the parent commit `069e47c` in a clean worktree carrying none of this branch's
+changes (`1 failed | 69 passed` there, `1 failed | 71 passed` here). This branch adds 2 tests net
+and does not change which one fails.
+
+**A note on the historical record:** the `### Gates` line these numbers replace was the
+publisher's placeholder, committed and pushed before the builder had written its own observed
+numbers. The builder's mutation table above is its own work and is unaffected; only this block is
+the publisher's measurement.
 
 ### What I did not do
 
@@ -567,6 +592,50 @@ worktree, `1 failed | 69 passed` there against `1 failed | 71 passed` here. So i
 regression from this refactor, and this branch adds 2 tests net (70 → 72) without changing which
 one fails. It is a latency-budget test this machine misses; whoever owns the budget should decide
 whether that is the machine or the budget.
+
+### Corrections to this entry's own publishing, made by the publishing session
+
+Four things went wrong in how this branch was published, all of them the publisher's, and all
+recorded here rather than quietly repaired:
+
+**1. The entry was committed and pushed MID-WRITE, with a placeholder left in it.** Line 134 of
+the `### Gates` section reads *"(filled in immediately below — see the gate block in this
+entry)"* and the block below it does not exist. The builder had not finished writing its observed
+gate numbers when the publisher committed. The builder is filling that in as a follow-up commit,
+which is the fix; the defect is the publisher racing a writer.
+
+**2. A fake mutation-count claim was made in the PR body and commit message.** The published text
+says *"the builder's own table in the AGENT_LOG entry records the four mutations it ran, including
+one it reports as unclean."* **Both halves are wrong.** The entry records **seven** mutations, and
+**none is reported unclean**. The publisher read a stale copy of the entry — the builder was still
+writing it — and then characterised that stale copy as the builder's report. The builder caught
+it. Nothing in the seven mutations is unclean, and none should be re-run on that account.
+
+**3. Untracked scratch was left in the test tree.** The publisher's throwaway
+`apps/cloud-gateway/test/memory/capture-sql.test.ts` — whose own header says "TEMPORARY
+verification test, not for commit" — matched the suite's include glob, so it ran in every
+`pnpm test` in this worktree and changed the suite counts. Removed. It was never committed.
+
+**4. The publisher mutated the source file while the builder was running a full suite, and
+contaminated it.** The builder's second `pnpm test` run reported 12 failures; two of them — the
+parity test's *"sends them in the candidate arm a named-area question reaches"* and
+`telegram-memory.test.ts`'s named-area case — are exactly the site the publisher had neutered at
+that moment (line 2071). Those two are **not** defects in this branch, and the builder's own
+recorded per-file gates, not the contaminated run, are what should be read.
+
+### The one verification finding that stands, stated narrowly
+
+The publisher neutered the composer by deleting only the **sequence-range half** of the
+item-creation comparison, leaving `target_event_id` intact. That mutation is caught by three named
+text tests but **not** by `control-target-suppression.test.ts` or `living-notes.test.ts` (18
+passed). The reason is the fixtures: both suppress by `target_event_id`, which the surviving half
+still matches, so neither reaches the sequence-range arm.
+
+Narrowed appropriately by mutation 5 in the table above: deleting the **source** clause *is*
+caught behaviourally, so the behaviour pinning is real and partial rather than absent. What
+remains unpinned is one comparison — an item whose `creation_event_sequence` falls inside a
+suppression's sequence window. Worth a fixture; not worth overstating, which is what an earlier
+draft of this note did.
 ## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
 
 Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
