@@ -26,7 +26,7 @@ from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
-from jarvis_local.node import run_node
+from jarvis_local.node import NodeConfigurationError, NodeSettings, run_node, run_serve
 from jarvis_local.owner_passphrase import run_owner_passphrase
 from jarvis_local.phone_enrollment import run_phone_enrollment
 from jarvis_local.transport.cli_protocol import OK, QUEUED, CliCommand
@@ -76,6 +76,16 @@ def build_parser() -> argparse.ArgumentParser:
     node = subcommands.add_parser("node", help="run the Linux home node in the foreground")
     node.add_argument("--socket-path", type=Path)
 
+    # The Windows half of the same service. `ops/jarvis-boot.ps1` starts this
+    # at logon: `node` refuses a non-Linux host and this one refuses anything
+    # but Windows, so neither can quietly be the other.
+    subcommands.add_parser("serve", help="run the background service in the foreground, on Windows")
+
+    # What `serve` would refuse to start on, answered without starting it. The
+    # boot script runs this before spawning the agent so that "the configuration
+    # is wrong" is a different exit code from "it came up and then fell over".
+    subcommands.add_parser("config", help="report whether the agent's configuration is usable")
+
     for name, description in (
         ("status", "report what the background service has been doing"),
         ("run-once", "ask the background service to run a cycle now"),
@@ -108,6 +118,31 @@ def _doctor() -> int:
     for line in report.lines:
         print(line)
     return report.exit_code
+
+
+def _config(config: JarvisLocalConfig) -> int:
+    """Ask `NodeSettings` what it would refuse before anything is started.
+
+    Deliberately not `doctor`: doctor also demands a well-formed cloud origin,
+    which is a different repair from a missing path, and this has to have one
+    meaning -- the caller's "the configuration is wrong" exit code. The single
+    place both entry points agree is `NodeSettings.from_config`, so the answer
+    comes from it rather than from a second copy of the rules.
+    """
+    missing = config.missing_names()
+    if missing:
+        for name in missing:
+            print(f"missing: {name}")
+        return EXIT_SERVICE_UNAVAILABLE
+    try:
+        # No `platform`, so this asks about the host it is running on, exactly
+        # as the start it guards will.
+        NodeSettings.from_config(config)
+    except NodeConfigurationError as error:
+        print(str(error))
+        return EXIT_REFUSED
+    print("configuration ready")
+    return 0
 
 
 def _enroll(config: JarvisLocalConfig, device_label: str) -> int:
@@ -180,6 +215,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_owner_passphrase(JarvisLocalConfig.from_environment(), arguments.owner_passphrase_operation)
     if arguments.command == "node":
         return run_node(JarvisLocalConfig.from_environment(), socket_path=arguments.socket_path)
+    if arguments.command == "serve":
+        return run_serve(JarvisLocalConfig.from_environment())
+    if arguments.command == "config":
+        return _config(JarvisLocalConfig.from_environment())
     if arguments.command in CONTROL_SUBCOMMANDS:
         control_arguments = {"fact_id": arguments.fact_id} if arguments.command == "retry-quarantined" else None
         return _control(arguments.command, arguments.pipe_name, arguments.socket_path, control_arguments)
