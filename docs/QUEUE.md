@@ -7,20 +7,49 @@ moving. Regenerate it rather than appending to it.
 `state` is one of `awaiting-review`, `changes-requested`, `awaiting-owner`,
 `blocked`, `ready-to-merge`. `BLOCKS` names the phase a pull request gates.
 
-Last regenerated: 2026-09-21, against `main` = run `git log --oneline origin/main -1`.
+Last regenerated: 2026-09-22, against `main` = run `git log --oneline origin/main -1`. `#143` merged as `cdfdd4b`; every branch below was checked with `git merge-tree` against it and merges clean, so the old "Conflicting" note is retired where it no longer applies.
 
-## Pull requests
+## Pull requests, and the order they have to land in
+
+`#145` is based on `#141`'s branch and `#146` on `#144`'s. Nothing else depends on anything.
 
 | PR | State | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#141](https://github.com/stremysid/jarvis/pull/141) | awaiting-review | Reviewer reads it; it conflicts with `main` | reviewer | Phase 4 | The PC boot chain: auto-login, an elevated logon task, and the boot entry point. Conflicting |
-| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main` | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files. Conflicting |
-| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set; likely no longer needed | builder | none | `gate.ps1` isolation re-runs. Conflicting |
-| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | DeepSeek reviews it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored. Conflicting |
-| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Keep only the CI wiring for `check-state.mjs`; its carrier content is superseded | reviewer | none | Reviewer-authored. Conflicting |
-| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed. Conflicting |
-| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec. Conflicting |
-| [#127](https://github.com/stremysid/jarvis/pull/127) | **close** | Superseded: `BUILDING.md` is rewritten without milestones on `main`, and #127's version still carries the R table and re-adds the deleted `docs/HANDOFF.md` | Sid | none | Conflicting |
+| [#141](https://github.com/stremysid/jarvis/pull/141) | **ready-to-merge** | Merge first. `#145` sits on it and retargets to `main` after | Sid | Phase 4 | The PC boot chain: auto-login, an elevated logon task, and the boot entry point |
+| [#144](https://github.com/stremysid/jarvis/pull/144) | **ready-to-merge** | Merge second. `#146` sits on it | Sid | Phase 2 | A suppressed memory could still be a control target. Both anti-joins restored to `selectControlTargets`, one mutation per clause, each clause failing its own test when neutered |
+| [#146](https://github.com/stremysid/jarvis/pull/146) | **ready-to-merge** | Merge after `#144` | Sid | Phase 2 | The suppression predicate is one definition, guarded by a parity test. Three copies remain outside the retriever — `readItemVisibility` and `retrievalItemStatements` as `EXISTS` projections, and `0016`'s `memory_retrievable_item_versions` view — and are named in a row below rather than folded in |
+| [#145](https://github.com/stremysid/jarvis/pull/145) | **ready-to-merge** | Merge after `#141` | Sid | **Phase 3 and Phase 4** | `jarvis serve` binds the Windows control pipe through the existing `NamedPipeServer`, so the boot chain reaches a live agent. Without it P1's exit test cannot pass and P2/P3 sit behind it. One open risk: the boot script exits 0 the moment the pipe answers, and the service can exit 5 seconds later if the gateway rejects the device — the logon task's `RestartCount 3` is then the only recovery, and nobody has decided that in writing |
+| [#147](https://github.com/stremysid/jarvis/pull/147) | awaiting-review | Reviewer reads it. **Unaudited**, and the widest of the five: a tier gate and tool dispatch on the voice path. Rebase onto the PIN fix rather than landing in front of it | reviewer | **Phase 5** | A call can act, and the agent loop has one copy. `OwnerTelegramAgentAdapter` 1,339 → 256 lines. The two composition sites are *not* gone and the PR does not claim they are: each channel still owns its authority check and prompt, and a full collapse needs a Durable Object holding conversation state, which does not exist |
+| [#96](https://github.com/stremysid/jarvis/pull/96) | **blocked** | Rebase onto `main`. **Read against the PIN finding below before either lands** — it claims to fix "the digit half" of the same redaction rule, and two half-fixes to one rule is how the rule ends up wrong twice | builder | Phase 5 | Spoken PIN before sensitive actions, and the redaction fix. 57 files |
+| [#111](https://github.com/stremysid/jarvis/pull/111) | **blocked** | Re-measure now that `testTimeout` is set; likely no longer needed | builder | none | `gate.ps1` isolation re-runs |
+| [#113](https://github.com/stremysid/jarvis/pull/113) | **awaiting-independent-pass** | DeepSeek reviews it | Sid | none | The sweep set the 2026-09-18 triage never covered. Reviewer-authored |
+| [#117](https://github.com/stremysid/jarvis/pull/117) | **superseded in part** | Keep only the CI wiring for `check-state.mjs`; its carrier content is superseded | reviewer | none | Reviewer-authored |
+| [#118](https://github.com/stremysid/jarvis/pull/118) | awaiting-review | Reviewer reads it | reviewer | none | T6 is closed |
+| [#122](https://github.com/stremysid/jarvis/pull/122) | awaiting-review | Reviewer reads it | reviewer | none | The memory redesign spec |
+| [#127](https://github.com/stremysid/jarvis/pull/127) | **close** | Superseded: `BUILDING.md` is rewritten without milestones on `main`, and #127's version still carries the R table and re-adds the deleted `docs/HANDOFF.md` | Sid | none | |
+
+## The 2026-09-22 audit of `d0ec419`
+
+A read-only audit ran on 2026-09-22 and produced a ranked list. **Two of its own claims were
+withdrawn after challenge, so read its corrections before acting on any of it.** The figures it
+reports are from `d0ec419`; `#143` has since landed, which resolved the `DEEPSEEK_MODEL`
+question (production runs Flash) and moved the deploy row. The findings below are what survived.
+
+**Only the first two were traced end to end, at both ends of the chain.** The rest are
+labeled as they stand, and one has an external premise nobody measured.
+
+| Finding | State | Next action | Owner |
+|---|---|---|---|
+| **The four-digit PIN is unredacted**, at rest in `events.envelope_json`, in the R2 archive, and sent to DeepSeek in a prompt. `AUTHENTICATION_DIGITS` is `/...\d{6}.../` — exactly six — at `packages/contracts/src/calls.ts:19`; the contextual rule needs exactly eight; `CREDENTIAL_FIELDS` has no `pin`; and the `DTMF_FIELDS` branch is gated on `channel === "voice"` at `security/redaction.ts:30`, so a conversation turn never reaches it. The test that appears to cover it passes `field: "guest.pin"`, a string that occurs nowhere else in any executable file | **live defect; verified twice, independently** | Widen the digit rule to a bare 4-digit run, ungate the DTMF branch, and test through `handleTurn` rather than a synthetic field. Mutation-verify before it lands: it changes what **every** door redacts. `#96` touches the same rule | builder |
+| **`scripts/deploy.ps1` ships an unknown revision.** No `rev-parse`, no dirty-tree check, no comparison against `origin/main`, anywhere in `scripts/`. A `-Publish` from a stale `C:\javis` ships older voice code and reports success — and the two files in that delta are the ones holding the PIN defect | **verified** | Two lines at the top of `deploy.ps1` and `deploy-watchdog.ps1` | builder |
+| The digest can say "nothing due" while school has deadlines, because a source is "not set up" only when **unconfigured**, and all three school routes are dead **with configuration present** | audit finding, **not** traced end to end | Record rows-yielded beside `last_success_at` and treat "succeeding, never yielded" as a gap the digest must state | builder |
+| Three states are recorded and never delivered: a failed Telegram reply is never retried (`retry_wait` stored, no job claims it); `pushSourceGap` returns `lastFailure` before its age check; one failed send burns that day's only backup notice (empty `catch`, no counterpart `console.error`) | audit findings, **not** traced end to end | Each is a missing caller or a missing log line | builder |
+| A spoken 4-digit PIN reaches the model and transcript after Durable Object eviction, because `#interaction` is a plain instance field and hibernation discards it | **unproven** — the load-bearing premise is Cloudflare's hibernation window, which nobody measured | Check the premise against Cloudflare's own documentation before building anything | builder |
+| Voice can read the forgetting guarantee but cannot invoke it: `MemoryOwnerControlsService` has four construction sites and none is reachable from `voice/**` | audit finding. Near-vacuous today (5 items, 0 active), so a correctness gap rather than a live leak | Give voice a memory-control invocation path | builder |
+
+**Do not act on the audit's §2.3.** It is withdrawn: `composeCoreProfile`
+(`core-profile.ts:81-85`) applies `CORE_PROFILE_PREFIX`, and its only caller feeds that into
+`ownerTelegramAgentSystemPrompt`. The label is applied.
 
 ## Work with no pull request yet
 

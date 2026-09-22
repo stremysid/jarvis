@@ -11,9 +11,24 @@ them down.
 If this file disagrees with a longer document, this file is right and the longer
 document is stale — say so in the pull request that fixes it.
 
-Last regenerated: 2026-09-21, by the reviewer, against production queried directly
-and the revision printed by `git log --oneline origin/main -1`. Regenerate it; do not
+Last regenerated: 2026-09-22, against `main` = the revision printed by
+`git log --oneline origin/main -1`, and against production as `#143` last observed it at
+23:20 UTC on 2026-09-21 (that PR's figures, not re-queried here). Regenerate it; do not
 append to it.
+
+## In flight, and what each one would change here
+
+Five PRs are open and none is merged. **Every verdict below describes `main` without them.**
+Listed because four of the five would move a verdict in this file, and a reader who merges
+one should regenerate rather than patch.
+
+| PR | What it would change |
+|---|---|
+| [#141](https://github.com/stremysid/jarvis/pull/141) | Phase 4's PC boot chain: auto-login and an elevated logon task. Does not move a phase verdict on its own |
+| [#144](https://github.com/stremysid/jarvis/pull/144) | Removes a live defect: `selectControlTargets` could still present a memory whose originating event the ledger had suppressed |
+| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phase 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches an agent. Without it P1's exit test cannot pass and the PC-as-host work sits behind it |
+| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene, no verdict change |
+| [#147](https://github.com/stremysid/jarvis/pull/147) | **Phase 5 and the first line of Phase 1.** A call gets tool dispatch and the memory-target finder, and both channels share `OwnerAgentCore`. It would change Phase 5's "cannot carry tools" and Phase 1's "a capability added to one door does not reach the other" to *partly* addressed: the agent loop is shared, the memory read path is not, and the two composition sites remain |
 
 ## Where the project actually stands
 
@@ -74,8 +89,8 @@ Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
 
 | Gate | State |
 |---|---|
-| CI | **Alive; red on `main` only from flaky tests.** On 2026-09-21 the last passing run on `main` is `0611803`; the runs since were cancelled by newer pushes (#137, #138) or failed on one of two gateway tests that flake (#140, #139 — both docs-only merges). The flakes are rows in [QUEUE.md](QUEUE.md): re-run before attributing a failure to one. A newer push cancels an older run on the same branch (one concurrency group per branch), and re-running an older run cancels the newest. Latest runs: `gh run list --repo stremysid/jarvis --branch main --limit 10` |
-| `pnpm test` | **5,395 tests**, 0 skipped. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. Three tests flake: `owner-telegram-agent.test.ts`, `telegram-memory.test.ts`'s 500 ms budget, and `hermes-runtime`'s `artifact-security-review3`. See [QUEUE.md](QUEUE.md) |
+| CI | **Alive, and green on `main` at `cdfdd4b`** — `gh run list --repo stremysid/jarvis --branch main` shows `success` for that commit. **Do not write "the last five runs pass":** it is false, and it was false in this row before. The real shape on 2026-09-21/22 was one `failure` at `688fe02`, two runs `cancelled` by newer pushes (#137, #138), then green. A newer push cancels an older run on the same branch (one concurrency group per branch) and **a cancelled run is not a failure** — reading one as a red main is a recurring error here. Re-run a flaky test before attributing a failure to it; those rows are in [QUEUE.md](QUEUE.md) |
+| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. Three tests flake: `owner-telegram-agent.test.ts`, `telegram-memory.test.ts`'s 500 ms budget, and `hermes-runtime`'s `artifact-security-review3`. See [QUEUE.md](QUEUE.md) |
 | `pnpm typecheck` | Clean |
 | `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
