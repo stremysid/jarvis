@@ -13,7 +13,12 @@ VECTORS = json.loads(
 
 
 def expand(text: str) -> str:
-    return text.replace("<six>", "6" * 6).replace("<eight>", "7" * 8).replace("<bearer>", "a" * 15 + "1")
+    return (
+        text.replace("<six>", "6" * 6)
+        .replace("<eight>", "7" * 8)
+        .replace("<four>", "4" * 4)
+        .replace("<bearer>", "a" * 15 + "1")
+    )
 
 
 @pytest.mark.parametrize("case", VECTORS["redactionCases"], ids=lambda case: case["name"])
