@@ -3,6 +3,94 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
+
+Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
+hand-porting #144 into the file #147 moved the arm to. No step was reordered. I ran the
+checks; Sid merged #147 himself after the auto-mode classifier refused my merge.
+
+### #147: the cross-call "yes" (`c8a2b3f`)
+
+- **The lookup was dead, not merely unscoped.** My review read the SQL as unscoped.
+  Running it showed `OwnerVoiceAgentAdapter.previousAssistant` threw on every call:
+  `no such column: sent.correlation_id`.
+  - `events` has no `correlation_id` or `causation_id` column; both live only in the envelope.
+  - So a voice `memory_remember` with `evidenceClass:"confirmed"` was refused on the same call
+    and on any other alike.
+  - The existing test "can be built without a previous assistant turn…" passed because the
+    query threw, not because no earlier turn existed.
+- **Fix.** The lookup now starts from the current turn (`input.correlationId`), requires the
+  same `session_id`, and reaches the reply through `conversation_turns.sent_assistant_event_id`.
+  The envelope's `causationId` is still checked.
+  - **This is a behaviour change on calls:** a confirmed remember now works on the same call,
+    where before it always refused.
+- **Tests** (both run through `handleTurn` against real D1):
+  - *"does not save it when the offer was made at the end of an earlier call"*
+  - *"saves it as confirmed when the offer was made earlier on the same call"*
+- **Mutations** (`mutate.ps1`; each kill confirmed by a second run):
+  - Y1: session condition removed → **KILLED** (the cross-call test).
+  - Y2: lookup made dead again → **KILLED** (the same-call test).
+- **Merging main into #147 (`f540c74`).** `AGENT_LOG.md` took both sides (436 + 436 → 437).
+  - `QUEUE.md` merged cleanly **but was wrong**. The branch's earlier merge `67c1575` had
+    replaced main's newer "PC controls" row and dropped the "No Windows launcher" row. Both
+    are restored.
+  - CI was 7/7 green at `f540c74`. Merged as `bde0a9b`.
+- **The composition pin, re-checked at `80d5c7d`:** C1, C2 and C3 all **KILLED**.
+
+### #144, ported (`c8adcf9`)
+
+- **Resolution:** took #147's deletion of the old `selectControlTargets`, then hand-ported the
+  `memory_items` join and both `NOT EXISTS` clauses into `D1MemoryControlTargetFinder`.
+  - The ported lines are byte-identical to #144's 19 added lines, checked by diffing the added
+    lines of each.
+- **Sid's grep** on `memory-control-targets.ts` for `memory_active_event_suppressions`:
+  - **before the port: 0 lines**, so the fix was lost;
+  - **after the port: lines 300 and 308**, with `creation_event_sequence BETWEEN` on line 303.
+- **Mutations** (`mutate.ps1`):
+  - P1: creation clause removed → **KILLED**.
+  - P2: source clause neutered → **KILLED**.
+  - P3: the `creation_event_sequence` range half removed → **SURVIVED**. This measures Sid's
+    point: at #144, only the grep covered that half.
+- **Gates:** memory and voice suites **461/461**; typecheck clean.
+
+### #146, retargeted onto #144
+
+- **The predicate moved.** The retriever imports the finder, so the finder could not import
+  #146's constants from the retriever without a cycle.
+  - `suppressionClauses`, `CANDIDATE_SUPPRESSION_CLAUSES` and `NOTE_SOURCE_SUPPRESSION_CLAUSES`
+    now live verbatim in **`memory/suppression-clauses.ts`**.
+  - The finder composes `${CANDIDATE_SUPPRESSION_CLAUSES}`.
+- **The parity test follows it.**
+  - Guard 1: the comparison appears exactly once in `suppression-clauses.ts` and zero times in
+    either composing file.
+  - Guard 2: scans both composing files. The totals are unchanged (8 templates, 6 candidate
+    templates), so its floors still hold.
+  - `test-modules.d.ts` gains `*.js?raw`, the spelling the imports use.
+    `typecheck:tests` is back to **144**, with none in a touched file.
+- **The verification note now names the new file.** After the move, a grep of
+  `memory-control-targets.ts` for `memory_active_event_suppressions` finds nothing while the
+  fix is intact.
+  - `QUEUE.md` and `STATE.md` now say: grep `suppression-clauses.ts` for
+    `creation_event_sequence BETWEEN`, and check that `memory-control-targets.ts` composes
+    `${CANDIDATE_SUPPRESSION_CLAUSES}`.
+  - The parity guards pin both.
+- **Mutations** (`mutate.ps1`):
+  - R1: finder stops composing → **KILLED** (guard 2).
+  - R2: range half removed from the shared text → **KILLED** (guard 4). The half only the grep
+    covered at #144 is now pinned by a test.
+  - R3: comparison written out again in the finder → **KILLED** (guard 1).
+  - R4: finder stops composing, run against #144's behaviour suite → **KILLED**.
+- **Gates:** memory and voice suites **471/471**; typecheck clean.
+
+### Not done
+
+- **Per-sentence honesty checks for streaming:** accepted as a design for its own PR (Sid).
+  Not started. DeepSeek's documentation is the only evidence that streaming works with tools
+  until someone tries it against the live API.
+- **The unconsumed tier-3 tap:** left alone, as a schema change for its own PR.
+
+— Claude Opus 5.5 (`claude-opus-5-5`), reasoning effort 40
+
 ## 2026-09-22 — Claude builder: #147 review, the four-digit PIN (#149), the deploy guard (#150), and #96's migration number
 
 Four jobs from Sid, in this order: review #147, read #96 against the PIN finding, fix the PIN,
