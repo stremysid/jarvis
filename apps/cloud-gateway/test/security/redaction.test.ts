@@ -68,6 +68,32 @@ describe("Redactor", () => {
   });
 
   it.each([
+    ["directly after the word", "pin 7305", "pin [REDACTED_AUTH_DIGITS]"],
+    ["after a colon", "PIN: 7305", "PIN: [REDACTED_AUTH_DIGITS]"],
+    ["after 'is'", "my passcode is 7305", "my passcode is [REDACTED_AUTH_DIGITS]"],
+    ["with a year later in the sentence", "my pin is 7305, set in 2026", "my pin is [REDACTED_AUTH_DIGITS], set in 2026"],
+  ])("redacts a four-digit PIN after a credential word on both channels: %s", (_label, text, expected) => {
+    const redactor = new Redactor();
+    for (const channel of ["telegram", "voice"] as const) {
+      expect(redactor.redact({ text, channel, field: "conversation.turn.text" }))
+        .toEqual({ ok: true, text: expected, markers: ["authentication_digits"] });
+    }
+    expect(redactor.redactText(text)).toEqual({ ok: true, text: expected, markers: ["authentication_digits"] });
+  });
+
+  it.each([
+    "The essay is due Oct 14, 2026.",
+    "Room 2104 at 1430, and it costs 1500 dollars.",
+    "I scored 1450 on the SAT.",
+    "The pin is on the 2026 page of the binder.",
+    "Tell me how to spin 2026 as a gap year.",
+  ])("leaves a four-digit number alone when no credential word comes right before it: %s", (text) => {
+    expect(new Redactor().redact({ text, channel: "telegram", field: "conversation.turn.text" }))
+      .toEqual({ ok: true, text, markers: [] });
+    expect(new Redactor().redactText(text)).toEqual({ ok: true, text, markers: [] });
+  });
+
+  it.each([
     ["a bare Bearer JWT", "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl", "[REDACTED_AUTHORIZATION]", "authorization"],
     ["a token assignment", "token=sk-test_0123456789abcdefghijklmnopqrstuvwxyz", "[REDACTED_CREDENTIAL]", "credential"],
     ["a secret assignment", "secret: opaque-secret-value", "[REDACTED_CREDENTIAL]", "credential"],

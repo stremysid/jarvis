@@ -113,7 +113,10 @@ Re-checked against `main` and production on 2026-09-21:
 1. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
    a token on the line after `Authorization:`. Confirmed by executing
    `sanitizeRedaction`. The test that appears to cover it asserts against
-   `guest.pin`, a field no production call site passes. PR #96 fixes the digit
+   `guest.pin`, a field no production call site passes. [#149](https://github.com/stremysid/jarvis/pull/149)
+   fixes a four-digit PIN after a credential word, on every channel, and is not
+   deployed. A bare PIN with no credential word before it, and a spoken-word PIN,
+   stay open. PR #96 fixes the digit
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
