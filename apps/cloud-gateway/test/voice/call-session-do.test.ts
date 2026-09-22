@@ -30,7 +30,9 @@ import {
   type OwnerStepUpAlarmPort,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
+import { OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import {
   createTargetGuestAccessDocumentVerifier,
   OwnerAccessService,
@@ -2286,6 +2288,7 @@ describe("CallSession production composition", () => {
   let creditFails: boolean;
   let telemetryAsOf: string;
   let requests: string[];
+  let modelBodies: Record<string, unknown>[];
   function configuration(): Env & { IDENTITY_CHALLENGE_HMAC_KEY_VERSION: string } {
     return {
       ...env,
@@ -2346,7 +2349,8 @@ describe("CallSession production composition", () => {
     await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => { await state.storage.deleteAll(); });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
-    credit = "15"; creditFails = false; requests = []; telemetryAsOf = NOW.toISOString().replace(".000Z", "+00:00");
+    credit = "15"; creditFails = false; requests = []; modelBodies = [];
+    telemetryAsOf = NOW.toISOString().replace(".000Z", "+00:00");
     vi.spyOn(globalThis, "fetch").mockImplementation(async function (this: unknown, input, init) {
       // A mock that ignores its receiver would miss workerd's Illegal invocation failure.
       expect(this).toBe(globalThis);
@@ -2364,6 +2368,7 @@ describe("CallSession production composition", () => {
       if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { message_id: requests.length } });
       expect(String(input)).toBe("https://api.deepseek.com/chat/completions");
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      modelBodies.push(body);
       expect(body).toMatchObject({ model: "synthetic-runtime-model" });
       // The production voice path now reaches the shared owner agent, which is a
       // non-streaming `completeAgent` request carrying tools. The streaming
@@ -2409,6 +2414,30 @@ describe("CallSession production composition", () => {
     });
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
+  });
+
+  it("gives an owner's call the memory tools through the voice agent adapter the production runtime composes", async () => {
+    // The fixture above answers both a streaming and an agent request, so every
+    // other test in this block passes whether `createProductionCallSessionCore`
+    // composes `OwnerVoiceAgentAdapter` or a bare `DeepSeekModelAdapter`. This
+    // one does not: a bare adapter reaches the model streaming, with no tools and
+    // no voice prompt, and a call silently goes back to talking without acting.
+    await seedActiveVoiceIdentity();
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored);
+    await call.setup();
+    await call.prompt("What do you remember about my exams?");
+
+    expect(modelBodies).toHaveLength(1);
+    const body = modelBodies[0] as Record<string, unknown>;
+    expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
+    expect((body.tools as { function: { name: string } }[]).map((tool) => tool.function.name))
+      .toEqual(MEMORY_TOOL_DEFINITIONS.map((tool) => tool.name));
+    const [system] = body.messages as { role: string; content: string }[];
+    expect(system?.role).toBe("system");
+    expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
+      .toEqual([{ state: "voice_sent" }]);
   });
 
   it("shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation", async () => {
