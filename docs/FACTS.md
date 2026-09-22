@@ -73,6 +73,8 @@ repository is the only thing every session reads.**
 | **The local agent's control channel is fully implemented for Windows and has no Windows launcher.** `transport/pipe_server.py` is a tested `NamedPipeServer` over a SID-restricted pipe, and `node.py` — the only thing that binds it — refuses any platform that is not Linux. So `jarvis status` on Windows has nothing to talk to, and the P1 boot chain necessarily ends at "elevated, no agent" | Read `node.py`'s `NodeSettings.from_config` platform check and the `pipe_server` call graph; there is no other caller | 2026-09-21 | yes |
 | **The home PC's PowerShell is 7.6.6**, installed from the Store, so `Get-Command pwsh` resolves to an App Execution Alias under `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\`. A scheduled-task action pointing at that alias launches normally | `$PSVersionTable.PSVersion`; `(Get-Command pwsh).Source` | 2026-09-21 | yes |
 
+| **Sid wants every reply from a session to end with a list or table of what happens next**, and each step to carry its own timing — a date, or a named trigger such as "when X merges". A bare "do this next" with no time attached is not what he asked for. He also wants sessions to assume he is skimming | Sid, 2026-09-22, stated as a standing preference for how sessions report to him | 2026-09-22 | yes |
+
 ## Adding a row
 
 One line. `fact | how we know | date observed | still true?` — and if it contradicts
