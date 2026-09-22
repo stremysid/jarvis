@@ -197,6 +197,8 @@ interface RunVoiceTurnInput {
   readonly context?: readonly RetrievedContext[];
   readonly targets?: MemoryTargetFinder;
   readonly memorySearch?: MeaningSearchReader;
+  /** The call this turn belongs to. Each turn is its own call unless a test says otherwise. */
+  readonly sessionId?: string;
 }
 
 async function seedPrincipalOnce(principalId: string): Promise<void> {
@@ -226,7 +228,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     ),
     now: () => NOW,
   });
-  const sessionId = `voice:call:${serial}`;
+  const sessionId = input.sessionId ?? `voice:call:${serial}`;
   const turnId = newUlid();
   const pieces: string[] = [];
   // The real delivery helper, not a stand-in: it is what refuses a stream whose
@@ -456,6 +458,73 @@ describe("the voice agent adapter", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "refused",
       receipt: "I could not safely apply that tool call, so nothing changed.",
+    });
+  });
+
+  describe("a yes to an offer to note something", () => {
+    const OFFER = "Do you want me to note that you take your coffee black?";
+
+    /** Two turns: Jarvis offers on the first, Sid answers "yes" on the second. */
+    async function offerThenYes(principalId: string, offerSession: string, answerSession: string) {
+      await seedPrincipal(principalId);
+      await runVoiceTurn({
+        text: "I've started taking my coffee black",
+        provider: new FakeAgentProvider([stopped(OFFER)]),
+        ownerPrincipalId: principalId,
+        sessionId: offerSession,
+      });
+      const provider = new FakeAgentProvider([
+        called(tool("remember-yes", "memory_remember", {
+          fact: "I take my coffee black.",
+          supportingExcerpt: "I take my coffee black",
+          evidenceClass: "confirmed",
+          previousOfferExcerpt: OFFER,
+          kind: "fact",
+          sensitivity: "normal",
+        })),
+        stopped("Done."),
+      ]);
+      await runVoiceTurn({
+        text: "yes, I take my coffee black",
+        provider,
+        ownerPrincipalId: principalId,
+        sessionId: answerSession,
+      });
+      const saved = await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1")
+        .bind(principalId).first<{ count: number }>();
+      return {
+        toolResult: JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as Record<string, unknown>,
+        saved: saved?.count ?? -1,
+      };
+    }
+
+    it("saves it as confirmed when the offer was made earlier on the same call", async () => {
+      const principalId = `principal:voice-yes-same-call:${serial + 1}`;
+      const call = `voice:call:same:${serial + 1}`;
+
+      const { toolResult, saved } = await offerThenYes(principalId, call, call);
+
+      expect(toolResult).not.toMatchObject({ status: "refused" });
+      expect(saved).toBe(1);
+    });
+
+    it("does not save it when the offer was made at the end of an earlier call", async () => {
+      // Jarvis offers to note something as call A ends; Sid says "yes" on call B.
+      // That yes answers nothing Jarvis said on call B, so it cannot ground a
+      // confirmed memory -- the offer it would ground on belongs to another call.
+      const principalId = `principal:voice-yes-other-call:${serial + 1}`;
+
+      const { toolResult, saved } = await offerThenYes(
+        principalId,
+        `voice:call:a:${serial + 1}`,
+        `voice:call:b:${serial + 1}`,
+      );
+
+      expect(toolResult).toMatchObject({
+        status: "refused",
+        receipt: "I could not safely apply that tool call, so nothing changed.",
+      });
+      expect(saved).toBe(0);
     });
   });
 });

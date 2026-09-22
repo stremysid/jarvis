@@ -55,7 +55,6 @@ There is no screen. You cannot send him a message, a link, a keyboard or a file,
 When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap.`;
 
 interface PreviousVoiceAssistantRow {
-  readonly correlation_id: unknown;
   readonly causation_id: unknown;
   readonly event_id: unknown;
   readonly subject_id: unknown;
@@ -187,7 +186,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
   }
 
   /**
-   * What Jarvis itself said on the previous voice turn.
+   * What Jarvis itself said on the previous turn of this call.
    *
    * Two tools are grounded in it -- `memory_remember` with
    * `evidenceClass: "confirmed"` and `memory_confirm` -- and without it they
@@ -196,26 +195,33 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
    *
    * Read from the durable `conversation.assistant_sent` event rather than from
    * any staging table, because a voice turn has no delivery row: it is sent on
-   * the relay. `causation_id` must be the previous *user* event on the same
-   * session, which is what makes this Jarvis's reply to an earlier turn rather
-   * than any other sentence it has spoken.
+   * the relay. The turn that sent it must share this turn's `session_id`, which
+   * is what makes a "yes" an answer to something said on this call. Without it,
+   * an offer Jarvis made as one call ended was the grounding for a "yes" on the
+   * next call, which answered nothing Jarvis had said there.
+   *
+   * `events` carries no correlation or causation column -- both live only in
+   * the envelope -- so the link is the turn row's `sent_assistant_event_id`,
+   * and the envelope's `causationId` is checked against that turn's user event.
    */
   private async previousAssistant(
     input: Readonly<ModelAdapterStreamInput>,
   ): Promise<PreviousVoiceAssistant | null> {
-    const row = await this.voice.database.prepare(`SELECT sent.correlation_id, sent.causation_id,
+    const row = await this.voice.database.prepare(`SELECT previous.user_event_id AS causation_id,
         sent.event_id, sent.subject_id, sent.content_hash, sent.envelope_json
-      FROM events sent
+      FROM conversation_turns current
       JOIN conversation_turns previous
-        ON previous.user_event_id = sent.causation_id
-        AND previous.principal_id = sent.subject_id
+        ON previous.session_id = current.session_id
+        AND previous.principal_id = current.principal_id
         AND previous.channel = 'voice'
         AND previous.state = 'voice_sent'
-      WHERE sent.subject_id = ?1
+      JOIN events sent ON sent.event_id = previous.sent_assistant_event_id
+      WHERE current.turn_id = ?1 AND current.principal_id = ?2
+        AND sent.subject_id = ?2
         AND sent.event_type = 'conversation.assistant_sent'
-        AND sent.source = ?2
+        AND sent.source = ?3
       ORDER BY sent.sequence DESC LIMIT 1`)
-      .bind(input.principalId, CONVERSATION_EVENT_SOURCE).first<PreviousVoiceAssistantRow>();
+      .bind(input.correlationId, input.principalId, CONVERSATION_EVENT_SOURCE).first<PreviousVoiceAssistantRow>();
     if (row === null || typeof row.envelope_json !== "string") return null;
     let decoded: unknown;
     try { decoded = JSON.parse(row.envelope_json) as unknown; }
