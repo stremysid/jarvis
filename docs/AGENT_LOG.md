@@ -25,12 +25,17 @@ Nothing was merged, deployed, applied, or sent. No secrets were touched.
 `80d5c7d` differs from `917eb8d` only by docs/ops merges (#148, #141) and my test. Nothing under
 `apps/cloud-gateway`, `packages` or `tests` changed.
 
-1. **Blocking: it conflicts with #144 and #146.**
+1. **It conflicts with #144 and #146. Sid set the order: #147, then #144, then #146.**
    - Checked with `git merge-tree` against their current heads: #144 `2d6f3c6`, #146 `6799eba`.
    - The conflict is in `telegram-memory-retriever.ts`. #147 *moves* `selectControlTargets` into
-     `D1MemoryControlTargetFinder` in `memory-control-targets.ts`.
-   - #144's two `NOT EXISTS` suppression clauses have to be ported into that finder. A resolution
-     that takes #147's side drops the fix silently, and now on voice too, because voice uses the finder.
+     `D1MemoryControlTargetFinder` in `memory-control-targets.ts`, and #144's 19 lines target the
+     old location.
+   - When #144 lands, its two `NOT EXISTS` clauses must be hand-ported into the finder. Then grep
+     `memory-control-targets.ts` for `memory_active_event_suppressions`; if it is absent, the fix
+     was lost.
+   - #144's tests call `TelegramMemoryRetriever.findControlTargets`, which after #147 delegates to
+     the finder, so they also reach the new file. Only the `creation_event_sequence` range half is
+     pinned by text alone (see the 2026-09-22 handoff).
    - #146's parity guard counts composition sites. How it finds them is **unverified**; it may
      need pointing at the new file.
 2. **Fixed: nothing pinned the production composition.**
@@ -50,13 +55,22 @@ Nothing was merged, deployed, applied, or sent. No secrets were touched.
    - The effective deadline is min(voice 30 s, `DEFAULT_TURN_TIMEOUT_MS` 20 s) = **20 s of silence
      at worst**, on every turn, not only turns that use a tool.
    - Needs a decision or a live measurement before deploy.
-4. **Bug, found by reading: voice grounding is not scoped to the call.**
-   - `OwnerVoiceAgentAdapter.previousAssistant`'s SQL has no `session_id` predicate, although its
-     docstring says "on the same session".
-   - So a "yes" on a new call can ground `memory_confirm`, or `memory_remember` with
-     `evidenceClass:"confirmed"`, on an earlier call's last reply.
-   - Fix: join the current turn by `input.correlationId` and require
-     `previous.session_id = current.session_id`.
+4. **Found by reading, not fixed: a "yes" on a new call can confirm an offer made on an earlier call.**
+   - This is **not** the tier-3 tap. `D1ToolConfirmationStore.findStandingDecision` binds a tap to
+     capability plus argument fingerprint, deliberately across channels. That it is never consumed
+     is a separate schema change for its own PR; this finding does not touch it.
+   - The mechanism is `OwnerVoiceAgentAdapter.previousAssistant` in `voice-agent.ts`. It reads the
+     latest `conversation.assistant_sent` event from a voice turn for the principal, with no
+     `session_id` predicate, although its docstring says "on the same session". It is already
+     voice-only (`previous.channel = 'voice'`), so the gap is across calls, not across channels.
+   - What it grounds: `memory_remember` with `evidenceClass:"confirmed"`, whose only check against
+     the offer is `previousAssistantText`. So Jarvis offers a note at the end of call A, and "yes"
+     on call B saves it as confirmed.
+   - Not affected: `memory_confirm`. It also requires the item in `stagedTargets`, which comes from
+     `findLastReferencedTarget`, and that is always empty on a call, so it always refuses there.
+     My first version of this entry named `memory_confirm`, and that was wrong.
+   - Possible fix, for #147's builder or Sid to decide: join the current turn by
+     `input.correlationId` and require `previous.session_id = current.session_id`. No schema change.
 5. **Undisclosed change inside the "move".**
    - `honestReply`'s rewrite request passed `tools: Object.freeze([])` at `cdfdd4b`. In
      `OwnerAgentCore` it passes `port.toolDefinitions`.
@@ -66,9 +80,9 @@ Nothing was merged, deployed, applied, or sent. No secrets were touched.
      the *recall* split.
    - Voice still composes `D1ContextRetriever` over the empty `memory_fact_projection_*` store.
      Giving voice a retriever over `memory_items` needs no DO, and no QUEUE row names it as work.
-7. **Carrier and code disagree; which is right is unverified.**
-   - #147's STATE row says `memory_confirm` is unusable on a call.
-   - `voice-agent.ts` implements `previousAssistant` precisely so that it is usable.
+7. **Withdrawn: I thought the carrier and the code disagreed.** #147's STATE row is right that
+   `memory_confirm` is unusable on a call: its `stagedTargets` gate is Telegram-only (see 4).
+   `previousAssistant` still serves `memory_remember` with `evidenceClass:"confirmed"`.
 8. **Minor, from a read-only subagent's line-by-line comparison; I did not re-verify these:**
    - `OwnerAgentTurn` and `OWNER_AGENT_MEMORY_TOOL_DEFINITIONS` are dead exports.
    - `memoryOwnerTurn` returns `Promise<unknown>`, cast `as never` at eight sites.
@@ -80,6 +94,37 @@ Nothing was merged, deployed, applied, or sent. No secrets were touched.
 - The `OWNER_PRINCIPAL_ID` fail-closed guard matches every other route.
 - The PR's own mutation 1 reproduces: `canActOn` reduced to the channel check → *"refuses every
   tool when the call's principal is not the configured owner"* failed; after restore, 8/8 passed.
+
+**Can streaming coexist with tools on a call? Yes. What blocks it is our reply contract, not the API.**
+
+- **The API allows it.** DeepSeek's chat-completions reference documents streamed tool calls:
+  the first chunk of each tool call carries `id`, `type` and `function`, and later chunks carry
+  only the arguments. No stated restriction combines `stream` with `tools`. Read from
+  api-docs.deepseek.com on 2026-09-22; **not exercised against the live API.**
+- **Three things in this codebase block it (as of `80d5c7d`):**
+  1. The agent path forces `response_format: json_object` and a `{reply, claimedActions}`
+     envelope, and `parseReply` needs the whole object. Nothing is speakable until the JSON closes.
+  2. The honesty checks judge the finished reply. `unsupportedClaims` can trigger `honestReply`,
+     a second model call that rewrites the draft. `guardReplyClaims` removes sentences, and two of
+     its conditions (`hasPassiveExternalCompletion`, `isFalseBrightspaceCheckCompletion`) read the
+     whole reply. Spoken words cannot be taken back.
+  3. The streaming parser in `deepseek-provider.ts` reads only `delta.content`, and the streaming
+     request sends no `tools`.
+- **A shape that keeps both, on voice:**
+  - Stream every call. The first call carries tools (`tool_choice: auto`) and returns plain text,
+    with no JSON envelope.
+  - If the stream opens with `tool_calls`, collect the arguments, run the tool behind the same
+    tier gate, then stream the second call (`tool_choice: none`).
+  - If it opens with content, speak it sentence by sentence.
+  - Move the honesty check from whole-reply to per-sentence. Hold each sentence until it ends,
+    check it against the receipts already known (the tool ran before the second call), and drop
+    an unreceipted action sentence in favour of the fixed honest line. This is the same buffering
+    `StreamingOutputRedactor` already does for redaction. The rewrite call goes away on voice.
+- **The cost:**
+  - A tool turn still waits one round trip before speaking; a turn with no tool speaks at its
+    first sentence again, inside the 8 s ceiling.
+  - The model's `claimedActions` declaration is lost on voice, so code judges each sentence alone.
+  - The two whole-reply conditions need per-sentence equivalents. That is the real work.
 
 ### #96, read against the PIN finding
 
@@ -166,13 +211,20 @@ byte-identical):
 - C2: voice port given one tool instead of nine → **KILLED**.
 - C3: voice port's channel prompt emptied → **KILLED**.
 - Only the new test died each time.
-- On `80d5c7d` itself, `call-session-do.test.ts` + `voice-agent.test.ts`: **138 passed.**
+- On `80d5c7d` itself, `call-session-do.test.ts` + `voice-agent.test.ts`: **138 passed.** This
+  was re-run from a fresh worktree and install when Sid asked: **138 passed** again. The branch
+  head was still `80d5c7d`, whose parent `67c1575` is Sid's merge of `main`, so it was already the
+  head. C1 was also re-run at `80d5c7d` itself: **KILLED**, confirmed on a second run.
 
 ### Not done, and why
 
-- **The "one brain" recall split** (finding 6), the **latency decision** (3), the
-  **session-scoping bug** (4) and the **#144 port** (1) are #147's builder's to answer. I pinned
-  the composition only, as asked.
+- **I pinned the composition only, as asked.** These remain open:
+  - The "one brain" recall split (finding 6) and the cross-call "yes" (4) are for #147's builder
+    or Sid.
+  - The latency decision (3) is Sid's, before deploy.
+  - The #144 port (1) happens when #144 merges after #147.
+- **The unconsumed tier-3 tap was not touched.** It is a schema change for its own PR (Sid,
+  2026-09-22), and any migration takes the next free number when it lands.
 - **No PR comments were posted.** The findings live here and in `QUEUE.md`.
 - **The DO-eviction finding was not touched.** It stays unproven until someone reads Cloudflare's
   hibernation docs.
