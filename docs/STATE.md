@@ -18,25 +18,25 @@ append to it.
 
 ## In flight, and what each one would change here
 
-Five PRs are open and none is merged. **Every verdict below describes `main` without them.**
-`#141`, `#148`, `#149` and `#150` merged on 2026-09-22; their content is on `main`.
+**Four PRs are open and none is merged. `#141`, `#147`, `#148`, `#149` and `#150` merged on
+2026-09-22, and the verdicts below already reflect what those moved.** The rows here are the
+ones still in flight.
 
 | PR | What it would change |
 |---|---|
-| [#147](https://github.com/stremysid/jarvis/pull/147) | **Phases 1, 2 and 5.** A call gets tool dispatch and the memory-target finder, and both channels share `OwnerAgentCore`. It rewrites the Phase 1, 2 and 5 rows and the two-assistants table below. **One fix still owed:** `previousAssistant` looks up Jarvis's last reply on any earlier call while its own comment says "same session". **And a decision before deploy:** a call now waits for the whole non-streaming loop, so the 8 s first-token ceiling became a 20 s turn deadline |
-| [#144](https://github.com/stremysid/jarvis/pull/144) | Restores a live-defect fix: `selectControlTargets` can still present a memory whose originating event the ledger suppressed. **When it lands, grep `memory-control-targets.ts` for `memory_active_event_suppressions`** — after `#147` moves that code, a lost hand-port is invisible to the tests for one of the two clauses |
-| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene — no verdict change |
+| [#144](https://github.com/stremysid/jarvis/pull/144) | Restores a live-defect fix: `selectControlTargets` can still present a memory whose originating event the ledger suppressed. **The file it edits no longer exists on `main`** — `#147` moved that code into `memory-control-targets.ts` — so it needs a hand-port, and afterwards **grep `memory-control-targets.ts` for `memory_active_event_suppressions`**: the `creation_event_sequence` range half is pinned by that grep alone |
+| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene — no verdict change. Its parity scan only reads the retriever's source, so it will miss the control-target arm after `#147` and needs extending |
 | [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. This is what unblocks **P2 — the PC reading D2L**, which is the only remaining route to Phase 3's exit test |
 
 ## Where the project actually stands
 
 | Phase | Verdict | The one thing missing |
 |---|---|---|
-| 1 The nervous system | **partial** | Infrastructure is there. The shape is not: a stateless Worker for Telegram and a separate `CallSession` DO for voice, so a capability added to one door does not reach the other. No SMS path, no Queues |
-| 2 Memory | **code-complete, and split in two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **But Telegram and voice read different stores.** Telegram writes `memory_items`; `D1ContextRetriever` (voice) reads `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes. Production: **5 `memory_items`, 0 projection facts** — so nothing said by text reaches a phone call, and the store a call reads is empty |
+| 1 The nervous system | **partial** | Infrastructure is there, and as of `goal/item4-5-voice` so is one brain for the agent loop: `OwnerAgentCore` holds the loop, the caps, the tier gate, the receipt guard and the nine memory tools once, and Telegram and voice each subclass it. **What is not collapsed** is the channel itself: a stateless Worker for Telegram and a separate `CallSession` DO for voice, with no DO holding conversation state for Telegram to share. No SMS path, no Queues |
+| 2 Memory | **code-complete; the two channels act on one store and recall from two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **A phone call now acts on `memory_items`, the same store Telegram writes** — before `goal/item4-5-voice` the voice path could not name a memory at all. Recall still differs: Telegram composes `TelegramMemoryRetriever`, voice composes `D1ContextRetriever` over `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes, and which is **empty in production** — so nothing said by text reaches a phone call's *context* |
 | 3 School | **built, and cannot receive anything useful** | The email route is configured, and **D2L's email carries no deadline.** Sid enabled every notification option; D2L sends an activity summary naming the course with a count (*"76 New Emails"*) and a link. No assignment, no date. So the handler, parser and authenticity checks are correct and **their input cannot contain what they need**; the dates are behind the D2L login. Classroom is impossible on this board (no Google Cloud Console access) and the Brightspace feed does not exist. **The only remaining route is the PC reading D2L while logged in** — see [QUEUE.md](QUEUE.md) |
-| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed |
-| 5 Calling | **plumbing proven, brain missing** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. The call cannot carry tools and reads a different, empty memory store — see below. The release gate has never been run |
+| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed. Unchanged by the voice work except that voice now reaches the same gate |
+| 5 Calling | **plumbing proven, brain present, release gate never run** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. **As of `goal/item4-5-voice` a call dispatches the nine memory tools**: `OwnerVoiceAgentAdapter` is a `ModelAdapter` that drives `ModelAgentProvider`, with the tier gate in front and the receipts spoken. Two memory tools remain unusable on a call — `memory_confirm` and the "previous memory" lookup both need the Telegram delivery chain — and the release gate has still never been run |
 | 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
 | 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
@@ -45,18 +45,23 @@ Measured against the phases in
 
 ## The one thing that changes what Jarvis is
 
-**There are two assistants, not one.** Telegram and a phone call are composed
-separately, and they differ at every layer:
+**There are two assistants, not one, and they are one brain short of the whole way.** Telegram and a phone
+call are still composed separately, and the agent loop they now share is only part of it:
 
 | | Telegram | Phone call |
 |---|---|---|
-| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach`. `send_email` and the Tesla entries are tier rows only — no tool exists | **none.** The seam is decided (`DECISIONS.md`, *"Voice gets tools behind `ModelAdapter`"*) and not built — see [QUEUE.md](QUEUE.md) |
-| Memory it reads | `memory_items` | `memory_fact_projection_*` — a **different store**, written only when the Windows local agent pushes, and **empty** in production |
-| Core profile | injected every turn | never |
+| Agent loop | `OwnerAgentCore` + `OwnerTelegramAgentAdapter` | `OwnerAgentCore` + `OwnerVoiceAgentAdapter` — **one copy of the loop, the caps, the tier gate and the receipt guard** |
+| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach` | **nine: the memory tools.** No school, university or study pipeline over a call |
+| Memory it acts on | `memory_items`, through `TelegramMemoryRetriever` | `memory_items`, through `D1MemoryControlTargetFinder` — **the same store** |
+| Memory it recalls | `memory_items` and `memory_fact_projection_*` | `memory_fact_projection_*` only — a different store, written only when the Windows local agent pushes, and **empty** in production |
+| Authority | the turn is Sid's direct current Telegram text | the turn's principal is the configured owner, on a session that required the owner passphrase |
+| Core profile | injected every turn | injected every turn |
+| A tier-3 tap | an inline keyboard | raised durably, then **spoken** — the tap itself has to be given in Telegram |
 
-So a call can talk and cannot act, and nothing Sid tells Jarvis by text reaches a
-call. The roadmap's answer is one brain that both doors reach. It is the keystone:
-until it lands, every capability added reaches one door only.
+So a call can act now, and what it acts on is the store Sid's memory actually lives in. What has not
+changed is what a call can *recall*: nothing Sid tells Jarvis by text reaches a call's context, because
+the store a call reads is still empty. The roadmap's answer is one brain that both doors reach; the
+agent half of that landed and the memory-read half did not.
 
 ## Production
 
