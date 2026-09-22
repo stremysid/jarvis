@@ -112,10 +112,13 @@ Re-checked against `main` and production on 2026-09-21:
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
-3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
-   and that index has no delete trigger.
 
-Items 2 and 3 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+**Fixed, not yet merged:** `selectControlTargets` read `memory_item_fts` with no
+suppression anti-join, so a memory whose originating event the ledger had suppressed
+was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
+arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
+
+Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live
