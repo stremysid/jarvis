@@ -22,12 +22,18 @@ def _js_whitespace_pattern(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern.replace(r"\s", f"[{_JS_WHITESPACE}]"), re.I | re.ASCII)
 
 
+# AUTHENTICATION_WORD in calls.ts. Both contextual rules share it there, so they
+# share it here. The four-digit rule is the owner PIN, and it is gated on the
+# word because a bare four-digit rule would refuse every fact holding a year.
+_AUTHENTICATION_WORD = (
+    r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
+    r"(?:\s+is)?\s*[=:]?\s*"
+)
+
 _REDACTED_PATTERNS = (
     re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])"),
-    _js_whitespace_pattern(
-        r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
-        r"(?:\s+is)?\s*[=:]?\s*[0-9]{8}(?![0-9])",
-    ),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}(?![0-9])"),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}(?![0-9])"),
     _js_whitespace_pattern(r"\bauthorization\s*:\s*[^\r\n]*"),
     _js_whitespace_pattern(
         r"(?<![A-Za-z0-9])([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*(?:\"|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|(?=\r?\n|$))|[^\s,;]+)",

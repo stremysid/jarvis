@@ -38,3 +38,11 @@ declare module "*.ts?raw" {
   const content: string;
   export default content;
 }
+
+// The same, spelled the way the tree spells relative imports: with `.js`, which
+// Vite resolves to the `.ts` source. The parity test imports three sources this
+// way, and `*.ts?raw` alone does not match that specifier.
+declare module "*.js?raw" {
+  const content: string;
+  export default content;
+}

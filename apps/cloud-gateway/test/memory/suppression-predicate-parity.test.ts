@@ -18,12 +18,14 @@
  *
  * Four guards, and what each one can and cannot establish:
  *
- *   1. the item-level comparison appears ONCE in the retriever source, so a copy
- *      pasted back into an arm fails here;
- *   2. every SQL template in that source which reads memory candidates composes
- *      a `*SUPPRESSION_CLAUSES` constant, so an arm that simply stops applying
- *      the predicate fails here -- including one added after this file was
- *      written, which is the case no behaviour test would reach;
+ *   1. the item-level comparison appears ONCE, in `suppression-clauses.ts`, and in
+ *      neither file that composes it, so a copy pasted back into an arm fails here;
+ *   2. every SQL template in the two composing files -- the retriever, and
+ *      `memory-control-targets.ts`, where #147 moved the control-target arm --
+ *      which reads memory candidates composes a `*SUPPRESSION_CLAUSES` constant,
+ *      so an arm that simply stops applying the predicate fails here -- including
+ *      one added after this file was written, which is the case no behaviour test
+ *      would reach;
  *   3. every arm, actually driven through the public API against a recording D1,
  *      hands the database SQL that contains the shared clauses verbatim;
  *   4. the shared clauses still name all four comparisons, so 1-3 are guarding
@@ -59,8 +61,10 @@ import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import {
   CANDIDATE_SUPPRESSION_CLAUSES,
   NOTE_SOURCE_SUPPRESSION_CLAUSES,
-  TelegramMemoryRetriever,
-} from "../../src/memory/telegram-memory-retriever.js";
+} from "../../src/memory/suppression-clauses.js";
+import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
+import clausesSource from "../../src/memory/suppression-clauses.js?raw";
+import finderSource from "../../src/memory/memory-control-targets.js?raw";
 import retrieverSource from "../../src/memory/telegram-memory-retriever.js?raw";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
@@ -146,16 +150,21 @@ describe("the item suppression predicate is written once, in the clauses every a
     },
   ]);
 
-  it("states the item-level suppression comparison exactly once in the retriever", () => {
+  it("states the item-level suppression comparison exactly once, in suppression-clauses.ts and in no arm", () => {
     // The literal, not a count of the view: `withoutForgottenTurns` reads the view
     // for one event-level check of its own, which is not this predicate.
-    const comparisons = retrieverSource
-      .match(/creation_event_sequence BETWEEN suppression\.start_event_sequence/gu) ?? [];
-    expect(comparisons).toHaveLength(1);
+    const comparison = /creation_event_sequence BETWEEN suppression\.start_event_sequence/gu;
+    expect(clausesSource.match(comparison) ?? []).toHaveLength(1);
+    expect(retrieverSource.match(comparison) ?? []).toHaveLength(0);
+    expect(finderSource.match(comparison) ?? []).toHaveLength(0);
   });
 
   it("composes the shared suppression clauses in every SQL template that reads a memory candidate", () => {
-    const templates = [...retrieverSource.matchAll(PREPARED_SQL)].map((match) => match[1] ?? "");
+    // Both files that hold candidate arms. The totals below are the same with the
+    // control-target arm in either file, which is how it was checked when #147
+    // moved it: eight templates and six candidate templates before, and after.
+    const templates = [retrieverSource, finderSource]
+      .flatMap((source) => [...source.matchAll(PREPARED_SQL)].map((match) => match[1] ?? ""));
     // The scan finds nothing if the source stops using backtick templates, and
     // "no templates" must not read as "no offenders".
     expect(templates.length).toBeGreaterThanOrEqual(8);

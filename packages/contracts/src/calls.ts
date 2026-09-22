@@ -17,7 +17,28 @@ const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
  */
 const DECISION_CALLBACK_DATA = /^d1:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-z0-9_-]{1,32}$/u;
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
-const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{8})(?!\d)/gi;
+/**
+ * A credential word and what may sit between it and its digits. Both contextual
+ * rules below are built from this one source, so the word list cannot learn a
+ * word in one rule and not the other. `projection_policy.py` in the local agent
+ * transcribes it, and `tests/fixtures/memory-projection-policy.json` holds both
+ * runtimes to the same answers.
+ */
+const AUTHENTICATION_WORD = String.raw`(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)`;
+const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{8})(?!\d)`, "gi");
+/**
+ * The owner PIN is four digits, and until this rule "my pin is 4821" crossed
+ * every boundary verbatim -- into `events.envelope_json`, the R2 archive and the
+ * model prompt -- because the bare rule above wants exactly six and the
+ * contextual one exactly eight.
+ *
+ * It is gated on the credential word, deliberately not a bare four-digit rule:
+ * this function also sanitizes every reply Jarvis sends and the school and
+ * university text it reads, and a bare rule would take every year, time, score,
+ * price and street number with it ("due Jan 15, [REDACTED_AUTH_DIGITS]"). A PIN
+ * spoken with no credential word before it is not caught here.
+ */
+const CONTEXTUAL_FOUR_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{4})(?!\d)`, "gi");
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
 const BARE_BEARER = /\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})/gi;
 const CREDENTIAL_ASSIGNMENT = /(?<![A-Za-z0-9])(["']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|(?=\r?\n|$))|[^\s,;]+)/gi;
@@ -155,6 +176,10 @@ export function sanitizeRedaction(
       return REPLACEMENT.credential;
     });
     redacted = redacted.replace(CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION, (_match, prefix: string) => {
+      mark("authentication_digits");
+      return `${prefix}${REPLACEMENT.authentication_digits}`;
+    });
+    redacted = redacted.replace(CONTEXTUAL_FOUR_DIGIT_AUTHENTICATION, (_match, prefix: string) => {
       mark("authentication_digits");
       return `${prefix}${REPLACEMENT.authentication_digits}`;
     });

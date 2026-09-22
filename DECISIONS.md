@@ -103,6 +103,30 @@ here so the next session does not rediscover it:
 decision; the extraction is the next session's first commit, and it is larger
 than the 200-line bound in `BUILDING.md` before it is reviewable.
 
+**Built on branch `goal/item4-5-voice`, and the two open questions answered.**
+`OwnerAgentCore` (`src/agent/owner-agent-core.ts`) is the extracted core and
+`OwnerVoiceAgentAdapter` (`src/voice/voice-agent.ts`) is the voice adapter. The
+channel-specific parts are a port — authority, reply composition, prompt
+addition, tool catalogue, and the two channel-owned pieces of evidence (the
+durable owner turn and the previous assistant text) — so the two composition
+sites remain and the *loop* does not.
+
+The two answers worth recording, because each was an argument above:
+
+1. **`executeCall`'s `channel === "telegram"` refusal did not become a flag.**
+   A call's authority is that the turn's principal is the configured owner, on a
+   session that required the owner passphrase before the turn existed. Both
+   checks live in the channel's own adapter; the core only asks whether it may
+   act.
+2. **A tier-3 capability on a call is raised and spoken, not tapped.** The
+   question is raised durably in the existing decision queue and the reply says
+   the tap has to be given in Telegram, because a call has no keyboard. This is
+   not a new gate: `D1ToolConfirmationStore.findStandingDecision` looks a tap up
+   by capability and argument fingerprint with no channel in the query, so one
+   tap authorizes the same call on either door. The `pin_verify(pin)` question
+   above — mid-turn multi-round step-up over a relay — is still open and was not
+   decided here.
+
 ## Applied migration text was rewritten for fresh-database replay (2026-09-16, reviewer decision)
 
 Production applied migrations `0001`, `0002` and `0006` with trigger guards in
