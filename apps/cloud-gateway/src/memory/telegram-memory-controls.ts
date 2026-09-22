@@ -117,6 +117,24 @@ function historyPayload(value: unknown, error: string): Record<string, unknown> 
   return payload;
 }
 
+/**
+ * The owner's words as the durable turn recorded them, when the envelope is the
+ * one this shape describes.
+ *
+ * Exported because a channel adapter needs it to read back what Jarvis itself
+ * said on a previous turn, and doing that must not mean a second, weaker copy
+ * of the payload check. `historyEligible` is deliberately not required to be
+ * true here: a spoken assistant turn is stored with it false, because it is not
+ * recall history -- it is still the exact text the owner heard.
+ */
+export function readHistoryPayloadEnvelope(value: unknown, error: string): string {
+  const payload = historyPayload(value, error);
+  if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1
+    || typeof payload.historyEligible !== "boolean") throw new TypeError(error);
+  return safeText(payload.text, 65_536, error);
+}
+
+
 function safeText(value: unknown, maximumBytes: number, error: string): string {
   if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
     || value !== value.normalize("NFC") || new TextEncoder().encode(value).byteLength > maximumBytes) {
@@ -232,12 +250,22 @@ interface AppliedControl {
   readonly itemIds: readonly Ulid[];
 }
 
-/** Reconstructs permission authority from the durable current Telegram turn. */
-export async function readTelegramMemoryOwnerTurn(input: Readonly<{
+/** Reconstructs permission authority from the durable current owner turn. */
+export async function readMemoryOwnerTurnEvidence(input: Readonly<{
   database: D1Database;
   modelInput: Readonly<ModelAdapterStreamInput>;
   memoryIntent: MemoryControlIntent | null;
-  /** Pipeline tools use the same durable turn proof but their broader ingress authority. */
+  /**
+   * The `channelCode` the durable `conversation.user_committed` payload must
+   * carry. One constant per channel rather than a flag, so a caller cannot
+   * widen what it accepts by passing the wrong boolean.
+   */
+  channelCode: 1 | 2;
+  /**
+   * Telegram's `directOwnerText` ingress marker is required for the narrow
+   * memory authority and skipped for the broader pipeline authority, which is
+   * authorized separately by the caller.
+   */
   requireDirectOwnerText?: boolean;
 }>): Promise<MemoryOwnerTurnInput> {
   const modelInput = input.modelInput;
@@ -247,7 +275,7 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
       event.content_hash, event.envelope_json
     FROM conversation_turns turn
     JOIN events event ON event.event_id = turn.user_event_id
-    WHERE turn.turn_id = ? AND turn.principal_id = ? AND turn.channel = 'telegram'`)
+    WHERE turn.turn_id = ? AND turn.principal_id = ?`)
     .bind(modelInput.correlationId, modelInput.principalId).first<OwnerTurnRow>();
   if (rowValue === null) throw new MemoryRepositoryError("memory_refused");
   const row = exactRecord(rowValue, OWNER_TURN_FIELDS, "telegram_memory_owner_turn_invalid");
@@ -257,8 +285,9 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
   const principalId = safeAtom(row.principal_id, "telegram_memory_owner_turn_invalid");
   const sequence = row.sequence;
   const occurredAt = safeTimestamp(row.occurred_at, "telegram_memory_owner_turn_invalid");
+  const channel = input.channelCode === 1 ? "voice" : "telegram";
   if (turnId !== modelInput.correlationId || eventId !== userEventId || principalId !== modelInput.principalId
-    || row.channel !== "telegram" || row.state !== "model_claimed"
+    || row.channel !== channel || row.state !== "model_claimed"
     || !Number.isSafeInteger(sequence) || (sequence as number) < 1
     || row.event_type !== "conversation.user_committed"
     || row.source !== CONVERSATION_EVENT_SOURCE || row.subject_id !== principalId
@@ -280,7 +309,7 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
     || envelope.correlationId !== turnId || envelope.occurredAt !== occurredAt
     || envelope.contentHash !== row.content_hash
     || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
-    || payload.schemaCode !== 1 || payload.channelCode !== 2
+    || payload.schemaCode !== 1 || payload.channelCode !== input.channelCode
     || payload.sensitivityCode !== 1 || payload.historyEligible !== true
     || input.requireDirectOwnerText !== false && payload.directOwnerText !== true
     || payload.text !== modelInput.userText || !checked.ok || checked.text !== modelInput.userText) {
@@ -291,7 +320,7 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
     eventId,
     eventSequence: sequence as number,
     occurredAt,
-    channel: "telegram",
+    channel,
     memoryIntent: input.memoryIntent,
     forwarded: false,
     quoted: false,
@@ -301,6 +330,17 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
     toolGenerated: false,
     guest: false,
   });
+}
+
+/** Reconstructs permission authority from the durable current Telegram turn. */
+export async function readTelegramMemoryOwnerTurn(input: Readonly<{
+  database: D1Database;
+  modelInput: Readonly<ModelAdapterStreamInput>;
+  memoryIntent: MemoryControlIntent | null;
+  /** Pipeline tools use the same durable turn proof but their broader ingress authority. */
+  requireDirectOwnerText?: boolean;
+}>): Promise<MemoryOwnerTurnInput> {
+  return readMemoryOwnerTurnEvidence({ ...input, channelCode: 2 });
 }
 
 /**

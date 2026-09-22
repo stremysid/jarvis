@@ -50,9 +50,23 @@ describe("production voice through the real DO stub and socket", () => {
           price: "1", price_unit: "usd", start_date: "2026-08-30", end_date: "2026-08-30", as_of: "2026-08-30T12:00:00+00:00" }] });
       }
       if (url === "https://api.deepseek.com/chat/completions") {
-        modelBodies.push(JSON.parse(String(init?.body)));
-        return new Response('data: {"choices":[{"delta":{"content":"A real socket reply."}}]}\n\ndata: [DONE]\n\n',
-          { headers: { "content-type": "text/event-stream" } });
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        modelBodies.push(body);
+        // The production voice path reaches the shared owner agent, which is a
+        // non-streaming `completeAgent` request; the streaming shape is what a
+        // bare `DeepSeekModelAdapter` asks for on other channels.
+        if (body.stream === true) {
+          return new Response('data: {"choices":[{"delta":{"content":"A real socket reply."}}]}\n\ndata: [DONE]\n\n',
+            { headers: { "content-type": "text/event-stream" } });
+        }
+        return Response.json({
+          choices: [{
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({ reply: "A real socket reply.", claimedActions: [] }),
+            },
+          }],
+        });
       }
       // No fallback to the network, including alerts or unexpected providers.
       throw new Error("unexpected synthetic provider request");

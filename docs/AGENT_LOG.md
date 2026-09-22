@@ -3,6 +3,201 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-21 — DeepSeek builder: voice can act, and the agent loop now has one copy
+
+**Branch `goal/item4-5-voice`, base `origin/main` = `d0ec419`.** Commits at the end of this
+entry. **Not pushed, not merged, not deployed** — the parent session publishes. Everything
+below was observed in the worktree `C:\w\agents2`.
+
+### What changed, and why
+
+Two work items, and at `d0ec419` they were verified as the brief said: `ModelAdapterStreamInput`
+has no `tools` field (`INPUT_FIELDS` in `src/model/model-adapter.ts` enumerates all eleven legal
+fields and `exactDataRecord` rejects a different key count), so voice could not carry tools *as a
+matter of type*; and `D1ContextRetriever` implemented `ContextRetriever` only, while
+`TelegramMemoryRetriever` also implemented `TelegramMemoryTargetFinder`, so the new tools would
+have had nothing to resolve an `itemId` from.
+
+**Item 4 — the voice agent adapter.** New `src/voice/voice-agent.ts`, `OwnerVoiceAgentAdapter`,
+a `ModelAdapter` whose `stream` drives `ModelAgentProvider` and runs the tool call, exactly as
+`OwnerTelegramAgentAdapter` does. `src/voice/production-runtime.ts` now composes it instead of a
+bare `DeepSeekModelAdapter`. The nine memory tools are therefore dispatchable on a call, with the
+tier gate in front and the receipts spoken.
+
+**Item 4, second half — the finder.** New `src/memory/memory-control-targets.ts`,
+`D1MemoryControlTargetFinder`, holding the control-target logic that used to live inside
+`TelegramMemoryRetriever` (`findControlTargets`, `selectControlTargets`, `findLastReferencedTarget`,
+`targetStates`, `controlFtsQuery`, `candidateRows`). `TelegramMemoryRetriever.findControlTargets`
+now delegates to it, so there is one answer to "which item did he mean". The voice adapter is
+constructed with the finder.
+
+**Item 5 — one brain, extracted rather than collapsed.** New `src/agent/owner-agent-core.ts`,
+`OwnerAgentCore`: the `completeAgent` → tool → `completeAgent` loop, the one-action cap, the
+tier gate, the `claimedActions` receipt guard, the reply parser, the grounding helpers and the
+nine memory tools. `OwnerTelegramAgentAdapter` went from 1,339 lines to about 250 and is now a
+port implementation, not a second brain. Both channels subclass the core.
+
+**How far the collapse got, stated precisely.** The loop is shared. The two composition sites
+are *not* gone, and I do not think they can be, in this shape: what a channel genuinely owns is
+its authority check, its reply composition, its prompt addition and its tool catalogue, and the
+core takes those as `OwnerAgentChannelPort` methods. Telegram's authority is "this is Sid's
+direct current Telegram text"; a call's is "this turn's principal is the configured owner, on a
+session that required the owner passphrase". Making those one thing would be the tenth entry in
+`docs/CODE-VS-JUDGMENT.md`, not a collapse. A full collapse would need the thing that does not
+exist — a Durable Object holding conversation state for both channels — and only `CallSession`
+exists. So: the achievable part was done and the remainder is named in `docs/QUEUE.md`.
+
+**One design point worth a reviewer's attention.** A tier-3 capability on a call is raised
+durably in the shared decision queue and then *spoken*: the model says what it would do and that
+the tap has to be given in Telegram. That is not a new refusal invented here — the queue is the
+mechanism the gate already had, and `D1ToolConfirmationStore.findStandingDecision` looks a tap up
+by capability and argument fingerprint with no channel in the query, so a tap given in Telegram
+authorizes the same call on the next phone call. What a call cannot do is *present* the question.
+
+### Files
+
+Added: `src/agent/owner-agent-core.ts`, `src/voice/voice-agent.ts`,
+`src/memory/memory-control-targets.ts`, `test/voice/voice-agent.test.ts`.
+
+Changed: `src/channels/telegram/owner-telegram-agent.ts` (reduced to its channel-specific half),
+`src/voice/production-runtime.ts` (composes the adapter, the finder and the tier gate),
+`src/memory/telegram-memory-retriever.ts` (delegates the finder; five now-dead helpers removed),
+`src/memory/telegram-memory-controls.ts` (`readMemoryOwnerTurnEvidence` generalised over
+`channelCode` so a voice turn gets the same evidence check), `test/voice/call-session-do.test.ts`
+(one mock updated — see below), `docs/QUEUE.md`, `docs/STATE.md`.
+
+### The one existing test I changed, and why
+
+`test/voice/call-session-do.test.ts` → "serves an owner through the default production runtime and
+reconstructs its authority after restart" failed after the wiring change. **The cause was
+established, not guessed:** the harness mocks `https://api.deepseek.com/chat/completions` as an
+SSE stream, and `DeepSeekAgentProvider.completeAgent` requires `content-type: application/json`,
+so the request failed with `agent_response_invalid` (*confirmed by instrumenting the core's
+`catch` and reading `OWNER_AGENT_FIRST_THREW DeepSeekAdapterError: agent_response_invalid`*), no
+token was sent, and the assertion saw `[]`. The test now answers by request shape: `stream: false`
+gets the JSON agent shape, `stream: true` keeps the SSE shape. The assertions the test already
+made — exactly 2 model calls, exactly 2 balance calls, 2 conversation turns settled `voice_sent` —
+are unchanged, and all 129 tests in that file pass. **This is a test-fixture change to a file that
+is not mine, so a reviewer should look at it first.**
+
+### Mutations, each neutered → named test → restored
+
+Every one was run against `apps/cloud-gateway/test/voice/voice-agent.test.ts` unless it says
+otherwise, and the file was restored to green after each.
+
+| # | Guard neutered | Result |
+|---|---|---|
+| 1 | `OwnerVoiceAgentAdapter`'s `canActOn` principal check, reduced to `input.channel === "voice"` | **1 failed**: *"refuses every tool when the call's principal is not the configured owner"*. Restored → 6 passed |
+| 2 | The voice turn proof's `requireDirectOwnerText: false` → `true` | **1 failed**: *"runs a memory tool call over a call and speaks the receipt"* (`memory_refused` from `readMemoryOwnerTurnEvidence`). Restored → 6 passed |
+| 3 | The core's missing-memory-index refusal, `&& false` | **1 failed**: *"says it cannot search memory when the deployment has no index bound"*. Restored → 6 passed |
+| 4 | The voice `pipelineModel` refusal, returning a working adapter instead of `null` | **1 failed**: *"refuses a tool that no channel-neutral catalogue gives a call, instead of running it"* (that test was written for this mutation). Restored → 7 passed |
+| 5 | `SUPPORTED_OPERATIONS` in the extracted finder, with `pin` removed (against `test/memory/control-targets.test.ts`) | **1 failed**: *"does not reject any operation in its own declared type"*. Restored → 2 passed |
+| 6 | The core's finder consultation in `eligibleItemIds`, using context item ids only | **1 failed**: *"resolves an item the context does not name, through the finder it was given"* (also written for this mutation). Restored → 8 passed |
+
+**Not separately mutated, and I am saying so rather than implying coverage.** `canActOn`'s
+`input.channel === "voice"` half has no named test: no voice test presents a telegram input, so
+neutering that half alone would stay green. `OwnerTelegramAgentAdapter`'s `canActOn` has no
+isolated test either — it is covered by the 100-test Telegram suite but I did not neuter it. The
+extracted `findLastReferencedTarget` is on a Telegram-only path with no voice coverage, for the
+reason in "out of scope" below.
+
+### Gates, and exactly which suites they cover
+
+- `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/voice-agent.test.ts`
+  — **8 passed (8)**, the new file.
+- `... run apps/cloud-gateway/test/voice/call-session-do.test.ts` — **129 passed (129)**.
+- `... run apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts` — **100 passed (100)**,
+  i.e. the refactor did not change Telegram behaviour on a suite that exercises it hard.
+- `... run apps/cloud-gateway/test/memory/control-targets.test.ts` — **2 passed (2)**.
+- `... run apps/cloud-gateway/test/memory/telegram-memory.test.ts` — **70 passed (70)** when run
+  alone. It failed once in a combined run (see below).
+- `... run apps/cloud-gateway/test/memory/meaning-search.test.ts` — **70 passed (70)** when run
+  alone. It failed once in a combined run (see below).
+- `pnpm --filter @jarvis/cloud-gateway typecheck` — **exit 0**.
+- `pnpm --filter @jarvis/cloud-gateway typecheck:tests` — **144 errors in 32 files**, exactly the
+  pre-existing count `docs/STATE.md` records. **Zero of them are in a file this branch touched**;
+  I checked by filtering the output for the new and changed paths.
+- `pnpm --filter @jarvis/cloud-gateway lint` — **exit 0** (it is `tsc --noEmit`, no linter).
+- `node scripts/check-state.mjs` — **passed**: 3 carriers, STATE.md within budget, links resolve,
+  BLOCKS present.
+- `pnpm test` — see the numbers below. It is not the same figure as `pnpm test:all`.
+
+### `pnpm test`, twice, and what the failures are
+
+**The suite is 5,428 tests in 206 files on this tree, not the 5,395 `docs/STATE.md` records.**
+That is a factual correction, not a claim about my change: the figure the carrier carries is
+stale. First full run: **6 failed files / 13 failed tests / 5,415 passed**. Second full run:
+recorded below.
+
+Eleven of the thirteen first-run failures were `Test timed out in 15000ms` in files this branch
+does not touch, including `tests/acceptance/fake/voice-guest-access.test.ts` — and that file's
+`createFakeCallingSystem` builds its own core graph and **does not call
+`createProductionCallSessionCore`**, so the production-runtime change cannot reach it. The two
+non-timeout failures were ones `docs/QUEUE.md` already lists as load-sensitive or roaming:
+`telegram-memory.test.ts`'s 500 ms retrieval budget and `meaning-search.test.ts`. **Both passed
+when re-run alone** — 70/70 each — so the classification is "failed under load, passes alone",
+not "fails alone". CI is the authority on a repeated failure; nothing here was attributed to a
+test without re-running it alone first.
+
+### What I did NOT do, and why
+
+- **The full Task B collapse.** The loop and the tool catalogue are shared; the channel-specific
+  port remains. Reasons and the structural blocker are above and in `docs/QUEUE.md`.
+- **`findLastReferencedTarget` on voice.** It is the lookup the agent uses for every control
+  (`query: null` + `turnId`), and it needs a `conversation_deliveries` row and a
+  `conversation.assistant_delivered` event. **A voice turn stages nothing** — it sends on the
+  relay and records `conversation.assistant_sent` — so on a call that lookup returns empty. I
+  extended its previous-turn join from `previous.channel = 'telegram'` to
+  `previous.channel = current.channel`, which is a no-op for Telegram and correct if the delivery
+  chain ever exists for voice, but I did **not** rewrite the lookup to read
+  `conversation.assistant_sent`, because that is a design change to the finder rather than part
+  of wiring it. Consequence, stated plainly: **on a call, "the memory I just mentioned" resolves
+  only through the item ids in the model's context**, and `memory_confirm` cannot succeed.
+  `docs/QUEUE.md` carries it.
+- **The recall store.** Voice still recalls from `memory_fact_projection_*` through
+  `D1ContextRetriever`, which is empty in production. Making voice *act* on `memory_items` was
+  in scope; making it *recall* from there would move the two channels onto one store for reads,
+  which is a larger change than this brief and has its own open question in `docs/QUEUE.md`.
+  Unchanged, and not claimed to be fixed.
+- **The release gate and the smoke tests.** `test:voice-access` runs the gate in `--fake-only`
+  mode and `release:voice-gate` needs credentials; both are outside what a builder session may
+  do. Not run, so the "release gate never run" line in `docs/STATE.md` stays true.
+- **No migration, no deploy, no push.** The tier rows the voice gate needs already exist
+  (`0035` seeds `memory.read`/`memory.write` at tier 1), so no schema change was needed.
+
+### Out of scope, named rather than fixed
+
+1. **`pnpm --filter @jarvis/cloud-gateway typecheck:tests` is 144 errors and gated nowhere.**
+   Unchanged by this branch and still true.
+2. **`TelegramMemoryRetriever.captureInput` refuses `channel !== "telegram"`** (`safeText`-style
+   guard in its own `captureInput`). That is why voice could not simply reuse the Telegram memory
+   *retriever* for recall, and why the finder had to be extracted rather than the retriever
+   shared. Visible in the code; not fixed here.
+3. **`findControlTargets` was reached by a stub in every owner-agent test.** The new voice file
+   injects the real `D1MemoryControlTargetFinder` in two tests and a stub in one, and the stub is
+   labelled as such. The three Telegram-side stubs `docs/CODE-VS-JUDGMENT.md` names are still
+   there.
+4. **`test/memory/control-targets.test.ts` still hand-lists the seven operations**, so it would
+   not catch a `SUPPORTED_OPERATIONS` map that is complete but whose union has a member the map
+   omits in a way the compiler accepts. The map is now compiler-checked; the test is not derived
+   from the union. `docs/QUEUE.md` carries it.
+5. **`docs/CODE-VS-JUDGMENT.md` does not list a tenth violation, and I added none.** The three
+   conditions this branch introduces are enforcement or a cap: the voice principal check, the
+   turn-evidence check, and the one-action cap (which was already there). No new entry.
+
+### Scope note on the brief
+
+The brief said "`D1ContextRetriever` (used by voice)". At `d0ec419` that is true of the *recall*
+path but it is not the object the memory tools need; the tools need the finder, which
+`D1ContextRetriever` never had. Bringing the finder to the voice path was therefore a new
+dependency on the voice adapter, not a change to `D1ContextRetriever`. The brief's second-half
+note — that any list of tools needing the finder is a **read, not a measurement** — is right, and
+this entry does not present one.
+
+Signed: **DeepSeek, reasoning effort not determinable from inside this session.** I am the model
+this session ran as and the brief names DeepSeek, but I cannot read my own effort setting with
+certainty, so I am saying so rather than naming a number.
+
 ## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
 
 **Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one
