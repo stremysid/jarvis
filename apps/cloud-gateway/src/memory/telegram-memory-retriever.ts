@@ -833,12 +833,14 @@ function targetStates(operation: TelegramMemoryTargetOperation): readonly Memory
  * has suppressed the event that created it, or any event recorded as one of the
  * turns it was read from.
  *
- * It is composed here rather than written into each arm, because writing it into
- * each arm is what cost two defects, both of them silent under a green suite:
- * a fix landed in one copy and missed the others. `selectControlTargets` carried
- * neither clause while its sibling `readCandidates` carried both, so a memory the
- * ledger said was forgotten was still reachable as a control target -- the
- * history, the fix and the guard on it are in PR #144.
+ * It is composed here rather than written into each arm, because hand-copying it
+ * is what cost the defect this comment exists for: `selectControlTargets` carried
+ * neither clause while its sibling `readCandidates` carried both, so a memory
+ * whose originating event the ledger had suppressed was still reachable as a
+ * control target. The history and the fix are in PR #144. The same file holds the
+ * same shape elsewhere -- #135 was an operation guard that listed five of the
+ * seven operations the finder accepts -- and the shared cause is two places that
+ * must agree, compared by nothing.
  *
  * The clauses compare against three aliases that the composing arm must already
  * have in scope: the `memory_items` row, the `memory_item_sources` row, and the

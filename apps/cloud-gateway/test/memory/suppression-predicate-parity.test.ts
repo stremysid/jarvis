@@ -31,13 +31,25 @@
  *
  * What none of them establish is that the predicate is *semantically* right:
  * guards 1-3 compare arms to each other and to one definition, so editing that
- * one definition moves every arm together and passes all three. The meaning is
- * pinned by behaviour elsewhere -- `telegram-memory.test.ts` for the keyword
- * candidate arm (both clauses, one test each), `living-notes.test.ts` for the
- * note arm, and PR #144's `control-target-suppression.test.ts` for the
- * control-target arm. The named-area candidate arm has no behaviour test for
- * suppression, and nothing here closes that: guard 3 shows it is composed and
- * sent, not that it excludes what it should.
+ * one definition moves every arm together and passes all three.
+ *
+ * What behaviour pins, measured by deleting one arm's clauses at a time and
+ * re-running the suites that reach it:
+ *
+ *   - the living-note arm: `living-notes.test.ts` fails, on "withholds a note
+ *     whose cited turn was suppressed while the fact itself stays active";
+ *   - the control-target arm: `control-target-suppression.test.ts` fails, and
+ *     because each clause has its own fixture, each clause fails its own test;
+ *   - the keyword arm and the named-area arm: nothing else. Deleting the
+ *     named-area arm's clauses left 161 tests across `telegram-memory.test.ts`,
+ *     `living-notes.test.ts` and `automatic-distillation.test.ts` green, because
+ *     `readCandidateContexts` filters suppressions a second time after the SQL --
+ *     through the `memory_retrievable_item_versions` view for active items, and
+ *     through `creationEventSuppressed`/`suppressedSourceIds` for the rest. What
+ *     those clauses alone decide is which candidates occupy the three-slot
+ *     candidate page, so "recalls a visible memory while suppressed candidates
+ *     would fill the candidate page" in `telegram-memory.test.ts` now covers both
+ *     candidate arms and fails for the arm whose clauses are deleted.
  */
 
 import { env } from "cloudflare:test";
@@ -153,7 +165,10 @@ describe("the item suppression predicate is written once, in the clauses every a
     const offenders = candidateTemplates.filter((sql) =>
       !COMPOSES_CLAUSES.test(sql)
       && !PROTECTED_WITHOUT_COMPOSING.some(({ marker }) => sql.includes(marker)));
-    expect(offenders).toEqual([]);
+    // The exemptions are printed on failure, because the reader who trips this is
+    // the reader who has to decide whether their arm is a new exemption or a miss.
+    expect(offenders, `Exempt arms: ${PROTECTED_WITHOUT_COMPOSING
+      .map(({ marker, why }) => `${marker} -- ${why}`).join("; ")}`).toEqual([]);
   });
 });
 

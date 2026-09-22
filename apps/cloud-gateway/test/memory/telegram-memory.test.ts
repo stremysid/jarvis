@@ -2441,6 +2441,141 @@ describe("Telegram memory retrieval", () => {
       && context.text.includes("gymnasium schedules"))).toBe(false);
   });
 
+  // The two candidate arms each read their own page of three: the keyword arm
+  // ranks by relevance, the named-area arm walks a topic subtree and orders by
+  // recency. Neither arm's suppression clauses are pinned anywhere else -- deleting
+  // either set leaves every other suite in this app green, because
+  // `readCandidateContexts` filters suppressions a second time after the read, and
+  // that second filter is invisible for any memory already inside the page. What
+  // the clauses change is which memories are inside it.
+  it.each([
+    ["a keyword query", "kite"],
+    ["a named-area question", "What do you remember about Inbox / Needs filing?"],
+  ])("recalls a visible memory while suppressed candidates would fill the candidate page (%s)", async (_arm, queryText) => {
+    const owner = await seedServicePrincipal("suppressed-candidate-page");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    const ownerText = "My locker is number twelve.";
+    // Longer than the hidden texts on purpose. The keyword arm orders active items
+    // before proposed ones and then by relevance, so every candidate here is
+    // proposed and relevance decides: bm25 ranks a long document that matches the
+    // term once below a short one that matches it twice, which is what puts the
+    // visible memory last in a page of four. The named-area arm needs none of that,
+    // because it returns the topic's items newest first.
+    const visibleText = "the kite is in the cellar, behind the paint tins and the old lawnmower";
+    const hiddenTexts = Object.freeze([
+      "the kite, the kite is in the attic",
+      "the kite, the kite is in the loft",
+      "the kite, the kite is in the shed",
+    ]);
+    const query = Object.freeze({
+      principalId: owner.principalId,
+      channel: "telegram" as const,
+      purpose: "conversation" as const,
+      query: queryText,
+      maxTokens: 32_000,
+    });
+    const recall = async () => new TelegramMemoryRetriever({
+      database: env.DB,
+      archive: env.ARCHIVE,
+    }).retrieve(query);
+    // Both labels, because an uncertain memory is evidence and says so.
+    const recalled = (contexts: Awaited<ReturnType<typeof recall>>, text: string) => contexts.some(
+      (context) => /memory evidence \[/iu.test(context.text) && context.text.includes(text),
+    );
+
+    // The event every hidden proposal borrows as its creation event. Suppressing
+    // it hides the proposals while leaving them `proposed`, which is the case the
+    // keyword arm's own anti-join exists to filter: the lifecycle guard cannot,
+    // because they were never forgotten.
+    await sendProduction({
+      who: owner, ownerPrincipalId: owner.principalId, text: ownerText, model, telegram,
+    });
+    const borrowed = await latestUserEvent(owner.principalId);
+    const ownerItemId = await commitTestItem({
+      principalId: owner.principalId, text: ownerText, creation: borrowed,
+    });
+
+    await sendProduction({
+      who: owner, ownerPrincipalId: owner.principalId, text: visibleText, model, telegram,
+    });
+    const visibleItemId = await commitTestItem({
+      principalId: owner.principalId,
+      text: visibleText,
+      creation: await latestUserEvent(owner.principalId),
+      state: "proposed",
+      uncertain: true,
+    });
+
+    // The keyword arm reads one page of three candidates. Both ordering keys are
+    // arranged so the three hidden proposals come first: the visible memory is
+    // committed before them, and its text is longer, so it ranks last. A page that
+    // cannot see suppression is then a page of candidates the read discards.
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    const hiddenItemIds: ReturnType<typeof newUlid>[] = [];
+    for (const text of hiddenTexts) {
+      await sendProduction({
+        who: owner, ownerPrincipalId: owner.principalId, text, model, telegram,
+      });
+      hiddenItemIds.push(await commitTestItem({
+        principalId: owner.principalId,
+        text,
+        creation: borrowed,
+        source: await latestUserEvent(owner.principalId),
+        state: "proposed",
+        uncertain: true,
+      }));
+    }
+    // This memory is one of four candidates for a page of three, and it ranks
+    // last, so it is not recalled: the retriever works as designed. It is the
+    // control for the assertions below, which is why it is asserted rather than
+    // assumed -- if the ranking fixture ever stops putting the visible memory
+    // fourth, this fails instead of the test passing for the wrong reason.
+    expect(recalled(await recall(), visibleText)).toBe(false);
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget the memory about locker.",
+      model,
+      telegram,
+    });
+    const forgetTurn = await latestUserEvent(owner.principalId);
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
+      ownerTurn: Object.freeze({
+        principalId: owner.principalId,
+        eventId: forgetTurn.eventId,
+        eventSequence: forgetTurn.sequence,
+        occurredAt: forgetTurn.occurredAt,
+        channel: "telegram" as const,
+        memoryIntent: "forget" as const,
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }),
+      candidateItemIds: Object.freeze([ownerItemId]),
+    });
+    for (const itemId of hiddenItemIds) {
+      await expect(new MemoryRepository(env.DB).readCurrentItem(owner.principalId, itemId))
+        .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+    }
+
+    const after = await recall();
+    // The three candidates the ledger suppressed are still `proposed`, so only the
+    // suppression predicate can exclude them -- and if it is applied after the read
+    // instead of before the page, they keep the three slots a read that cannot see
+    // them then discards, and this memory stays unreachable. That is the whole
+    // observable effect of the keyword arm's own anti-join: everything else about
+    // these items is filtered twice over, which is why no other test here fails
+    // when the clause is deleted.
+    expect(recalled(after, visibleText)).toBe(true);
+    for (const text of hiddenTexts) expect(recalled(after, text)).toBe(false);
+  });
+
   it("returns eligible canonical memory without duplicating a recent literal-history hit", async () => {
     const events = new EventRepository(env.DB);
     const conversations = new ConversationRepository(env.DB, events);

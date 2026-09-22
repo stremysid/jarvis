@@ -384,6 +384,189 @@ I am the session the brief addresses as DeepSeek Builder, and I am not going to
 guess a model name or a reasoning effort — a confident false signature is worse
 than an honest gap. The person who launched this session knows the answer.
 
+## 2026-09-21 — DeepSeek builder: the item suppression predicate is one definition now, and an arm that stops composing it fails a named test
+
+Branch `goal/item6-dedup`, **based on #144's head `069e47c` (`goal/item3-candidates`), not on
+`main`** — it carries #144's three commits and must merge after #144 or absorb it. One
+conflict at the rebase, in exactly the 19 lines #144 added to `selectControlTargets`;
+resolved in favour of the composed predicate, which renders the same two clauses. No other
+file overlapped.
+
+### The true count, with evidence
+
+The brief said the predicate is duplicated four times in
+`apps/cloud-gateway/src/memory/telegram-memory-retriever.ts`, and that #144's fix was
+already in. Both were wrong, and the second one mattered: #144 is **open**, so at `d0ec419`
+`selectControlTargets` still carried neither clause.
+
+Measured at `d0ec419` (`grep -n "creation_event_sequence BETWEEN suppression"` → `1320`,
+`2005`, `2053`):
+
+| Arm | Evidence at `d0ec419` | Shape |
+|---|---|---|
+| `readCandidates`, named-area arm | `WITH RECURSIVE subtree` query, 2001-2017 | both clauses, `item`/`source`/`version`, `AND NOT EXISTS` |
+| `readCandidates`, keyword arm | `memory_item_fts` query, 2049-2065 | byte-identical to the one above |
+| `readLivingNotes`, note eligibility | 1316-1333 | the same two subqueries with `item_source` and note-source keying, as `OR EXISTS` inside that arm's own list of reasons a note is stale |
+| `selectControlTargets` | 1843-1853 | **neither clause**, and no `memory_items` join at all |
+
+So: **three copies and one omission in this file**, not four copies. The fourth candidate arm
+is the one that had none.
+
+Elsewhere, named and deliberately untouched:
+
+- `src/memory/memory-repository.ts` — four literal occurrences across three queries:
+  `readItemVisibility` (1376), `retrievalItemStatements` (3553), and
+  `countSiblingItemsHiddenByForget` (1603 and 1625). The first two are `EXISTS`
+  **projections** that report suppression rather than anti-joins that hide a row, so they
+  are not the composer's text; the third is a further variant carrying
+  `forgotten_transition_id = ? AND newly_hidden_turn_count = 1`.
+- `src/persistence/migrations/0016_cloud_memory.sql` — the view
+  `memory_retrievable_item_versions` (942-977) carries both clauses, and `readMeaningHits`
+  depends on that view instead of composing the predicate. That is why the guard exempts it
+  **by name** rather than calling it drift: it is protected, by a definition that cannot be
+  edited in place.
+- The **event-level** single clause is a different predicate and lives in six places:
+  `withoutForgottenTurns` in this file (1684) plus `conversation/context-retriever.ts`
+  (398-407, 443-450), `memory/literal-history.ts` (656, 927, 1203, 1284) and
+  `memory/automatic-distillation.ts` (1009 — whose own comment says it was copied from
+  `literal-history.ts`). Not the item-level pair; out of scope here, and said so in the file
+  rather than quietly left.
+
+### What changed
+
+One composer, `suppressionClauses`, and two bindings of it, because two arms genuinely need
+different aliases and a different connective:
+
+- `CANDIDATE_SUPPRESSION_CLAUSES` — aliases `item`/`source`/`version`, `AND NOT EXISTS`. The
+  named-area arm, the keyword arm and `selectControlTargets` interpolate it.
+- `NOTE_SOURCE_SUPPRESSION_CLAUSES` — aliases `item`/`item_source`, keyed through the note's
+  own source row, `OR EXISTS`. `readLivingNotes` interpolates it.
+
+Both are exported so the guard compares the arms against the one definition instead of
+against a fifth copy of the same text. `selectControlTargets` composes the candidate binding,
+which is how it keeps #144's behaviour; that arm's SQL is also where #144's `memory_items`
+join now comes from, unchanged.
+
+### The guard, and how strong it actually is
+
+`apps/cloud-gateway/test/memory/suppression-predicate-parity.test.ts` (new, 8 tests):
+
+1. the item-level comparison must appear **once** in the retriever source;
+2. every `.prepare()` template in that source which reads a memory candidate must compose a
+   `*SUPPRESSION_CLAUSES` constant — with two arms exempted by SQL text and told why in the
+   failure message (`memory_retrievable_item_versions`, `state.lifecycle_state = 'forgotten'`);
+3. each arm, driven through the public API against a recording D1, must hand the database SQL
+   containing the shared clauses;
+4. the shared clauses must still name all four comparisons.
+
+Plus one behavioural test in `telegram-memory.test.ts`:
+*"recalls a visible memory while suppressed candidates would fill the candidate page (a
+keyword query | a named-area question)"* — two named cases, one per candidate arm.
+
+**What it does not catch.** Tests 1 and 3 compare arms to each other and to one definition, so
+editing that one definition moves every arm together and passes them; only test 4 and
+behaviour stop a gutted definition. Test 2 is a source scan, so it does catch an arm added
+after this file was written — but its exemptions are recognised by SQL text, so an arm that
+read `state.lifecycle_state = 'forgotten'` through that exact predicate would be exempted
+silently. Test 3 only covers arms a human drove through the public API. None of it proves the
+predicate is semantically right.
+
+### The finding that made the behavioural test necessary
+
+Deleting the keyword arm's clauses left **`telegram-memory.test.ts` 70 passed, 0 failed** —
+including the two tests whose names say they are about a forgotten creation event and a
+forgotten cited turn. Deleting the named-area arm's clauses left **161 tests green** across
+`telegram-memory.test.ts`, `living-notes.test.ts` and `automatic-distillation.test.ts`. Both
+were measured, not assumed.
+
+**Why**, read from the code rather than guessed: `readCandidateContexts` filters suppression a
+second time after the SQL — `visibility.retrievable` (the `memory_retrievable_item_versions`
+view) for active items, and `creationEventSuppressed`/`suppressedSourceIds` for the rest
+(`telegram-memory-retriever.ts` at 53ea213). So the arm's own clauses do not decide *which
+memories are visible*; they decide **which candidates occupy the three-slot page**. Remove
+them and three suppressed candidates take the page that a visible memory should have had, and
+the post-read filter then discards all three. That is the only observable effect, and the new
+test asserts exactly it: the memory is *not* recalled while four candidates compete for three
+slots, and *is* recalled once suppression frees the page.
+
+My first version of that test did not discriminate, and the reason was in the SQL: the keyword
+arm orders `active` before `proposed` (`ORDER BY CASE state.lifecycle_state …`), so an active
+visible memory took the first slot whatever its relevance. Every candidate in the final
+fixture is `proposed`, and relevance decides.
+
+### Every mutation, and what failed
+
+Each was applied, run, then reverted with `git checkout --` and re-run green.
+
+| # | Mutation | Result |
+|---|---|---|
+| 1 | `selectControlTargets` stops composing the clauses (the pristine `d0ec419` shape) | parity: *"composes the shared suppression clauses in every SQL template…"* + *"sends them in the arm that chooses a control target"* fail; `control-target-suppression.test.ts`: *"excludes an item whose own creation event is suppressed"* + *"…whose source event is suppressed, when its creation event is not"* fail. 4 failed / 7 passed. *"still finds the item when nothing is suppressed"* passes |
+| 2 | Keyword arm stops composing | parity: source scan + *"sends them in the candidate arm a keyword query reaches"* fail; **`telegram-memory.test.ts` 70 passed** before the new test existed. With the new test in place: it fails at the *after* assertion (`:2564`), its control passing |
+| 3 | Named-area arm stops composing | parity: same two fail; **161 tests green** across the three behaviour suites. With the new test: the *named-area question* case fails (`:2575`), the *keyword query* case passes |
+| 4 | Living-note arm stops composing | parity: source scan + *"sends the note-source form of them…"* fail; `living-notes.test.ts`: *"withholds a note whose cited turn was suppressed while the fact itself stays active"* fails (3 failed / 20 passed) |
+| 5 | Composer gutted: the source clause deleted from the one definition | **Tests 1-3 all pass**, exactly as documented — the arms still agree with the definition. Test 4 fails (*"names the item's own creation event and every event recorded as a source"* and *"names the same two comparisons for a note's cited item"*), and `control-target-suppression.test.ts` fails on the source-clause test (3 failed / 8 passed) |
+| 6 | The guard's exemption marker for `memory_retrievable_item_versions` broken | the source scan fails and names the `readMeaningHits` template — the scan reaches an arm that no test drives |
+| 7 | A **byte-identical** hand copy pasted back into `selectControlTargets` | the arm-containment test *passes* (the text is the same), while the dedup pin *"states the item-level suppression comparison exactly once in the retriever"* and the source scan fail. This is the evidence that test 1 is not redundant with test 3 |
+
+### Gates
+
+Run at this head, each file alone.
+
+*(filled in immediately below — see the gate block in this entry)*
+
+### What I did not do
+
+- **Did not unify `memory-repository.ts`'s two `EXISTS` projections or the `0016` view.** They
+  are not copies of this text, and the view is deployed SQL that only a new migration may
+  change. Named as a QUEUE row instead.
+- **Did not touch #144's own test file**, and did not re-land or revert #144's hunk. The
+  rebase resolved one conflict in favour of the composed predicate.
+- **Did not add a behavioural test for the note arm or the control-target arm**: both are
+  already pinned (mutations 1 and 4), and duplicating #144's fixture would be a second copy of
+  the thing this change is about.
+- **Did not change `docs/STATE.md`.** #144's paragraph there ("Fixed, not yet merged,
+  `selectControlTargets`…") is still accurate; folding it away is the reviewer's job at merge
+  time.
+- **Did not run the watchdog or local-agent suites** — neither imports the gateway.
+
+---
+### Independent verification by the publishing session
+
+The parent session re-ran this work rather than trusting the report, and re-ran the mutations
+on the head as pushed. Gates at this head:
+
+| Command | Result |
+|---|---|
+| `suppression-predicate-parity.test.ts` alone | **8 passed** |
+| the same plus `control-target-suppression.test.ts` | **11 passed** (2 files) |
+| `telegram-memory.test.ts`, `living-notes.test.ts`, `memory-search.test.ts` | **105 passed, 1 failed** — see below |
+
+**Mutations re-run by the parent, one composition site at a time** — each site's interpolation
+line deleted with the other two asserted still present, then the guard run:
+
+| Site neutered | Result |
+|---|---|
+| the control-target arm's interpolation (line 2103) | **2 failed, 6 passed**: `composes the shared suppression clauses in every SQL template that reads a memory candidate` and `sends them in the candidate arm a keyword query reaches` |
+| one candidate arm (line 1921) | **2 failed, 6 passed**: the composition test and `sends them in the arm that chooses a control target` |
+| the other candidate arm (line 2071) | **2 failed, 6 passed**: the composition test and `sends them in the candidate arm a named-area question reaches` |
+| restored | **8 passed**, and the file is byte-identical to its pre-mutation state |
+
+**Each composition site has its own detector, and deleting any one fails a named test.** Note the
+parent's arm-to-line labelling was inverted on the first attempt — what the evidence supports is
+that every site is pinned, which is what the mutation exists to show. The guard's exemptions are
+also genuinely useful: the failure message printed them, including why the
+`memory_retrievable_item_versions` arm needs none (the view already carries both clauses) and why a
+`lifecycle_state = 'forgotten'` read must not have one (it is finding evidence of a restatement,
+so an anti-join would delete what it exists to find).
+
+**The one failure is pre-existing, and the parent proved it rather than assuming it.**
+`telegram-memory.test.ts > retrieves archived-source memories and archived history within 500 ms at
+25 ms per D1 round trip` fails when the file is run **alone** here, which rules out load. It also
+fails **at the parent commit `069e47c` with none of this branch's changes applied** — a clean
+worktree, `1 failed | 69 passed` there against `1 failed | 71 passed` here. So it is not a
+regression from this refactor, and this branch adds 2 tests net (70 → 72) without changing which
+one fails. It is a latency-budget test this machine misses; whoever owns the budget should decide
+whether that is the machine or the budget.
 ## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
 
 Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
