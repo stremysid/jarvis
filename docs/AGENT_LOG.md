@@ -3,6 +3,387 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-21 — DeepSeek builder: PR #141 rebased onto a moved main, its carrier conflicts resolved, and the Windows pipe-server brief written
+
+Branch `b/141-rebase` (rebases `codex/pc-controls-p1`, PR #141) on `d0ec419`. Cherry-picked
+`c5a3d62` onto current `main`, resolved four carrier conflicts, added the Windows launcher brief,
+and touched no product source. One commit plus this entry.
+
+### The brief I was handed was stale in two places, and both mattered
+
+`origin/main` was **`d0ec419`**, not the `a9c8d7a` the handoff named — **PR #139 had already
+merged**, at 2026-09-21T23:18:55Z. That changes two of the four tasks as written:
+
+- **"Rebase #139 and do not let it delete `docs/runbooks/brightspace-calendar-feed.md`"** — not
+  actionable. #139 is merged, and it **did** delete that file; the runbook, the Classroom OAuth
+  runbook, the Linux home-node runbook and the D2L notification-email runbook are all gone from
+  `origin/main` as of `d0ec419` (`git cat-file -e origin/main:<path>` fails for each; all four
+  were present at `a9c8d7a`). #139's own PR body states the deletion is deliberate.
+  **Flagged, not fixed** — see "out of scope" below. Restoring it is Sid's or a reviewer's call,
+  not something to smuggle into a rebase.
+- **"Restore the two details #142 lost"** — one of the two was never lost. `docs/QUEUE.md` on
+  `d0ec419` already carries *"No test asserts which tools need it: both retriever suites stub
+  `findControlTargets`"*, added by #139 (`a9c8d7a` lacks it; `d0ec419` has it). The genuinely
+  missing piece was the **named tool list**, and I restored it.
+
+### What I changed
+
+**`docs/AGENT_LOG.md`** — resolved by keeping both sides. Both sides prepend entries at the same
+point after the four-line header, so the merge is main's 399-line insertion and this branch's
+190-line insertion, newest first. `git diff --numstat origin/main -- docs/AGENT_LOG.md` is
+**`190 0`** — 0 deletions, which is the check spec'd in `docs/briefs-pc-controls.md`. My first
+attempt at this corrupted the file: I sliced the array with off-by-one indices and wrote a file
+that still contained the conflict markers. Caught it because the numstat read `1 1` instead of
+`N 0`, restored from the conflict stages, and rebuilt by explicit line number with an assertion
+at each boundary. Nothing was lost either way — the blobs are in the index — but the first write
+was wrong and the check is what found it.
+
+**`docs/FACTS.md`** — kept both sides: main's two rows (voice/Telegram retrievers; a worktree's
+`.git` is a file) and #141's four. The **AutoAdminLogon row is preserved**, which is the thing the
+handoff said must not be lost if #141 closes. It is corrected once: #141 claimed *"no document
+recorded it until now"*, and `docs/briefs-pc-controls.md` does describe the mechanism — what no
+document recorded is that it is **already set** on this machine. `AutoAdminLogon` now appears in
+`docs/FACTS.md` exactly once.
+
+**`docs/QUEUE.md`** — kept main's regenerated rows (they are the current ones) and #141's one row
+that main does not have, the missing Windows launcher. Two restatements:
+
+- the `findControlTargets`/voice row now names the tools: *"`forget`, `correct`, `restore`,
+  `confirm`, `explain` and `pin`"*, and says explicitly that the list is *"a read, not a
+  measurement"*;
+- the PC-controls row points at `[briefs-pc-controls.md](briefs-pc-controls.md)`, and carries
+  P1's artifacts. **The `C:\javis\.brief-pc-controls.md` path the handoff asked me to repoint was
+  already fixed by #139** — it no longer occurs in `docs/QUEUE.md` on `d0ec419`. Nothing to do.
+
+**`docs/OWNER-ACTIONS.md`** — kept main's rows and #141's "Install the PC boot chain, elevated"
+row. Dropped two of #141's rows on purpose, because keeping both sides literally would have been
+wrong here: its *"Point `school@onesid.ca` at the Worker"* row asks for something `main` now
+records as **done** (the school routing row is in the Done table), and its *"Decide whether the
+Windows agent launcher is in scope"* row is settled by the brief below. That file's own rule is
+one row per action, and a done action re-listed is how Sid gets asked twice.
+
+**`docs/briefs-windows-pipe-server.md`** — new, the brief for a Windows launcher for
+`transport/pipe_server.py`. Written in the style of `docs/briefs-pc-controls.md`: what is
+constructed is one assembly with two platform bindings rather than a copy of `build_node`
+(which already takes a `ControlFactory`), the three Windows-only pieces (a `NamedPipeServer`
+endpoint, a settings path that is not rejected by `_is_absolute_linux_path`, a CLI entry point),
+what each of its load-bearing behaviours is *for* (claim the pipe before touching a store;
+`FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance; the DACL from the resolved SID because
+`OW` does not work; a `should_continue` that reflects `ServiceState`), the by-hand acceptance run
+and exactly what to observe, and the traps already paid for here. `docs/QUEUE.md`'s launcher row
+points at it. Its acceptance does **not** require the pipe fixture: the fixture binds the same
+pipe name as the real service, and the brief says so.
+
+### Mutation results
+
+**None run. I changed no code and added no guard.** Every file I touched is a carrier or a brief —
+no `.ts`, `.js`, `.mjs`, `.py` or `.ps1`. There is no guard here to neuter, so nothing was
+mutation-verified, and I am saying that rather than implying the requirement was met. #141's own
+two mutants (`ops/mutation-oversized-bound.ps1`, `ops/mutation-task-runlevel.ps1`) belong to its
+earlier session and are carried unchanged.
+
+### Gates
+
+| Command | Result |
+|---|---|
+| `node scripts/check-state.mjs` | **exit 0**, `state check passed: 3 carriers, STATE.md within budget, links resolve, BLOCKS present`. This is the gate that covers all four carriers' format and their links — it failed first with `link to a file that does not exist: briefs-windows-pipe-server.md`, which is what made me write the brief before committing |
+| `git diff --numstat origin/main -- docs/AGENT_LOG.md` | **`381 0`** at the final head (this entry grew as the corrections below were written; it is not the number to gate on, see the next row) |
+| **AGENT_LOG heading-set check** | **`main` 433 `^## ` headings; 0 absent from the branch; 2 added; 0 duplicated.** This is the check that proves no entry vanished — the numstat alone does not, see below |
+| `git diff --cached --numstat d0ec419` vs `HEAD` | `381 0` AGENT_LOG.md · `4 0` FACTS.md · `1 0` OWNER-ACTIONS.md · `3 2` QUEUE.md · `199 0` briefs-windows-pipe-server.md · `164 0` brightspace-calendar-feed.md (restored) · new files as in #141 |
+| conflict-marker sweep | `git grep --cached` with the three conflict-marker patterns finds nothing |
+
+### What I did NOT do, and why
+
+- **Did not merge #141** — Sid's, explicitly.
+- **Did not run `pnpm test`, the Python suite, `mypy`, `ruff`, or #141's by-hand PowerShell run.**
+  Nothing in this change is executable: it is four documents, one new brief and one restored
+  runbook. The 882 Python tests and the 14/14 by-hand run belong to #141's earlier session and I
+  did not re-observe them, so they are not my numbers. If a reviewer wants them re-run at this
+  head, that is a fresh measurement and should be labelled as one.
+- **Did not touch `#143`, `#96`, `#111`, `#113`, `#117`, `#118`, `#122` or `#127`** — out of the
+  four tasks, and each is a rebase of its own.
+- **Did not regenerate `docs/STATE.md`.** This change moves no phase, and `STATE.md`'s rule is to
+  be regenerated rather than patched.
+
+### Out of scope, found and named rather than fixed
+
+1. **#139 deleted the Brightspace runbook, and the handoff says that file was kept on purpose.**
+   The deletion is #139's stated intent, not an accident, and it is merged. But the conflict is
+   real: the handoff identifies the file's own banner as recording that it is kept deliberately,
+   and four other documents (including this repo's `AGENTS.md` history) treat the D2L/Brightspace
+   routes as a repeated trap. I did not revert a merged PR's deliberate change inside a rebase.
+   **It needs a decision, and the decision-maker is Sid or a reviewer.**
+2. **`docs/FACTS.md` on `main` still says the D2L email route is closed and that school mail "does
+   not reach Jarvis today"**, blaming the Cloudflare routing rule as the likely cause — while
+   `docs/STATE.md` and `docs/OWNER-ACTIONS.md` on the same revision say the routing is
+   **configured** and the blocker is upstream, that the email carries no deadline. The carriers
+   disagree with each other at `d0ec419`. I did not pick a winner: #141 does not touch those rows
+   and choosing between two live claims is a reviewer's call.
+3. **PR #143 is a new carrier PR** (`docs/FACTS.md`, `docs/OWNER-ACTIONS.md`, `docs/QUEUE.md`,
+   `docs/STATE.md`, 33/28) whose branch rewrites production state. It will conflict with this
+   head on those four files. Whichever merges second needs the other's rows kept — **the same
+   class of conflict I just resolved, now with a third branch in it.**
+4. **The handoff's own `#141` line was wrong about which conflict set to expect**: it lists three
+   files (`AGENT_LOG.md`, `FACTS.md`, `QUEUE.md`), and against `d0ec419` there are **four** —
+   `OWNER-ACTIONS.md` conflicts too, because #139 added a Done row where #141 appends Waiting-on-
+   Sid rows.
+5. **A worktree at `C:\w\p141` holds stage-3 blobs for the conflicted files**; nothing here was
+   lost, but anyone who re-does this resolution should read the index stages rather than the
+   working tree, which is what I should have done on the first attempt.
+
+### Correction, same session: I refused a task I had no business refusing
+
+The handoff said **"do not let #139 delete `docs/runbooks/brightspace-calendar-feed.md`"**. I
+found #139 already merged, found the file gone, and **wrote a finding and moved on** — flagged it
+in the PR body and in this entry as "a decision for Sid or a reviewer".
+
+That was wrong, and it is wrong for three separate reasons:
+
+1. **There was nothing to decide.** Sid's instruction *is* the decision, and the file's own
+   top-of-banner text — corrected on 2026-09-21 by main, deliberately — says: *"Kept because the
+   ingestion code and its failure codes are real and would be reused if that board ever exposes a
+   feed."* Deferring an instruction wrapped in the file's own stated reason is not caution.
+2. **The cost I was protecting against did not exist.** I told myself reverting a merged PR's
+   deliberate change belonged to a reviewer. The actual diff is one file, additive, on a branch
+   already being rebased, and a reviewer sees it in the PR either way.
+3. **It is exactly the failure the handoff names**, in its own §11: *"the repeated failure was
+   reporting a finding and treating the report as the fix."* Sid caught it, which is worse than
+   the finding would have been.
+
+**Fixed.** `docs/runbooks/brightspace-calendar-feed.md` is restored byte-identically to its last
+revision (`a9c8d7a`; `git diff --numstat a9c8d7a -- <path>` is empty), in a second commit whose
+message states plainly that it reverts part of a merged PR and why.
+
+I checked the other three runbooks #139 deleted rather than assuming the same verdict:
+`google-classroom-oauth.md` carries the same "kept because" sentence, but **mid-file**, in a
+section headed *"Historical: what the flow would have been"* — not in its banner, and its banner
+still points at the D2L notification-email route, which #140 later established is dead.
+`home-node.md` and `d2l-notification-email.md` have no such claim at all. **Brightspace is the
+one the instruction names and the one whose banner is current; the other three are left deleted.**
+That contrast is why this looked like a judgment call and was not: I had an explicit instruction
+for one file and no instruction for the others.
+
+### The gate the handoff relies on is necessary but not sufficient
+
+`git diff --numstat origin/main -- docs/AGENT_LOG.md` reading `N 0` is what
+`docs/briefs-pc-controls.md` asks for, and it is what I gated on. **It cannot detect a dropped
+entry.** A missing entry and a differently-sized inserted entry both present as insertions only,
+so `329 0` says nothing about *which* 329 lines are present — the wrong instrument for the exact
+failure the handoff names ("an entry silently vanished once").
+
+The check that answers it is two lines: **compare the set of `^## ` headings between
+`origin/main` and the branch.** Measured at `8b28cac` — **`main` has 433 headings, 0 are absent
+from the branch, 2 are added (mine and P1's), 0 are duplicated.** Nothing vanished. Both numbers
+belong in the record: the numstat for the count, the heading set for the identity.
+
+I also mis-read my own instrument once while looking for that problem. A heading list printed
+from `Get-Content` looked as though it had replaced #139's entry, and I nearly filed it as a
+live finding. The tell was the line numbers: the working file and the committed blob differed by
+33 lines in the region I was reading, so I was comparing two different revisions. **A heading
+list is only evidence when it is anchored to a revision.**
+
+### Signature
+
+
+**Model and effort: I cannot read them off this session; what I can read is the harness default.**
+The only `DSH_*` variables this session sees are `DSH_HOME`, `DSH_SESSION_ID`
+(`session-18808b79-fdff-4083-bd30-730c93b21035`), `DSH_SHELL` and `DSH_WEB_URL` — nothing about
+the model — and no model or effort variable exists in the environment. `agent-default-model` in
+`~/.dsh/settings.yaml` reads `provider: deepseek-official`, `model: deepseek-flash`,
+`reasoningEffort: high`, so that is what this session is *configured* to be. It is evidence about
+the default, not an observation of the running route: if it was launched with an override, the
+override is the answer. Recorded this way rather than naming one as fact.
+
+## 2026-09-21 — DeepSeek builder: P1 of the PC boot chain, and the brief was wrong about "start the local agent"
+
+Branch `codex/pc-controls-p1` on `688fe02`. No product source: one new directory,
+`ops/`, plus four carriers. **The stack is one PR of three; P2 and P3 were not
+started.**
+
+### What changed, and why
+
+**`ops/jarvis-autologon.ps1`** writes the four Winlogon values auto-login needs
+(`AutoAdminLogon`, `DefaultUserName`, `DefaultDomainName`, `DefaultPassword`).
+`-Status` is read-only and unelevated, prints `password_present True|False` and
+never a length or a prefix; `-Remove` clears only those four values and never the
+key, which also holds `Shell` and `Userinit`.
+
+The brief asked me to prefer the LSA secret via Sysinternals `Autologon.exe` "if
+password handling can use it with the same end result". **It can't, here**: that
+needs a downloaded third-party executable run on the live machine, which this
+repository may not do. `DefaultPassword` and the LSA secret end at the same four
+values and the same desktop, and Windows deletes `DefaultPassword` itself after
+the first successful auto-logon, so the Sysinternals path is an upgrade Sid can
+run in one sitting rather than a requirement. That reasoning is in the script's
+help, not only here.
+
+**`ops/jarvis-logon-task.ps1`** registers `Jarvis boot chain`: `-AtLogOn` with the
+account named, `-RunLevel Highest`, `-LogonType Interactive`,
+`-ExecutionTimeLimit 0` (serialized `PT0S`; the default is 72 hours, which kills a
+resident process after three days, silently), `RestartCount 3`,
+`RestartInterval PT1M`. `-WhatIf` builds every object and stops before
+registering, so an unelevated session can see exactly what would be installed.
+
+**`ops/jarvis-boot.ps1`** is the entry point the task runs: a
+`Global\JarvisBootChain` mutex, a `status` probe if an endpoint is already
+listening, the agent's own `jarvis doctor` for missing configuration *names*, and
+then exit 3 with the missing piece named. It issues no `stop`, deletes nothing and
+writes no configuration value — "does nothing destructive until told to" applied.
+
+**`ops/test-pc-controls.ps1`** is the by-hand run, **`ops/boot_pipe_fixture.py`**
+is its stand-in agent (it answers through the real `read_frame` /
+`decode_request` / `encode_response`, so a wire drift fails there), and the two
+`ops/mutation-*.ps1` files write the neutered copies. The mutations live in their
+own files on purpose: a mutation written inside the script that grades it can be
+edited to suit.
+
+### The brief was wrong, and it is the load-bearing part of P1
+
+The brief's P1 says `ops/jarvis-boot.ps1` should "start the local agent" and
+"connect the existing pipe". **There is nothing on Windows that starts it.**
+
+- `apps/local-agent/jarvis_local/node.py` is the only launcher in the tree that
+  binds the control channel, and `NodeSettings.from_config` refuses any platform
+  whose `sys.platform` does not start with `linux` (the
+  `current_platform.startswith("linux")` check).
+- `apps/local-agent/jarvis_local/transport/pipe_server.py` is a complete,
+  tested, SID-restricted Windows named-pipe **server** with **no caller**.
+  `cli.py` implements the client half only.
+- `apps/local-agent/.env.example` describes Windows paths, so the mismatch is not
+  the configuration.
+
+I did not build the launcher. `AGENTS.md` forbids porting the node as a side
+effect of another task, and a second launcher without the store wiring, the
+device-key handling and the cycle loop is a port wearing a different name. So the
+script names the gap and exits 3, and the gap is a `QUEUE.md` row and an
+`OWNER-ACTIONS.md` row. **The exit test as written cannot pass at this revision**,
+and I would rather say that than ship a script that reports success while no agent
+exists.
+
+### Auto-login is already configured on this machine, with a plaintext password
+
+`Get-ItemProperty` on the Winlogon key, unelevated, on 2026-09-21:
+
+```
+AutoAdminLogon    : 1
+DefaultUserName   : Sid
+DefaultDomainName : SID
+DefaultPassword   : <present>
+```
+
+Not something this PR did; it predates it and no document recorded it. It is a
+`FACTS.md` row now. Step 1 of the runbook is therefore a re-assertion rather than
+a first install. The value is not reproduced anywhere in the repository.
+
+### The mutations, and what each one proved
+
+Run with `pwsh -NoProfile -File ops/test-pc-controls.ps1 -Mutation` — **17/17
+steps pass**. Without `-Mutation`, **14/14 pass with 4 skipped**.
+
+1. **The oversized-frame bound.** `ops/mutation-oversized-bound.ps1` replaces the
+   condition with `$false` and prefixes both short-read messages with `NO-DATA
+   after $total bytes`.
+   - Unmutated, against a fixture that declares 655,360 bytes: exit 2, and the
+     script names `declared 655360 bytes`. It refused before reading a body byte.
+   - Neutered: exit 2, and the output is `NO-DATA after 51 bytes` — it asked the
+     pipe for 655,360, got nothing and reported how far it had got.
+   - Both results are steps, so the pair is what passes, not the exit code.
+
+   **This mutation found a live defect in my own code.** The first version of the
+   step was green while the guard was dead: PowerShell's `-shl` widens its result
+   to the width of a `[byte]` operand, so `[byte]10 -shl 16` is **0**, not
+   655,360 — the declared length of a 655,360-byte frame read back as 0 and the
+   bound never fired. Both paths ended in a short read with the same exit code,
+   which is why the exit code could not tell them apart. Fixed by assembling the
+   length through an `int`; the write side was already correct because it shifts
+   an `int`.
+2. **The task's run level.** `ops/mutation-task-runlevel.ps1` changes the default
+   of `$RunLevel` to `Limited`. The unmutated `-WhatIf` prints `run_level
+   Highest`; the mutated copy prints nothing for `run_level`, so the step that
+   asserts `Highest` fails. This is what proves those steps read the script's own
+   construction rather than a re-typed copy of it in the test file.
+
+I also checked both mutations' anchors by count, so a `Replace` that matches
+nothing — which returns the input unchanged, silently — is an error rather than a
+green mutation that mutated nothing.
+
+### A second live defect, found by running the boot script rather than reading it
+
+`NamedPipeClientStream` takes a **bare** pipe name. Passing the full
+`\\.\pipe\jarvis-local-agent` path — exactly what `pipe_server.DEFAULT_PIPE_NAME`
+holds — makes .NET treat the name as remote and prepend the prefix a second time,
+so the connect times out against a pipe that is listening. That is
+indistinguishable from an absent agent. The script normalizes either form now, and
+the runbook records it.
+
+Measured while chasing it: connecting to an *absent* pipe throws
+`IOException` ("Could not find file"), not `TimeoutException` — the timeout only
+happens when the name exists and its instance is busy. The boot script returns
+"nothing is listening" for both and keeps every other exception, because a
+`PermissionError` against the pipe's restricted DACL must not be reported as
+absence.
+
+### The gates, and what each one covers
+
+| Command | Result |
+|---|---|
+| `pwsh -NoProfile -File ops/test-pc-controls.ps1` | **14/14 pass, 4 skipped** (the skipped four are the elevated task-registration steps) |
+| `pwsh -NoProfile -File ops/test-pc-controls.ps1 -Mutation` | **17/17 pass** |
+| `uv run --project apps/local-agent --group dev pytest -q` | **882 passed, 32 skipped in 42.58s** — all 32 skips are `linux_only` / POSIX-only markers (`-rs`: 5 Linux node acceptance, 12 Linux security acceptance, 6 POSIX permission semantics, 3 home-node key boundary, 3 Windows-vs-ACL, 2 symlink, 1 NTFS `st_mode`). **The named-pipe tests ran**, since `windows_only` is not among the skip reasons |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | `tsc --noEmit`, **exit 0** |
+| `node scripts/check-state.mjs` | `state check passed: 3 carriers, STATE.md within budget, links resolve, BLOCKS present`, exit 0 |
+
+**I did not run `pnpm test` or `test:all`.** This PR contains no `.ts`, `.js`,
+`.mjs`, `vitest.config` or `package.json` change — `git diff --stat` against
+`688fe02` is `ops/**`, one runbook and four carriers — so a JavaScript suite has
+nothing here to exercise. Say the word and I will run it; I am stating the choice
+rather than implying a green run I did not do.
+
+Windows has no suite for this work at all, which is why the numbers above are
+hand-run and why every step prints what it saw.
+
+### What I did NOT do, and why
+
+- **No P2 and no P3.** Not started, per the brief.
+- **No Windows launcher for the local agent.** The blocker above.
+- **No secrets, no production, no deploy, no migration.** Nothing here reads,
+  writes or prints a credential, and the one live value involved — the existing
+  `DefaultPassword` — is reported only as `password_present True`.
+- **I did not register the task or enable auto-login on this machine.** Both need
+  elevation. Every by-hand run was unelevated; the four steps that need an
+  administrator session report **`SKIP`, not `PASS`**. The exact elevated commands
+  are in the runbook and in `OWNER-ACTIONS.md`.
+- **I did not run the cleartext-password acceptance that the script's own
+  `-Status` makes possible.** It would print nothing secret, but it needs the
+  vault read path and is P2's business.
+
+### Out of scope, named rather than fixed
+
+- **`docs/BUILDING.md` is stale** and now contradicts the roadmap: it says
+  "Milestones R0 to R10 are defined in the roadmap" and carries a vendor table
+  keyed to them, while the roadmap states in its own text that there are no `R`
+  numbers and that the milestone roadmaps were deleted. Its "who builds with
+  what" table also names GPT-5.6 Sol and Claude Opus 5, superseded by the
+  2026-09-20 decision that Jarvis runs DeepSeek V4.1 Flash. Not touched: three
+  documents disagree and picking the winner is a reviewer's call, not mine.
+- **`reviewer-tools/gate.ps1`'s `$KnownPreExistingFailures`** still names four
+  hermes tests, which my brief already flags as stale.
+- **`QUEUE.md` pointed at `C:\javis\.brief-pc-controls.md`**; the brief is tracked
+  at `docs/briefs-pc-controls.md`. I corrected the pointer in the row I touched.
+- **`docs/STATE.md` is not regenerated by this PR.** P1 does not move a phase:
+  Phase 3's route is still "the PC reads D2L", and there is still no agent on the
+  PC. Regenerating a carrier whose facts did not change adds churn to a diff a
+  reviewer has to read.
+
+### Signature
+
+Model and effort: **I cannot determine either with certainty from inside this
+session.** `$env:DSH_*` exposes only `DSH_HOME`, `DSH_SESSION_ID`
+(`session-8a302521-4c6b-4827-86ad-d389bf06920a`), `DSH_SHELL` and `DSH_WEB_URL`.
+I am the session the brief addresses as DeepSeek Builder, and I am not going to
+guess a model name or a reasoning effort — a confident false signature is worse
+than an honest gap. The person who launched this session knows the answer.
+
 ## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
 
 **Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one
