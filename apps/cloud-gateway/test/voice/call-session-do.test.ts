@@ -2363,9 +2363,25 @@ describe("CallSession production composition", () => {
       }
       if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { message_id: requests.length } });
       expect(String(input)).toBe("https://api.deepseek.com/chat/completions");
-      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "synthetic-runtime-model", stream: true });
-      return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
-        { headers: { "content-type": "text/event-stream" } });
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({ model: "synthetic-runtime-model" });
+      // The production voice path now reaches the shared owner agent, which is a
+      // non-streaming `completeAgent` request carrying tools. The streaming
+      // shape stays supported because that is what a bare `DeepSeekModelAdapter`
+      // still asks for on every other channel's fallback path.
+      if (body.stream === true) {
+        return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
+          { headers: { "content-type": "text/event-stream" } });
+      }
+      expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
+      return Response.json({
+        choices: [{
+          finish_reason: "stop",
+          message: {
+            content: JSON.stringify({ reply: "A composed voice reply.", claimedActions: [] }),
+          },
+        }],
+      });
     });
   });
   afterEach(async () => {
