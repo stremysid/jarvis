@@ -817,6 +817,129 @@ session.** `$env:DSH_*` exposes only `DSH_HOME`, `DSH_SESSION_ID`
 I am the session the brief addresses as DeepSeek Builder, and I am not going to
 guess a model name or a reasoning effort — a confident false signature is worse
 than an honest gap. The person who launched this session knows the answer.
+
+## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
+
+Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
+carriers. Fixes the "cheapest real bug in the queue" from the handoff.
+
+### What was wrong
+
+`selectControlTargets` — the FTS arm the real `findControlTargets` uses once it has
+search terms — carried **neither** of the two suppression anti-joins that its sibling arm
+`readCandidates` carries about 200 lines below. One excludes an item whose own
+`creation_event_id` was suppressed; the other excludes an item whose source event in
+`memory_item_sources` was suppressed. The control-target arm filtered on
+`memory_item_state.lifecycle_state` and nothing else.
+
+The effect: a memory whose originating event the ledger had suppressed was still
+reachable as a control target, so `memory_forget`, `memory_explain`, `memory_correct`,
+`memory_confirm`, `memory_pin` and `memory_unpin` could all act on it when the ledger
+said it should be invisible.
+
+**Nothing failed, because the two arms are separate SQL strings and no test compared
+them.** That is the same shape as the missing `pin`/`unpin` members in the operation
+guard (#135): the suite was green because every agent test injects a stub target finder,
+so the real one was never called with the operations that mattered.
+
+### The fix
+
+Both clauses copied verbatim from `readCandidates`, plus the `memory_items` join the
+first one needs — the control-target arm had no such join at all. Nineteen lines, no
+behaviour change beyond the exclusion.
+
+### The tests, and why there are two
+
+`test/memory/control-target-suppression.test.ts`. Two tests, not one, and that is the
+design: a single test with both clauses neutered would be satisfied by either one alone
+and would prove neither.
+
+- *"excludes an item whose own creation event is suppressed"* — suppresses the
+  candidate's creation event, leaves its source event live, so only the `memory_items`
+  clause can exclude it.
+- *"excludes an item whose source event is suppressed, when its creation event is not"* —
+  the reverse, so only the `memory_item_sources` clause can exclude it.
+- *"still finds the item when nothing is suppressed"* — the control. Without it, a finder
+  that returned nothing for any reason, including a broken query, would pass both.
+
+Items go through `MemoryRepository.commitInitialItem`, so they are real canonical items
+with placements and live FTS rows. Suppressions are written after the item exists, which
+is the reachable shape: the ledger's suppression and the item's live state are separate
+facts, and `selectControlTargets` reads state live.
+
+### Mutations
+
+Each clause neutered **alone**, by removing exactly its `AND NOT EXISTS ( ... )` block.
+Boundary lines are asserted before anything is written, and the file is re-read afterwards
+to confirm the surviving clause is still there.
+
+| Neuter | Result |
+|---|---|
+| the `memory_items` clause (7 lines) | **1 failed, 2 passed.** Creation-event test: `expected [ '01m337drxdarar2kr2qp9z8jv9', …(1) ] to deeply equal [ '01m337drtz721653nw88km07mj' ]` — two ids where one was expected. The suppressed item came back. The other two tests still passed |
+| the `memory_item_sources` clause (10 lines) | **1 failed, 2 passed.** Source-event test failed the same way: two ids where one was expected |
+| restored | **3 passed** |
+
+Two failed attempts before those two, both recorded because they are the reason the
+mutant harness looks the way it does:
+
+1. A **string replace** would have neutered both clauses at once — `readCandidates`'
+   FTS arm carries byte-identical clause text. That would have proved that *something*
+   is load-bearing and neither clause in particular. Hence line ranges, not text.
+2. A **range delete** that took the `JOIN memory_items` line with the clause left the SQL
+   with an unused alias and the wrong bind count. All three tests failed with
+   `Wrong number of parameter bindings for SQL query` — a mutant that fails for the wrong
+   reason proves nothing. Hence removing the condition block only, keeping the join.
+
+### Gates
+
+| Command | Result |
+|---|---|
+| `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/control-target-suppression.test.ts` | **3 passed** |
+| … plus `control-targets.test.ts` and `memory-search.test.ts` | **24 passed** (3 files) |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | **exit 0** |
+| `pnpm --filter @jarvis/cloud-gateway lint` | **exit 0** (it is `tsc --noEmit`) |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors**, unchanged from the `d0ec419` baseline of 144. I introduced 2 (a `string` where a `Ulid` was expected) and fixed them |
+| `pnpm --filter @jarvis/cloud-gateway test` (full suite) | `102 failed | 4763 passed | 205 skipped (5070)` across `37 failed | 150 passed` files — **and this was NOT my change.** See below |
+| `node scripts/check-state.mjs` | exit 0 |
+
+**The full-suite run is contaminated and I am not reporting it as a result.** It ran while
+two other builds were running the same machine. Per the repo's own rule I re-ran the
+failing files alone:
+
+- `test/sync/sync-service.test.ts` alone → **21 passed** (it had 2 failures under load).
+- `test/voice/call-session-do.test.ts` + `test/voice/owner-access-service.test.ts` alone →
+  **135 passed** (they had ~20 failures under load).
+
+So: **"failed under load, passes alone"**, not "fails alone". I did not re-run all 37
+failing files individually; a clean full-suite number has to wait until the competing
+builds stop, and until then I am not claiming one.
+
+### What I did NOT do
+
+- **Did not touch `memory_item_fts`' lack of a delete trigger.** `docs/STATE.md` used to
+  name that in the same breath as this defect, and it is a separate claim I did not
+  investigate. I removed the sentence rather than leave it attached to a fixed row.
+- **Did not run the whole failing set individually** — see above.
+- **Did not merge anything.**
+
+### Out of scope, found and named
+
+- **The two arms are duplicated SQL and nothing keeps them in step.** This defect is the
+  second time a fix landed in one arm and not the other (`pin`/`unpin` was the first). A
+  shared fragment or a test that compares the two arms' predicates would prevent a third;
+  I fixed the instance, not the class, and am saying so rather than implying otherwise.
+- **The same duplication exists between `selectControlTargets` and
+  `findLastReferencedTarget`**, which is the other selection path in the same file.
+
+### Signature
+
+Model and effort: **I cannot read them off this session.** The only `DSH_*` variables
+exposed are `DSH_HOME`, `DSH_SESSION_ID`, `DSH_SHELL` and `DSH_WEB_URL`; no model or
+effort variable exists in the environment. `agent-default-model` in `~/.dsh/settings.yaml`
+reads `deepseek-official` / `deepseek-flash` / `reasoningEffort: high`, which is what this
+session is *configured* to be — evidence about the default, not an observation of the
+running route. Recorded this way rather than naming one as fact.
+
 ## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
 
 **Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one
