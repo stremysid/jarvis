@@ -4,7 +4,7 @@ import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 
 function expand(text: string): string {
   return text.replaceAll("<six>", "6".repeat(6)).replaceAll("<eight>", "7".repeat(8))
-    .replaceAll("<bearer>", "a".repeat(15) + "1");
+    .replaceAll("<four>", "4".repeat(4)).replaceAll("<bearer>", "a".repeat(15) + "1");
 }
 
 describe("shared Python and gateway redaction decisions", () => {
