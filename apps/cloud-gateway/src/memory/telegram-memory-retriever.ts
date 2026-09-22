@@ -828,6 +828,88 @@ function targetStates(operation: TelegramMemoryTargetOperation): readonly Memory
   return ALL_MEMORY_STATES;
 }
 
+/**
+ * The item-level suppression predicate: a memory is invisible once the ledger
+ * has suppressed the event that created it, or any event recorded as one of the
+ * turns it was read from.
+ *
+ * It is composed here rather than written into each arm, because writing it into
+ * each arm is what cost two defects, both of them silent under a green suite:
+ * a fix landed in one copy and missed the others. `selectControlTargets` carried
+ * neither clause while its sibling `readCandidates` carried both, so a memory the
+ * ledger said was forgotten was still reachable as a control target -- the
+ * history, the fix and the guard on it are in PR #144.
+ *
+ * The clauses compare against three aliases that the composing arm must already
+ * have in scope: the `memory_items` row, the `memory_item_sources` row, and the
+ * version being read. The living-note arm reads a source row that is not the
+ * candidate's own version, and it lists suppression among several reasons a
+ * derived note is not eligible rather than as a standalone anti-join, so it
+ * composes its own binding of the same text.
+ *
+ * `test/memory/suppression-predicate-parity.test.ts` fails, by name, if an arm
+ * stops composing one of these; it recognises the composition by the constant's
+ * name, so renaming either constant without updating that file fails it too.
+ */
+function suppressionClauses(options: Readonly<{
+  /** `AND NOT EXISTS` where suppression alone hides a candidate; `OR EXISTS` inside an arm's own list of reasons a derived row is stale. */
+  connective: "AND NOT EXISTS" | "OR EXISTS";
+  itemAlias: string;
+  /** The principal the creation-event clause compares against; not always the item alias in scope. */
+  itemPrincipal: string;
+  sourceAlias: string;
+  /** The equalities tying that source row to the row being read; the arm's own key, so it cannot be inferred here. */
+  sourceKeying: string;
+}>): string {
+  return `${options.connective} (
+    SELECT 1 FROM memory_active_event_suppressions suppression
+    WHERE suppression.principal_id = ${options.itemPrincipal}
+      AND (suppression.target_event_id = ${options.itemAlias}.creation_event_id
+        OR ${options.itemAlias}.creation_event_sequence BETWEEN suppression.start_event_sequence
+          AND suppression.end_event_sequence)
+  )
+  ${options.connective} (
+    SELECT 1 FROM memory_item_sources ${options.sourceAlias}
+    JOIN memory_active_event_suppressions suppression
+      ON suppression.principal_id = ${options.sourceAlias}.principal_id
+      AND (suppression.target_event_id = ${options.sourceAlias}.event_id
+        OR ${options.sourceAlias}.event_sequence BETWEEN suppression.start_event_sequence
+          AND suppression.end_event_sequence)
+    WHERE ${options.sourceKeying}
+  )`;
+}
+
+/**
+ * The predicate bound to the aliases every candidate arm already has: `item`
+ * (`memory_items`), `source` (`memory_item_sources`) and `version`.
+ *
+ * Exported so the parity test compares the arms against this one definition
+ * rather than against a fifth copy of the same text.
+ */
+export const CANDIDATE_SUPPRESSION_CLAUSES = suppressionClauses({
+  connective: "AND NOT EXISTS",
+  itemAlias: "item",
+  itemPrincipal: "item.principal_id",
+  sourceAlias: "source",
+  sourceKeying: `source.principal_id = version.principal_id
+      AND source.item_id = version.item_id AND source.version_id = version.version_id`,
+});
+
+/**
+ * The same predicate where a living note cites an item: `item` is that item's
+ * `memory_items` row, `item_source` is its `memory_item_sources` rows, and the
+ * keying runs through the note's own source row (`memory_topic_note_sources`,
+ * aliased `source` in that arm) rather than through a version.
+ */
+export const NOTE_SOURCE_SUPPRESSION_CLAUSES = suppressionClauses({
+  connective: "OR EXISTS",
+  itemAlias: "item",
+  itemPrincipal: "source.principal_id",
+  sourceAlias: "item_source",
+  sourceKeying: `item_source.principal_id = source.principal_id
+      AND item_source.item_id = source.source_id AND item_source.version_id = source.item_version_id`,
+});
+
 export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemoryTargetFinder {
   private readonly now: () => Date;
   private readonly nextId: () => Ulid;
@@ -1313,24 +1395,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
                   OR state.current_version_id <> source.item_version_id
                   OR version.valid_from IS NOT NULL AND version.valid_from > ?
                   OR version.valid_to IS NOT NULL AND version.valid_to <= ?
-                  OR EXISTS (
-                    SELECT 1 FROM memory_active_event_suppressions suppression
-                    WHERE suppression.principal_id = source.principal_id
-                      AND (suppression.target_event_id = item.creation_event_id
-                        OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                          AND suppression.end_event_sequence)
-                  )
-                  OR EXISTS (
-                    SELECT 1 FROM memory_item_sources item_source
-                    JOIN memory_active_event_suppressions suppression
-                      ON suppression.principal_id = item_source.principal_id
-                      AND (suppression.target_event_id = item_source.event_id
-                        OR item_source.event_sequence BETWEEN suppression.start_event_sequence
-                          AND suppression.end_event_sequence)
-                    WHERE item_source.principal_id = source.principal_id
-                      AND item_source.item_id = source.source_id
-                      AND item_source.version_id = source.item_version_id
-                  )
+                  ${NOTE_SOURCE_SUPPRESSION_CLAUSES}
                 )
             )
             AND (topic.parent_topic_id IS NOT NULL OR NOT EXISTS (
@@ -1851,23 +1916,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         ON item.principal_id = state.principal_id AND item.item_id = state.item_id
       WHERE memory_item_fts MATCH ? AND state.principal_id = ?
         AND state.lifecycle_state IN (${stateSql})
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_active_event_suppressions suppression
-          WHERE suppression.principal_id = item.principal_id
-            AND (suppression.target_event_id = item.creation_event_id
-              OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_item_sources source
-          JOIN memory_active_event_suppressions suppression
-            ON suppression.principal_id = source.principal_id
-            AND (suppression.target_event_id = source.event_id
-              OR source.event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-          WHERE source.principal_id = version.principal_id
-            AND source.item_id = version.item_id AND source.version_id = version.version_id
-        )
+        ${CANDIDATE_SUPPRESSION_CLAUSES}
       ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
       .bind(terms, principalId, MAX_CONTROL_TARGETS).all<CandidateRow>();
     const rows = candidateRows(result.results);
@@ -2017,23 +2066,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
-            AND NOT EXISTS (
-              SELECT 1 FROM memory_active_event_suppressions suppression
-              WHERE suppression.principal_id = item.principal_id
-                AND (suppression.target_event_id = item.creation_event_id
-                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                    AND suppression.end_event_sequence)
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM memory_item_sources source
-              JOIN memory_active_event_suppressions suppression
-                ON suppression.principal_id = source.principal_id
-                AND (suppression.target_event_id = source.event_id
-                  OR source.event_sequence BETWEEN suppression.start_event_sequence
-                    AND suppression.end_event_sequence)
-              WHERE source.principal_id = version.principal_id
-                AND source.item_id = version.item_id AND source.version_id = version.version_id
-            )
+            ${CANDIDATE_SUPPRESSION_CLAUSES}
             AND NOT EXISTS (
               SELECT 1 FROM memory_consolidation_change_receipts supersession
               WHERE supersession.principal_id = state.principal_id
@@ -2065,23 +2098,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_active_event_suppressions suppression
-          WHERE suppression.principal_id = item.principal_id
-            AND (suppression.target_event_id = item.creation_event_id
-              OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_item_sources source
-          JOIN memory_active_event_suppressions suppression
-            ON suppression.principal_id = source.principal_id
-            AND (suppression.target_event_id = source.event_id
-              OR source.event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-          WHERE source.principal_id = version.principal_id
-            AND source.item_id = version.item_id AND source.version_id = version.version_id
-        )
+        ${CANDIDATE_SUPPRESSION_CLAUSES}
         AND NOT EXISTS (
           SELECT 1 FROM memory_consolidation_change_receipts supersession
           WHERE supersession.principal_id = state.principal_id
