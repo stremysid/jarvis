@@ -132,6 +132,17 @@ shim → the interpreter), zero after the previous stop, four again after the re
 launcher exited 4 and added none. The boot script itself is also idempotent against a live agent:
 run again with one listening it exited **0** having started nothing.
 
+**One observation from that run is not attributed, and is flagged rather than diagnosed.** The
+last cycle before the stop reported `replicated=0 distilled=0 proposed=0 promoted=0 quarantined=0
+sync: request failed` — the sanitised string `node._safe_node_cycle` writes for a `CloudSyncError`
+or `SyncAckPending`. It is very probably pre-existing (the first run in this session reported
+`replicated=48 distilled=22 proposed=1` against the same gateway, and 48 events were then genuinely
+shipped, so a rerun against already-consumed state has nothing to pull), and **nothing in this
+change touches replication, the cursor store or the cloud client.** But I did not prove the cause,
+so it is a suspect and not a finding: it is named here because a reviewer running the same exit
+test will see a red line in `status` and should not spend the round trip re-deriving that it is
+not this branch's.
+
 ### Every mutation, and both results
 
 Each was applied to source, the named test run, the source restored, and the test run again.
