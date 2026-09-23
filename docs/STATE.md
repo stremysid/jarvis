@@ -18,15 +18,14 @@ append to it.
 
 ## In flight, and what each one would change here
 
-**Four PRs are open and none is merged. `#141`, `#147`, `#148`, `#149` and `#150` merged on
-2026-09-22, and the verdicts below already reflect what those moved.** The rows here are the
-ones still in flight.
+`#141`, `#147`, `#144`, `#146`, `#148`, `#149` and `#150` have merged (2026-09-21/22). **Two
+PRs are open: `#145` and `#151`**, and every verdict below describes `main` without the
+launcher `#145` carries.
 
 | PR | What it would change |
 |---|---|
-| [#144](https://github.com/stremysid/jarvis/pull/144) | Restores a live-defect fix: `selectControlTargets` can still present a memory whose originating event the ledger suppressed. **The file it edits no longer exists on `main`** — `#147` moved that code into `memory-control-targets.ts` — so it needs a hand-port, and afterwards **grep `memory-control-targets.ts` for `memory_active_event_suppressions`**: the `creation_event_sequence` range half is pinned by that grep alone |
-| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene — no verdict change. Its parity scan only reads the retriever's source, so it will miss the control-target arm after `#147` and needs extending |
-| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. This is what unblocks **P2 — the PC reading D2L**, which is the only remaining route to Phase 3's exit test |
+| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. **This is what unblocks P2 — the PC reading D2L**, the only remaining route to Phase 3's exit test. It also needs `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` at user scope, or the logon chain exits 4 |
+| [#151](https://github.com/stremysid/jarvis/pull/151) | Documentation only: the P2 brief at [`briefs-p2-d2l-read.md`](briefs-p2-d2l-read.md). Moves no verdict |
 
 ## Where the project actually stands
 
@@ -118,10 +117,16 @@ Re-checked against `main` and production on 2026-09-21:
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
-3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
-   and that index has no delete trigger.
 
-Items 2 and 3 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+**Fixed on `main` by #144, not deployed:** `selectControlTargets` read `memory_item_fts` with no
+suppression anti-join, so a memory whose originating event the ledger had suppressed
+was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
+arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
+The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #147 moved the arm), composes
+them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
+`creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
+
+Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live

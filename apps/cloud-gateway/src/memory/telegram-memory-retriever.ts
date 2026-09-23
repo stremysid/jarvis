@@ -45,6 +45,7 @@ import {
   parseTelegramMemoryAreaQuestion,
   parseTelegramMemoryControl,
 } from "./telegram-memory-language.js";
+import { CANDIDATE_SUPPRESSION_CLAUSES, NOTE_SOURCE_SUPPRESSION_CLAUSES } from "./suppression-clauses.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -783,7 +784,6 @@ async function timedOutcome<T>(
   }
 }
 
-
 export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemoryTargetFinder {
   private readonly now: () => Date;
   private readonly nextId: () => Ulid;
@@ -1274,24 +1274,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
                   OR state.current_version_id <> source.item_version_id
                   OR version.valid_from IS NOT NULL AND version.valid_from > ?
                   OR version.valid_to IS NOT NULL AND version.valid_to <= ?
-                  OR EXISTS (
-                    SELECT 1 FROM memory_active_event_suppressions suppression
-                    WHERE suppression.principal_id = source.principal_id
-                      AND (suppression.target_event_id = item.creation_event_id
-                        OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                          AND suppression.end_event_sequence)
-                  )
-                  OR EXISTS (
-                    SELECT 1 FROM memory_item_sources item_source
-                    JOIN memory_active_event_suppressions suppression
-                      ON suppression.principal_id = item_source.principal_id
-                      AND (suppression.target_event_id = item_source.event_id
-                        OR item_source.event_sequence BETWEEN suppression.start_event_sequence
-                          AND suppression.end_event_sequence)
-                    WHERE item_source.principal_id = source.principal_id
-                      AND item_source.item_id = source.source_id
-                      AND item_source.version_id = source.item_version_id
-                  )
+                  ${NOTE_SOURCE_SUPPRESSION_CLAUSES}
                 )
             )
             AND (topic.parent_topic_id IS NOT NULL OR NOT EXISTS (
@@ -1839,23 +1822,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
-            AND NOT EXISTS (
-              SELECT 1 FROM memory_active_event_suppressions suppression
-              WHERE suppression.principal_id = item.principal_id
-                AND (suppression.target_event_id = item.creation_event_id
-                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                    AND suppression.end_event_sequence)
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM memory_item_sources source
-              JOIN memory_active_event_suppressions suppression
-                ON suppression.principal_id = source.principal_id
-                AND (suppression.target_event_id = source.event_id
-                  OR source.event_sequence BETWEEN suppression.start_event_sequence
-                    AND suppression.end_event_sequence)
-              WHERE source.principal_id = version.principal_id
-                AND source.item_id = version.item_id AND source.version_id = version.version_id
-            )
+            ${CANDIDATE_SUPPRESSION_CLAUSES}
             AND NOT EXISTS (
               SELECT 1 FROM memory_consolidation_change_receipts supersession
               WHERE supersession.principal_id = state.principal_id
@@ -1887,23 +1854,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_active_event_suppressions suppression
-          WHERE suppression.principal_id = item.principal_id
-            AND (suppression.target_event_id = item.creation_event_id
-              OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM memory_item_sources source
-          JOIN memory_active_event_suppressions suppression
-            ON suppression.principal_id = source.principal_id
-            AND (suppression.target_event_id = source.event_id
-              OR source.event_sequence BETWEEN suppression.start_event_sequence
-                AND suppression.end_event_sequence)
-          WHERE source.principal_id = version.principal_id
-            AND source.item_id = version.item_id AND source.version_id = version.version_id
-        )
+        ${CANDIDATE_SUPPRESSION_CLAUSES}
         AND NOT EXISTS (
           SELECT 1 FROM memory_consolidation_change_receipts supersession
           WHERE supersession.principal_id = state.principal_id

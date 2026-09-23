@@ -28,6 +28,7 @@ import {
   MemoryRepositoryError,
   type MemoryLifecycleState,
 } from "./memory-types.js";
+import { CANDIDATE_SUPPRESSION_CLAUSES } from "./suppression-clauses.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAX_FTS_TERMS = 16;
@@ -292,8 +293,11 @@ export class D1MemoryControlTargetFinder implements MemoryTargetFinder {
       JOIN memory_item_state state
         ON state.principal_id = version.principal_id
         AND state.current_version_id = version.version_id
+      JOIN memory_items item
+        ON item.principal_id = state.principal_id AND item.item_id = state.item_id
       WHERE memory_item_fts MATCH ? AND state.principal_id = ?
         AND state.lifecycle_state IN (${stateSql})
+        ${CANDIDATE_SUPPRESSION_CLAUSES}
       ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
       .bind(terms, principalId, MAX_CONTROL_TARGETS).all<CandidateRow>();
     const rows = candidateRows(result.results);

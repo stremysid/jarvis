@@ -3,6 +3,94 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
+
+Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
+hand-porting #144 into the file #147 moved the arm to. No step was reordered. I ran the
+checks; Sid merged #147 himself after the auto-mode classifier refused my merge.
+
+### #147: the cross-call "yes" (`c8a2b3f`)
+
+- **The lookup was dead, not merely unscoped.** My review read the SQL as unscoped.
+  Running it showed `OwnerVoiceAgentAdapter.previousAssistant` threw on every call:
+  `no such column: sent.correlation_id`.
+  - `events` has no `correlation_id` or `causation_id` column; both live only in the envelope.
+  - So a voice `memory_remember` with `evidenceClass:"confirmed"` was refused on the same call
+    and on any other alike.
+  - The existing test "can be built without a previous assistant turn…" passed because the
+    query threw, not because no earlier turn existed.
+- **Fix.** The lookup now starts from the current turn (`input.correlationId`), requires the
+  same `session_id`, and reaches the reply through `conversation_turns.sent_assistant_event_id`.
+  The envelope's `causationId` is still checked.
+  - **This is a behaviour change on calls:** a confirmed remember now works on the same call,
+    where before it always refused.
+- **Tests** (both run through `handleTurn` against real D1):
+  - *"does not save it when the offer was made at the end of an earlier call"*
+  - *"saves it as confirmed when the offer was made earlier on the same call"*
+- **Mutations** (`mutate.ps1`; each kill confirmed by a second run):
+  - Y1: session condition removed → **KILLED** (the cross-call test).
+  - Y2: lookup made dead again → **KILLED** (the same-call test).
+- **Merging main into #147 (`f540c74`).** `AGENT_LOG.md` took both sides (436 + 436 → 437).
+  - `QUEUE.md` merged cleanly **but was wrong**. The branch's earlier merge `67c1575` had
+    replaced main's newer "PC controls" row and dropped the "No Windows launcher" row. Both
+    are restored.
+  - CI was 7/7 green at `f540c74`. Merged as `bde0a9b`.
+- **The composition pin, re-checked at `80d5c7d`:** C1, C2 and C3 all **KILLED**.
+
+### #144, ported (`c8adcf9`)
+
+- **Resolution:** took #147's deletion of the old `selectControlTargets`, then hand-ported the
+  `memory_items` join and both `NOT EXISTS` clauses into `D1MemoryControlTargetFinder`.
+  - The ported lines are byte-identical to #144's 19 added lines, checked by diffing the added
+    lines of each.
+- **Sid's grep** on `memory-control-targets.ts` for `memory_active_event_suppressions`:
+  - **before the port: 0 lines**, so the fix was lost;
+  - **after the port: lines 300 and 308**, with `creation_event_sequence BETWEEN` on line 303.
+- **Mutations** (`mutate.ps1`):
+  - P1: creation clause removed → **KILLED**.
+  - P2: source clause neutered → **KILLED**.
+  - P3: the `creation_event_sequence` range half removed → **SURVIVED**. This measures Sid's
+    point: at #144, only the grep covered that half.
+- **Gates:** memory and voice suites **461/461**; typecheck clean.
+
+### #146, retargeted onto #144
+
+- **The predicate moved.** The retriever imports the finder, so the finder could not import
+  #146's constants from the retriever without a cycle.
+  - `suppressionClauses`, `CANDIDATE_SUPPRESSION_CLAUSES` and `NOTE_SOURCE_SUPPRESSION_CLAUSES`
+    now live verbatim in **`memory/suppression-clauses.ts`**.
+  - The finder composes `${CANDIDATE_SUPPRESSION_CLAUSES}`.
+- **The parity test follows it.**
+  - Guard 1: the comparison appears exactly once in `suppression-clauses.ts` and zero times in
+    either composing file.
+  - Guard 2: scans both composing files. The totals are unchanged (8 templates, 6 candidate
+    templates), so its floors still hold.
+  - `test-modules.d.ts` gains `*.js?raw`, the spelling the imports use.
+    `typecheck:tests` is back to **144**, with none in a touched file.
+- **The verification note now names the new file.** After the move, a grep of
+  `memory-control-targets.ts` for `memory_active_event_suppressions` finds nothing while the
+  fix is intact.
+  - `QUEUE.md` and `STATE.md` now say: grep `suppression-clauses.ts` for
+    `creation_event_sequence BETWEEN`, and check that `memory-control-targets.ts` composes
+    `${CANDIDATE_SUPPRESSION_CLAUSES}`.
+  - The parity guards pin both.
+- **Mutations** (`mutate.ps1`):
+  - R1: finder stops composing → **KILLED** (guard 2).
+  - R2: range half removed from the shared text → **KILLED** (guard 4). The half only the grep
+    covered at #144 is now pinned by a test.
+  - R3: comparison written out again in the finder → **KILLED** (guard 1).
+  - R4: finder stops composing, run against #144's behaviour suite → **KILLED**.
+- **Gates:** memory and voice suites **471/471**; typecheck clean.
+
+### Not done
+
+- **Per-sentence honesty checks for streaming:** accepted as a design for its own PR (Sid).
+  Not started. DeepSeek's documentation is the only evidence that streaming works with tools
+  until someone tries it against the live API.
+- **The unconsumed tier-3 tap:** left alone, as a schema change for its own PR.
+
+— Claude Opus 5.5 (`claude-opus-5-5`), reasoning effort 40
+
 ## 2026-09-22 — Claude builder: #147 review, the four-digit PIN (#149), the deploy guard (#150), and #96's migration number
 
 Four jobs from Sid, in this order: review #147, read #96 against the PIN finding, fix the PIN,
@@ -817,6 +905,381 @@ session.** `$env:DSH_*` exposes only `DSH_HOME`, `DSH_SESSION_ID`
 I am the session the brief addresses as DeepSeek Builder, and I am not going to
 guess a model name or a reasoning effort — a confident false signature is worse
 than an honest gap. The person who launched this session knows the answer.
+
+## 2026-09-21 — DeepSeek builder: the item suppression predicate is one definition now, and an arm that stops composing it fails a named test
+
+Branch `goal/item6-dedup`, **based on #144's head `069e47c` (`goal/item3-candidates`), not on
+`main`** — it carries #144's three commits and must merge after #144 or absorb it. One
+conflict at the rebase, in exactly the 19 lines #144 added to `selectControlTargets`;
+resolved in favour of the composed predicate, which renders the same two clauses. No other
+file overlapped.
+
+### The true count, with evidence
+
+The brief said the predicate is duplicated four times in
+`apps/cloud-gateway/src/memory/telegram-memory-retriever.ts`, and that #144's fix was
+already in. Both were wrong, and the second one mattered: #144 is **open**, so at `d0ec419`
+`selectControlTargets` still carried neither clause.
+
+Measured at `d0ec419` (`grep -n "creation_event_sequence BETWEEN suppression"` → `1320`,
+`2005`, `2053`):
+
+| Arm | Evidence at `d0ec419` | Shape |
+|---|---|---|
+| `readCandidates`, named-area arm | `WITH RECURSIVE subtree` query, 2001-2017 | both clauses, `item`/`source`/`version`, `AND NOT EXISTS` |
+| `readCandidates`, keyword arm | `memory_item_fts` query, 2049-2065 | byte-identical to the one above |
+| `readLivingNotes`, note eligibility | 1316-1333 | the same two subqueries with `item_source` and note-source keying, as `OR EXISTS` inside that arm's own list of reasons a note is stale |
+| `selectControlTargets` | 1843-1853 | **neither clause**, and no `memory_items` join at all |
+
+So: **three copies and one omission in this file**, not four copies. The fourth candidate arm
+is the one that had none.
+
+Elsewhere, named and deliberately untouched:
+
+- `src/memory/memory-repository.ts` — four literal occurrences across three queries:
+  `readItemVisibility` (1376), `retrievalItemStatements` (3553), and
+  `countSiblingItemsHiddenByForget` (1603 and 1625). The first two are `EXISTS`
+  **projections** that report suppression rather than anti-joins that hide a row, so they
+  are not the composer's text; the third is a further variant carrying
+  `forgotten_transition_id = ? AND newly_hidden_turn_count = 1`.
+- `src/persistence/migrations/0016_cloud_memory.sql` — the view
+  `memory_retrievable_item_versions` (942-977) carries both clauses, and `readMeaningHits`
+  depends on that view instead of composing the predicate. That is why the guard exempts it
+  **by name** rather than calling it drift: it is protected, by a definition that cannot be
+  edited in place.
+- The **event-level** single clause is a different predicate and lives in six places:
+  `withoutForgottenTurns` in this file (1684) plus `conversation/context-retriever.ts`
+  (398-407, 443-450), `memory/literal-history.ts` (656, 927, 1203, 1284) and
+  `memory/automatic-distillation.ts` (1009 — whose own comment says it was copied from
+  `literal-history.ts`). Not the item-level pair; out of scope here, and said so in the file
+  rather than quietly left.
+
+### What changed
+
+One composer, `suppressionClauses`, and two bindings of it, because two arms genuinely need
+different aliases and a different connective:
+
+- `CANDIDATE_SUPPRESSION_CLAUSES` — aliases `item`/`source`/`version`, `AND NOT EXISTS`. The
+  named-area arm, the keyword arm and `selectControlTargets` interpolate it.
+- `NOTE_SOURCE_SUPPRESSION_CLAUSES` — aliases `item`/`item_source`, keyed through the note's
+  own source row, `OR EXISTS`. `readLivingNotes` interpolates it.
+
+Both are exported so the guard compares the arms against the one definition instead of
+against a fifth copy of the same text. `selectControlTargets` composes the candidate binding,
+which is how it keeps #144's behaviour; that arm's SQL is also where #144's `memory_items`
+join now comes from, unchanged.
+
+### The guard, and how strong it actually is
+
+`apps/cloud-gateway/test/memory/suppression-predicate-parity.test.ts` (new, 8 tests):
+
+1. the item-level comparison must appear **once** in the retriever source;
+2. every `.prepare()` template in that source which reads a memory candidate must compose a
+   `*SUPPRESSION_CLAUSES` constant — with two arms exempted by SQL text and told why in the
+   failure message (`memory_retrievable_item_versions`, `state.lifecycle_state = 'forgotten'`);
+3. each arm, driven through the public API against a recording D1, must hand the database SQL
+   containing the shared clauses;
+4. the shared clauses must still name all four comparisons.
+
+Plus one behavioural test in `telegram-memory.test.ts`:
+*"recalls a visible memory while suppressed candidates would fill the candidate page (a
+keyword query | a named-area question)"* — two named cases, one per candidate arm.
+
+**What it does not catch.** Tests 1 and 3 compare arms to each other and to one definition, so
+editing that one definition moves every arm together and passes them; only test 4 and
+behaviour stop a gutted definition. Test 2 is a source scan, so it does catch an arm added
+after this file was written — but its exemptions are recognised by SQL text, so an arm that
+read `state.lifecycle_state = 'forgotten'` through that exact predicate would be exempted
+silently. Test 3 only covers arms a human drove through the public API. None of it proves the
+predicate is semantically right.
+
+### The finding that made the behavioural test necessary
+
+Deleting the keyword arm's clauses left **`telegram-memory.test.ts` 70 passed, 0 failed** —
+including the two tests whose names say they are about a forgotten creation event and a
+forgotten cited turn. Deleting the named-area arm's clauses left **161 tests green** across
+`telegram-memory.test.ts`, `living-notes.test.ts` and `automatic-distillation.test.ts`. Both
+were measured, not assumed.
+
+**Why**, read from the code rather than guessed: `readCandidateContexts` filters suppression a
+second time after the SQL — `visibility.retrievable` (the `memory_retrievable_item_versions`
+view) for active items, and `creationEventSuppressed`/`suppressedSourceIds` for the rest
+(`telegram-memory-retriever.ts` at 53ea213). So the arm's own clauses do not decide *which
+memories are visible*; they decide **which candidates occupy the three-slot page**. Remove
+them and three suppressed candidates take the page that a visible memory should have had, and
+the post-read filter then discards all three. That is the only observable effect, and the new
+test asserts exactly it: the memory is *not* recalled while four candidates compete for three
+slots, and *is* recalled once suppression frees the page.
+
+My first version of that test did not discriminate, and the reason was in the SQL: the keyword
+arm orders `active` before `proposed` (`ORDER BY CASE state.lifecycle_state …`), so an active
+visible memory took the first slot whatever its relevance. Every candidate in the final
+fixture is `proposed`, and relevance decides.
+
+### Every mutation, and what failed
+
+Each was applied, run, then reverted with `git checkout --` and re-run green.
+
+| # | Mutation | Result |
+|---|---|---|
+| 1 | `selectControlTargets` stops composing the clauses (the pristine `d0ec419` shape) | parity: *"composes the shared suppression clauses in every SQL template…"* + *"sends them in the arm that chooses a control target"* fail; `control-target-suppression.test.ts`: *"excludes an item whose own creation event is suppressed"* + *"…whose source event is suppressed, when its creation event is not"* fail. 4 failed / 7 passed. *"still finds the item when nothing is suppressed"* passes |
+| 2 | Keyword arm stops composing | parity: source scan + *"sends them in the candidate arm a keyword query reaches"* fail; **`telegram-memory.test.ts` 70 passed** before the new test existed. With the new test in place: it fails at the *after* assertion (`:2564`), its control passing |
+| 3 | Named-area arm stops composing | parity: same two fail; **161 tests green** across the three behaviour suites. With the new test: the *named-area question* case fails (`:2575`), the *keyword query* case passes |
+| 4 | Living-note arm stops composing | parity: source scan + *"sends the note-source form of them…"* fail; `living-notes.test.ts`: *"withholds a note whose cited turn was suppressed while the fact itself stays active"* fails (3 failed / 20 passed) |
+| 5 | Composer gutted: the source clause deleted from the one definition | **Tests 1-3 all pass**, exactly as documented — the arms still agree with the definition. Test 4 fails (*"names the item's own creation event and every event recorded as a source"* and *"names the same two comparisons for a note's cited item"*), and `control-target-suppression.test.ts` fails on the source-clause test (3 failed / 8 passed) |
+| 6 | The guard's exemption marker for `memory_retrievable_item_versions` broken | the source scan fails and names the `readMeaningHits` template — the scan reaches an arm that no test drives |
+| 7 | A **byte-identical** hand copy pasted back into `selectControlTargets` | the arm-containment test *passes* (the text is the same), while the dedup pin *"states the item-level suppression comparison exactly once in the retriever"* and the source scan fail. This is the evidence that test 1 is not redundant with test 3 |
+
+### Gates
+
+Run at this head, each file alone.
+
+Re-measured by the publishing session at this head, each file run alone, with the retriever's
+source hash recorded so the numbers are tied to a revision:
+
+```
+apps/cloud-gateway/src/memory/telegram-memory-retriever.ts
+  sha256 C83713B91FBDC341873D0E9510C154DFD932A9B4F2DE6E8D253C14ED9C722744
+```
+
+| Command | Result |
+|---|---|
+| `suppression-predicate-parity.test.ts` alone | **8 passed** (1 file) |
+| the same + `control-target-suppression.test.ts` | **11 passed** (2 files) |
+| `telegram-memory.test.ts` + `living-notes.test.ts` + `memory-search.test.ts` | **105 passed, 1 failed** |
+| `node scripts/check-state.mjs` | **passed** |
+
+**The one failure is pre-existing, and that was established rather than assumed.**
+`telegram-memory.test.ts > retrieves archived-source memories and archived history within 500 ms
+at 25 ms per D1 round trip` fails when the file is run **alone** here, which rules out load, and
+it also fails at the parent commit `069e47c` in a clean worktree carrying none of this branch's
+changes (`1 failed | 69 passed` there, `1 failed | 71 passed` here). This branch adds 2 tests net
+and does not change which one fails.
+
+**A note on the historical record:** the `### Gates` line these numbers replace was the
+publisher's placeholder, committed and pushed before the builder had written its own observed
+numbers. The builder's mutation table above is its own work and is unaffected; only this block is
+the publisher's measurement.
+
+### What I did not do
+
+- **Did not unify `memory-repository.ts`'s two `EXISTS` projections or the `0016` view.** They
+  are not copies of this text, and the view is deployed SQL that only a new migration may
+  change. Named as a QUEUE row instead.
+- **Did not touch #144's own test file**, and did not re-land or revert #144's hunk. The
+  rebase resolved one conflict in favour of the composed predicate.
+- **Did not add a behavioural test for the note arm or the control-target arm**: both are
+  already pinned (mutations 1 and 4), and duplicating #144's fixture would be a second copy of
+  the thing this change is about.
+- **Did not change `docs/STATE.md`.** #144's paragraph there ("Fixed, not yet merged,
+  `selectControlTargets`…") is still accurate; folding it away is the reviewer's job at merge
+  time.
+- **Did not run the watchdog or local-agent suites** — neither imports the gateway.
+
+---
+### Independent verification by the publishing session
+
+The parent session re-ran this work rather than trusting the report, and re-ran the mutations
+on the head as pushed. Gates at this head:
+
+| Command | Result |
+|---|---|
+| `suppression-predicate-parity.test.ts` alone | **8 passed** |
+| the same plus `control-target-suppression.test.ts` | **11 passed** (2 files) |
+| `telegram-memory.test.ts`, `living-notes.test.ts`, `memory-search.test.ts` | **105 passed, 1 failed** — see below |
+
+**Mutations re-run by the parent, one composition site at a time** — each site's interpolation
+line deleted with the other two asserted still present, then the guard run:
+
+| Site neutered | Result |
+|---|---|
+| the control-target arm's interpolation (line 2103) | **2 failed, 6 passed**: `composes the shared suppression clauses in every SQL template that reads a memory candidate` and `sends them in the candidate arm a keyword query reaches` |
+| one candidate arm (line 1921) | **2 failed, 6 passed**: the composition test and `sends them in the arm that chooses a control target` |
+| the other candidate arm (line 2071) | **2 failed, 6 passed**: the composition test and `sends them in the candidate arm a named-area question reaches` |
+| restored | **8 passed**, and the file is byte-identical to its pre-mutation state |
+
+**Each composition site has its own detector, and deleting any one fails a named test.** Note the
+parent's arm-to-line labelling was inverted on the first attempt — what the evidence supports is
+that every site is pinned, which is what the mutation exists to show. The guard's exemptions are
+also genuinely useful: the failure message printed them, including why the
+`memory_retrievable_item_versions` arm needs none (the view already carries both clauses) and why a
+`lifecycle_state = 'forgotten'` read must not have one (it is finding evidence of a restatement,
+so an anti-join would delete what it exists to find).
+
+**The one failure is pre-existing, and the parent proved it rather than assuming it.**
+`telegram-memory.test.ts > retrieves archived-source memories and archived history within 500 ms at
+25 ms per D1 round trip` fails when the file is run **alone** here, which rules out load. It also
+fails **at the parent commit `069e47c` with none of this branch's changes applied** — a clean
+worktree, `1 failed | 69 passed` there against `1 failed | 71 passed` here. So it is not a
+regression from this refactor, and this branch adds 2 tests net (70 → 72) without changing which
+one fails. It is a latency-budget test this machine misses; whoever owns the budget should decide
+whether that is the machine or the budget.
+
+### Corrections to this entry's own publishing, made by the publishing session
+
+Four things went wrong in how this branch was published, all of them the publisher's, and all
+recorded here rather than quietly repaired:
+
+**1. The entry was committed and pushed MID-WRITE, with a placeholder left in it.** Line 134 of
+the `### Gates` section reads *"(filled in immediately below — see the gate block in this
+entry)"* and the block below it does not exist. The builder had not finished writing its observed
+gate numbers when the publisher committed. The builder is filling that in as a follow-up commit,
+which is the fix; the defect is the publisher racing a writer.
+
+**2. A fake mutation-count claim was made in the PR body and commit message.** The published text
+says *"the builder's own table in the AGENT_LOG entry records the four mutations it ran, including
+one it reports as unclean."* **Both halves are wrong.** The entry records **seven** mutations, and
+**none is reported unclean**. The publisher read a stale copy of the entry — the builder was still
+writing it — and then characterised that stale copy as the builder's report. The builder caught
+it. Nothing in the seven mutations is unclean, and none should be re-run on that account.
+
+**3. Untracked scratch was left in the test tree.** The publisher's throwaway
+`apps/cloud-gateway/test/memory/capture-sql.test.ts` — whose own header says "TEMPORARY
+verification test, not for commit" — matched the suite's include glob, so it ran in every
+`pnpm test` in this worktree and changed the suite counts. Removed. It was never committed.
+
+**4. The publisher mutated the source file while the builder was running a full suite, and
+contaminated it.** The builder's second `pnpm test` run reported 12 failures; two of them — the
+parity test's *"sends them in the candidate arm a named-area question reaches"* and
+`telegram-memory.test.ts`'s named-area case — are exactly the site the publisher had neutered at
+that moment (line 2071). Those two are **not** defects in this branch, and the builder's own
+recorded per-file gates, not the contaminated run, are what should be read.
+
+### The one verification finding that stands, stated narrowly
+
+The publisher neutered the composer by deleting only the **sequence-range half** of the
+item-creation comparison, leaving `target_event_id` intact. That mutation is caught by three named
+text tests but **not** by `control-target-suppression.test.ts` or `living-notes.test.ts` (18
+passed). The reason is the fixtures: both suppress by `target_event_id`, which the surviving half
+still matches, so neither reaches the sequence-range arm.
+
+Narrowed appropriately by mutation 5 in the table above: deleting the **source** clause *is*
+caught behaviourally, so the behaviour pinning is real and partial rather than absent. What
+remains unpinned is one comparison — an item whose `creation_event_sequence` falls inside a
+suppression's sequence window. Worth a fixture; not worth overstating, which is what an earlier
+draft of this note did.
+## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
+
+Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
+carriers. Fixes the "cheapest real bug in the queue" from the handoff.
+
+### What was wrong
+
+`selectControlTargets` — the FTS arm the real `findControlTargets` uses once it has
+search terms — carried **neither** of the two suppression anti-joins that its sibling arm
+`readCandidates` carries about 200 lines below. One excludes an item whose own
+`creation_event_id` was suppressed; the other excludes an item whose source event in
+`memory_item_sources` was suppressed. The control-target arm filtered on
+`memory_item_state.lifecycle_state` and nothing else.
+
+The effect: a memory whose originating event the ledger had suppressed was still
+reachable as a control target, so `memory_forget`, `memory_explain`, `memory_correct`,
+`memory_confirm`, `memory_pin` and `memory_unpin` could all act on it when the ledger
+said it should be invisible.
+
+**Nothing failed, because the two arms are separate SQL strings and no test compared
+them.** That is the same shape as the missing `pin`/`unpin` members in the operation
+guard (#135): the suite was green because every agent test injects a stub target finder,
+so the real one was never called with the operations that mattered.
+
+### The fix
+
+Both clauses copied verbatim from `readCandidates`, plus the `memory_items` join the
+first one needs — the control-target arm had no such join at all. Nineteen lines, no
+behaviour change beyond the exclusion.
+
+### The tests, and why there are two
+
+`test/memory/control-target-suppression.test.ts`. Two tests, not one, and that is the
+design: a single test with both clauses neutered would be satisfied by either one alone
+and would prove neither.
+
+- *"excludes an item whose own creation event is suppressed"* — suppresses the
+  candidate's creation event, leaves its source event live, so only the `memory_items`
+  clause can exclude it.
+- *"excludes an item whose source event is suppressed, when its creation event is not"* —
+  the reverse, so only the `memory_item_sources` clause can exclude it.
+- *"still finds the item when nothing is suppressed"* — the control. Without it, a finder
+  that returned nothing for any reason, including a broken query, would pass both.
+
+Items go through `MemoryRepository.commitInitialItem`, so they are real canonical items
+with placements and live FTS rows. Suppressions are written after the item exists, which
+is the reachable shape: the ledger's suppression and the item's live state are separate
+facts, and `selectControlTargets` reads state live.
+
+### Mutations
+
+Each clause neutered **alone**, by removing exactly its `AND NOT EXISTS ( ... )` block.
+Boundary lines are asserted before anything is written, and the file is re-read afterwards
+to confirm the surviving clause is still there.
+
+| Neuter | Result |
+|---|---|
+| the `memory_items` clause (7 lines) | **1 failed, 2 passed.** Creation-event test: `expected [ '01m337drxdarar2kr2qp9z8jv9', …(1) ] to deeply equal [ '01m337drtz721653nw88km07mj' ]` — two ids where one was expected. The suppressed item came back. The other two tests still passed |
+| the `memory_item_sources` clause (10 lines) | **1 failed, 2 passed.** Source-event test failed the same way: two ids where one was expected |
+| restored | **3 passed** |
+
+Two failed attempts before those two, both recorded because they are the reason the
+mutant harness looks the way it does:
+
+1. A **string replace** would have neutered both clauses at once — `readCandidates`'
+   FTS arm carries byte-identical clause text. That would have proved that *something*
+   is load-bearing and neither clause in particular. Hence line ranges, not text.
+2. A **range delete** that took the `JOIN memory_items` line with the clause left the SQL
+   with an unused alias and the wrong bind count. All three tests failed with
+   `Wrong number of parameter bindings for SQL query` — a mutant that fails for the wrong
+   reason proves nothing. Hence removing the condition block only, keeping the join.
+
+### Gates
+
+| Command | Result |
+|---|---|
+| `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/control-target-suppression.test.ts` | **3 passed** |
+| … plus `control-targets.test.ts` and `memory-search.test.ts` | **24 passed** (3 files) |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | **exit 0** |
+| `pnpm --filter @jarvis/cloud-gateway lint` | **exit 0** (it is `tsc --noEmit`) |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors**, unchanged from the `d0ec419` baseline of 144. I introduced 2 (a `string` where a `Ulid` was expected) and fixed them |
+| `pnpm --filter @jarvis/cloud-gateway test` (full suite) | `102 failed | 4763 passed | 205 skipped (5070)` across `37 failed | 150 passed` files — **and this was NOT my change.** See below |
+| `node scripts/check-state.mjs` | exit 0 |
+
+**The full-suite run is contaminated and I am not reporting it as a result.** It ran while
+two other builds were running the same machine. Per the repo's own rule I re-ran the
+failing files alone:
+
+- `test/sync/sync-service.test.ts` alone → **21 passed** (it had 2 failures under load).
+- `test/voice/call-session-do.test.ts` + `test/voice/owner-access-service.test.ts` alone →
+  **135 passed** (they had ~20 failures under load).
+
+So: **"failed under load, passes alone"**, not "fails alone". I did not re-run all 37
+failing files individually; a clean full-suite number has to wait until the competing
+builds stop, and until then I am not claiming one.
+
+### What I did NOT do
+
+- **Did not touch `memory_item_fts`' lack of a delete trigger.** `docs/STATE.md` used to
+  name that in the same breath as this defect, and it is a separate claim I did not
+  investigate. I removed the sentence rather than leave it attached to a fixed row.
+- **Did not run the whole failing set individually** — see above.
+- **Did not merge anything.**
+
+### Out of scope, found and named
+
+- **The two arms are duplicated SQL and nothing keeps them in step.** This defect is the
+  second time a fix landed in one arm and not the other (`pin`/`unpin` was the first). A
+  shared fragment or a test that compares the two arms' predicates would prevent a third;
+  I fixed the instance, not the class, and am saying so rather than implying otherwise.
+- **The same duplication exists between `selectControlTargets` and
+  `findLastReferencedTarget`**, which is the other selection path in the same file.
+
+### Signature
+
+Model and effort: **I cannot read them off this session.** The only `DSH_*` variables
+exposed are `DSH_HOME`, `DSH_SESSION_ID`, `DSH_SHELL` and `DSH_WEB_URL`; no model or
+effort variable exists in the environment. `agent-default-model` in `~/.dsh/settings.yaml`
+reads `deepseek-official` / `deepseek-flash` / `reasoningEffort: high`, which is what this
+session is *configured* to be — evidence about the default, not an observation of the
+running route. Recorded this way rather than naming one as fact.
+
 ## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
 
 **Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one
