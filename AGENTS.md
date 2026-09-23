@@ -186,6 +186,19 @@ collision set from the merge base was one file.
   time-dependent.
 - Run the focused test before the full suite. Keep tests credential-free.
 
+## How to report to Sid
+
+He is skimming, and he is the only reader who matters for a status message.
+
+**End every reply with a list or table of what happens next** — whichever carries the
+information better for that message. Each step names its own timing: a date, or a named
+trigger such as *"when #145 merges"*. A bare "do this next" with no timing attached is not
+answerable, and it gets asked about again.
+
+Keep the body short. Say what changed, what it means for him, and the decision only he can
+make. Do not narrate tool calls, do not restate the task, and do not walk through a mechanism
+he did not ask about — link it instead.
+
 ## Writing style, for code and tests
 
 This codebase reads unusually. That is on purpose and worth matching.

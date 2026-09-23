@@ -74,8 +74,9 @@ assignments page for every course, and pushes what it found.
 - **Credential storage: DPAPI.** `apps/local-agent/jarvis_local/crypto/dpapi.py` already exists
   and is already the pattern for this machine. Store it there, not in a Cloudflare secret and
   not in the repo.
-- **Push, don't pull.** The device is already enrolled and `http/sync-routes.ts` already accepts
-  signed pushes (`DISTILL_PATH`, `MEMORY_PROJECTION_PATH`, the sync service). Use that path.
+- **Push, don't pull.** `http/sync-routes.ts` already accepts signed pushes (`DISTILL_PATH`,
+  `MEMORY_PROJECTION_PATH`, the sync service). Use that path. This PC's device key is
+  accepted: a signed pull from it succeeded on 2026-09-23.
 - **The scraper will break when the board restyles a page.** That is expected, not exceptional.
   Fail loudly, keep the last good read, and never report staleness as freshness.
 

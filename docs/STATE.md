@@ -18,13 +18,13 @@ append to it.
 
 ## In flight, and what each one would change here
 
-`#141`, `#147`, `#144` and `#146` have merged (2026-09-22); `#145` is open. **Every verdict below describes `main` without it.**
-Listed because four of the five would move a verdict in this file, and a reader who merges
-one should regenerate rather than patch.
+`#141`, `#144`, `#146`, `#147`, `#148`, `#149` and `#150` merged 2026-09-21/22, and `#145` on
+2026-09-23. **Six PRs are open**; only `#151` is listed, as the only one touching this file.
+The verdicts below predate `#145`: where one says the boot chain stops at exit 3, it is stale.
 
 | PR | What it would change |
 |---|---|
-| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phase 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches an agent. Without it P1's exit test cannot pass and the PC-as-host work sits behind it |
+| [#151](https://github.com/stremysid/jarvis/pull/151) | Documentation only: the P2 brief at [`briefs-p2-d2l-read.md`](briefs-p2-d2l-read.md). Moves no verdict |
 
 ## Where the project actually stands
 
