@@ -14,11 +14,20 @@ Premise corrections: the old lookup already had a ten-minute TTL (inclusive,
 against `resolved_at`); replay was inside that window. `0001` replay was repaired
 in `8a977a1`, and the runbook says fresh remote replay works; not re-proven remotely
 here. Main has `0001`–`0035` and `0038`, PR #96 has `0036`, `0037` stays empty and
-Sid reserves `0039` for the sync builder. Recheck every open PR before merge.
+Sid reserves `0039` for the sync builder. Final pre-push check covered every file
+page of #96, #122, #154, #155, #156, #157 and #158; none adds `0040`.
+Main remained `a666097`. Recheck every open PR before merge.
 
 Observed so far: focused gate/migration/backup suites **120 passed, 0 failed,
-0 skipped, 7 files**; source typecheck passed. Test typecheck reports 144 errors,
-none in this slice. Full gateway and 12 guard mutations are pending final evidence.
+0 skipped, 7 files**; source typecheck passed. Test typecheck reports 144 errors
+in 32 files, including four existing ULID fixture errors in the backup/restore
+file this change touches; none occur in the new gate or rollout tests.
+All 12 guard mutations failed their named test twice and restored to 14/14 green
+after each, with byte-identical restoration: 12 killed and zero survivors,
+unapplied or invalid mutations. Full gateway: **5,125 passed, 0 failed,
+0 skipped, 192 files**. `node scripts/check-state.mjs`: exit 0, 3 carriers.
+No flaky rerun was needed. Earlier fixture-only failures and all mutation names
+are recorded in the linked evidence, not silently omitted.
 See [design, rollout and evidence](reviews/2026-09-23-tier3-tap.md).
 
 Migration first is preferred. Code first refuses tier-3 while the new table is
