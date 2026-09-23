@@ -93,10 +93,10 @@ body, not implied away.
 
 ### 3. Push, not pull
 
-`http/sync-routes.ts` already accepts signed pushes; use that path. **But this PC's device is not
-enrolled, and nothing can enroll it yet** (see `docs/QUEUE.md`), so a real push will be refused
-until that lands. Build and test against fixtures and a stubbed signer; do not try to enroll a
-device yourself. That is a security decision, not a build step. Do not add a second authentication mechanism, and do not have the cloud poll the PC.
+`http/sync-routes.ts` already accepts signed pushes, and this PC's device key is accepted: a signed
+pull from it succeeded on 2026-09-23. Use that path. The agent's own sync currently fails for a reason
+not yet diagnosed (see `docs/QUEUE.md`), so build and test against fixtures and do not treat a live
+push as working until that row is closed. Do not add a second authentication mechanism, and do not have the cloud poll the PC.
 
 ### 4. Never report staleness as freshness
 
