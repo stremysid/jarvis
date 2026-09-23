@@ -115,7 +115,7 @@ def _make_directory_private(directory: Path, *, store_root: Path) -> None:
     ensure_private_directory(directory, current_user_sid(), store_root=store_root)
 
 
-def repair_store_permissions(path: Path) -> tuple[Path, ...]:
+def repair_store_permissions(path: Path, *, store_root: Path | None = None) -> tuple[Path, ...]:
     """Re-apply the private DACL to the store directory and everything under it.
 
     Called when a store is opened so a running agent repairs a folder that was
@@ -140,22 +140,27 @@ def repair_store_permissions(path: Path) -> tuple[Path, ...]:
     from jarvis_local.archive.store_permissions import repair_store_tree
     from jarvis_local.transport.pipe_server import current_user_sid
 
-    return repair_store_tree(path, current_user_sid())
+    return repair_store_tree(path, current_user_sid(), store_root=store_root)
 
 
-def _ensure_sqlite_directory(path: Path) -> None:
+def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None) -> None:
     """Make `path` a private directory, creating each missing component.
 
     `path` is a **directory**. Passing the `.sqlite3` file is a mistake this
-    now refuses loudly: the first version was handed a file path by a test, so
-    it created a directory literally named `archive.sqlite3` and worked out the
+    refuses loudly: the first version was handed a file path by a test, so it
+    created a directory literally named `archive.sqlite3` and worked out the
     store root from there -- on the way to rewriting a profile.
+
+    `store_root` is the outermost directory this may touch. It is **not**
+    derived from `path`: taking `path.parent` made the guard in
+    `store_permissions` vacuously true, because whatever path was passed chose
+    its own boundary. When it is omitted here the configured data directory is
+    used, which is the same boundary production uses and is not set by the code
+    choosing a target.
     """
     if _SQLITE_FILE_SUFFIXES and path.suffix in _SQLITE_FILE_SUFFIXES:
         raise SQLiteDirectoryError(f"{path} is a file, not the store directory that contains it")
-    # The outermost directory this call may touch, and the boundary every write
-    # below is checked against. Derived here, once, rather than by each caller.
-    store_root = path.parent
+    boundary = _store_boundary(path, store_root)
     # pathlib's parents=True applies mode only to the final directory. Create
     # and inspect each missing component so the node never makes a public
     # ancestor while creating a private store beneath it.
@@ -165,7 +170,7 @@ def _ensure_sqlite_directory(path: Path) -> None:
             break
         missing.append(directory)
     for directory in reversed(missing):
-        _make_directory_private(directory, store_root=store_root)
+        _make_directory_private(directory, store_root=boundary)
         # A no-op on Windows, where the DACL above is the guard, and the
         # inspection that refuses a world-readable store on POSIX.
         _restrict_sqlite_directory(directory)
@@ -176,18 +181,51 @@ def _ensure_sqlite_directory(path: Path) -> None:
             # A store directory that already exists may still have been created
             # by an elevated process the old way, and its DACL has to be
             # re-applied for the user's own session to reach it.
-            for failed in repair_store_permissions(path):
+            for failed in repair_store_permissions(path, store_root=boundary):
                 logger.warning("store permissions could not be repaired at %s", failed)
 
 
-def connect(path: Path) -> sqlite3.Connection:
+def _store_boundary(path: Path, store_root: Path | None) -> Path:
+    """The directory a write to `path` must stay inside.
+
+    An explicit `store_root` wins when the caller has one -- the service knows
+    its configured data directory and tests know their temp directory. Otherwise
+    the configured root is used, and a path outside every configured root is
+    refused here rather than silently given its own.
+
+    The fallback exists because the vault and memory stores are opened from
+    paths that are not the configured archive, and refusing to start them would
+    turn a permissions guard into an outage. It never widens the boundary to the
+    path: `path.parent` is deliberately not a candidate.
+    """
+    from jarvis_local.archive.store_permissions import configured_store_roots
+
+    if store_root is not None:
+        return store_root
+    configured = configured_store_roots()
+    if not configured:
+        # Nothing configured and nothing passed: only reachable from a test or a
+        # direct library use that already has the Win32 seam replaced.
+        return path
+    resolved = path.resolve(strict=False)
+    for allowed in configured:
+        if resolved == allowed or allowed in resolved.parents:
+            return allowed
+    raise SQLiteDirectoryError(
+        f"{resolved} is outside every configured store root "
+        f"({', '.join(os.fspath(allowed) for allowed in configured)}); "
+        "pass store_root explicitly if this is a test"
+    )
+
+
+def connect(path: Path, *, store_root: Path | None = None) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
     WAL keeps readers from blocking the replicator. `foreign_keys` is off by
     default in SQLite and must be enabled per connection, or content_seen's
     reference to content_blob would be decorative.
     """
-    _ensure_sqlite_directory(path.parent)
+    _ensure_sqlite_directory(path.parent, store_root=store_root)
     _restrict_sqlite_file(path, create=True)
     for suffix in ("-wal", "-shm"):
         _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)
@@ -253,8 +291,8 @@ class ArchiveDatabase:
         self.connection = connection
 
     @classmethod
-    def open(cls, path: Path, *, now: str) -> ArchiveDatabase:
-        connection = connect(Path(path))
+    def open(cls, path: Path, *, now: str, store_root: Path | None = None) -> ArchiveDatabase:
+        connection = connect(Path(path), store_root=store_root)
         apply_migrations(connection, now)
         # Verify after migrating, so an archive whose immutability guards are
         # absent refuses to open rather than accepting writes it cannot protect.

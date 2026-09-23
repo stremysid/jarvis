@@ -386,31 +386,102 @@ def test_repair_logs_a_directory_it_could_not_repair(
     assert any("Access is denied" in record.getMessage() for record in caplog.records)
 
 
-# --- the caller in database.py ----------------------------------------------
+# --- where the boundary comes from ------------------------------------------
 
 
-def test_creating_a_store_directory_passes_the_store_root_boundary(
+def test_the_store_root_comes_from_the_configured_data_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The boundary is derived by the caller, not remembered by every test."""
+    """The boundary is the configured store, not the path being changed.
+
+    An earlier version took `store_root = path.parent`, which made every
+    containment check vacuously true: the code choosing a target also chose the
+    boundary, so any path passed. This pins the derivation to configuration.
+    """
+    configured = tmp_path / "Jarvis" / "data"
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(configured / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(configured / "memory.sqlite3"))
+
+    roots = store_permissions.configured_store_roots()
+    assert roots == (configured.resolve(),), roots
+    # The boundary is the store's directory, and deliberately not the store's
+    # parent's parent or anything else that would widen it.
+    assert configured.parent not in roots
+
+
+def test_a_path_outside_the_configured_root_is_refused_and_windows_is_never_reached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The case that matters: an opted-in caller naming something it should not.
+
+    `C:\\Users\\Sid\\Documents` is not a store, and with the gate open and the
+    configured root set the call must still raise -- and must raise *before*
+    Win32, so nothing was written by the attempt.
+    """
+    configured = tmp_path / "Jarvis" / "data"
+    configured.mkdir(parents=True)
+    (tmp_path / "Documents").mkdir()
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(configured / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(configured / "memory.sqlite3"))
+    monkeypatch.setattr(store_permissions, "real_dacl_permitted", lambda: True)
+    stub = StubWin32()
+    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
+
+    outside = tmp_path / "Documents"
+    # `store_root=outside.parent` is the shape the old code used, and it is
+    # exactly what must no longer be sufficient: it satisfies the containment
+    # check, so only the configured-root boundary can refuse this.
+    monkeypatch.setattr(
+        store_permissions, "configured_store_roots", lambda: (configured.resolve(),)
+    )
+    assert outside.parent not in store_permissions.configured_store_roots()
+    with pytest.raises(UnsafeStorePathError, match="outside every configured store root"):
+        _REAL_APPLY(outside, SID, store_root=outside.parent)
+    assert stub.paths == [], "Win32 was reached for a path outside the configured root"
+
+
+def test_a_store_directory_outside_the_configured_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same rule through the open path, not just a direct DACL call.
+
+    A store path pointing outside the configured root must fail while the
+    directory is being made private, rather than being accepted because the
+    caller derived a boundary that happened to contain it.
+    """
+    configured = tmp_path / "Jarvis" / "data"
+    configured.mkdir(parents=True)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(configured / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(configured / "memory.sqlite3"))
+
+    elsewhere = tmp_path / "elsewhere" / "store"
+    with pytest.raises(archive_database.SQLiteDirectoryError, match="outside every configured store root"):
+        archive_database._ensure_sqlite_directory(elsewhere)
+
+
+def test_creating_a_store_directory_uses_the_configured_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every created component is bounded by the configured root."""
     seen: list[tuple[Path, Path]] = []
 
     def record(path: Path, user_sid: str, *, store_root: Path) -> None:
         seen.append((Path(path), Path(store_root)))
         Path(path).mkdir(parents=True, exist_ok=True)
 
+    store = tmp_path / "outer" / "inner"
     monkeypatch.setattr(store_permissions, "ensure_private_directory", record)
     # The directory now exists, so the helper takes the repair branch. Stubbed
-    # too: this test is about which boundary is *passed*, and without this it
-    # would write a real DACL onto a pytest temp directory.
-    monkeypatch.setattr(archive_database, "repair_store_permissions", lambda path: ())
+    # too: this test is about which boundary is *passed*, and without it a real
+    # DACL would be written onto a pytest temp directory.
+    monkeypatch.setattr(archive_database, "repair_store_permissions", lambda _path, **_kw: ())
     monkeypatch.setattr(archive_database, "_is_posix", lambda: False)
-    store = tmp_path / "outer" / "inner"
     archive_database._ensure_sqlite_directory(store)
 
-    # Both missing components are created, each with the same boundary: the
-    # outermost directory this call is allowed to touch.
-    assert seen == [(tmp_path / "outer", tmp_path / "outer"), (store, tmp_path / "outer")]
+    # Both missing components are created, each bounded by the *configured*
+    # root rather than by the directory being created -- which is the property
+    # that makes the guard meaningful.
+    assert seen == [(tmp_path / "outer", tmp_path), (store, tmp_path)]
 
 
 def test_the_store_directory_helper_refuses_a_database_file_path(tmp_path: Path) -> None:

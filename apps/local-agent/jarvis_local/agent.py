@@ -174,10 +174,16 @@ def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepositor
 
     The archive forbids every UPDATE; memory must permit state transitions
     while protecting content and provenance.
+
+    The store root each one may change permissions inside is its own parent
+    directory as configured -- the archive's store and memory's store are
+    separate directories, and the boundary has to be the configured one rather
+    than something derived from the path being changed, or the guard in
+    `store_permissions` would accept anything.
     """
-    archive = ArchiveRepository.open(archive_path)
+    archive = ArchiveRepository.open(archive_path, store_root=archive_path.parent)
     try:
-        facts = FactRepository.open(memory_path)
+        facts = FactRepository.open(memory_path, store_root=memory_path.parent)
     except BaseException:
         archive.close()
         raise

@@ -261,9 +261,9 @@ def test_duplicate_socket_refusal_happens_before_any_store_is_opened(
 
 def test_a_second_store_open_failure_closes_the_first_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     archive = FakeClosable()
-    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", lambda _: archive)
+    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", lambda _path, **_kwargs: archive)
 
-    def fail_memory(_: Path) -> FactRepository:
+    def fail_memory(_path: Path, **_kwargs: object) -> FactRepository:
         raise RuntimeError("memory open failed")
 
     monkeypatch.setattr("jarvis_local.agent.FactRepository.open", fail_memory)

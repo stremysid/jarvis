@@ -146,6 +146,36 @@ class RealDaclNotPermittedError(RuntimeError):
 #: script or a test run cannot damage the machine it runs on.
 _PERMISSION_ENVIRONMENT_VARIABLE = "JARVIS_ALLOW_REAL_DACL"
 
+#: Where the local agent's own stores live, as configured. These are the names
+#: `config.py` already requires, so there is one definition of the store root
+#: rather than a second copy free to drift from it.
+_ARCHIVE_PATH_VARIABLE = "JARVIS_ARCHIVE_PATH"
+_MEMORY_PATH_VARIABLE = "JARVIS_MEMORY_PATH"
+
+
+def configured_store_roots() -> tuple[Path, ...]:
+    """The directories Jarvis's own stores live in, from the configuration.
+
+    This is the boundary, and it is deliberately **not** derived from the path
+    being changed. An earlier version took `store_root = path.parent`, which
+    made the containment check in `_refuse_unsafe_path` vacuously true: the code
+    choosing the target also chose the boundary, so every path passed. A caller
+    that had opted into real DACL writes could then have named anything on the
+    machine.
+
+    Derived from the configured store *files* rather than from
+    `%LOCALAPPDATA%\\Jarvis` directly because that is the setting which actually
+    defines where the data goes, and `NodeSettings.from_config` already checks
+    it is absolute.
+    """
+    roots: list[Path] = []
+    for variable in (_ARCHIVE_PATH_VARIABLE, _MEMORY_PATH_VARIABLE):
+        value = os.environ.get(variable, "").strip()
+        if not value:
+            continue
+        roots.append(Path(value).parent.resolve(strict=False))
+    return tuple(dict.fromkeys(roots))
+
 
 def real_dacl_permitted() -> bool:
     return os.environ.get(_PERMISSION_ENVIRONMENT_VARIABLE, "") == "1"
@@ -313,6 +343,11 @@ def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
     an object while the store inside it is not, even though the store path has
     `Users` in its ancestry; matching ancestors by name would refuse the very
     path this module exists to fix.
+
+    Two boundaries, both required: `store_root` from the caller, and the
+    configured data directories from `configured_store_roots()`. The parameter
+    alone is not enough, because a caller naming its own boundary can always
+    satisfy it.
     """
     try:
         target = path.resolve(strict=False)
@@ -341,6 +376,17 @@ def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
     # rather than the extra safety it looked like.
     if root not in target.parents and target != root:
         raise UnsafeStorePathError(f"{target} is not at or inside the store root {root}")
+    # And the configured roots are checked as well, not instead. `store_root` is
+    # a parameter, so on its own it is only as trustworthy as its caller; a
+    # caller that passed the target's own parent would satisfy the test above
+    # for any path it liked. These come from the configuration, which the code
+    # choosing a target does not set.
+    configured = configured_store_roots()
+    if configured and not any(target == allowed or allowed in target.parents for allowed in configured):
+        raise UnsafeStorePathError(
+            f"{target} is outside every configured store root "
+            f"({', '.join(os.fspath(allowed) for allowed in configured)})"
+        )
     return target
 
 
