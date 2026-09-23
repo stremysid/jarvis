@@ -226,8 +226,8 @@
   {
     "name": "query-environment",
     "file": "apps/hermes-runtime/src/generate-sbom.mjs",
-    "find": "APPDATA: hostDirectory,",
-    "replace": "...process.env,\n    APPDATA: hostDirectory,",
+    "find": "const environment = {\n    APPDATA: hostDirectory,",
+    "replace": "const environment = {\n    ...process.env,\n    APPDATA: hostDirectory,",
     "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
     "expect": "queries only the OS host and modules with profiles and inherited environment closed"
   },
@@ -318,5 +318,13 @@
     "replace": "    validateTrustedExecutable(trustedPowerShellHost, \"trusted PowerShell 7 MSI host\"),",
     "testPath": "apps/hermes-runtime/test/sbom-integrity-round2.test.mjs",
     "expect": "rejects a fabricated release-shaped source root"
+  },
+  {
+    "name": "query-utf8-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
   }
 ]

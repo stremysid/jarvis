@@ -14,7 +14,7 @@ const queryDirectory = dirname(queryHost);
 const modules = join(queryDirectory, "Modules");
 const taskkill = String.raw`C:\Windows\System32\taskkill.exe`;
 // A package volume need not be on C: or have a version-shaped folder name.
-const storeDirectory = String.raw`D:\Package volume\PowerShell ' & data`;
+const storeDirectory = String.raw`D:\Package volume\PowerShell é ' & data`;
 const storeHost = join(storeDirectory, "pwsh.exe");
 const appxDirectory = join(modules, "Appx");
 const appxManifest = join(appxDirectory, "Appx.psd1");
@@ -218,6 +218,7 @@ describe("PowerShell 7 host trust", () => {
     expect(args[4]).toContain("$ErrorActionPreference = 'Stop'");
     expect(args[4]).toContain("$env:PSModulePath = 'NUL'");
     expect(args[4]).toContain("$PSModuleAutoLoadingPreference = 'None'");
+    expect(args[4]).toContain("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)");
     expect(args[4]).toContain("Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force");
     expect(args[4]).toContain("Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force");
     expect(args[4]).toContain("Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main");

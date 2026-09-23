@@ -156,6 +156,7 @@ Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force
 # Appx's localized manifest uses Utility's ConvertFrom-StringData. Autoloading
 # stays disabled, so that dependency must already be imported from the OS tree.
 Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $packages = @(Appx\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | ForEach-Object {
   [pscustomobject]@{
     PackageFamilyName = $_.PackageFamilyName

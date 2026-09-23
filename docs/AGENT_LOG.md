@@ -25,7 +25,7 @@ checks all precede PowerShell 7 execution. The module-discovery regression now
 uses this resolver rather than scanning an assumed MSI directory.
 
 Focused source/Store verification is green. Full package gates and the
-40-case mutation spec are pending at this implementation checkpoint; the final
+41-case mutation spec are pending at this implementation checkpoint; the final
 entry will replace this sentence with observed results before the PR opens.
 No production, deploy-tree or parallel sync-builder files were touched. No
 owner action is required for this local fix. Independent review follows the PR.
