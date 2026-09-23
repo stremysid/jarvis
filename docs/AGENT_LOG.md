@@ -1,5 +1,48 @@
 # Agent log
 
+<a id="docs-verify-2026-09-23"></a>
+
+## 2026-09-23 — Codex builder: documentation verified against a666097
+
+**Signed: Codex, documentation builder for Sid.** Branch `codex/docs-verify`;
+isolated worktree `C:\w\docs-verify`; audit base
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, freshly fetched from origin/main.
+
+Corrected README and the root requirements/testing/known-issues documents. The
+three requested docs/ paths did not exist; added links to the root documents
+instead of maintaining duplicate claims. [DOCS-VERIFY](DOCS-VERIFY.md) accounts
+for all 56 prior known-issue sections and cites fixing commits. Remaining issues
+link to implementation evidence. Removed obsolete source-state claims and
+separated roadmap requirements, built code, and production as of the source
+recorded in STATE. Only Markdown changed; no code, tests, guards or migrations.
+
+Premise findings: older supplied AGENTS guidance disagrees with current main;
+the requested incident report is missing from Downloads; current CI does run
+check-state. The audit did not access production or secrets. It read the
+projection and pipe paths as evidence but did not edit another builder's code.
+Owner-only follow-ups are in OWNER-ACTIONS. The removed no-deploy-guard claim
+there is fixed by `f6bab5b`.
+
+Observed gates on the audit base plus documentation edits:
+
+| Gate | Observed result |
+|---|---|
+| `pnpm.cmd test --reporter=json --outputFile=<external-report>` | **5,461 passed, 0 failed, 0 skipped, 0 todo; 209 files; exit 0.** No flaky rerun was needed. |
+| `pnpm.cmd lint` | **5 package scripts passed, 0 failed; exit 0.** These are compiler/syntax checks, not a general linter. |
+| `pnpm.cmd typecheck` | **5 package scripts passed, 0 failed; exit 0.** |
+| `pnpm.cmd --filter @jarvis/cloud-gateway typecheck:tests` | **exit 1; 144 diagnostics in 32 files.** Pre-existing at the untouched audit base; not misreported as a passing gate. |
+| `node scripts/check-state.mjs` | **exit 0; 3 carriers passed.** Final post-edit run recorded before commit. |
+| Documentation evidence validation | **177 relative links resolve; 24 cited short commits are ancestors of the audit base; 56/56 old issue sections have dispositions; existing AGENT_LOG content preserved.** The first log-preservation check hit Node's stdout buffer limit; increasing its capture buffer completed the comparison. |
+| Mutation verification | **Not applicable: 0 guards added or changed; 0 mutations attempted.** |
+| Python, Hermes, production and live voice | **Not run.** No permission-changing code or local-agent integration tests executed. |
+
+Offline dependency installation reused the cache (zero downloads). The full
+workspace run additionally validates the published command/count correction;
+no package source was touched. Evidence JSON/logs and the continuity ledger are
+outside the repository at `C:\Users\Sid\codex-ledgers\`. No merge or deployment
+authority was used. Automated and independent adversarial review are still to
+follow; the builder does not certify them.
+
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 

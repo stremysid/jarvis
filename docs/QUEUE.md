@@ -82,7 +82,7 @@ labeled as they stand, and one has an external premise nobody measured.
 | `tool-gate.ts` returns `verdict: "permit"` as a literal | not started | Deny when the second evaluation is not the outcome the first one was. `verdictFor(confirmed)` is the **wrong** fix | builder | first tier-3 hand |
 | `telegram-provider.ts` clears its abort timer before the body read | not started | Keep the timer armed across `response.json()`, as `twilio-provider.ts` does | builder | none |
 | `jarvis vault sync` can never see past the first 64 notes | not started | Persist a position; `documents_examined` counts unchanged files | builder | Phase 7 |
-| `KNOWN_ISSUES.md` describes shipped work as open | **not started** | 1,145 lines, 57 sections. Per-item check against the code, not a sweep | builder | none |
+| Documentation truth audit | **awaiting-review** | Review the [56-section disposition record](DOCS-VERIFY.md) and corrected root documents; deployment claims are bounded to STATE's recorded source | reviewer | none |
 | `typecheck:tests` reports 144 errors in 32 files, gated nowhere | awaiting-triage | Fix or gate them | builder | none |
 | Telegram rate limiter and provider circuit breaker are per-isolate | not started | Move both into a Durable Object | builder | none |
 | `handleReadiness` has zero call sites | awaiting-triage | Route it, or delete it | builder | none |

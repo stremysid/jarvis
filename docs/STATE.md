@@ -125,8 +125,8 @@ The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #1
 them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
 `creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
 
-Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
-companion here: it is 1,145 lines and still describes shipped work as open.
+Item 2 is in [QUEUE.md](QUEUE.md). [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) was
+audited on 2026-09-23; its [disposition record](DOCS-VERIFY.md) names the source revision and fixes removed.
 
 ## Where things live
 
