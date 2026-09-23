@@ -93,8 +93,10 @@ body, not implied away.
 
 ### 3. Push, not pull
 
-The device is already enrolled and `http/sync-routes.ts` already accepts signed pushes. Use that
-path. Do not add a second authentication mechanism, and do not have the cloud poll the PC.
+`http/sync-routes.ts` already accepts signed pushes; use that path. **But this PC's device is not
+enrolled, and nothing can enroll it yet** (see `docs/QUEUE.md`), so a real push will be refused
+until that lands. Build and test against fixtures and a stubbed signer; do not try to enroll a
+device yourself. That is a security decision, not a build step. Do not add a second authentication mechanism, and do not have the cloud poll the PC.
 
 ### 4. Never report staleness as freshness
 
