@@ -147,3 +147,19 @@ jobs:
             fi
           done
           exit $status
+
+  state-carriers:
+    name: state carriers are honest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      # The carriers are the only thing a fresh session reads to learn where the
+      # project stands, and a stale one walked the owner through an impossible
+      # setup twice. This fails on a malformed or unsourced row and only WARNS
+      # on a stale one: a check that refuses to pass gets switched off.
+      - name: node scripts/check-state.mjs
+        run: node scripts/check-state.mjs
