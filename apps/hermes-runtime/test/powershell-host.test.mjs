@@ -149,7 +149,7 @@ describe("PowerShell 7 host trust", () => {
   });
 
   it.each([
-    ["missing", undefined],
+    ["missing entry", undefined],
     ["file", { kind: "file" }],
     ["symbolic link", { link: true }],
     ["redirected path", { canonical: String.raw`C:\Users\fixture\package` }],
@@ -160,7 +160,7 @@ describe("PowerShell 7 host trust", () => {
   });
 
   it.each([
-    ["missing", undefined],
+    ["missing entry", undefined],
     ["directory", { kind: "directory" }],
     ["symbolic link", { link: true }],
     ["redirected path", { canonical: String.raw`C:\Users\fixture\pwsh.exe` }],
@@ -191,7 +191,7 @@ describe("PowerShell 7 host trust", () => {
 
   it("explains a malformed Windows package query response without exposing its output", async () => {
     queryOutput = "synthetic unusable response";
-    await expect(resolveTrustedPowerShellHost()).rejects.toThrow(queryFailure);
+    await expect(resolveTrustedPowerShellHost()).rejects.toMatchObject({ message: queryFailure });
   });
 
   it("bounds package discovery output and terminates its process tree", async () => {

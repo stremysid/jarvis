@@ -326,5 +326,13 @@
     "replace": "",
     "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
     "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-diagnostic-output",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence\", { cause });",
+    "replace": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence: \" + cause.message, { cause });",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "explains a malformed Windows package query response without exposing its output"
   }
 ]
