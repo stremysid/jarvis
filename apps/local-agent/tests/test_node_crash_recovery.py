@@ -65,7 +65,7 @@ raise SystemExit(node.run_node(config))
             if time.monotonic() >= deadline:
                 pytest.fail("the child node never served its first cycle status")
             time.sleep(0.02)
-        identity = settings.control_endpoint_name.stat().st_ino
+        identity = Path(settings.control_endpoint_name).stat().st_ino
         for killed in (False, True):
             if killed:
                 process.kill()
@@ -79,8 +79,8 @@ raise SystemExit(node.run_node(config))
             assert str(settings.control_endpoint_name) in restarted.stdout
             assert "stale socket" in restarted.stdout
             assert "rm --" in restarted.stdout
-            assert settings.control_endpoint_name.is_socket()
-            assert settings.control_endpoint_name.stat().st_ino == identity
+            assert Path(settings.control_endpoint_name).is_socket()
+            assert Path(settings.control_endpoint_name).stat().st_ino == identity
             if not killed:
                 assert send_unix_control_request(CliCommand("status"), settings.control_endpoint_name).code == "ok"
     finally:
