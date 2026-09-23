@@ -1,5 +1,7 @@
 # check-state hardening: builder evidence, 2026-09-23
 
+Historical initial-submission evidence at `c7d603193de03ba94caa0918e0fd509eb2a969bc`. The [round 1 report](2026-09-23-check-state-round-1.md) supersedes the rules and final counts below.
+
 Builder: Codex (GPT-6), branch `codex/check-state-harden`. This is builder evidence for the subsequent independent reviews, not an independent sign-off.
 
 ## Premises and baseline

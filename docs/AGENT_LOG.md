@@ -5,41 +5,52 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
 
-Signed: Codex (GPT-6), builder. Base: `f9472d18a3634f186b36675c8da5995292da9e1d`.
+Signed: Codex (GPT-6), builder. **PR #155, round 1 fixes.** Reviewed head:
+`c7d603193de03ba94caa0918e0fd509eb2a969bc`. Main
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` was merged normally into this branch in
+`565c2924c147d93771ce8f41e354adf47f7e2dc3`, after the full mutation sweep.
 
-All 20 reported #152 behavior cases reproduced against the unchanged base script;
-none was false. #153's diff does contain the follow-up queue row. The authoritative
-baseline fixture run was **5 passed, 32 failed, 0 skipped** (37 tests).
+Every round 1 review finding reproduced; none was false. Before source changes,
+the expanded suite was **68 passed / 34 failed / 0 skipped**. All six requested
+anchor/query mutants applied and survived the original 57-test suite, then died
+under their new fixtures. The [initial submission evidence](reviews/2026-09-23-check-state-hardening.md)
+is historical; [round 1 evidence](reviews/2026-09-23-check-state-round-1.md) records
+the current rules, crafted inputs, all development counts and remaining limits.
 
-The checker now rejects malformed register rows, placeholder sources, impossible
-dates and broken local Markdown links (including FACTS, anchors, references, spaced
-targets and wrong-case Windows paths). It annotates stale observations/regeneration
-dates and unset/no/unknown/unconfirmed facts with `::warning`. Register boundaries,
-code/escaped pipes, code examples, CI run IDs and the 150-line boundary are covered.
-FACTS prose now describes those rules. **No existing carrier row violated a new
-rule**; this is not a renewed claim that every row's factual content is current.
+Restored the whole-visible-line SHA rule with individual run-ID/URL exemptions;
+kept nested list text visible; bounded inline code and bracket labels to a
+paragraph; rejected pipe-led register rows after a gap. Warnings now aggregate
+once per file with a count and first line, retaining plain per-row detail. Status
+must start with yes to avoid a warning. Empty claims, the additional placeholder
+sources and dates more than one UTC day ahead fail. Footnotes and nested labels
+are handled, and all six anchor/query transformations have mutation fixtures.
 
-Observed final gates: checker **57 passed / 0 failed / 0 skipped**; full scripts
-**84 / 0 / 0**; root `pnpm test` **5,461 / 0 / 0 in 209 passing files**, exit 0.
-No flake rerun was needed. `node scripts/check-state.mjs` passes with **0 warnings**;
-three Node syntax checks and `git diff --check` pass. Mutations: **57 killed,
-0 survived, 0 not applied, 0 invalid**, each named test failed twice and passed
-after byte-identical restoration. Runner self-checks: **3 / 0 / 0**.
+Observed final gates: checker **109 passed / 0 failed / 0 skipped**; full scripts
+**136 / 0 / 0**; root `pnpm test` **5,461 / 0 / 0 in 209 passing files**, exit 0.
+The first scripts attempt was **129 / 1 / 0** because it started alongside offline
+installation and could not import TOML. After installation, the unchanged file
+passed alone **7 / 0 / 0**, followed by the green full run. This was a command-order
+error, not a known-flake claim. Three Node syntax checks passed; runner controls
+were **3 / 0 / 0**. The staged whitespace check passed, and a byte comparison
+confirmed every other agent-log entry is preserved.
 
-The complete [builder evidence](reviews/2026-09-23-check-state-hardening.md) includes
-the crafted inputs, exact mutation-to-test map, the three initially surviving
-mutations and strengthened fixtures, all development counts, design limits and
-commands. CI explicitly runs the new suite beside the existing Windows deployment
-test and in the Linux state-carriers job. Linux execution, GitHub annotation display
-and a separate YAML-parser result are not claimed locally (PyYAML was unavailable
-offline). Automated and independent adversarial review follow the PR.
+Mutations: **107 killed, 0 survived, 0 not applied, 0 invalid**; every named test
+failed twice and passed after byte-identical restoration. The first new sweep
+was **105 killed / 2 survived**; a redundant escape check and an incomplete warning
+count assertion were corrected, and both mutants now die.
+
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings**.
+**No row violates a new rule, and no newly detected lie is claimed.** No row needed
+repair; FACTS prose describes the new rules. At 2026-10-25 the real carriers emit
+**4 annotations and 41 plain detail lines**, down from 41 annotations. CI keeps
+the explicit Windows and Linux fixture steps added in the initial submission.
+Hosted CI, Linux execution and GitHub's annotation rendering are not claimed here.
 
 No sync-recovery builder file, migration, production state or secret was touched.
-No owner-only action arose. The branch is for review only; no merge or deployment
-is authorized to this builder. Ledger retained outside the repo at
-`C:\Users\Sid\codex-ledgers\check-state-harden.md`; the task's worktree is removed
-after the PR is published. Next: the assigned reviewers assess this head when the
-PR opens.
+No owner-only action arose. No merge of this PR into main or deployment is
+authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
+the worktree is removed after the updated PR is published. Next: assigned automated
+and independent reviewers assess #155 when its new head is pushed.
 
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
