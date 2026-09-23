@@ -144,33 +144,67 @@ def test_a_plain_inherited_folder_can_still_be_made_private() -> None:
 ADMIN_OWNED = SCRATCH_ROOT / "admin-owned"
 ADMINISTRATORS_SID = "S-1-5-32-544"
 
-#: Names the second half of this test. The first half can run on any machine; the
-#: second cannot, because it needs an elevated shell to have repaired the folder
-#: first. Set `JARVIS_ADMIN_OWNED_REPAIRED=1` after running the `icacls` line the
-#: error message prints.
-admin_owned_repaired = pytest.mark.skipif(
-    os.environ.get("JARVIS_ADMIN_OWNED_REPAIRED") != "1",
-    reason="pass JARVIS_ADMIN_OWNED_REPAIRED=1 after repairing the folder from an elevated shell",
-)
+
+def _user_named_on_any_ace(path: Path) -> bool:
+    """Whether the current user appears on an ACE of `path`.
+
+    The state switch for the two `admin-owned` tests. Before the repair the user
+    is named on no ACE -- that is what makes the DACL write impossible. After the
+    repair the granted ACE is there, and the same call succeeds.
+    """
+    return f";;;{current_user_sid()})" in tree_owner_sddl(path)
+
+
+def admin_owned_unrepaired() -> Path:
+    """Before the fix: owned by Administrators, user named on no ACE.
+
+    The state that makes the DACL write impossible. Once Sid has run the printed
+    `icacls` line this cannot be reproduced, and the refusal half cannot be
+    re-tested without recreating the folder elevated.
+    """
+    folder = admin_owned_folder()
+    owner = store_permissions._current_owner_sid(folder)
+    if owner != ADMINISTRATORS_SID:
+        pytest.skip(
+            f"{folder} is owned by {owner}, not Administrators, so the refusal cannot be reproduced. "
+            "Recreate it from an elevated shell to test that half."
+        )
+    if _user_named_on_any_ace(folder):
+        pytest.skip(f"{folder} has already been repaired; recreate it elevated to test the refusal again")
+    return folder
+
+
+def admin_owned_repaired() -> Path:
+    """After the fix: the user is named on an ACE and can open the store.
+
+    Asserts the mechanism rather than the ownership. Requiring the owner to still
+    be Administrators would make this half unrunnable, because changing the owner
+    is what the fix does -- and that is exactly why it skipped once Sid had run
+    the line.
+    """
+    folder = admin_owned_folder()
+    if not _user_named_on_any_ace(folder):
+        pytest.skip(
+            f"{folder} has not been repaired yet. Run the icacls line the refusal test prints, "
+            "elevated, then re-run."
+        )
+    return folder
 
 
 def admin_owned_folder() -> Path:
     """The elevated-created folder, or skip.
 
-    Skips rather than creating it: it must be owned by Administrators, and only
-    an elevated shell can make that true. Creating it here would produce a folder
-    this process owns, which is the opposite of the state under test.
+    Skips rather than creating it: it has to have been made by an elevated shell,
+    and nothing this process does reproduces that. Creating it here would give a
+    folder this process owns, which is the opposite of the state under test.
 
-    The owner is read with `_current_owner_sid`, which returns the numeric SID.
-    `tree_owner_sddl` renders the owner alias -- `BA` for Administrators -- and
-    comparing that against `S-1-5-32-544` silently never matches, which is how
-    this test skipped when the folder it wanted was sitting right there.
+    **This deliberately does not require the owner to be Administrators.** The
+    repair the refusal test prints is what changes the owner, so demanding
+    otherwise made the post-repair half skip while the folder it wanted was
+    sitting right there, already repaired.
     """
     if not ADMIN_OWNED.is_dir():
         pytest.skip(f"{ADMIN_OWNED} does not exist; create it from an elevated shell")
-    owner = store_permissions._current_owner_sid(ADMIN_OWNED)
-    if owner != ADMINISTRATORS_SID:
-        pytest.skip(f"{ADMIN_OWNED} is owned by {owner}, not Administrators ({ADMINISTRATORS_SID})")
     return ADMIN_OWNED
 
 
@@ -205,7 +239,7 @@ def test_an_administrators_owned_store_is_refused_with_both_fixes_named(
     DACL write is refused before anything changes, so the folder must come out
     exactly as it went in -- that is what makes running this safe.
     """
-    folder = admin_owned_folder()
+    folder = admin_owned_unrepaired()
     assert_inside_scratch(folder)
     before = tree_owner_sddl(folder)
 
@@ -238,14 +272,13 @@ def test_an_administrators_owned_store_is_refused_with_both_fixes_named(
 
 @windows_only
 @scratch_only
-@admin_owned_repaired
 def test_an_administrators_owned_store_opens_after_the_owner_repair(real_store_bodies: None) -> None:
     """The second half: after Sid runs the printed line elevated, the open works.
 
     Asserts the resulting descriptor exactly, because "it stopped raising" is not
     the same as "the store is private to its user".
     """
-    folder = admin_owned_folder()
+    folder = admin_owned_repaired()
     assert_inside_scratch(folder)
     sid = current_user_sid()
 

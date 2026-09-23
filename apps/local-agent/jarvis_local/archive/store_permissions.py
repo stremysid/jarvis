@@ -386,7 +386,7 @@ def dacl_refused_message(path: Path, error: OSError) -> str:
     elevated again.
     """
     return (
-        f"cannot set the permissions of {path}: {error}. "
+        f"cannot set the permissions of {path}: {error.strerror or error}. "
         f"This is what a store owned by Administrators looks like from a non-elevated session. "
         f"One-time fix, either: run `jarvis serve` once from an elevated shell; "
         f'or run: icacls "{path}" /grant "*{_current_user_sid_or_none()}:(OI)(CI)F" /T'
