@@ -491,6 +491,56 @@ def test_the_store_directory_helper_refuses_a_database_file_path(tmp_path: Path)
         archive_database._ensure_sqlite_directory(tmp_path / "archive.sqlite3")
 
 
+def test_the_real_functions_accept_the_keywords_the_open_path_passes() -> None:
+    """A signature mismatch that the seam stub hid, and that nothing caught.
+
+    The suite replaces `apply_owner_only_dacl` and `repair_store_tree` with
+    stubs. A stub written with `**_kwargs` silently swallows a call the real
+    function cannot accept, so a keyword added on one side and not the other
+    passes every test and fails only in production -- which is exactly what
+    happened with `repair_store_tree(..., store_root=...)`. This asserts the
+    real signatures, not the stubs.
+    """
+    import inspect
+
+    for function, expected in (
+        (store_permissions.apply_owner_only_dacl, {"store_root"}),
+        (store_permissions.repair_store_tree, {"store_root"}),
+        (store_permissions.ensure_private_directory, {"store_root"}),
+    ):
+        parameters = inspect.signature(function).parameters
+        assert expected <= set(parameters), f"{function.__name__} lost {expected - set(parameters)}"
+        for name in expected:
+            assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY, (
+                f"{function.__name__}: {name} must stay keyword-only so callers cannot pass it positionally"
+            )
+
+
+def test_the_store_permission_calls_are_gated_off_by_default() -> None:
+    """The default has to be inert: this is what stops a stray script.
+
+    The suite stubs these away, so this asserts the gate itself rather than
+    relying on the stub's absence to prove it.
+    """
+    assert "JARVIS_ALLOW_REAL_DACL" not in os.environ, (
+        "the ambient environment permits real DACL writes; the suite must not"
+    )
+    assert store_permissions.real_dacl_permitted() is False
+
+
+def test_an_ungated_call_raises_before_any_win32_call(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """With the gate off, the refusal happens before the seam is even reached."""
+    monkeypatch.delenv("JARVIS_ALLOW_REAL_DACL", raising=False)
+    stub = StubWin32()
+    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+
+    with pytest.raises(store_permissions.RealDaclNotPermittedError, match="JARVIS_ALLOW_REAL_DACL"):
+        _REAL_APPLY(tmp_path, SID, store_root=tmp_path)
+    assert stub.paths == [], "Win32 was reached despite the gate being off"
+
+
 def test_tree_owner_sddl_reports_the_returned_code(monkeypatch: pytest.MonkeyPatch) -> None:
     """`GetNamedSecurityInfoW` returns the error rather than setting last-error,
     so the old `WinError(get_last_error())` named an unrelated earlier failure."""

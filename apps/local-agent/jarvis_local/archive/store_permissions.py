@@ -296,12 +296,18 @@ def ensure_private_directory(path: Path, user_sid: str, *, store_root: Path) -> 
     apply_owner_only_dacl(path, user_sid, store_root=store_root)
 
 
-def repair_store_tree(root: Path, user_sid: str) -> tuple[Path, ...]:
+def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = None) -> tuple[Path, ...]:
     """Re-apply the store DACL to every directory at or under `root`.
 
     `root` is both the outermost directory this may touch and the boundary the
     guard checks against, so there is no path by which this walks upward: the
     original defect was a caller looping over `path.parents` to the drive root.
+
+    `store_root` names the boundary explicitly when the caller knows it. It is
+    separate from `root` for the same reason `_refuse_unsafe_path` takes both:
+    the walk chooses directories, and a walk that also chose the boundary would
+    be free to reach anything. Defaults to `root`, which is still a boundary the
+    caller cannot widen to a path above itself.
 
     The walk descends only. `os.walk` is given an `onerror` handler rather than
     left to `Path.rglob`, which raises the first `PermissionError` and abandons
@@ -311,6 +317,7 @@ def repair_store_tree(root: Path, user_sid: str) -> tuple[Path, ...]:
     happens, because the caller that ignores this return value is how the first
     version's refusals went unnoticed.
     """
+    boundary = store_root if store_root is not None else root
     failures: list[Path] = []
 
     def record(error: OSError) -> None:
@@ -322,7 +329,7 @@ def repair_store_tree(root: Path, user_sid: str) -> tuple[Path, ...]:
         return ()
     for current, _children, _files in os.walk(root, followlinks=False, onerror=record):
         try:
-            apply_owner_only_dacl(Path(current), user_sid, store_root=root)
+            apply_owner_only_dacl(Path(current), user_sid, store_root=boundary)
         except (OSError, UnsafeStorePathError) as error:
             failures.append(Path(current))
             logger.warning("could not repair %s: %s", current, error)

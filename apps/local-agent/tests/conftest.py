@@ -52,7 +52,7 @@ def no_real_store_permissions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     # still doing real work: anything a test should *not* touch is outside.
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
-    def record(path: Path, user_sid: str, *, store_root: Path, **_kwargs: object) -> None:
+    def record(path: Path, user_sid: str, *, store_root: Path) -> None:
         store_permissions._refuse_unsafe_path(path, store_root)
 
     def record_tree(root: Path, user_sid: str, *, store_root: Path | None = None) -> tuple[Path, ...]:
