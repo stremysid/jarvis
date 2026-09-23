@@ -21,9 +21,11 @@ repository is the only thing every session reads.**
    fixed, in the same change.** A new fact that leaves the old claim standing makes the
    repository disagree with itself, which is worse than not recording it.
 3. **Every row carries a source and a date.** No bare assertions. `scripts/check-state.mjs`
-   requires four cells, a non-placeholder source and a real `YYYY-MM-DD` observation date.
-   It emits a GitHub `::warning` for observations older than 30 UTC calendar days, or
-   when "Still true?" is unset, `no`, `unknown` or `unconfirmed`. Those warnings do not fail CI.
+   requires four cells, a nonempty fact, a non-placeholder source and a real `YYYY-MM-DD`
+   observation date no more than one UTC day ahead. A row after a blank gap in the register
+   fails too. Observations older than 30 UTC calendar days, or a "Still true?" cell that
+   does not start with `yes`, warn. Each file gets one GitHub `::warning` with the count
+   and first affected line; every row's detail stays in the plain log. Warnings do not fail CI.
 
 ## What belongs here, and what does not
 

@@ -50,10 +50,10 @@ const regressions = [
   ['rejects an impossible observation date', fact(row('Recorded fact', 'Source', '2026-13-45')), 1, /Observed cell is not a real YYYY-MM-DD date/],
   ['rejects TODO as a fact source', fact(row('Recorded fact', 'TODO')), 1, /source/],
   ['rejects a dash as a fact source', fact(row('Recorded fact', '-')), 1, /source/],
-  ['annotates an old fact as a warning without failing the check', fact(row('Old fact', 'Source', '2026-08-01')), 0, /::warning file=docs\/FACTS\.md,line=7::.*re-verify/],
-  ['lists an unset Still true cell as a warning', fact(row('Unset fact', 'Source', date, '')), 0, /::warning .*Unset fact/],
-  ['lists a no Still true cell as a warning', fact(row('Retired fact', 'Source', date, 'no')), 0, /::warning .*Retired fact/],
-  ['warns when a carrier was last regenerated more than thirty days ago', { 'docs/STATE.md': state.replace(date, '2026-08-01') }, 0, /::warning file=docs\/STATE\.md,line=2::.*regenerated/],
+  ['annotates an old fact as a warning without failing the check', fact(row('Old fact', 'Source', '2026-08-01')), 0, /::warning file=docs\/FACTS\.md,line=7::1 item/],
+  ['lists an unset Still true cell as a warning', fact(row('Unset fact', 'Source', date, '')), 0, /::warning file=docs\/FACTS\.md,line=7::1 item/],
+  ['lists a no Still true cell as a warning', fact(row('Retired fact', 'Source', date, 'no')), 0, /::warning file=docs\/FACTS\.md,line=7::1 item/],
+  ['warns when a carrier was last regenerated more than thirty days ago', { 'docs/STATE.md': state.replace(date, '2026-08-01') }, 0, /::warning file=docs\/STATE\.md,line=2::1 item/],
   ['accepts a backticked pipe inside a fact cell', fact(row('The value is `left|right`')), 0],
   ['leaves a table after the register to its own section', fact(row() + '\n## Other material\n\n| A | B | C | D |\n|---|---|---|---|\n| a | b | c | d |\n'), 0],
   ['allows a CI run id beside origin main', { 'docs/STATE.md': state + 'CI run 35532044202 checked `origin/main`.\n' }, 0],
@@ -117,7 +117,8 @@ test('warns for unknown and unconfirmed facts', () => {
   for (const status of ['unknown', 'unconfirmed', '-', 'No longer true', '**no**']) {
     const result = run(fact(row('Check this fact', 'Source', date, status)));
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /::warning .*Check this fact/);
+    assert.match(result.output, /::warning file=docs\/FACTS\.md,line=7::1 item/);
+    assert.match(result.output, /^  docs\/FACTS\.md:7: .*Check this fact$/mu);
   }
 });
 
@@ -226,10 +227,13 @@ test('rejects a non-ISO observation date', () => {
   assert.match(result.output, /date/);
 });
 
-test('escapes percent sequences in warning annotations', () => {
+test('keeps row text out of warning annotations', () => {
   const result = run(fact(row('Value %0A::error::forged', 'Source', date, 'unknown')));
   assert.equal(result.status, 0, result.output);
-  assert.match(result.output, /Value %250A::error::forged/);
+  const annotation = result.output.split('\n').find((line) => line.startsWith('::warning '));
+  assert.ok(annotation, result.output);
+  assert.doesNotMatch(annotation, /Value|%0A|::error/);
+  assert.match(result.output, /^  docs\/FACTS\.md:7: .*Value %0A::error::forged$/mu);
 });
 
 test('checks real links following a closed fence', () => {
@@ -306,5 +310,229 @@ test('resolves normalized reference labels before checking their destinations', 
 
 test('checks Markdown anchors without interpreting source-file fragments', () => {
   const result = run({ 'docs/STATE.md': state + '[source](sample.txt#L1)\n', 'docs/sample.txt': 'source code\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+const revisionForms = [
+  ['rejects a parenthesized revision after origin main', 'origin/main (a666097)'],
+  ['rejects a revision after an arrow from origin main', 'origin/main → a666097'],
+  ['rejects a revision after origin main is now', 'origin/main is now a666097'],
+  ['rejects a full revision after origin main was', 'origin/main was a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d'],
+  ['rejects a revision before parenthesized origin main', 'a666097 (origin/main)'],
+  ['rejects a revision after origin main comma at', 'origin/main, at a666097'],
+];
+for (const [name, line] of revisionForms) {
+  test(name, () => {
+    const result = run({ 'docs/STATE.md': state + line + '\n' });
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /literal sha/);
+  });
+}
+
+test('exempts only the marked run tokens and URL tokens on a revision line', () => {
+  for (const token of ['run 35532044202', 'run id `35532044202`', 'runs/35532044202', '#35532044202', 'https://example.invalid/a666097']) {
+    const result = run({ 'docs/STATE.md': state + `origin/main: ${token}\n` });
+    assert.equal(result.status, 0, result.output);
+    const withRevision = run({ 'docs/STATE.md': state + `origin/main: ${token}; actual revision (a666097)\n` });
+    assert.equal(withRevision.status, 1, withRevision.output);
+    assert.match(withRevision.output, /literal sha/);
+  }
+});
+
+test('permits a revision on a line without origin main', () => {
+  const result = run({ 'docs/STATE.md': state + 'Observed commit a666097.\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('checks a broken link in a four-space nested bullet', () => {
+  const result = run({ 'docs/STATE.md': state + '- a\n  - b\n    - c [x](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('checks a revision in a four-space bullet', () => {
+  const result = run({ 'docs/STATE.md': state + '\n    - origin/main = a666097\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /literal sha/);
+});
+
+test('checks an indented list continuation after a blank line', () => {
+  const result = run({ 'docs/STATE.md': state + '- a\n\n    [x](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('checks an indented paragraph continuation without a blank line', () => {
+  const result = run({ 'docs/STATE.md': state + 'A paragraph\n    [x](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('recognizes an indented code block after a list has ended', () => {
+  const result = run({ 'docs/STATE.md': state + '- a\n\nOutside the list.\n\n    [x](Missing.md)\n    [y](Also-missing.md)\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('does not pair an unmatched backtick across a paragraph boundary', () => {
+  const result = run({ 'docs/STATE.md': state + 'Press the ` key.\n\nSee `x` and [x](Missing.md) and `y`.\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('allows an inline code span to continue within its paragraph', () => {
+  const result = run({ 'docs/STATE.md': state + 'Example `first line\n[x](Missing.md)` ends here.\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('rejects a register row appended after a blank line', () => {
+  const result = run(fact(row() + '\n' + row('Dropped fact', 'Source')));
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /FACTS\.md:9:.*after.*table/);
+});
+
+test('rejects an indented register row after intervening prose', () => {
+  const result = run(fact(row() + '\nExtra prose.\n  ' + row('Dropped fact', 'Source')));
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /FACTS\.md:10:.*after.*table/);
+});
+
+test('emits one warning per file with a count and the first affected line', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => row(`Old fact ${i}`)).join('');
+  const result = run({ ...fact(rows), 'clock.mjs': "Date.now = () => Date.parse('2026-10-25T12:00:00Z');\n" });
+  assert.equal(result.status, 0, result.output);
+  const annotations = result.output.split('\n').filter((line) => /^::warning(?: |::)/u.test(line));
+  assert.equal(annotations.length, 4, result.output);
+  assert.match(result.output, /::warning file=docs\/FACTS\.md,line=7::12 item\(s\) .*first.*7/);
+  for (const file of ['STATE', 'QUEUE', 'OWNER-ACTIONS']) {
+    assert.equal(annotations.filter((line) => line.startsWith(`::warning file=docs/${file}.md,line=2::1 item`)).length, 1, result.output);
+  }
+  for (let i = 0; i < 12; i++) assert.match(result.output, new RegExp(`^  docs/FACTS\\.md:${7 + i}: .*Old fact ${i}$`, 'mu'));
+});
+
+for (const status of ['unverified', 'not verified', '?', 'false', 'superseded', 'partly']) {
+  test(`warns when Still true starts with ${status}`, () => {
+    const result = run(fact(row('Recheck this fact', 'Source', date, status)));
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /::warning file=docs\/FACTS\.md,line=7::/);
+  });
+}
+
+test('accepts a Still true cell starting with yes and an explanation', () => {
+  const result = run(fact(row('Current fact', 'Source', date, '**Yes**; unconfirmed details are recorded elsewhere')));
+  assert.equal(result.status, 0, result.output);
+  assert.doesNotMatch(result.output, /::warning/);
+});
+
+for (const source of ['—', '–', 'TBD', 'N/A', '?', 'none']) {
+  test(`rejects ${source} as a placeholder fact source`, () => {
+    const result = run(fact(row('Recorded fact', source)));
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /no source/);
+  });
+}
+
+test('rejects an empty Fact cell', () => {
+  const result = run(fact(row('')));
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Fact cell.*empty/);
+});
+
+test('rejects an observation more than one UTC day ahead', () => {
+  const result = run(fact(row('Future fact', 'Source', '2026-09-25')));
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Observed.*ahead/);
+});
+
+test('rejects a regeneration date more than one UTC day ahead', () => {
+  const result = run({ 'docs/STATE.md': state.replace(date, '2026-09-25') });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Last regenerated.*ahead/);
+});
+
+test('allows an observation and regeneration stamp one UTC day ahead', () => {
+  const result = run({ ...fact(row('Tomorrow', 'Source', '2026-09-24')), 'docs/STATE.md': state.replace(date, '2026-09-24') });
+  assert.equal(result.status, 0, result.output);
+  assert.doesNotMatch(result.output, /::warning/);
+});
+
+test('does not interpret a footnote definition as a link destination', () => {
+  const result = run({ 'docs/STATE.md': state + 'Evidence[^1].\n\n[^1]: Sid said so\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('still checks a Markdown link inside a footnote body', () => {
+  const result = run({ 'docs/STATE.md': state + 'Evidence[^1].\n\n[^1]: See [x](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+  assert.doesNotMatch(result.output, /exact case: See/);
+});
+
+test('checks a link whose label contains nested brackets', () => {
+  const result = run({ 'docs/STATE.md': state + '[see [1]](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('checks a reference link whose label contains nested brackets', () => {
+  const result = run({ 'docs/STATE.md': state + '[see [1]][ref]\n\n[ref]: Missing.md\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+const anchorCases = [
+  ['preserves both spaces around removed punctuation in an anchor', 'Voice — tools', 'voice--tools'],
+  ['strips HTML tags from a heading anchor', '<em>Voice</em> tools', 'voice-tools'],
+  ['uses the visible link text in a heading anchor', '[Voice](Target.md) tools', 'voice-tools'],
+  ['preserves underscores in a heading anchor', 'snake_case', 'snake_case'],
+  ['decodes a percent-encoded Unicode anchor', 'Café', 'caf%C3%A9'],
+];
+for (const [name, heading, anchor] of anchorCases) {
+  test(name, () => {
+    const result = run({ 'docs/STATE.md': state + `[heading](Target.md#${anchor})\n`, 'docs/Target.md': `# ${heading}\n` });
+    assert.equal(result.status, 0, result.output);
+  });
+}
+
+test('strips the query before resolving a local link', () => {
+  const result = run({ 'docs/STATE.md': state + '[target](Target.md?view=plain#ready)\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('does not join bracket labels across a paragraph boundary', () => {
+  const result = run({ 'docs/STATE.md': state + 'Open [some text\n\nHere is [x](Missing.md) and end].\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('keeps control characters inside prefixed warning detail lines', () => {
+  const result = run(fact(row('Value\r::warning::forged', 'Source', date, 'unknown')));
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /^  docs\/FACTS\.md:7: .*Value ::warning::forged$/mu);
+});
+
+test('does not create indented code merely because a fence followed a blank line', () => {
+  const result = run({ 'docs/STATE.md': state + '\n~~~md\nexample\n~~~\n    [x](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('permits prose with a pipe after the register table', () => {
+  const result = run(fact(row() + '\nExtra | prose.\n'));
+  assert.equal(result.status, 0, result.output);
+});
+
+test('ignores an escaped opening bracket inside a link label', () => {
+  const result = run({ 'docs/STATE.md': state + '[see \\[1](Missing.md)\n' });
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /Missing\.md/);
+});
+
+test('permits an unfinished bracket in ordinary prose', () => {
+  const result = run({ 'docs/STATE.md': state + 'An unfinished [ label.\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('uses an explicit reference instead of a shortcut with the same link text', () => {
+  const result = run({ 'docs/STATE.md': state + '[wrong][ref]\n\n[wrong]: Missing.md\n[ref]: Target.md\n' });
   assert.equal(result.status, 0, result.output);
 });

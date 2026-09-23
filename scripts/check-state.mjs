@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
-let warnings = 0;
+const warnings = new Map();
 const CARRIERS = ['docs/STATE.md', 'docs/QUEUE.md', 'docs/OWNER-ACTIONS.md'];
 const FACTS = 'docs/FACTS.md';
 const STATE_LINE_BUDGET = 150;
@@ -27,20 +27,36 @@ function blank(text) {
 // examples above it contain links that are deliberately not real destinations.
 function prose(text, indentedCode = true) {
   let fence;
-  return linesOf(text).map((line) => {
+  let listIndent;
+  let code = false;
+  return linesOf(text).map((line, index, lines) => {
+    const previousBlank = index === 0 || !lines[index - 1].trim();
     const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
     if (fence) {
       if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
       return blank(line);
     }
-    if (marker) { fence = marker[1]; return blank(line); }
-    if (indentedCode && /^(?: {4}|\t)/u.test(line)) return blank(line);
+    if (marker) { fence = marker[1]; code = false; return blank(line); }
+    if (!line.trim()) return line;
+    const indentation = /^[ \t]*/u.exec(line)[0].replaceAll('\t', '    ').length;
+    const list = /^([ \t]*)(?:[-+*]|\d+[.)])[ \t]+/u.exec(line);
+    if (list) {
+      const contentIndent = list[0].replaceAll('\t', '    ').length;
+      listIndent = Math.min(listIndent ?? contentIndent, contentIndent);
+    } else if (previousBlank && indentation < (listIndent ?? 0)) {
+      listIndent = undefined;
+    }
+    // Four spaces alone can be a list continuation or a paragraph continuation.
+    // Hiding either would let a nested bullet conceal a broken link or revision.
+    code = indentedCode && !list && listIndent === undefined && indentation >= 4 && (previousBlank || code);
+    if (code) return blank(line);
     return line;
   }).join('\n');
 }
 
 function withoutInlineCode(text) {
-  return text.replace(/(?<![`\\])(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/gu, blank);
+  return text.split(/(\r?\n[ \t]*\r?\n)/u)
+    .map((paragraph) => paragraph.replace(/(?<![`\\])(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/gu, blank)).join('');
 }
 
 function escaped(text, index) {
@@ -71,11 +87,20 @@ function dateValue(value) {
 }
 
 function warning(file, line, message) {
-  // Percent and newlines otherwise let carrier text forge a workflow command.
-  const encoded = message.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
-  console.warn(`::warning file=${file},line=${line}::${encoded}`);
-  warnings++;
+  if (!warnings.has(file)) warnings.set(file, []);
+  warnings.get(file).push({ line, message });
 }
+
+function emitWarnings() {
+  for (const [file, rows] of warnings) {
+    // A bounded annotation count keeps every affected file visible. Row text
+    // stays in prefixed plain log lines so it cannot forge workflow commands.
+    console.warn(`::warning file=${file},line=${rows[0].line}::${rows.length} item(s) need re-verification; first affected line ${rows[0].line}.`);
+    for (const row of rows) console.log(`  ${file}:${row.line}: ${row.message.replace(/[\r\n]/gu, ' ')}`);
+  }
+}
+
+const plainCell = (cell) => cell.replace(/[`*_]/gu, '').trim();
 
 function checkFacts(text) {
   const lines = linesOf(prose(text, false));
@@ -93,15 +118,23 @@ function checkFacts(text) {
     failures.push(`${FACTS}: the register needs its four-column header and separator.`);
     return;
   }
-  for (let index = first + 2; index < stop && lines[index].trim(); index++) {
+  let tableEnded = false;
+  for (let index = first + 2; index < stop; index++) {
+    if (!lines[index].trim()) { tableEnded = true; continue; }
+    if (tableEnded) {
+      if (/^\s*\|/u.test(lines[index])) failures.push(`${FACTS}:${index + 1}: register row after the table ended. Remove the blank gap or move it to another section.`);
+      continue;
+    }
     const cells = cellsOf(lines[index]);
     const at = `${FACTS}:${index + 1}`;
     if (cells.length !== 4) { failures.push(`${at}: a register row must have 4 cells, found ${cells.length}.`); continue; }
     const [fact, source, observed, stillTrue] = cells;
     const timestamp = dateValue(observed);
     if (!Number.isFinite(timestamp)) failures.push(`${at}: the Observed cell is not a real YYYY-MM-DD date.`);
-    if (/^(?:TODO|-)?$/iu.test(source.replace(/[`*_]/gu, '').trim())) failures.push(`${at}: no source. A placeholder is not evidence.`);
-    if (/^(?:|-|no\b.*)$/iu.test(stillTrue.replace(/[`*_]/gu, '').trim()) || /unknown|unconfirm/iu.test(stillTrue) || today - timestamp > 30 * DAY) {
+    if (timestamp > today + DAY) failures.push(`${at}: the Observed date is more than one UTC day ahead of today.`);
+    if (!plainCell(fact)) failures.push(`${at}: the Fact cell is empty.`);
+    if (/^(?:TODO|TBD|N\/A|none|[-—–?])?$/iu.test(plainCell(source))) failures.push(`${at}: no source. A placeholder is not evidence.`);
+    if (!plainCell(stillTrue).toLowerCase().startsWith('yes') || today - timestamp > 30 * DAY) {
       warning(FACTS, index + 1, `re-verify before relying on it (${observed}): ${fact.slice(0, 70)}`);
     }
   }
@@ -123,20 +156,36 @@ function destination(text) {
 
 const labelKey = (label) => label.trim().replace(/\s+/gu, ' ').toLowerCase();
 
+function bracketLabel(text, start) {
+  let depth = 1;
+  for (let index = start + 1; index < text.length; index++) {
+    if (text[index] === '\n' && /^[ \t]*\r?\n/u.test(text.slice(index + 1))) return;
+    if (escaped(text, index)) continue;
+    if (text[index] === '[') depth++;
+    if (text[index] === ']' && --depth === 0) return { label: text.slice(start + 1, index), end: index };
+  }
+}
+
 function linksIn(text) {
   const visible = withoutInlineCode(prose(text));
   const definitions = new Map();
   const body = visible.replace(/^ {0,3}\[([^\]\n]+)\]:[ \t]*(.*)$/gmu, (whole, label, value) => {
+    // Footnote prose may contain real links, but its first word is not a URL.
+    if (label.trim().startsWith('^')) return whole;
     if (!definitions.has(labelKey(label))) definitions.set(labelKey(label), destination(value));
     return blank(whole);
   });
   const links = [];
-  for (const match of body.matchAll(/\[([^\]\n]*)\](?:\[([^\]\n]*)\])?/gu)) {
-    if (escaped(body, match.index)) continue;
-    const after = match.index + match[0].length;
+  for (let index = 0; index < body.length; index++) {
+    if (body[index] !== '[' || escaped(body, index)) continue;
+    const label = bracketLabel(body, index);
+    if (!label) continue;
+    const after = label.end + 1;
+    const reference = body[after] === '[' ? bracketLabel(body, after) : undefined;
     const target = body[after] === '(' ? destination(body.slice(after + 1).trimStart()) :
-      definitions.get(labelKey(match[2] || match[1]));
-    if (target !== undefined) links.push({ target, line: body.slice(0, match.index).split('\n').length });
+      definitions.get(labelKey(reference?.label || label.label));
+    if (target !== undefined) links.push({ target, line: body.slice(0, index).split('\n').length });
+    index = reference?.end ?? label.end;
   }
   return links;
 }
@@ -192,6 +241,17 @@ function checkLinks(file, text) {
   }
 }
 
+function namesRevision(line) {
+  if (!line.includes('origin/main')) return false;
+  const urls = [...line.matchAll(/(?:\b[a-z][a-z0-9+.-]*:\/\/|\/\/)[^\s<>`]+/giu)];
+  for (const word of line.matchAll(/\b[0-9a-f]{7,40}\b/giu)) {
+    if (/(?:\brun(?:\s+id)?(?:\s+|:\s*)|\bruns\/|#)[\s`*_]*$/iu.test(line.slice(0, word.index))) continue;
+    if (urls.some((url) => word.index >= url.index && word.index < url.index + url[0].length)) continue;
+    return true;
+  }
+  return false;
+}
+
 for (const file of [...CARRIERS, FACTS]) {
   const path = join(root, file);
   if (!existsSync(path)) { failures.push(`${file}: missing. The state carriers are not optional.`); continue; }
@@ -206,14 +266,14 @@ for (const file of [...CARRIERS, FACTS]) {
   const timestamp = dateValue(generated ?? '');
   if (!Number.isFinite(timestamp)) failures.push(`${file}: no real "Last regenerated: YYYY-MM-DD" date. An undated state file is a rumour.`);
   else if (today - timestamp > 30 * DAY) warning(file, generatedLine + 1, `Last regenerated ${generated}; re-verify this carrier.`);
+  if (timestamp > today + DAY) failures.push(`${file}:${generatedLine + 1}: Last regenerated date is more than one UTC day ahead of today.`);
 
   if (file === 'docs/STATE.md') {
     if (lines.length > STATE_LINE_BUDGET) failures.push(`${file}: ${lines.length} lines, budget is ${STATE_LINE_BUDGET}. State that does not fit is not state.`);
-    // Numeric CI run IDs are not revisions. Bind the literal to the ref's
-    // assignment, rather than rejecting any hex-looking word on the same line.
+    // Keep main's whole-line rule. Exempt the individual run/URL token, never
+    // the line: a run ID must not launder a revision beside it.
     visibleLines.forEach((line, index) => {
-      if (/\borigin\/main\b[`*_]*\s*(?:(?:is\s+)?(?:=|:|is\b|at\b)\s*)?[`*_]*\b[0-9a-f]{7,40}\b/iu.test(line) ||
-          /\b[0-9a-f]{7,40}\b[`*_]*\s*(?:=|is)\s*[`*_]*origin\/main\b/iu.test(line)) {
+      if (namesRevision(line)) {
         failures.push(`${file}:${index + 1}: names origin/main and a literal sha. Query it instead.`);
       }
     });
@@ -221,9 +281,10 @@ for (const file of [...CARRIERS, FACTS]) {
   if (file === 'docs/QUEUE.md' && !/\|\s*BLOCKS\s*\|/u.test(prose(text))) failures.push(`${file}: no BLOCKS column. Without it the priority rule stops being mechanical.`);
 }
 
+emitWarnings();
 if (failures.length > 0) {
   console.error(`state check failed (${failures.length}):`);
   for (const failure of failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
-console.log(`state check passed: ${CARRIERS.length} carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; ${warnings} warning(s).`);
+console.log(`state check passed: ${CARRIERS.length} carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; ${warnings.size} warning(s).`);
