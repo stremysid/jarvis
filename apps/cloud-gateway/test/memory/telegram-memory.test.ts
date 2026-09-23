@@ -9,7 +9,7 @@ import {
   type PersistableEventEnvelopeV1,
 } from "../../../../packages/contracts/src/index.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
-import { ArchivalService } from "../../src/archive/archival-service.js";
+import { ArchivalService, type ArchiveBucket } from "../../src/archive/archival-service.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
@@ -91,10 +91,20 @@ interface D1Stats {
   roundTrips: number;
   inflight: number;
   maxInflight: number;
+  realInflight: number;
 }
 
 function newD1Stats(): D1Stats {
-  return { statements: 0, roundTrips: 0, inflight: 0, maxInflight: 0 };
+  return { statements: 0, roundTrips: 0, inflight: 0, maxInflight: 0, realInflight: 0 };
+}
+
+async function realIo<T>(stats: D1Stats, operation: () => Promise<T>): Promise<T> {
+  stats.realInflight += 1;
+  try {
+    return await operation();
+  } finally {
+    stats.realInflight -= 1;
+  }
 }
 
 function countingDatabase(
@@ -111,7 +121,7 @@ function countingDatabase(
     try {
       const delayMs = Math.max(0, ...sql.map((text) => delayFor(text)));
       if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      return await operation();
+      return await realIo(stats, operation);
     } finally {
       stats.inflight -= 1;
     }
@@ -150,6 +160,30 @@ function countingDatabase(
       return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
     },
   }) as D1Database;
+}
+
+function countingArchive(bucket: ArchiveBucket, stats: D1Stats): ArchiveBucket {
+  return new Proxy(bucket, {
+    get(target, property) {
+      if (property === "get") {
+        return async (...args: Parameters<ArchiveBucket["get"]>) => {
+          const object = await realIo(stats, () => target.get(...args));
+          if (object === null) return null;
+          return new Proxy(object, {
+            get(body, key) {
+              if (key === "arrayBuffer") {
+                return () => realIo(stats, () => (body as R2ObjectBody).arrayBuffer());
+              }
+              const value = Reflect.get(body, key, body) as unknown;
+              return typeof value === "function" ? value.bind(body) : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 async function seedPrincipal(principalId: string): Promise<void> {
@@ -2765,15 +2799,19 @@ describe("Telegram memory retrieval follow-ups", () => {
       Date.now() - 60_000,
     );
     const stats = newD1Stats();
-    // This checks the retrieval work, not the host scheduler. Real sleeps plus
-    // D1/R2 IPC could trip the 450 ms search deadlines before the old 500 ms
-    // assertion. The stalled-lookup tests separately exercise real deadlines.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // Charge 25 ms per D1 trip on a virtual clock. Advancing while real D1/R2
+    // work is pending would charge host IPC delays against the search deadlines.
+    // The overlap check catches serialization even when both stages together
+    // fit within 500 ms once host delays are excluded.
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     try {
-      const contexts = await new TelegramMemoryRetriever({
-        database: countingDatabase(env.DB, stats),
-        archive: env.ARCHIVE,
+      const metrics: TelegramMemoryRetrievalMetrics[] = [];
+      const retrieval = new TelegramMemoryRetriever({
+        database: countingDatabase(env.DB, stats, () => 25),
+        archive: countingArchive(env.ARCHIVE, stats),
         log: () => undefined,
+        observeRetrieval: (value) => metrics.push(value),
       }).retrieve({
         principalId: owner.principalId,
         channel: "telegram",
@@ -2781,6 +2819,19 @@ describe("Telegram memory retrieval follow-ups", () => {
         query: "Which school subject is my favourite?",
         maxTokens: 32_000,
       });
+      let settled = false;
+      void retrieval.then(() => { settled = true; }, () => { settled = true; });
+      let virtualElapsedMs = 0;
+      while (!settled) {
+        // Yield to native I/O and its promise continuations before deciding
+        // whether the next simulated delay is on the critical path.
+        await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+        if (stats.realInflight > 0 || settled) continue;
+        const before = performance.now();
+        await vi.advanceTimersToNextTimerAsync();
+        virtualElapsedMs += performance.now() - before;
+      }
+      const contexts = await retrieval;
 
       for (const text of memoryTexts) {
         expect(contexts.some((entry) => /memory evidence/iu.test(entry.text) && entry.text.includes(text))).toBe(true);
@@ -2789,6 +2840,9 @@ describe("Telegram memory retrieval follow-ups", () => {
       expect(stats.maxInflight).toBeGreaterThan(1);
       expect(stats.roundTrips).toBeLessThanOrEqual(61);
       expect(stats.statements).toBeLessThanOrEqual(86);
+      expect(virtualElapsedMs).toBeLessThanOrEqual(500);
+      expect(metrics).toHaveLength(1);
+      expect(virtualElapsedMs).toBeLessThan(metrics[0]!.candidatesMs + metrics[0]!.historyMs);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
