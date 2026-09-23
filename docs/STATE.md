@@ -18,17 +18,13 @@ append to it.
 
 ## In flight, and what each one would change here
 
-Five PRs are open and none is merged. **Every verdict below describes `main` without them.**
+`#141`, `#147`, `#144` and `#146` have merged (2026-09-22); `#145` is open. **Every verdict below describes `main` without it.**
 Listed because four of the five would move a verdict in this file, and a reader who merges
 one should regenerate rather than patch.
 
 | PR | What it would change |
 |---|---|
-| [#141](https://github.com/stremysid/jarvis/pull/141) | Phase 4's PC boot chain: auto-login and an elevated logon task. Does not move a phase verdict on its own |
-| [#144](https://github.com/stremysid/jarvis/pull/144) | Removes a live defect: `selectControlTargets` could still present a memory whose originating event the ledger had suppressed |
 | [#145](https://github.com/stremysid/jarvis/pull/145) | **Phase 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches an agent. Without it P1's exit test cannot pass and the PC-as-host work sits behind it |
-| [#146](https://github.com/stremysid/jarvis/pull/146) | Collapses the duplicated suppression predicate to one definition with a parity guard. Phase 2 hygiene, no verdict change |
-| [#147](https://github.com/stremysid/jarvis/pull/147) | **Phase 1, 2 and 5.** A call gets tool dispatch and the memory-target finder, and both channels share `OwnerAgentCore`. It would change Phase 5's "cannot carry tools" and Phase 1's "a capability added to one door does not reach the other" to *partly* addressed: the agent loop is shared, the memory-read path is not, and the two composition sites remain. It also rewrites the Phase 1, 2 and 5 rows and the two-assistants table below. **Nothing in the Production section was re-queried by it** — that branch has not been deployed, so production's figures are `main`'s deploy, not what this branch would show |
 
 ## Where the project actually stands
 
@@ -120,10 +116,16 @@ Re-checked against `main` and production on 2026-09-21:
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
-3. `selectControlTargets` reads `memory_item_fts` with no suppression anti-join,
-   and that index has no delete trigger.
 
-Items 2 and 3 are in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
+**Fixed on `main` by #144, not deployed:** `selectControlTargets` read `memory_item_fts` with no
+suppression anti-join, so a memory whose originating event the ledger had suppressed
+was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
+arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
+The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #147 moved the arm), composes
+them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
+`creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
+
+Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
 companion here: it is 1,145 lines and still describes shipped work as open.
 
 ## Where things live

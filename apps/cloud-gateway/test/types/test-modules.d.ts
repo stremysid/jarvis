@@ -29,3 +29,20 @@ declare module "*.json?raw" {
   const content: string;
   export default content;
 }
+
+// A source file read as text, so a test can assert over every SQL template in it
+// rather than over the arms a test happens to drive. The parity test for the item
+// suppression predicate is the only user: an arm added later that forgets the
+// predicate is not reached by any behaviour test, and is only visible in the text.
+declare module "*.ts?raw" {
+  const content: string;
+  export default content;
+}
+
+// The same, spelled the way the tree spells relative imports: with `.js`, which
+// Vite resolves to the `.ts` source. The parity test imports three sources this
+// way, and `*.ts?raw` alone does not match that specifier.
+declare module "*.js?raw" {
+  const content: string;
+  export default content;
+}
