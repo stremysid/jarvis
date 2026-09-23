@@ -32,7 +32,11 @@ from tests.test_node import EmptyCycleOpener, linux_environment, settings_at
 
 settings = settings_at(Path(sys.argv[1]))
 builder = node.build_node
-node.build_node = lambda settings: builder(settings, opener=EmptyCycleOpener())
+# `run_node` now passes the platform through to `build_node`, so a stub that
+# accepts only `settings` breaks the call instead of stubbing it: the child
+# exits 4 and the parent's `assert process.poll() is None` fails. That is how
+# this surfaced on Linux while passing on Windows.
+node.build_node = lambda settings, **kwargs: builder(settings, opener=EmptyCycleOpener(), **kwargs)
 config = JarvisLocalConfig.load(linux_environment(
     JARVIS_DEVICE_KEY_PATH=str(settings.device_key_path),
     JARVIS_ARCHIVE_PATH=str(settings.archive_path),

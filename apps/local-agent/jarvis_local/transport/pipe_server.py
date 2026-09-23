@@ -476,7 +476,11 @@ class PipeStream:
     def close(self) -> None:
         import _winapi
 
-        _winapi.CloseHandle(self.handle)
+        # Tolerated rather than asserted: the server closing the handle and the
+        # peer hanging up can both reach this, and a number Windows has already
+        # released is not a failure to report.
+        with contextlib.suppress(OSError):
+            _winapi.CloseHandle(self.handle)
 
 
 class _ClientStream:
@@ -526,7 +530,18 @@ class NamedPipeServer:
         self.pipe_name = pipe_name
         self.sddl = sddl or owner_only_sddl(current_user_sid())
         self._instance_lock = threading.Lock()
+        #: The spare instance, created before the current one is served so the
+        #: name is never momentarily unclaimed.
         self._listening = 0
+        #: The instance `serve_connection` is blocked on right now, if any.
+        #:
+        #: Separate from `_listening` because they are different handles:
+        #: `create_instance` publishes the spare while the connect is blocked on
+        #: the previous one. A `close` that took only `_listening` closed the
+        #: spare and left the blocked call blocked -- the service stopped
+        #: accepting, never exited, kept the pipe name, and the logon task could
+        #: not restart it.
+        self._serving = 0
         self._close_requested = False
 
     def create_instance(self, first: bool = False) -> int:
@@ -546,7 +561,29 @@ class NamedPipeServer:
                 return
             self._close_requested = True
             listening, self._listening = self._listening, 0
+            serving, self._serving = self._serving, 0
         _close_quietly(listening)
+        if serving:
+            self._wake_blocked_connect()
+        _close_quietly(serving)
+
+    def _wake_blocked_connect(self) -> None:
+        """Connect once and hang up, purely to end a blocked `ConnectNamedPipe`.
+
+        Closing the handle from another thread does **not** reliably wake a
+        blocking connect -- measured, not assumed, and it is why this exists
+        rather than reaching for cancellation. A listener left parked there
+        never returns, so the process never exits, the pipe name stays claimed,
+        and the logon task cannot start a replacement.
+
+        The connection is deliberate and immediately dropped, and the server
+        side checks `_close_requested` and serves nothing, so this cannot be
+        mistaken for a client request. Best effort by design: if the connect
+        fails, the handle close that follows is the remaining attempt.
+        """
+        with contextlib.suppress(OSError):
+            stream = connect_to_pipe(self.pipe_name)
+            stream.close()
 
     def serve_connection(self, handle: int) -> CliResponse:
         """Wait for a client on `handle`, serve one request, hang up.
@@ -565,6 +602,10 @@ class NamedPipeServer:
                 # and connecting to it. That is a connection, not a failure.
                 if error.winerror != _ERROR_PIPE_CONNECTED:
                     raise
+            # A woken listener has no client worth serving: `close` made this
+            # connection only to end the wait, and the peer is already gone.
+            if self._close_requested:
+                return CliResponse(MALFORMED_REQUEST)
             response = self.server.serve_one(stream, stream)
             _flush_and_disconnect(handle)
             return response
@@ -598,15 +639,26 @@ class NamedPipeServer:
         try:
             while should_continue() and not self._close_requested:
                 serving, listening = listening, 0
+                with self._instance_lock:
+                    self._serving = serving
                 try:
                     listening = self.create_instance()
                 except BaseException:
+                    with self._instance_lock:
+                        self._serving = 0
                     _close_quietly(serving)
                     raise
                 # `serve_connection` owns `serving` from here and closes it on
                 # every path. Closing it here as well would eventually close
                 # some later handle that Windows had reused the number for.
-                self.serve_connection(serving)
+                try:
+                    self.serve_connection(serving)
+                finally:
+                    # `close` may already have taken and closed it; clearing the
+                    # slot here is what stops a second close of a number Windows
+                    # can reuse.
+                    with self._instance_lock:
+                        self._serving = 0
         finally:
             # The spare instance may be the same handle `close` already took,
             # or a different one that arrived after it; both are closed, and

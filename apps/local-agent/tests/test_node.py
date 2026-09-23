@@ -58,6 +58,12 @@ from jarvis_local.transport.unix_socket import UnixSocketInUseError, UnixSocketS
 
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux node acceptance")
 
+#: The mirror of `linux_only`, and it exists because its absence put two tests on
+#: Linux CI that cannot run there: they build a Windows named-pipe endpoint, which
+#: reaches `current_user_sid` and therefore `ctypes.WinDLL` -- a name that does not
+#: exist on Linux, so they failed with AttributeError rather than skipping.
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="named pipes are a Windows mechanism")
+
 
 def linux_environment(**overrides: str) -> dict[str, str]:
     values = {
@@ -1227,6 +1233,7 @@ def test_serve_refuses_a_host_that_cannot_bind_the_pipe(
     assert "requires Windows" in capsys.readouterr().out
 
 
+@windows_only
 def test_a_second_agent_on_the_pipe_is_refused_by_name_rather_than_serving_beside_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1245,6 +1252,7 @@ def test_a_second_agent_on_the_pipe_is_refused_by_name_rather_than_serving_besid
         build_node(settings, control_factory=_windows_control_endpoint, platform="win32")
 
 
+@windows_only
 def test_an_unexpected_pipe_failure_is_not_reported_as_a_name_already_in_use(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

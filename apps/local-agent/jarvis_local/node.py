@@ -717,6 +717,17 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
             # control pipe is this host's shutdown.
             reason = runtime.run(install_signal_handlers=False)
         else:
+            # The mirror of the `serve` check below it, and it is here because its
+            # absence was a regression: `NodeSettings.from_config` now accepts
+            # Windows, so without this `jarvis node` on Windows got past the
+            # platform gate and failed further in as "the Jarvis node could not
+            # start" (exit 4) instead of refusing as the Linux-only command it is.
+            # `AGENTS.md` says not to port this command, and a message that says
+            # so is the difference between a refusal and a mystery.
+            if not _is_linux():
+                raise NodeConfigurationError(
+                    "jarvis node requires Linux; on Windows the service is `jarvis serve`"
+                )
             settings = NodeSettings.from_config(config)
             if socket_path is not None:
                 if not _is_absolute_path(os.fspath(socket_path)):
