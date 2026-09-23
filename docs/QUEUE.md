@@ -91,5 +91,5 @@ labeled as they stand, and one has an external premise nobody measured.
   never more than one review behind reality.
 - Anything only Sid can do belongs in [OWNER-ACTIONS.md](OWNER-ACTIONS.md), not here.
 - Nothing in this file may state a revision as current. Query it.
-- `scripts/check-state.mjs` checks the carriers' format. It is not yet wired into
-  CI — that is what [#117](https://github.com/stremysid/jarvis/pull/117) does.
+- `scripts/check-state.mjs` checks the carriers' format, in CI's `state carriers
+  are honest` job (advisory; `main` does not require it).

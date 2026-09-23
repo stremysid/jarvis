@@ -5,10 +5,9 @@
 // queue file that would silently lose its priority column, and links that point at
 // files nobody ever added.
 //
-// NOTHING RUNS THIS YET. Sweep-5 found that three of the four existing
-// scripts/test/*.test.mjs files are executed by no workflow at all, so adding a
-// fifth unrun script would repeat the defect this file exists to catch. It is
-// written to be wired into the docs job; until it is, run it by hand.
+// CI runs this in the `state-carriers` job (.github/workflows/ci.yml), on every
+// pull request and every push to main; `pnpm run check:state` runs it locally.
+// The job is advisory until main requires it.
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
