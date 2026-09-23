@@ -53,6 +53,32 @@ scratch_only = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def configured_root_is_the_scratch_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point this process's configured store root at the scratch directory.
+
+    The guard checks a target against the configured roots as well as against
+    the boundary passed in, so without this the test would be judged against
+    whatever the machine is configured for -- `%LOCALAPPDATA%\\Jarvis` on the
+    live PC -- and would be refused for being outside it. That refusal would be
+    correct behaviour, and it is not what this test is measuring.
+
+    The configured root has to **contain** the directory being changed, not
+    merely be near it: the guard checks that a target is at or below a
+    configured root. So the roots declared here are the scratch directory's own
+    store files, putting `C:\\jarvis-test-scratch\\data` inside them. An earlier
+    version pointed at `C:\\jarvis-test-scratch\\configured`, which does not
+    contain `data`, and the guard refused -- correctly, and that is the refusal
+    this test would otherwise have been measuring instead of the DACL.
+
+    Scoping it to this process rather than editing the machine's configuration
+    is deliberate: the test declares its own boundary, exactly as the guard
+    requires of any caller, and leaves nothing behind in the environment.
+    """
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(SCRATCH_ROOT / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(SCRATCH_ROOT / "memory.sqlite3"))
+
+
 def assert_inside_scratch(*paths: Path) -> None:
     """Refuse to continue unless every path is the scratch root or below it.
 
@@ -67,6 +93,22 @@ def assert_inside_scratch(*paths: Path) -> None:
             raise AssertionError(f"refusing to touch {resolved}: outside {root}")
 
 
+def scratch_store() -> Path:
+    """The one directory this file is allowed to create and re-permission.
+
+    Created here rather than assumed, because `SetNamedSecurityInfoW` needs the
+    object to exist. `C:\\jarvis-test-scratch` itself is never a target and is
+    never created by this file: it exists because a person made it, and that is
+    the signal that a real-permission test is wanted. Its own access control is
+    left exactly as it was found.
+    """
+    if SCRATCH_STORE.resolve(strict=False) == SCRATCH_ROOT.resolve(strict=False):
+        raise AssertionError("the scratch root itself must never be a target")
+    SCRATCH_STORE.mkdir(parents=True, exist_ok=True)
+    assert_inside_scratch(SCRATCH_STORE)
+    return SCRATCH_STORE
+
+
 @windows_only
 @scratch_only
 def test_the_applied_dacl_is_the_inheriting_one_windows_actually_stores() -> None:
@@ -76,13 +118,13 @@ def test_the_applied_dacl_is_the_inheriting_one_windows_actually_stores() -> Non
     identical from the caller's side. The original defect was a DACL that
     looked right in the source and left the user locked out of his own folder.
     """
-    assert_inside_scratch(SCRATCH_STORE)
+    store = scratch_store()
 
     sid = current_user_sid()
-    assert_inside_scratch(SCRATCH_STORE)
-    _REAL_APPLY(SCRATCH_STORE, sid, store_root=SCRATCH_ROOT)
+    assert_inside_scratch(store)
+    _REAL_APPLY(store, sid, store_root=SCRATCH_ROOT)
 
-    applied = tree_owner_sddl(SCRATCH_STORE)
+    applied = tree_owner_sddl(store)
     assert f"O:{sid}" in applied, applied
     # The three principals, and crucially the inheritance flags: without OI/CI
     # the ACEs apply to this folder only, which is what emptied a profile.
@@ -109,9 +151,10 @@ def test_a_child_created_under_the_store_inherits_access() -> None:
     """
     assert_inside_scratch(SCRATCH_STORE)
 
+    store = scratch_store()
     sid = current_user_sid()
-    nested = SCRATCH_STORE / "nested"
-    _REAL_APPLY(SCRATCH_STORE, sid, store_root=SCRATCH_ROOT)
+    nested = store / "nested"
+    _REAL_APPLY(store, sid, store_root=SCRATCH_ROOT)
     nested.mkdir(exist_ok=True)
     assert_inside_scratch(nested)
 
