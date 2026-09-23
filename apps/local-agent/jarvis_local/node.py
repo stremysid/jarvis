@@ -10,6 +10,7 @@ quarantine changes and their receipts remain on the cycle thread.
 
 from __future__ import annotations
 
+import logging
 import os
 import posixpath
 import shlex
@@ -28,8 +29,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
 from jarvis_local.archive.database import SQLiteDirectoryError
-from jarvis_local.archive.store_permissions import permit_real_dacl
+from jarvis_local.archive.store_permissions import store_root_summary
 from jarvis_local.config import JarvisLocalConfig
+
+logger = logging.getLogger(__name__)
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
@@ -710,13 +713,12 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
             # sentence saying which host this command is for.
             if not _running_on_windows():
                 raise NodeConfigurationError("jarvis serve binds the Windows named pipe and requires Windows")
-            # The service is the one caller allowed to change a store's
-            # permissions, and it says so here rather than leaving the capability
-            # ambient. `store_permissions` refuses a real DACL write without
-            # this, so an ad-hoc script or a test that reaches the same code
-            # cannot rewrite a folder's access control by accident -- which is
-            # how the account's profile was destroyed on 2026-09-22.
-            permit_real_dacl()
+            # Says out loud which directories this process may change
+            # permissions inside. The guard refuses anything else, so a store
+            # configured outside these roots is a refusal rather than a silent
+            # rewrite, and this line is how a reader of the log sees which
+            # boundary applied without reconstructing it from the environment.
+            logger.info("store roots for this service: %s", store_root_summary())
             settings = NodeSettings.from_config(config)
             runtime = build_node(settings, control_factory=_windows_control_endpoint, platform=current_platform)
             # No signal handlers: Windows delivers Ctrl+C to every process

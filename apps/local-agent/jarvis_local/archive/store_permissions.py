@@ -126,35 +126,54 @@ class UnsafeStorePathError(RuntimeError):
     """
 
 
-class RealDaclNotPermittedError(RuntimeError):
-    """A real DACL write was attempted without the explicit opt-in.
-
-    Every function here that changes a permission is gated on
-    `JARVIS_ALLOW_REAL_DACL` for one reason: on 2026-09-22 the ordinary act of
-    *running the test suite on this PC* rewrote the user's profile, because this
-    module applies a DACL whenever a store is opened and `SetNamedSecurityInfoW`
-    propagates to everything below. Anything that reaches these calls on a real
-    machine now has to say so out loud.
-
-    `jarvis serve` is the only production caller and permits it explicitly. The
-    test suite does not: it replaces the seam instead, so no test changes a
-    permission anywhere -- see `tests/conftest.py`.
-    """
-
-
-#: Set to `1` to allow real permission changes. Unset by default, so an ad-hoc
-#: script or a test run cannot damage the machine it runs on.
-_PERMISSION_ENVIRONMENT_VARIABLE = "JARVIS_ALLOW_REAL_DACL"
-
 #: Where the local agent's own stores live, as configured. These are the names
 #: `config.py` already requires, so there is one definition of the store root
 #: rather than a second copy free to drift from it.
 _ARCHIVE_PATH_VARIABLE = "JARVIS_ARCHIVE_PATH"
 _MEMORY_PATH_VARIABLE = "JARVIS_MEMORY_PATH"
 
+#: The fixed fallback, and the one the live PC actually uses:
+#: `%LOCALAPPDATA%\\Jarvis`, which holds `data` and therefore the stores.
+_FALLBACK_DIRECTORY_NAME = "Jarvis"
+
+
+class StoreRootUnresolvedError(RuntimeError):
+    """No store root could be determined, so no boundary can be checked.
+
+    Raised rather than answered with an empty tuple. An empty result used to
+    mean "no boundary configured", and `_refuse_unsafe_path` skipped the check
+    on an empty result -- so a blank or missing configuration silently removed
+    the guard on the one call that changes real permissions.
+    """
+
+
+def _default_store_root() -> Path:
+    """`%LOCALAPPDATA%\\Jarvis`, or the POSIX equivalent.
+
+    The POSIX leg exists so the Ubuntu job can exercise this path instead of
+    skipping it; nothing in the fleet runs there, but a guard that cannot be
+    tested is a guard nobody has tested.
+    """
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA", "").strip()
+        if base:
+            return Path(base) / _FALLBACK_DIRECTORY_NAME
+        profile = os.environ.get("USERPROFILE", "").strip()
+        if profile:
+            return Path(profile) / "AppData" / "Local" / _FALLBACK_DIRECTORY_NAME
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+        if xdg:
+            return Path(xdg) / "jarvis"
+        if Path.home():
+            return Path.home() / ".local" / "share" / "jarvis"
+    raise StoreRootUnresolvedError(
+        "cannot locate the Jarvis data directory; set JARVIS_ARCHIVE_PATH and JARVIS_MEMORY_PATH"
+    )
+
 
 def configured_store_roots() -> tuple[Path, ...]:
-    """The directories Jarvis's own stores live in, from the configuration.
+    """The directories Jarvis's own stores live in. Never empty, never broad.
 
     This is the boundary, and it is deliberately **not** derived from the path
     being changed. An earlier version took `store_root = path.parent`, which
@@ -163,32 +182,73 @@ def configured_store_roots() -> tuple[Path, ...]:
     that had opted into real DACL writes could then have named anything on the
     machine.
 
-    Derived from the configured store *files* rather than from
-    `%LOCALAPPDATA%\\Jarvis` directly because that is the setting which actually
-    defines where the data goes, and `NodeSettings.from_config` already checks
-    it is absolute.
+    An earlier version of *this* function returned an empty tuple when the
+    variables were unset, and the guard treated empty as "no boundary" -- so a
+    missing configuration removed the guard entirely. Two rules now:
+
+    * **Unset falls back to `%LOCALAPPDATA%\\Jarvis`**, the fixed location the
+      live store is under, so there is always a real boundary.
+    * **Set to empty is a misconfiguration and raises.** Falling back from a
+      blank value would hide a broken configuration and widen the boundary the
+      administrator thought they had set.
+
+    The result is refused if it turns out to be a filesystem root, the user
+    profile, or a temp directory: a store there is a misconfiguration, and
+    accepting it would hand back exactly the broad boundary this exists to
+    prevent.
     """
     roots: list[Path] = []
+    supplied = False
     for variable in (_ARCHIVE_PATH_VARIABLE, _MEMORY_PATH_VARIABLE):
-        value = os.environ.get(variable, "").strip()
-        if not value:
+        if variable not in os.environ:
             continue
+        value = os.environ[variable].strip()
+        if not value:
+            raise StoreRootUnresolvedError(f"{variable} is set but empty")
+        supplied = True
         roots.append(Path(value).parent.resolve(strict=False))
+    if not supplied:
+        roots.append(_default_store_root().resolve(strict=False))
+    for root in roots:
+        _refuse_broad_root(root)
     return tuple(dict.fromkeys(roots))
 
 
-def real_dacl_permitted() -> bool:
-    return os.environ.get(_PERMISSION_ENVIRONMENT_VARIABLE, "") == "1"
+def store_root_summary() -> str:
+    """The resolved store roots, as one line, for a startup log.
 
-
-def permit_real_dacl() -> None:
-    """Allow real permission changes for the rest of this process.
-
-    Called by `jarvis serve`, the one caller that is supposed to change a
-    store's permissions. Importable rather than set through the environment
-    directly so the variable's name lives in exactly one file.
+    Resolves rather than describes: a log line that restated the environment
+    variables would not show the fallback, and the fallback is the part a reader
+    cannot infer. Says so explicitly when the default applied, because "the
+    default" and "an administrator chose this" must not look alike in a log
+    somebody is reading at 2am.
     """
-    os.environ[_PERMISSION_ENVIRONMENT_VARIABLE] = "1"
+    supplied = any(
+        os.environ.get(variable, "").strip()
+        for variable in (_ARCHIVE_PATH_VARIABLE, _MEMORY_PATH_VARIABLE)
+    )
+    try:
+        roots = configured_store_roots()
+    except StoreRootUnresolvedError as error:
+        # The service is going to refuse; the log should say why before it does.
+        return f"unresolved ({error})"
+    rendered = ", ".join(os.fspath(root) for root in roots)
+    return rendered if supplied else f"{rendered} (default; no store path configured)"
+
+
+def _refuse_broad_root(root: Path) -> None:
+    """Refuse a boundary that is too wide to be a store root.
+
+    `%LOCALAPPDATA%\\Jarvis` is the intended shape. A drive root, the profile
+    itself, or `Temp` would all make the containment check largely cosmetic, so
+    they are refused where they are configured rather than at each write.
+    """
+    if root.parent == root:
+        raise StoreRootUnresolvedError(f"a filesystem root is not a store root: {root}")
+    for variable in ("USERPROFILE", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME"):
+        value = os.environ.get(variable, "").strip()
+        if value and root == Path(value).resolve(strict=False):
+            raise StoreRootUnresolvedError(f"{variable} is not a store root: {root}")
 
 
 def folder_only_sddl(user_sid: str) -> str:
@@ -228,10 +288,6 @@ def apply_owner_only_dacl(path: Path, user_sid: str, *, store_root: Path) -> Non
     same trap.
     """
     target = _refuse_unsafe_path(path, store_root)
-    if not real_dacl_permitted():
-        raise RealDaclNotPermittedError(
-            f"refusing to change permissions on {target}; set {_PERMISSION_ENVIRONMENT_VARIABLE}=1 to allow it"
-        )
     advapi32, kernel32 = _windows_apis()
     descriptor = ctypes.c_void_p()
     length = ctypes.c_ulong()
@@ -506,14 +562,13 @@ def _windows_apis() -> tuple[ctypes.WinDLL, ctypes.WinDLL]:  # type: ignore[name
 
 
 __all__ = [
-    "RealDaclNotPermittedError",
+    "StoreRootUnresolvedError",
     "UnsafeStorePathError",
     "apply_owner_only_dacl",
+    "configured_store_roots",
     "current_user_sid",
     "ensure_private_directory",
     "folder_only_sddl",
-    "permit_real_dacl",
-    "real_dacl_permitted",
     "repair_store_tree",
     "tree_owner_sddl",
 ]

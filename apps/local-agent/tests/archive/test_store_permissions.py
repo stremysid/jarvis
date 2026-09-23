@@ -26,6 +26,7 @@ from jarvis_local.archive.store_permissions import (
     ensure_private_directory,
     folder_only_sddl,
     repair_store_tree,
+    store_root_summary,
     tree_owner_sddl,
 )
 
@@ -169,7 +170,6 @@ def stub(monkeypatch: pytest.MonkeyPatch) -> StubWin32:
     # here exercise the write path, and would otherwise stop at the gate that
     # exists to stop a *test run* from writing a DACL. Nothing real is reached
     # because `_windows_apis` above cannot call Windows.
-    monkeypatch.setattr(store_permissions, "real_dacl_permitted", lambda: True)
     return stub
 
 
@@ -423,7 +423,6 @@ def test_a_path_outside_the_configured_root_is_refused_and_windows_is_never_reac
     (tmp_path / "Documents").mkdir()
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(configured / "archive.sqlite3"))
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(configured / "memory.sqlite3"))
-    monkeypatch.setattr(store_permissions, "real_dacl_permitted", lambda: True)
     stub = StubWin32()
     monkeypatch.setattr(store_permissions, "_windows_apis", stub)
 
@@ -515,7 +514,6 @@ def test_repair_validates_against_the_boundary_it_is_given_not_the_walk_root(
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(outside / "archive.sqlite3"))
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(outside / "memory.sqlite3"))
     monkeypatch.setattr(store_permissions, "_windows_apis", StubWin32())
-    monkeypatch.setattr(store_permissions, "real_dacl_permitted", lambda: True)
 
     # The walk root is not inside the boundary handed in, so every directory is
     # refused and collected -- a repair is best-effort and does not raise.
@@ -553,29 +551,106 @@ def test_the_real_functions_accept_the_keywords_the_open_path_passes() -> None:
             )
 
 
-def test_the_store_permission_calls_are_gated_off_by_default() -> None:
-    """The default has to be inert: this is what stops a stray script.
+def test_no_gate_environment_variable_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The opt-in gate was removed, and this keeps it removed.
 
-    The suite stubs these away, so this asserts the gate itself rather than
-    relying on the stub's absence to prove it.
+    `JARVIS_ALLOW_REAL_DACL` gated every real DACL write, and it broke `jarvis
+    vault` and the compatibility gate -- commands that worked before. The safety
+    it was supposed to add is the boundary check, which is unconditional, and
+    the suite's own seam replacement. A gate that silently disables a legitimate
+    command is worse than no gate, so it must not come back by accident.
     """
-    assert "JARVIS_ALLOW_REAL_DACL" not in os.environ, (
-        "the ambient environment permits real DACL writes; the suite must not"
-    )
-    assert store_permissions.real_dacl_permitted() is False
+    assert "JARVIS_ALLOW_REAL_DACL" not in os.environ
+    assert not hasattr(store_permissions, "real_dacl_permitted")
+    assert not hasattr(store_permissions, "permit_real_dacl")
+    assert not hasattr(store_permissions, "RealDaclNotPermittedError")
 
 
-def test_an_ungated_call_raises_before_any_win32_call(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """With the gate off, the refusal happens before the seam is even reached."""
-    monkeypatch.delenv("JARVIS_ALLOW_REAL_DACL", raising=False)
+def test_unset_store_paths_fall_back_to_the_jarvis_data_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Unset must never mean "no boundary" -- it means the fixed default.
+
+    This is the second version of the same mistake: the roots used to come back
+    empty, and the guard skipped its check on an empty result, so a missing
+    configuration removed the guard on the one call that changes permissions.
+    """
+    monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
+    monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
+    local_app_data = tmp_path / "AppData" / "Local"
+    local_app_data.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+
+    roots = store_permissions.configured_store_roots()
+    assert roots == (local_app_data / "Jarvis",), roots
+    assert roots, "an empty result would disable the guard"
+
+
+def test_a_path_outside_the_default_root_is_refused_when_nothing_is_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The default is a boundary, so the check still refuses."""
+    monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
+    monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
+    local_app_data = tmp_path / "AppData" / "Local"
+    (local_app_data / "Jarvis").mkdir(parents=True)
+    documents = tmp_path / "Documents"
+    documents.mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
     stub = StubWin32()
     monkeypatch.setattr(store_permissions, "_windows_apis", stub)
+
+    # `store_root=documents` is the shape that isolates this check: it satisfies
+    # the containment test, so only the default-root boundary can refuse it.
+    with pytest.raises(UnsafeStorePathError, match="outside every configured store root"):
+        _REAL_APPLY(documents / "notes.txt", SID, store_root=documents)
+    assert stub.paths == [], "Win32 was reached for a path outside the default root"
+
+
+def test_an_empty_store_path_is_refused_rather_than_falling_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Set-but-empty is a misconfiguration, not an invitation to fall back.
+
+    Falling back from a blank value would hide a broken configuration and widen
+    the boundary an administrator believed they had set, so it fails loudly.
+    """
+    monkeypatch.setenv("LOCALAPPDATA", os.fspath(tmp_path / "AppData" / "Local"))
+    for variable in ("JARVIS_ARCHIVE_PATH", "JARVIS_MEMORY_PATH"):
+        monkeypatch.setenv(variable, "   ")
+        with pytest.raises(store_permissions.StoreRootUnresolvedError, match="set but empty"):
+            store_permissions.configured_store_roots()
+
+
+def test_a_broad_store_root_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A boundary that wide is barely a boundary, so it is refused where set."""
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setenv("TEMP", os.fspath(tmp_path))
+    with pytest.raises(store_permissions.StoreRootUnresolvedError, match="is not a store root"):
+        store_permissions.configured_store_roots()
 
-    with pytest.raises(store_permissions.RealDaclNotPermittedError, match="JARVIS_ALLOW_REAL_DACL"):
-        _REAL_APPLY(tmp_path, SID, store_root=tmp_path)
-    assert stub.paths == [], "Win32 was reached despite the gate being off"
+
+def test_the_startup_summary_names_the_default_when_nothing_is_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The log must distinguish the fallback from a configured choice."""
+    monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
+    monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
+    local_app_data = tmp_path / "AppData" / "Local"
+    local_app_data.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+
+    assert store_root_summary() == f"{local_app_data / 'Jarvis'} (default; no store path configured)"
+
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    assert store_root_summary() == os.fspath(tmp_path)
+
+
+def test_the_startup_summary_reports_an_unresolvable_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A service that is going to refuse should say why in the log first."""
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", "")
+    assert store_root_summary().startswith("unresolved (")
 
 
 def test_tree_owner_sddl_reports_the_returned_code(monkeypatch: pytest.MonkeyPatch) -> None:

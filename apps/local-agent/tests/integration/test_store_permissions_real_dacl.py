@@ -78,7 +78,6 @@ def test_the_applied_dacl_is_the_inheriting_one_windows_actually_stores() -> Non
     """
     assert_inside_scratch(SCRATCH_STORE)
 
-    store_permissions.permit_real_dacl()
     sid = current_user_sid()
     assert_inside_scratch(SCRATCH_STORE)
     _REAL_APPLY(SCRATCH_STORE, sid, store_root=SCRATCH_ROOT)
@@ -110,7 +109,6 @@ def test_a_child_created_under_the_store_inherits_access() -> None:
     """
     assert_inside_scratch(SCRATCH_STORE)
 
-    store_permissions.permit_real_dacl()
     sid = current_user_sid()
     nested = SCRATCH_STORE / "nested"
     _REAL_APPLY(SCRATCH_STORE, sid, store_root=SCRATCH_ROOT)

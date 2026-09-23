@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import json
+import logging
 import os
 import shlex
 import signal
@@ -1222,6 +1223,34 @@ def test_the_posix_owner_and_mode_checks_are_not_applied_to_a_windows_assembly(
     with pytest.raises(NodeStartupError, match="group or world"):
         _validate_existing_device_key(key, platform="linux")
     _validate_existing_device_key(key, platform="win32")
+
+
+def test_serve_logs_the_store_roots_it_will_change_permissions_inside(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path,
+) -> None:
+    """Which boundary applies must be visible in the log, not inferred.
+
+    The guard refuses a store outside these roots, so a support read of the log
+    needs the resolved roots -- including when they came from the fallback
+    rather than from configuration, which is the part nobody can reconstruct
+    from the environment afterwards.
+    """
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+    monkeypatch.setattr(
+        "jarvis_local.node.build_node",
+        lambda *_args, **_kwargs: NodeRuntime(StoppingLoop(ServiceState()), ServiceState(), FakeControl()),
+    )
+
+    from jarvis_local.node import _serve
+
+    with caplog.at_level(logging.INFO, logger="jarvis_local.node"):
+        _serve(JarvisLocalConfig.load(windows_environment()), command="serve")
+
+    logged = [record.getMessage() for record in caplog.records if "store root" in record.getMessage()]
+    assert logged, "the serve path logged no store root"
+    assert os.fspath(tmp_path) in logged[0], logged
 
 
 def test_serve_refuses_a_host_that_cannot_bind_the_pipe(
