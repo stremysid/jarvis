@@ -491,6 +491,43 @@ def test_the_store_directory_helper_refuses_a_database_file_path(tmp_path: Path)
         archive_database._ensure_sqlite_directory(tmp_path / "archive.sqlite3")
 
 
+def test_repair_validates_against_the_boundary_it_is_given_not_the_walk_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`store_root` must reach the guard, not be quietly replaced by `root`.
+
+    `repair_store_tree` takes both because the walk chooses directories and a
+    walk that also chose the boundary would be free to reach anything. Every
+    other test here passes them as the same value, so an implementation that
+    dropped the parameter and used `root` would look identical -- which is
+    exactly the shape of the defect this module came from.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    seen: list[Path] = []
+    original = store_permissions._refuse_unsafe_path
+
+    def spy(path: Path, store_root: Path) -> Path:
+        seen.append(store_root)
+        return original(path, store_root)
+
+    monkeypatch.setattr(store_permissions, "_refuse_unsafe_path", spy)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(outside / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(outside / "memory.sqlite3"))
+    monkeypatch.setattr(store_permissions, "_windows_apis", StubWin32())
+    monkeypatch.setattr(store_permissions, "real_dacl_permitted", lambda: True)
+
+    # The walk root is not inside the boundary handed in, so every directory is
+    # refused and collected -- a repair is best-effort and does not raise.
+    failures = _REAL_REPAIR(outside, SID, store_root=tmp_path / "elsewhere")
+    assert failures == (outside,), failures
+    # And the boundary the guard actually received was the one passed, never the
+    # walk root it would have defaulted to. This is the assertion the mutation
+    # trips: dropping the parameter makes the two identical.
+    assert seen, "the guard was never called"
+    assert all(boundary != outside for boundary in seen), seen
+
+
 def test_the_real_functions_accept_the_keywords_the_open_path_passes() -> None:
     """A signature mismatch that the seam stub hid, and that nothing caught.
 
