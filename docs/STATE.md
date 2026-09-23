@@ -97,10 +97,10 @@ Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**A timeout is now a signal.** With `testTimeout` set, a red run
-means something — except in the three flaky tests above, each of which
-should be re-run before a failure there is attributed. Merge on CI, not on a local
-run alone.
+**A runner timeout is separate from an operation deadline.** Setting `testTimeout`
+does not prevent a 450 ms retrieval deadline from firing under load. The two Telegram
+causes and their measured fixes are in [QUEUE.md](QUEUE.md); an assertion failure by
+itself proves neither ordering nor a timeout. Merge on CI, not on a local run alone.
 
 ## Live defects
 
