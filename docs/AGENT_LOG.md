@@ -26,8 +26,31 @@ The mutation spec now has 51 entries: six review-supplied query faults, the
 dangling-link fault, the health guard and a hardcoded health projection, plus
 the existing 42. The old cause-propagation mutation is replaced by an explicit
 MSI-absence fallback mutation because causes no longer select fallback.
-The complete revision gates and restored mutation results will be recorded
-here before this revision is pushed.
+Revision evidence at `e12b349ac61cc6b5abceb6b3b37eb0d2521bae3b`:
+
+- **51/51 mutations killed**, each expected failure confirmed twice; **0**
+  survived, wrong-test, unconfirmed, not-applied or invalid. The source restore
+  was byte-identical. The subsequent focused run passed **64, failed 0,
+  skipped 0** (46 host, 14 integrity, 4 PATH-shadow/security tests).
+- Broader permitted Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
+  37.32 seconds. Excluded source-lock and workflow-containment as requested.
+  **Also excluded attestation-contract's seven tests**: its temporary fixtures
+  call `chmod`, conflicting with Sid's new no-permission-changes rule. Asked
+  whether to permit those fixture calls; no permission received before this
+  run. This is not the requested complete 16-file gate. The decision is in
+  `OWNER-ACTIONS.md`; no fixture permissions were changed.
+- Package lint and typecheck: exit 0 each, four configured syntax checks each.
+  Gate script parses; six isolated allowance checks pass (the three SBOM
+  failures are no longer excused, source-lock remains, a different source-lock
+  failure is rejected, and the allowance has exactly one entry).
+  `node scripts/check-state.mjs` passed all three carriers after the owner-action
+  row was added; no check failed.
+- Read-only Windows Appx recheck reports Store signing, non-development mode,
+  `Status = Ok`, the Microsoft family and the same 7.6.6 installation location.
+
+No flaky-file rerun was needed. Detailed red/green reports and mutation output
+are `C:\Users\Sid\codex-ledgers\hermes-msix-r1-*`. This revision leaves the
+permissions, registry, services, tasks and forbidden scratch path alone.
 
 Initial submission evidence follows; these counts predate fix round 1.
 
