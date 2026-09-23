@@ -8,6 +8,7 @@ the same defect the append-only triggers exist to prevent.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
@@ -17,8 +18,14 @@ from pathlib import Path
 
 from jarvis_local.archive.append_only import assert_append_only
 
+logger = logging.getLogger(__name__)
+
 MIGRATIONS_DIRECTORY = Path(__file__).resolve().parent / "migrations"
 _MIGRATION_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
+
+#: Extensions `_ensure_sqlite_directory` refuses. It takes the directory that
+#: holds the store, never the store file itself.
+_SQLITE_FILE_SUFFIXES = frozenset({".sqlite", ".sqlite3", ".db"})
 
 _SCHEMA_MIGRATION = """
 CREATE TABLE IF NOT EXISTS schema_migration (
@@ -86,7 +93,69 @@ def _restrict_sqlite_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _make_directory_private(directory: Path, *, store_root: Path) -> None:
+    """Create `directory` so only its own user, SYSTEM and Administrators can read it.
+
+    POSIX takes a mode and asks again. Windows cannot: `mkdir(mode=0o700)` is
+    actively wrong there since CPython 3.12.4, so the DACL is written explicitly
+    instead. `store_permissions` carries the measurement and the reasoning; the
+    short version is that an elevated creator becomes the Administrators-owned
+    object, `OW` stops naming the user, and his own session is then shut out --
+    which is the folder this store was found in.
+
+    `store_root` is the boundary `store_permissions` checks every write against.
+    """
+    if _is_posix():
+        directory.mkdir(mode=stat.S_IRWXU, exist_ok=True)
+        _restrict_sqlite_directory(directory)
+        return
+    from jarvis_local.archive.store_permissions import ensure_private_directory
+    from jarvis_local.transport.pipe_server import current_user_sid
+
+    ensure_private_directory(directory, current_user_sid(), store_root=store_root)
+
+
+def repair_store_permissions(path: Path) -> tuple[Path, ...]:
+    """Re-apply the private DACL to the store directory and everything under it.
+
+    Called when a store is opened so a running agent repairs a folder that was
+    created the old way, which is the only way the live `%LOCALAPPDATA%\\Jarvis`
+    tree gets fixed without an elevated shell and an `icacls` incantation.
+    A no-op away from Windows, and it does not create anything.
+
+    **This descends only, and that is not a detail.** The first version walked
+    `path.parents` to the drive root and applied the same restrictive DACL to
+    every directory on the way up. `C:\\Users\\Sid` was rewritten, Windows
+    recomputed every item beneath it from a folder that no longer passed
+    anything down, and the account lost its entire profile -- twice, and `C:\\`
+    on the second run. Nothing above `path` is touched here, and
+    `_refuse_unsafe_path` in `store_permissions` refuses it if a future caller
+    tries.
+
+    Returns the paths it could not fix; `store_permissions` logs each one as it
+    happens, so a failure stays visible even when this return value is dropped.
+    """
+    if _is_posix() or not path.exists() or not path.is_dir():
+        return ()
+    from jarvis_local.archive.store_permissions import repair_store_tree
+    from jarvis_local.transport.pipe_server import current_user_sid
+
+    return repair_store_tree(path, current_user_sid())
+
+
 def _ensure_sqlite_directory(path: Path) -> None:
+    """Make `path` a private directory, creating each missing component.
+
+    `path` is a **directory**. Passing the `.sqlite3` file is a mistake this
+    now refuses loudly: the first version was handed a file path by a test, so
+    it created a directory literally named `archive.sqlite3` and worked out the
+    store root from there -- on the way to rewriting a profile.
+    """
+    if _SQLITE_FILE_SUFFIXES and path.suffix in _SQLITE_FILE_SUFFIXES:
+        raise SQLiteDirectoryError(f"{path} is a file, not the store directory that contains it")
+    # The outermost directory this call may touch, and the boundary every write
+    # below is checked against. Derived here, once, rather than by each caller.
+    store_root = path.parent
     # pathlib's parents=True applies mode only to the final directory. Create
     # and inspect each missing component so the node never makes a public
     # ancestor while creating a private store beneath it.
@@ -96,10 +165,19 @@ def _ensure_sqlite_directory(path: Path) -> None:
             break
         missing.append(directory)
     for directory in reversed(missing):
-        directory.mkdir(mode=stat.S_IRWXU, exist_ok=True)
+        _make_directory_private(directory, store_root=store_root)
+        # A no-op on Windows, where the DACL above is the guard, and the
+        # inspection that refuses a world-readable store on POSIX.
         _restrict_sqlite_directory(directory)
     if not missing:
-        _restrict_sqlite_directory(path)
+        if _is_posix():
+            _restrict_sqlite_directory(path)
+        else:
+            # A store directory that already exists may still have been created
+            # by an elevated process the old way, and its DACL has to be
+            # re-applied for the user's own session to reach it.
+            for failed in repair_store_permissions(path):
+                logger.warning("store permissions could not be repaired at %s", failed)
 
 
 def connect(path: Path) -> sqlite3.Connection:

@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
 from jarvis_local.archive.database import SQLiteDirectoryError
+from jarvis_local.archive.store_permissions import permit_real_dacl
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
@@ -709,6 +710,13 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
             # sentence saying which host this command is for.
             if not _running_on_windows():
                 raise NodeConfigurationError("jarvis serve binds the Windows named pipe and requires Windows")
+            # The service is the one caller allowed to change a store's
+            # permissions, and it says so here rather than leaving the capability
+            # ambient. `store_permissions` refuses a real DACL write without
+            # this, so an ad-hoc script or a test that reaches the same code
+            # cannot rewrite a folder's access control by accident -- which is
+            # how the account's profile was destroyed on 2026-09-22.
+            permit_real_dacl()
             settings = NodeSettings.from_config(config)
             runtime = build_node(settings, control_factory=_windows_control_endpoint, platform=current_platform)
             # No signal handlers: Windows delivers Ctrl+C to every process
