@@ -36,6 +36,7 @@ import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_n
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
 import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
 import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
+import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0040_tool_confirmation_consumptions.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -137,6 +138,7 @@ export async function applyMemoryIngressMigration(): Promise<void> {
       name: "0038_memory_lifetime_and_pins.sql",
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
+    { name: "0040_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -303,6 +305,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       name: "0038_memory_lifetime_and_pins.sql",
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
+    { name: "0040_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -351,6 +354,7 @@ const allCloudGatewayMigrations = Object.freeze([
     name: "0038_memory_lifetime_and_pins.sql",
     queries: splitMigration(memoryLifetimeAndPinsSql),
   },
+  { name: "0040_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
 ]);
 
 /**

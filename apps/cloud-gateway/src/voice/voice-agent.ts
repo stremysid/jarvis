@@ -161,7 +161,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       recordReferences: (): void => undefined,
       /**
        * The decision is raised durably in the core and that is the whole
-       * authorization: `findStandingDecision` looks a tap up by capability and
+       * authorization: `consumeStandingDecision` claims a tap by capability and
        * argument fingerprint with no channel in the query, so a tap Sid gives
        * in Telegram authorizes the same call. What a call cannot do is present
        * the question, which is what the spoken refusal says.
