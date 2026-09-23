@@ -584,6 +584,37 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
 }
 
+export const UNRECEIPTED_VOICE_ACTION = "I can't confirm that action.";
+
+// Voice has no claimedActions envelope. These cover the memory operations
+// that envelope could declare, including subjectless and passive completions.
+const VOICE_MEMORY_COMPLETION = new RegExp(
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:(?:have|has|am|are)\s+)?(?:(?:already|just|now|also|successfully)\s+)*(?:saved|saving|stored|storing|recorded|recording|updated|updating|changed|changing|corrected|correcting|remembered|remembering|forgot|forgotten|forgetting|deleted|deleting|removed|removing|restored|restoring|confirmed|confirming|pinned|pinning|unpinned|unpinning|scheduled|scheduling|completed|completing)\b|\b(?:it|that|this|memory|fact|note|preference)\b\s*(?:['’]s|is|was|has\s+been)\s+(?:(?:already|just|now)\s+)?(?:saved|stored|recorded|updated|changed|corrected|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled)\b|^\s*(?:done|saved|stored|recorded|updated|changed|corrected|remembered|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled|submitted|sent|booked|paid)\b`,
+  "iu",
+);
+
+/**
+ * Only the sentence about to be spoken can supply an exemption. A denial or
+ * draft in a later sentence cannot legalise words the caller already heard.
+ * Receipts are exact code-owned text, never a model's receipt-id declaration.
+ */
+export function guardVoiceReplySentence(sentence: string, receipts: ReadonlySet<string>): string {
+  const text = sentence.replace(/\s+/gu, " ").trim();
+  const secretScan = text.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;
+  if (receipts.has(text)) return text;
+  const scan = exemptDraftAndReportSpans(text);
+  const external = offendingSentenceRanges(text, scan, FALSE_EXTERNAL_COMPLETIONS).length > 0
+    || unsafeFirstPersonRanges(text, scan, new Set()).length > 0;
+  if (external) return UNRECEIPTED_VOICE_ACTION;
+  // Both helpers receive exactly one complete sentence, including its own
+  // attribution/denial, rather than borrowing one from elsewhere in the reply.
+  if (hasPassiveExternalCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;
+  if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;
+  if (VOICE_MEMORY_COMPLETION.test(scan)) return UNRECEIPTED_VOICE_ACTION;
+  return text;
+}
+
 function boundedUtf8(value: string, maximumBytes: number): string {
   if (encoder.encode(value).byteLength <= maximumBytes) return value;
   let result = "";

@@ -52,7 +52,7 @@ describe("production Worker voice and Telegram composition", () => {
         // non-streaming `completeAgent` request; the streaming shape is what a
         // bare `DeepSeekModelAdapter` asks for on other channels.
         if (body.stream === true) {
-          return new Response('data: {"choices":[{"delta":{"content":"Worker socket reply."}}]}\n\ndata: [DONE]\n\n',
+          return new Response('data: {"choices":[{"index":0,"delta":{"content":"Worker socket reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             { headers: { "content-type": "text/event-stream" } });
         }
         return Response.json({
@@ -134,7 +134,7 @@ describe("production Worker voice and Telegram composition", () => {
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
     vi.advanceTimersByTime(2_001);
     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worker question", lang: "en-US", last: true }));
-    await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.", last: false }));
+    await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.\n", last: false }));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(1);
     const closes: number[] = []; socket.addEventListener("close", (event) => { closes.push(event.code); });
     const count = requests.length;

@@ -2370,12 +2370,10 @@ describe("CallSession production composition", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       modelBodies.push(body);
       expect(body).toMatchObject({ model: "synthetic-runtime-model" });
-      // The production voice path now reaches the shared owner agent, which is a
-      // non-streaming `completeAgent` request carrying tools. The streaming
-      // shape stays supported because that is what a bare `DeepSeekModelAdapter`
-      // still asks for on every other channel's fallback path.
+      // Both adapters stream, so the composition pin below must still name the
+      // tools and voice prompt. A stream-only assertion would accept a bare model.
       if (body.stream === true) {
-        return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
+        return new Response('data: {"choices":[{"index":0,"delta":{"content":"A composed voice reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
           { headers: { "content-type": "text/event-stream" } });
       }
       expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
@@ -2410,7 +2408,7 @@ describe("CallSession production composition", () => {
     expect(requests.filter((url) => url.includes("api.twilio.com"))).toHaveLength(2);
     expect(call.close).not.toHaveBeenCalled();
     expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))).toContainEqual({
-      type: "text", token: "A composed voice reply.", last: false,
+      type: "text", token: "A composed voice reply.\n", last: false,
     });
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
@@ -2430,12 +2428,15 @@ describe("CallSession production composition", () => {
 
     expect(modelBodies).toHaveLength(1);
     const body = modelBodies[0] as Record<string, unknown>;
-    expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
+    expect(body).toMatchObject({ stream: true, tool_choice: "auto" });
+    expect(body).not.toHaveProperty("response_format");
     expect((body.tools as { function: { name: string } }[]).map((tool) => tool.function.name))
       .toEqual(MEMORY_TOOL_DEFINITIONS.map((tool) => tool.name));
     const [system] = body.messages as { role: string; content: string }[];
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(system?.content).toContain("Return plain spoken text, with no JSON envelope.");
+    expect(system?.content).not.toContain("claimedActions");
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }]);
   });

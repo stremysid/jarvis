@@ -75,6 +75,19 @@ item 1. Enumerated while verifying item 1 rather than by the audit:
 Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
 line whenever anything is dropped, so silence is never unexplained.
 
+### Additional voice finding (2026-09-23)
+
+This register remains partial. `guardReplyClaims` and the voice-only
+`guardVoiceReplySentence` classify whether natural-language wording claims an
+action using regexes. Receipt comparison is proof, but the classification is a
+bounded judgment and cannot cover arbitrary paraphrases. For streaming, the
+accepted stopgap replaces unsupported recognized claims before speech and lets
+only exact receipt sentences establish a completed action. The eventual surface
+is a model-emitted action/receipt reference outside spoken prose, with code
+rendering the receipt; it needs a separately agreed voice protocol. This PR keeps
+the accepted plain-text protocol and records its limitation in
+[voice-streaming.md](voice-streaming.md).
+
 ### Memory
 
 | # | Symbol | The decision code is making | Surface it should move to |
