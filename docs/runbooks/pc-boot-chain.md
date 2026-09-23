@@ -1,9 +1,10 @@
 # The PC boot chain
 
 > **P1 of three.** This runbook installs what happens between pressing the power
-> button and an elevated Jarvis process being alive. It does **not** install the
-> agent: see *What is missing* below, which is the reason the chain currently
-> ends at exit 3.
+> button and an elevated Jarvis process being alive. It now starts the agent as
+> well as the entry point that runs it: `ops/jarvis-boot.ps1` finishes by starting
+> `jarvis serve` and waiting for its control pipe to answer. See *What the agent
+> needed, and why the chain used to stop at exit 3* below.
 >
 > **Read this first if you are Sid.** The auto-login it sets up stores your
 > Windows password in the registry, and anyone who powers the machine on gets a
@@ -17,7 +18,7 @@
 |---|---|---|
 | 1 | Auto-login: power on lands on the desktop with nobody at the keyboard | `ops/jarvis-autologon.ps1` |
 | 2 | A logon-triggered scheduled task at `-RunLevel Highest`: the desktop appears, and the elevated process starts with no UAC prompt | `ops/jarvis-logon-task.ps1` |
-| 3 | The entry point that task runs | `ops/jarvis-boot.ps1` |
+| 3 | The entry point that task runs: checks the agent's configuration, starts `jarvis serve`, and waits for its control pipe | `ops/jarvis-boot.ps1` |
 
 Exactly one machine in the fleet is the host: the **Windows 11 home PC**, one
 local account, `Sid`. `Sid` is not a domain account, so every place a domain name
@@ -156,13 +157,22 @@ task runs on every logon including the ones after a crash. In order:
 2. If a control endpoint is already listening, it asks `status` over that pipe
    and records the answer. A second start is the failure the script is arranged
    to avoid.
-3. Otherwise it runs the agent's own `jarvis doctor`, which names missing
-   configuration variables and never prints a value.
-4. Otherwise it reports what P1 cannot supply: there is no Windows entry point
-   that starts the local agent. See below.
+3. Otherwise it runs the agent's own `jarvis config`, which names the missing
+   configuration variables and never prints a value, and stops unless it
+   answered `configuration ready`.
+4. Otherwise it starts the agent — `Resolve-AgentCommand` — and waits up to 30
+   seconds for that agent's control pipe to answer `status`. The wait is the
+   point: a script that returned 0 while the service died a second later would
+   report a successful boot for a machine with no agent on it.
 
 It never issues `stop`, never deletes anything, and never writes a configuration
 value. That is the brief's "does nothing destructive until told to", applied.
+
+`Resolve-AgentCommand` prefers the checkout it is running from —
+`uv run --project <repo>/apps/local-agent jarvis serve` — and falls back to an
+installed `jarvis` on `PATH` only when that checkout is not there. It returns
+`$null` when neither exists, and the script then reports exit 3 rather than
+guessing at a command.
 
 Exit codes:
 
@@ -170,32 +180,60 @@ Exit codes:
 |---|---|
 | 0 | an agent is listening, or a sibling copy holds the mutex — nothing to do |
 | 2 | the endpoint answered with something this client cannot parse |
-| 3 | no Windows entry point exists to start the agent |
+| 3 | no agent is listening and this run was not allowed to start one, or there is nothing on this machine to start it with |
 | 4 | the agent's configuration is missing or unusable |
+| 5 | the agent was started and its control pipe never answered within 30 s |
+
+Exit 5 is the one worth having: it is the difference between "the boot chain ran"
+and "there is an agent at the other end of the pipe". The agent's own stdout and
+stderr land beside the log at `boot.log.agent.out` and `boot.log.agent.err`,
+because a service that died during startup has nothing else to say.
 
 The log is appended to `%LOCALAPPDATA%\Jarvis\logs\boot.log`, rotated once at
 256 KiB, and printed to the console. It holds variable *names*, counts and
 timestamps. It never holds a value.
 
-### What is missing, and why the chain stops at exit 3
+### What the agent needed, and why the chain used to stop at exit 3
 
-`ops/jarvis-boot.ps1` refuses to start the agent because nothing on Windows can.
-In the tree as of `688fe02`:
+`ops/jarvis-boot.ps1` used to refuse to start the agent because nothing on
+Windows could. In the tree as of `688fe02`:
 
-- `jarvis node` (`apps/local-agent/jarvis_local/node.py`) is the only launcher
-  that binds the control channel, and `NodeSettings.from_config` refuses any
-  platform whose `sys.platform` does not start with `linux` — the
+- `jarvis node` (`apps/local-agent/jarvis_local/node.py`) was the only launcher
+  that bound the control channel, and `NodeSettings.from_config` refused any
+  platform whose `sys.platform` did not start with `linux` — the
   `current_platform.startswith("linux")` check.
-- `apps/local-agent/jarvis_local/transport/pipe_server.py` is a complete,
-  tested Windows named-pipe *server* with no caller. `cli.py` speaks the client
-  half only: `status`, `run-once`, `stop`, `retry-quarantined`.
-- `AGENTS.md` forbids porting the node as a side effect of another task, and that
-  is the correct reading: a second launcher without the store wiring, the device
-  key handling and the cycle loop would be a port wearing a different name.
+- `apps/local-agent/jarvis_local/transport/pipe_server.py` was a complete,
+  tested Windows named-pipe *server* with no caller.
+- `cli.py` spoke the client half only: `status`, `run-once`, `stop`,
+  `retry-quarantined`.
 
-So the boot chain is complete and verified from the power button to an elevated
-`pwsh` running the boot script. What it cannot do yet is put an agent on the other
-end of the pipe. That is a row in [QUEUE.md](../QUEUE.md).
+That is closed now, and the way it was closed is the part worth keeping:
+**one assembly, two platform bindings.** `build_node` already took a
+`ControlFactory` and already guarded its POSIX-only device-key checks, so
+`jarvis serve` calls it with the Windows binding — `pipe_server.py`'s
+`NamedPipeServer` behind the same `ControlServer` the Unix socket path gets.
+`NodeSettings.from_config` takes the platform it is assembling for, so the
+Windows settings are built and tested on the Linux boxes the suite runs on.
+
+**`jarvis serve` is not a port of the node, and it is not a second launcher.**
+It is the same `build_node`, the same `RunLoop`, the same stores and device key;
+the difference between it and `jarvis node` is which class owns the channel.
+`jarvis node` still refuses anything but Linux and `jarvis serve` refuses
+anything but Windows, so neither can quietly be the other.
+
+Two things this needs that the machine did not have, and which are **not**
+secrets:
+
+| Name | Value |
+|---|---|
+| `JARVIS_ARCHIVE_PATH` | an absolute path to the append-only archive |
+| `JARVIS_MEMORY_PATH` | an absolute path to the memory store, a different file |
+
+They belong at **user scope**, for the account the logon task runs as, or at
+machine scope. A value set at user scope is not visible to a process that was
+already running — it is read at the next logon — so a shell that refuses to
+start the agent may simply predate the variable. That is recorded in
+[FACTS.md](../FACTS.md).
 
 ## Running the checks by hand
 
@@ -214,6 +252,12 @@ What each step is worth:
   `ops/boot_pipe_fixture.py`, which answers using the agent's own `read_frame`,
   `decode_request` and `encode_response`. A drift between the boot script's
   client and the real server fails there.
+- **They cannot run while the real agent owns the pipe.** The fixture binds
+  `\\.\pipe\jarvis-local-agent` — the same name — and `FILE_FLAG_FIRST_PIPE_INSTANCE`
+  means exactly one of them can. **Stop the service first** (`jarvis stop`), or
+  point the fixture at another name with `-PipeName`. The step that fails if you
+  do not is a fixture that never opens its pipe, which reads as a broken test
+  rather than a busy name.
 - **The oversized-frame step** is the one guard, and it is mutation-verified.
   `-Mutation` writes a neutered copy through `ops/mutation-oversized-bound.ps1`
   and requires the neutered run to behave differently. Two mutants are checked:
@@ -221,6 +265,25 @@ What each step is worth:
 - **The `-Elevated` steps** register and immediately unregister a task named
   `Jarvis pc-controls acceptance`. Without elevation they report `SKIP`, not
   `PASS` — a skip that reads as a pass is how an unverified claim gets made.
+
+### The exit test for the launcher
+
+There is no suite for the Windows side, so this is the run, in order, with the
+service stopped to begin with:
+
+```powershell
+pwsh -NoProfile -File ops/jarvis-boot.ps1 -ProbeOnly   # exit 3: nothing is listening
+pwsh -NoProfile -File ops/jarvis-boot.ps1              # exit 0: starts it and waits for the pipe
+uv run --project apps/local-agent jarvis status        # the answer, over the pipe
+pwsh -NoProfile -File ops/jarvis-boot.ps1 -ProbeOnly   # exit 0: agent already listening
+uv run --project apps/local-agent jarvis serve         # exit 4: the name is taken, and it says so
+uv run --project apps/local-agent jarvis stop          # the process exits
+pwsh -NoProfile -File ops/jarvis-boot.ps1              # restart; exactly one agent is running
+```
+
+It needs the three configuration names above to be set. `JARVIS_DEVICE_KEY_PATH`,
+`JARVIS_DEVICE_ID`, `JARVIS_PRINCIPAL_ID` and `JARVIS_CLOUD_BASE_URL` are already
+set on this machine; `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` are not.
 
 ## The two things a by-hand run taught that no code review would have
 

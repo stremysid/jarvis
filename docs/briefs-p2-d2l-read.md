@@ -32,7 +32,7 @@ Most of the cloud half is built. The gap is the reader, not the store.
 | Deadlines | `migration 0011_deadlines.sql` | `deadlines`, `deadline_sources` — `last_success_at` lives here, and P3 needs it |
 | The device's signed push | `src/http/sync-routes.ts` | accepts `/sync/pull`, `/sync/ack`, `/memory/distill` (`DISTILL_PATH`), `/sync/memory/project` (`MEMORY_PROJECTION_PATH`) |
 | Credential sealing | `jarvis_local/crypto/dpapi.py` | `DpapiProtector.protect(bytes) -> bytes` / `.unprotect`. Already the pattern this machine uses for the device key |
-| A running agent to host the work | #145 | `jarvis serve`, started at logon. **Merged 2026-09-23 as `ec5ebb5`**, after its review's fixes landed: the lingering shutdown and the Linux CI failures. Nobody has yet observed the agent outliving the boot script under Task Scheduler, so do not assume it does |
+| A running agent to host the work | #145 | `jarvis serve`, started at logon. **Merged 2026-09-23 as `ec5ebb5`**, after its review's fixes landed: the lingering shutdown and the Linux CI failures. It has run from the logon task since 2026-09-23 and outlives the boot script, though it has not yet been seen at a real logon. **It cannot sync yet:** see `briefs-sync-recovery.md` |
 
 **The open design question this brief deliberately does not answer for you:** how the parsed
 assignment reaches `SchoolObservationRepository`. Two shapes:

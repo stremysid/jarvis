@@ -267,10 +267,10 @@ def test_real_socket_retry_and_status_stay_responsive_during_a_slow_cloud_call(
         try:
             assert cloud_started.wait(2)
             response = send_unix_control_request(
-                CliCommand("retry-quarantined", {"fact_id": fact_id}), settings.control_socket_path,
+                CliCommand("retry-quarantined", {"fact_id": fact_id}), settings.control_endpoint_name,
             )
             assert response.code == "queued"
-            status = send_unix_control_request(CliCommand("status"), settings.control_socket_path)
+            status = send_unix_control_request(CliCommand("status"), settings.control_endpoint_name)
             assert status.code == "ok"
             assert f"projection_retry {fact_id} queued" in retry_status(status.lines)
             assert not applied.is_set()
@@ -280,12 +280,12 @@ def test_real_socket_retry_and_status_stay_responsive_during_a_slow_cloud_call(
             expected = "failed" if fail_retry else "applied"
             deadline = time.monotonic() + 2
             while True:
-                status = send_unix_control_request(CliCommand("status"), settings.control_socket_path)
+                status = send_unix_control_request(CliCommand("status"), settings.control_endpoint_name)
                 if f"projection_retry {fact_id} {expected}" in retry_status(status.lines):
                     break
                 assert time.monotonic() < deadline
                 time.sleep(0.001)
-            assert send_unix_control_request(CliCommand("stop"), settings.control_socket_path).code == "ok"
+            assert send_unix_control_request(CliCommand("stop"), settings.control_endpoint_name).code == "ok"
         except BaseException as error:
             errors.append(error)
         finally:
