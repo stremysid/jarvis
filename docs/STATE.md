@@ -24,7 +24,7 @@ launcher `#145` carries.
 
 | PR | What it would change |
 |---|---|
-| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. **This is what unblocks P2 — the PC reading D2L**, the only remaining route to Phase 3's exit test. It also needs `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` at user scope, or the logon chain exits 4 |
+| [#145](https://github.com/stremysid/jarvis/pull/145) | **Phases 3 and 4.** `jarvis serve` binds the Windows control pipe, so the boot chain reaches a live agent instead of exiting 3. **This is what unblocks P2 — the PC reading D2L**, the only remaining route to Phase 3's exit test. It also needs `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` at user scope, or the logon chain exits 4. **Not mergeable yet:** CI is red on Linux, and `serve` lingers holding the pipe instead of exiting when its loop stops. See [QUEUE.md](QUEUE.md) |
 | [#151](https://github.com/stremysid/jarvis/pull/151) | Documentation only: the P2 brief at [`briefs-p2-d2l-read.md`](briefs-p2-d2l-read.md). Moves no verdict |
 
 ## Where the project actually stands

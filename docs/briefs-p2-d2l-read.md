@@ -32,7 +32,7 @@ Most of the cloud half is built. The gap is the reader, not the store.
 | Deadlines | `migration 0011_deadlines.sql` | `deadlines`, `deadline_sources` — `last_success_at` lives here, and P3 needs it |
 | The device's signed push | `src/http/sync-routes.ts` | accepts `/sync/pull`, `/sync/ack`, `/memory/distill` (`DISTILL_PATH`), `/sync/memory/project` (`MEMORY_PROJECTION_PATH`) |
 | Credential sealing | `jarvis_local/crypto/dpapi.py` | `DpapiProtector.protect(bytes) -> bytes` / `.unprotect`. Already the pattern this machine uses for the device key |
-| A running agent to host the work | #145 | `jarvis serve`, started at logon. **This is why #145 must land first** |
+| A running agent to host the work | #145 | `jarvis serve`, started at logon. **It is not mergeable yet.** Its 2026-09-22 review found CI red on Linux, and a `serve` that lingers holding the pipe, instead of exiting, when its loop stops; see `docs/QUEUE.md`. **Do not wait for it:** the reader, its parser and their fixture tests need no running agent. Only running P2 at logon waits on #145's fixes, and nothing in P2 may assume the service exits cleanly until they land |
 
 **The open design question this brief deliberately does not answer for you:** how the parsed
 assignment reaches `SchoolObservationRepository`. Two shapes:
@@ -108,7 +108,7 @@ can state. A silent break that keeps serving the last success is the failure tha
   makes code decide when Jarvis acts. Same shape as `callPlaceIfSensitive`, already recorded as
   the thing to refuse.
 - **Any handler that decides whether a found assignment is worth reporting.** That is judgment.
-- **A second scheduler.** #145's logon task and the existing cycle loop are the cadence.
+- **A second scheduler.** #141's logon task and the existing cycle loop are the cadence.
 - **A `--pipe-name`-style second configuration surface** the cloud cannot see.
 
 ## Gates
