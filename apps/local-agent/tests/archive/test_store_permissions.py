@@ -877,3 +877,32 @@ def test_the_broad_root_refusal_names_its_own_reason(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(drive / "memory.sqlite3"))
     with pytest.raises(store_permissions.StoreRootUnresolvedError, match="filesystem root is not a store root"):
         store_permissions.configured_store_roots()
+
+
+def test_the_windows_owned_name_arm_refuses_on_its_own() -> None:
+    r"""The name-based arm, called directly so nothing else can answer first.
+
+    `C:\Program Files` is refused by this arm and by no other: it is not in the
+    literal list, and its parent is not a configured root here. Asserting through
+    `_REAL_APPLY` would still pass if this arm were deleted, because the literal
+    list would eventually catch it -- which is how this mutation survived.
+    """
+    for entry in (r"C:\Program Files", r"C:\Program Files (x86)", r"C:\Windows"):
+        refused = Path(entry)
+        with pytest.raises(UnsafeStorePathError, match="directory Windows owns"):
+            _refuse_unsafe_path(refused / "store", Path(entry))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="these are the machine's own Windows paths")
+def test_the_environment_root_arm_refuses_on_its_own() -> None:
+    """The `%USERPROFILE%` arm, called directly, with the env var set for real.
+
+    Through `_REAL_APPLY` this cannot be pinned: the broad-root arm refuses the
+    profile first, so the test skips whatever the environment-root arm does, and
+    deleting that arm changes nothing observable. Called directly, with the
+    variable actually set to the path, only this arm can answer.
+    """
+    profile = Path(os.environ["USERPROFILE"]).resolve(strict=False)
+    assert os.environ.get("USERPROFILE", "").strip(), "USERPROFILE must be set for this to mean anything"
+    with pytest.raises(UnsafeStorePathError, match=r"refusing USERPROFILE"):
+        _refuse_unsafe_path(profile, profile.parent)
