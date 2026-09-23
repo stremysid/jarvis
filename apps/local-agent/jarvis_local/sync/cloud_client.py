@@ -219,9 +219,11 @@ class HttpCloudClient:
             {
                 "schemaVersion": SCHEMA_VERSION,
                 "snapshotId": pending.snapshot_id,
-                # Where the cursor stood before this page. The cloud rejects the
-                # acknowledgement unless its stored cursor still matches, so a
-                # stale client cannot roll the position backwards.
+                # Where the cursor stood before this page. The cloud applies the
+                # acknowledgement only when its stored cursor still matches, so
+                # a stale client cannot roll the position backwards; when its
+                # cursor is instead already past `throughSequence` it accepts
+                # the page as covered and reports where it stands.
                 "expectedCurrent": pending.expected_current,
                 "throughSequence": pending.through_sequence,
             },
@@ -230,13 +232,22 @@ class HttpCloudClient:
             set(response) != {"schemaVersion", "currentSequence", "replayed"}
             or response.get("schemaVersion") != SCHEMA_VERSION
             or type(response.get("currentSequence")) is not int
-            or response.get("currentSequence") != pending.through_sequence
+            # At least, not equal to. The gateway accepts an acknowledgement for
+            # a range its cursor already covers as a replay, and answers with
+            # that cursor rather than with our page boundary -- which is the
+            # only answer that lets a rebuilt archive catch up to a cursor left
+            # behind by the archive it replaced (sync-service.ts, as of
+            # `12a64b2`). A cursor behind our durable position would be the
+            # unsafe direction, and the gateway cannot produce one.
+            or response["currentSequence"] < pending.through_sequence
             or not isinstance(response.get("replayed"), bool)
         ):
             raise CloudSyncError("gateway returned an invalid acknowledgement receipt")
-        # Once the page is accepted, the cloud cursor equals our durable local
-        # cursor. A fresh root snapshot is safe and avoids carrying a five-
-        # minute continuation token into the next 20-30 minute node cycle.
+        # Once the page is accepted, the cloud cursor is at or ahead of our
+        # durable local cursor, so a fresh root snapshot is safe and avoids
+        # carrying a five-minute continuation token into the next 20-30 minute
+        # node cycle. The next pull asks from the local cursor, so an ahead
+        # cloud cursor is fetched through rather than skipped over.
         self._snapshot = None
 
     def _pending_ack(self, acknowledgement: PendingSyncAck | int) -> PendingSyncAck:

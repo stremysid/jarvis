@@ -430,6 +430,31 @@ def test_a_same_process_retry_after_local_rollback_starts_a_fresh_snapshot(
     assert CursorStore(archive.connection).pending_ack() is None
 
 
+def test_a_receipt_reporting_a_cursor_behind_the_acknowledged_range_is_refused(archive: ArchiveRepository) -> None:
+    """The direction the gateway cannot produce, and the one that loses data.
+
+    The gateway may answer with a cursor at or ahead of the acknowledged range,
+    which is the reinstall recovery. A cursor *behind* it would mean the
+    acknowledgement did not cover what was just stored, and accepting that
+    silently would leave the local cursor ahead of what the cloud believes it
+    has -- the gap this module's whole ordering exists to prevent.
+    """
+    opener = QueuedOpener(
+        [
+            http_page(1, 2, snapshot="behind-snapshot"),
+            {"schemaVersion": "1.0", "currentSequence": 1, "replayed": False},
+        ]
+    )
+    replicator = EventReplicator(http_client(opener), archive)
+
+    with pytest.raises(SyncAckPending):
+        replicator.sync_once()
+
+    pending = replicator.cursors.pending_ack()
+    assert pending is not None
+    assert pending.through_sequence == 2
+
+
 def test_an_invalid_ack_receipt_keeps_the_durable_ack(archive: ArchiveRepository) -> None:
     opener = QueuedOpener(
         [
@@ -650,3 +675,92 @@ def test_stop_after_rebind_leaves_the_replacement_ack_durable_for_restart(tmp_pa
     assert pending is not None
     assert pending.snapshot_id == "replacement-snapshot"
     assert len(opener.requests) == 2
+
+
+class RecoveringGateway:
+    """The gateway's acknowledgement rule, as the agent depends on it.
+
+    This is the *other* half of the fix in `SyncService.acknowledgeDurableReceipt`
+    (cloud-gateway, as of `12a64b2`): an acknowledgement for a range the
+    consumer cursor already covers is accepted as a replay and reports the
+    cursor, rather than refused as `cursor_compare_failed`. Modelling it here
+    rather than serving pre-baked pages is the point of the test -- the agent is
+    the client, and what it needs is a cloud that stops refusing.
+
+    `pages` and `acks` record what the agent asked for, so the test can show it
+    walked forward page by page instead of being handed the answer.
+    """
+
+    def __init__(self, *, upper: int, cursor: int, page_size: int = 1) -> None:
+        self.upper = upper
+        self.cursor = cursor
+        self.page_size = page_size
+        self.pages: list[int] = []
+        self.acks: list[tuple[int, int]] = []
+        self._outstanding: dict[str, int] = {}
+        self._serial = 0
+
+    def __call__(self, request: Any, timeout: float | None = None) -> Response:
+        body = json.loads(request.data.decode("utf-8"))
+        if request.full_url.endswith("/sync/pull"):
+            after = body["afterSequence"]
+            through = min(after + self.page_size, self.upper)
+            self.pages.append(after)
+            self._serial += 1
+            snapshot = f"snapshot-{self._serial}"
+            self._outstanding[snapshot] = through
+            page = http_page(after + 1, through, snapshot=snapshot, has_more=through < self.upper)
+            page["fromSequence"] = after
+            return Response(json.dumps(page).encode("utf-8"))
+        expected = body["expectedCurrent"]
+        through = body["throughSequence"]
+        self.acks.append((expected, through))
+        if self.cursor >= through:
+            # The recovery branch. The cursor does not move.
+            return Response(json.dumps({"schemaVersion": "1.0", "currentSequence": self.cursor, "replayed": True}).encode("utf-8"))
+        if self.cursor != expected:
+            raise urllib.error.HTTPError(BASE, 400, "cursor_compare_failed", {}, None)  # type: ignore[arg-type]
+        self.cursor = through
+        return Response(json.dumps({"schemaVersion": "1.0", "currentSequence": through, "replayed": False}).encode("utf-8"))
+
+
+def test_a_fresh_archive_catches_up_to_a_cursor_ahead_of_it_and_ends_in_sync(tmp_path: Path) -> None:
+    """The reinstall case, end to end through the replicator.
+
+    The cloud cursor sits at 267 because a device acknowledged that far and then
+    lost its archive. The fresh archive starts at 0 and must reach sync without
+    anyone editing production: the gateway accepts each page the device durably
+    stored as a range the cursor already covers, and the device walks forward
+    until `throughSequence` passes the cursor and a normal acknowledgement
+    applies.
+    """
+    path = tmp_path / "archive.sqlite3"
+    repository = ArchiveRepository.open(path)
+    try:
+        gateway = RecoveringGateway(upper=300, cursor=267)
+        replicator = EventReplicator(http_client(gateway), repository)
+        for _ in range(400):
+            if replicator.cursor() == 300:
+                break
+            replicator.sync_once()
+
+        # The two positions meet. The local one is what the agent stored; the
+        # cloud one is what it acknowledged.
+        assert replicator.cursor() == 300
+        assert gateway.cursor == 300
+        # The agent started at 0, so its first acknowledgement is for 0→1 while
+        # the cloud cursor is at 267. That is exactly the call that failed every
+        # cycle on 2026-09-23, and it is the one that had to stop failing.
+        assert gateway.acks[0] == (0, 1)
+        # It walked forward in whole pages rather than being handed 267.
+        assert gateway.pages[0] == 0
+        assert gateway.pages[:5] == [0, 1, 2, 3, 4]
+        # Every acknowledgement was for a range starting where the archive
+        # stood, so the cursor never had to move backwards to accommodate one.
+        assert all(expected <= through for expected, through in gateway.acks)
+        assert [through for _, through in gateway.acks] == list(range(1, 301))
+        rows = repository.connection.execute("SELECT COUNT(*) FROM archive_event").fetchone()
+        assert rows is not None and rows[0] == 300
+        assert replicator.cursors.pending_ack() is None
+    finally:
+        repository.close()

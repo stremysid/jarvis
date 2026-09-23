@@ -197,7 +197,31 @@ export class SyncService {
     if (!await this.repository.isCurrentDevice(verified)) throw new Error("sync_device_state_changed");
     const currentSnapshot = await this.repository.readSnapshotById(verified.body.snapshotId);
     this.validateFirstAck(currentSnapshot, verified, consumerName, now);
-    if (await this.repository.readCursor(consumerName) !== verified.body.expectedCurrent) throw new Error("cursor_compare_failed");
+    const currentCursor = await this.repository.readCursor(consumerName);
+    // An acknowledgement for a range the cursor already covers, accepted as a
+    // replay. This is the reinstall case, and it is not hypothetical: a device
+    // that acknowledged through 267 and then lost its archive pulls from 0,
+    // commits 0→48, and acknowledges with `expectedCurrent: 0`. The cursor is
+    // still 267, so `acknowledgeSnapshot` matches no row and the comparison
+    // below refuses. The device re-pulls the same range and acknowledges the
+    // same way, forever -- this is a stable state, not a transient race.
+    //
+    // Accepting the range as covered is the only answer that needs neither a
+    // migration nor a hand-edit of production, and it is also the honest one:
+    // the cursor reached 267 because this device acknowledged a superset, so no
+    // event below `throughSequence` is invisible to it.
+    //
+    // What it gives up, stated rather than implied: an acknowledgement stops
+    // being proof that *this* archive durably stored the range. The device
+    // asserts it and the cloud cannot check it -- but it cannot check it for a
+    // first-time acknowledgement either, since the cursor is the device's own
+    // position in both cases. What is preserved is the direction: this branch
+    // requires `throughSequence <= cursor`, so an acknowledgement reaching it
+    // cannot move a cursor forward, and therefore cannot move one backwards.
+    if (currentCursor >= verified.body.throughSequence) {
+      return Object.freeze({ schemaVersion: "1.0", currentSequence: currentCursor, replayed: true });
+    }
+    if (currentCursor !== verified.body.expectedCurrent) throw new Error("cursor_compare_failed");
     throw new Error("sync_snapshot_state_changed");
   }
 
