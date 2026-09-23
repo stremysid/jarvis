@@ -277,9 +277,10 @@ time. The same shape had already happened with the D2L calendar feed.
    one session away from being lost.
 
 `scripts/check-state.mjs` checks the register's format — every row needs a source
-and a date — and lists rows that are stale or unconfirmed. **Nothing runs it yet:**
-it is in no workflow and no `package.json` script. Run it by hand before a carrier
-change merges. Wiring it into CI is PR #117's job.
+and a date — and lists rows that are stale or unconfirmed. CI runs it in the
+`state carriers are honest` job on every pull request and every push to `main`; run
+it locally with `pnpm run check:state`. The job is advisory: `main` does not require
+it, so read its result before a carrier change merges.
 
 **Sid is the message bus between chats that cannot talk to each other.** Every
 fact that only lives in one chat is a question he has to answer again.
