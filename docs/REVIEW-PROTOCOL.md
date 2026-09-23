@@ -60,7 +60,8 @@ across 24 PRs is not a record; it is a file in another repository's history.
 
 The verdict states: **the reviewed head sha** · the claims checked and how · the
 falsifier for each finding · **what was not checked**. A verdict with no head sha is
-rejected by `scripts/check-state.mjs`'s doc job once it is wired.
+not a verdict. Nothing checks this mechanically: `scripts/check-state.mjs` does not
+read review objects.
 
 ### 3.3 `max` means something again
 
