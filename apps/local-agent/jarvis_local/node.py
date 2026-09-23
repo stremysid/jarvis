@@ -31,8 +31,6 @@ from jarvis_local.agent import CycleResult, open_stores, run_cycle
 from jarvis_local.archive.database import SQLiteDirectoryError
 from jarvis_local.archive.store_permissions import store_root_summary
 from jarvis_local.config import JarvisLocalConfig
-
-logger = logging.getLogger(__name__)
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
@@ -50,6 +48,8 @@ from jarvis_local.transport.unix_socket import (
     UnixSocketServer,
     default_unix_socket_path,
 )
+
+logger = logging.getLogger(__name__)
 
 SYNC_AUDIENCE = "jarvis-local-agent"
 CONTROL_SOCKET_CONFIG = CONTROL_SOCKET_ENVIRONMENT

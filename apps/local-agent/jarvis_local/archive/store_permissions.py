@@ -89,8 +89,10 @@ _SE_FILE_OBJECT = 1
 
 #: Directories Windows owns. A store never legitimately lives under one, and
 #: these ignore a parent folder's permissions anyway, so a match anywhere in the
-#: path is refused.
-_WINDOWS_OWNED_DIRECTORY_NAMES = frozenset({"Windows", "Program Files", "Program Files (x86)", "ProgramData"})
+#: path is refused. `ProgramData` is deliberately absent: it is only refused as a
+#: whole path by `_REFUSED_ABSOLUTE_PATHS`, and listing it here as well meant the
+#: name-based arm answered first and the literal arm was untestable through it.
+_WINDOWS_OWNED_DIRECTORY_NAMES = frozenset({"Windows", "Program Files", "Program Files (x86)"})
 
 #: Complete paths refused outright. Deliberately *not* recursive:
 #: `AppData\\Local` and `Temp` are refused as objects, while
@@ -263,17 +265,23 @@ def store_root_summary() -> str:
 
 
 def _ownership_note(roots: tuple[Path, ...]) -> str:
-    """A warning suffix naming the one-time fix, or nothing when all is well."""
+    """A warning suffix naming the one-time fix, or nothing when all is well.
+
+    Nothing at all away from Windows, where there is no owner to read and no
+    `ctypes.WinDLL` -- `current_user_sid` raises `AttributeError` there, not an
+    `OSError`, which is why both are caught. A log line is not the place to
+    discover that the platform has no such API.
+    """
     try:
         ours = current_user_sid()
-    except OSError:
+    except (OSError, AttributeError):
         return ""
     for root in roots:
         if not root.exists():
             continue
         try:
             owner = _current_owner_sid(root)
-        except OSError:
+        except (OSError, AttributeError):
             continue
         if owner != ours:
             return (
@@ -394,10 +402,15 @@ def dacl_refused_message(path: Path, error: OSError) -> str:
 
 
 def _current_user_sid_or_none() -> str:
-    """The current user's SID for an error message, or a placeholder."""
+    """The current user's SID for an error message, or a placeholder.
+
+    On a platform with no `ctypes.WinDLL` this raises `AttributeError`, not
+    `OSError`; an error message must not fail to build because it could not name
+    the user.
+    """
     try:
         return current_user_sid()
-    except OSError:
+    except (OSError, AttributeError):
         return "<your-sid>"
 
 
@@ -566,10 +579,13 @@ def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
     except OSError as error:
         raise UnsafeStorePathError(f"cannot resolve {path!r}: {error}") from error
 
-    if not target.name:
-        raise UnsafeStorePathError(f"refusing a path with no name: {path!r}")
+    # Before the "no name" check, because a drive root has no name either and
+    # would otherwise be refused as a nameless path -- which is true, and not the
+    # fact worth reporting. Order here decides which sentence a reader gets.
     if target.parent == target:
         raise UnsafeStorePathError(f"refusing a drive or filesystem root: {target}")
+    if not target.name:
+        raise UnsafeStorePathError(f"refusing a path with no name: {path!r}")
     if any(part in _WINDOWS_OWNED_DIRECTORY_NAMES for part in target.parts):
         raise UnsafeStorePathError(f"refusing a directory Windows owns: {target}")
     for refused in _REFUSED_ABSOLUTE_PATHS:
@@ -646,7 +662,7 @@ def tree_owner_sddl(path: Path) -> str:
         kernel32.LocalFree(descriptor)
 
 
-def _windows_apis() -> tuple[ctypes.WinDLL, ctypes.WinDLL]:  # type: ignore[name-defined]
+def _windows_apis() -> tuple[ctypes.WinDLL, ctypes.WinDLL]:
     """The two DLLs, with argument types declared.
 
     Declared rather than inferred because these calls pass pointers, and ctypes

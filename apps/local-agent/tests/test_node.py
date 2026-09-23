@@ -1238,9 +1238,12 @@ def test_serve_logs_the_store_roots_it_will_change_permissions_inside(
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
     monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
     monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+    state = ServiceState()
     monkeypatch.setattr(
         "jarvis_local.node.build_node",
-        lambda *_args, **_kwargs: NodeRuntime(StoppingLoop(ServiceState()), ServiceState(), FakeControl()),
+        lambda *_args, **_kwargs: NodeRuntime(
+            StoppingLoop(state), state, FakeControl(), FakeClosable(), FakeClosable()
+        ),
     )
 
     from jarvis_local.node import _serve

@@ -17,13 +17,12 @@ from typing import Any
 
 import pytest
 
-from jarvis_local.archive import store_permissions
 from jarvis_local.archive import database as archive_database
+from jarvis_local.archive import store_permissions
 from jarvis_local.archive.store_permissions import (
     UnsafeStorePathError,
     _refuse_unsafe_path,
     apply_owner_only_dacl,
-    ensure_private_directory,
     folder_only_sddl,
     repair_store_tree,
     store_root_summary,
@@ -73,7 +72,8 @@ class StubWin32:
 
         class _Advapi32:
             @staticmethod
-            def ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            def ConvertStringSecurityDescriptorToSecurityDescriptorW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+
                 sddl: str, _revision: int, descriptor: Any, _length: Any,
             ) -> int:
                 stub.sddls.append(sddl)
@@ -81,23 +81,27 @@ class StubWin32:
                 return 1
 
             @staticmethod
-            def ConvertStringSidToSidW(_sid: str, owner: Any) -> int:
+            def ConvertStringSidToSidW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+_sid: str, owner: Any) -> int:
                 owner._obj.value = 0x5678
                 return 1
 
             @staticmethod
-            def ConvertSidToStringSidW(_owner: Any, text: Any) -> int:
+            def ConvertSidToStringSidW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+_owner: Any, text: Any) -> int:
                 text._obj.value = stub.owner_sid
                 return 1
 
             @staticmethod
-            def GetSecurityDescriptorOwner(_descriptor: Any, owner: Any, defaulted: Any) -> int:
+            def GetSecurityDescriptorOwner(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+_descriptor: Any, owner: Any, defaulted: Any) -> int:
                 owner._obj.value = 0x1111
                 defaulted._obj.value = 0
                 return 1
 
             @staticmethod
-            def GetSecurityDescriptorDacl(
+            def GetSecurityDescriptorDacl(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+
                 _descriptor: Any, present: Any, acl: Any, defaulted: Any,
             ) -> int:
                 present._obj.value = 1
@@ -106,7 +110,8 @@ class StubWin32:
                 return 1
 
             @staticmethod
-            def SetNamedSecurityInfoW(
+            def SetNamedSecurityInfoW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+
                 path: str,
                 _object_type: int,
                 security_information: int,
@@ -122,13 +127,15 @@ class StubWin32:
                 return stub.next_set_result()
 
             @staticmethod
-            def GetNamedSecurityInfoW(*_args: Any) -> int:
+            def GetNamedSecurityInfoW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+*_args: Any) -> int:
                 if stub.get_result == 0 and len(_args) >= 8:
                     _args[7]._obj.value = 0x1111 if hasattr(_args[7], "_obj") else None
                 return stub.get_result
 
             @staticmethod
-            def ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            def ConvertSecurityDescriptorToStringSecurityDescriptorW(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+
                 _descriptor: Any, _revision: int, _information: int, text: Any, _length: Any,
             ) -> int:
                 text._obj.value = f"O:{SID}D:PAI(A;OICI;FA;;;SY)"
@@ -141,7 +148,8 @@ class StubWin32:
 
         class _Kernel32:
             @staticmethod
-            def LocalFree(pointer: Any) -> None:
+            def LocalFree(  # noqa: N802  # noqa: N802 - stands in for the Win32 name
+pointer: Any) -> None:
                 stub.freed.append(pointer)
 
         return _Kernel32()
@@ -332,7 +340,7 @@ def test_a_failed_call_never_leaves_a_folder_without_an_entry_for_the_user(
     root = tmp_path / "store"
     root.mkdir()
 
-    for set_results, label in ([[5], "DACL refused"], [[0, 5], "owner refused after DACL"]):
+    for set_results, label in (([5], "DACL refused"), ([0, 5], "owner refused after DACL")):
         stub.set_results = list(set_results)
         stub.security_information.clear()
         stub.sddls.clear()
@@ -684,12 +692,16 @@ def test_unset_store_paths_fall_back_to_the_jarvis_data_directory(
     """
     monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
     monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
-    local_app_data = tmp_path / "AppData" / "Local"
-    local_app_data.mkdir(parents=True)
-    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+    # The resolver is patched rather than LOCALAPPDATA being set: the real one
+    # branches on os.name, so setting the Windows variable made this test pass on
+    # Windows and fail on Ubuntu for identical code. What is under test is that an
+    # unset configuration falls back to a real root, not which root Windows picks.
+    jarvis_dir = tmp_path / "Jarvis"
+    jarvis_dir.mkdir(parents=True)
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: jarvis_dir)
 
     roots = store_permissions.configured_store_roots()
-    assert roots == (local_app_data / "Jarvis",), roots
+    assert roots == (jarvis_dir.resolve(),), roots
     assert roots, "an empty result would disable the guard"
 
 
@@ -699,11 +711,11 @@ def test_a_path_outside_the_default_root_is_refused_when_nothing_is_configured(
     """The default is a boundary, so the check still refuses."""
     monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
     monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
-    local_app_data = tmp_path / "AppData" / "Local"
-    (local_app_data / "Jarvis").mkdir(parents=True)
+    jarvis_dir = tmp_path / "Jarvis"
+    jarvis_dir.mkdir(parents=True)
     documents = tmp_path / "Documents"
     documents.mkdir()
-    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: jarvis_dir)
     stub = StubWin32()
     monkeypatch.setattr(store_permissions, "_windows_apis", stub)
 
@@ -748,12 +760,12 @@ def test_the_startup_summary_names_the_default_when_nothing_is_configured(
     """
     monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
     monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
-    local_app_data = tmp_path / "AppData" / "Local"
-    (local_app_data / "Jarvis").mkdir(parents=True)
-    monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+    jarvis_dir = tmp_path / "Jarvis"
+    jarvis_dir.mkdir(parents=True)
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: jarvis_dir)
     stub.owner_sid = SID
 
-    assert store_root_summary() == f"{local_app_data / 'Jarvis'} (default; no store path configured)"
+    assert store_root_summary() == f"{jarvis_dir} (default; no store path configured)"
 
     monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
     assert store_root_summary() == os.fspath(tmp_path)
@@ -774,3 +786,94 @@ def test_tree_owner_sddl_reports_the_returned_code(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(store_permissions, "_windows_apis", StubWin32(get_result=5))
     with pytest.raises(OSError, match="code=5"):
         tree_owner_sddl(Path(r"C:\store"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="these are the machine's own Windows paths")
+@pytest.mark.parametrize("variable", ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"])
+def test_each_named_environment_root_is_refused_on_its_own(
+    monkeypatch: pytest.MonkeyPatch, variable: str,
+) -> None:
+    r"""Each refusal has to be reachable on its own, or it is decoration.
+
+    The shape is what makes this a test of the *named* arm rather than of
+    whichever check fires first: `store_root` is the refused path's **parent**,
+    which satisfies containment, and the refused path is inside the configured
+    root, which satisfies the configured-roots check. What is asserted is the
+    invariant that matters -- it is refused, and **nothing reaches Windows**.
+
+    The message is deliberately not matched. Several arms legitimately overlap
+    (`Program Files` is also a Windows-owned name, a drive root is also a path
+    with no name), and asserting which one fires makes a test that breaks when the
+    overlap changes without any behaviour changing.
+    """
+    refused = Path(os.environ[variable]).resolve(strict=False)
+    if refused.parent == refused:
+        pytest.skip(f"{refused} has no parent to use as a boundary")
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(refused / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(refused / "memory.sqlite3"))
+    try:
+        configured = store_permissions.configured_store_roots()
+    except store_permissions.StoreRootUnresolvedError as refused_by_broad_root:
+        pytest.skip(f"the broad-root arm refuses this one first: {refused_by_broad_root}")
+    assert any(refused == root or root in refused.parents for root in configured), configured
+
+    stub = StubWin32()
+    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
+    with pytest.raises(UnsafeStorePathError):
+        _REAL_APPLY(refused / "store", SID, store_root=refused.parent)
+    assert stub.paths == [], "Win32 was reached for a refused path"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="these are the machine's own Windows paths")
+def test_appdata_itself_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`AppData` sits above both roaming and local, and was missing from the list."""
+    app_data = Path(os.environ["USERPROFILE"]).resolve(strict=False) / "AppData"
+    if not app_data.is_dir():
+        pytest.skip(f"{app_data} does not exist on this machine")
+    stub = StubWin32()
+    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
+    with pytest.raises(UnsafeStorePathError):
+        _REAL_APPLY(app_data / "store", SID, store_root=app_data.parent)
+    assert stub.paths == [], "Win32 was reached for a refused path"
+
+
+def test_each_named_absolute_root_is_refused_by_that_arm() -> None:
+    """The literal list, each entry rejected **by its own arm**.
+
+    Asserts the message, unlike the test above, because here the arm is the point:
+    each path is handed in with a store root that contains it, so containment and
+    the configured-roots check both pass and the literal-match arm is what must
+    reject it. The Windows-owned names are excluded deliberately -- they have their
+    own arm, and it fires first for `Program Files`.
+    """
+    for entry in (r"C:\Users", r"C:\Users\Public", r"C:\ProgramData"):
+        with pytest.raises(UnsafeStorePathError, match="refusing a system or account root"):
+            _refuse_unsafe_path(Path(entry), Path(entry))
+
+
+def test_a_drive_root_is_refused_by_that_arm() -> None:
+    """A drive root is refused by the drive/filesystem-root arm, not by luck.
+
+    Called directly so the arm under test is the one that answers: `_REAL_APPLY`
+    would reach the "no name" check first for `C:\\`, which is a different
+    refusal entirely.
+    """
+    if os.name != "nt":
+        pytest.skip("a drive root is a Windows shape")
+    drive = Path(os.environ.get("SYSTEMDRIVE", "C:") + "\\")
+    with pytest.raises(UnsafeStorePathError) as raised:
+        _refuse_unsafe_path(drive, drive)
+    assert "drive or filesystem root" in str(raised.value), raised.value
+
+
+def test_the_broad_root_refusal_names_its_own_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured root that is a filesystem root is refused, and says why.
+
+    Its own test because this arm is one a mutation survives: removing
+    `_refuse_broad_root` leaves the rest of the suite green.
+    """
+    drive = Path(os.environ.get("SYSTEMDRIVE", "C:") + "\\") if os.name == "nt" else Path("/")
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(drive / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(drive / "memory.sqlite3"))
+    with pytest.raises(store_permissions.StoreRootUnresolvedError, match="filesystem root is not a store root"):
+        store_permissions.configured_store_roots()

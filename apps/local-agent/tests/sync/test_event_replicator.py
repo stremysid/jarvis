@@ -15,7 +15,7 @@ import json
 import urllib.error
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -129,7 +129,12 @@ def http_page(first: int, last: int, *, snapshot: str, has_more: bool = False) -
     }
 
 
-def http_client(opener: QueuedOpener) -> HttpCloudClient:
+#: Either a queued list of canned responses or a stateful fake that answers by
+#: request. Both are callables taking the request and returning a response.
+Opener = Union[QueuedOpener, "RecoveringGateway"]
+
+
+def http_client(opener: Opener) -> HttpCloudClient:
     return HttpCloudClient(
         base_url=BASE,
         device_id=DEVICE,
@@ -717,11 +722,21 @@ class RecoveringGateway:
         self.acks.append((expected, through))
         if self.cursor >= through:
             # The recovery branch. The cursor does not move.
-            return Response(json.dumps({"schemaVersion": "1.0", "currentSequence": self.cursor, "replayed": True}).encode("utf-8"))
+            payload = {
+                "schemaVersion": "1.0",
+                "currentSequence": self.cursor,
+                "replayed": True,
+            }
+            return Response(json.dumps(payload).encode("utf-8"))
         if self.cursor != expected:
             raise urllib.error.HTTPError(BASE, 400, "cursor_compare_failed", {}, None)  # type: ignore[arg-type]
         self.cursor = through
-        return Response(json.dumps({"schemaVersion": "1.0", "currentSequence": through, "replayed": False}).encode("utf-8"))
+        payload = {
+            "schemaVersion": "1.0",
+            "currentSequence": through,
+            "replayed": False,
+        }
+        return Response(json.dumps(payload).encode("utf-8"))
 
 
 def test_a_fresh_archive_catches_up_to_a_cursor_ahead_of_it_and_ends_in_sync(tmp_path: Path) -> None:

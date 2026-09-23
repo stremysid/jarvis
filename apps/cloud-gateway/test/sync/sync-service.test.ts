@@ -421,6 +421,29 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE receipt_kind = 'snapshot'").first<{ count: number }>())?.count).toBe(0);
   });
 
+  it("wedges when a capped page straddles the cursor", async () => {
+    // The agent asks for 128 (DEFAULT_PAGE_SIZE) and the gateway materializes at
+    // most 48 (MAXIMUM_MATERIAL_EVENTS), so a catching-up device can be handed a
+    // page that *contains* the cursor: here the cursor is 267 and the page runs
+    // 240 -> 288.
+    //
+    // That page is neither a replay (267 < 288) nor a cursor match (267 !== 240),
+    // so the acknowledgement is refused. The device re-pulls the identical range
+    // and is refused identically -- the same permanent wedge as the original 267
+    // report, reached by a different route.
+    await append(300);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 267 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+    const page = await pull(pullBody(240, 128)); // what the agent actually asks for
+    expect(page).toMatchObject({ fromSequence: 240, toSequence: 288 });
+    expect(page.events).toHaveLength(48);
+
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 240, throughSequence: 288 }))
+      .rejects.toThrow("cursor_compare_failed");
+    // Refused, and the cursor does not move: the wedge is a stable state.
+    expect(await cursor()).toBe(267);
+  });
+
   it("aborts a direct acknowledgement with a stale expected current without changing the cursor", async () => {
     await append(1);
     const page = await pull(pullBody(0, 1));

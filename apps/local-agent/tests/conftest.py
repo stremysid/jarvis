@@ -1,7 +1,7 @@
 """Real migrated retry journals for control-thread regression tests."""
 
-from collections.abc import Callable, Iterator
 import os
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
