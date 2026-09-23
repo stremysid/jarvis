@@ -10,16 +10,16 @@
   {
     "name": "msi-fallback-only-on-absence",
     "file": "apps/hermes-runtime/src/generate-sbom.mjs",
-    "find": "if (error.cause?.code !== \"ENOENT\") throw error;",
-    "replace": "if (false) throw error;",
+    "find": "if (cause.code === \"ENOENT\") return resolveTrustedStorePowerShellHost();",
+    "replace": "if (true) return resolveTrustedStorePowerShellHost();",
     "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
     "expect": "refuses an MSI unreadable file"
   },
   {
-    "name": "missing-file-cause",
+    "name": "msi-absence-fallback",
     "file": "apps/hermes-runtime/src/generate-sbom.mjs",
-    "find": "new Error(`${label} is unavailable`, { cause })",
-    "replace": "new Error(`${label} is unavailable`)",
+    "find": "if (cause.code === \"ENOENT\") return resolveTrustedStorePowerShellHost();",
+    "replace": "if (false) return resolveTrustedStorePowerShellHost();",
     "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
     "expect": "uses the registered Store location"
   },
@@ -334,5 +334,77 @@
     "replace": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence: \" + cause.message, { cause });",
     "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
     "expect": "explains a malformed Windows package query response without exposing its output"
+  },
+  {
+    "name": "query-package-family-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "PackageFamilyName = $_.PackageFamilyName",
+    "replace": "PackageFamilyName = 'Microsoft.PowerShell_8wekyb3d8bbwe'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-publisher-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Publisher = $_.Publisher",
+    "replace": "Publisher = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-store-signature-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "SignatureKind = [string]$_.SignatureKind",
+    "replace": "SignatureKind = 'Store'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-non-development-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "IsDevelopmentMode = $_.IsDevelopmentMode",
+    "replace": "IsDevelopmentMode = $false",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-install-location-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "InstallLocation = $_.InstallLocation",
+    "replace": "InstallLocation = 'C:\\Users\\fixture\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-all-package-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | ForEach-Object",
+    "replace": "Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | Select-Object -First 1 | ForEach-Object",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "msi-fallback-lstat-only",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "await lstat(trustedPowerShellHost);",
+    "replace": "await Promise.all([lstat(trustedPowerShellHost), realpath(trustedPowerShellHost)]);",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a dangling MSI symbolic link instead of treating its missing target as an absent host"
+  },
+  {
+    "name": "package-health",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed.Status !== \"Ok\")",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store package that Windows reports as unhealthy before reading its installation"
+  },
+  {
+    "name": "query-package-health-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Status = [string]$_.Status",
+    "replace": "Status = 'Ok'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
   }
 ]

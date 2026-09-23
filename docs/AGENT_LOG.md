@@ -8,6 +8,29 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 Signed: Codex (GPT-6), builder on `codex/hermes-msix`, from freshly fetched
 `origin/main` at `f9472d18a3634f186b36675c8da5995292da9e1d`.
 
+Fix round 1 for [PR #156](https://github.com/stremysid/jarvis/pull/156): merged
+`origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` normally, retaining
+the reviewed `6c419d0` history. The review correctly identified that the old
+absence claim below was too broad: a dangling MSI link's `realpath` ENOENT
+also allowed Store fallback. Only the independent MSI `lstat` probe can now
+select Store; executable validation errors remain outside that catch.
+
+The query now carries Windows' package `Status` and requires `Ok`. An exact
+bootstrap assertion pins every projected field and the complete package list.
+Removed the three repaired SBOM exemptions from `gate.ps1`, retaining its
+source-lock exemption, and corrected the runbook's executable/alias mix-up.
+New regression tests reproduced **43 passed, 3 failed, 0 skipped** before the
+source fix (dangling link, unhealthy package, missing bootstrap status).
+The first fixed focused run passed **64 tests, 0 failed, 0 skipped**.
+The mutation spec now has 51 entries: six review-supplied query faults, the
+dangling-link fault, the health guard and a hardcoded health projection, plus
+the existing 42. The old cause-propagation mutation is replaced by an explicit
+MSI-absence fallback mutation because causes no longer select fallback.
+The complete revision gates and restored mutation results will be recorded
+here before this revision is pushed.
+
+Initial submission evidence follows; these counts predate fix round 1.
+
 The original SBOM pair reproduced **15 passed, 3 failed, 0 skipped** on this
 PC. Those three files are unchanged between `12a64b2` and this base. The MSI
 executable is absent; Windows Appx reports the genuine Microsoft PowerShell

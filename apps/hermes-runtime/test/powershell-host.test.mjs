@@ -48,6 +48,7 @@ beforeEach(() => {
     Publisher: "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
     SignatureKind: "Store",
     IsDevelopmentMode: false,
+    Status: "Ok",
     InstallLocation: storeDirectory,
   }];
   queryExit = 0;
@@ -108,6 +109,16 @@ describe("PowerShell 7 host trust", () => {
     expect(io.spawn).not.toHaveBeenCalled();
   });
 
+  it("refuses a dangling MSI symbolic link instead of treating its missing target as an absent host", async () => {
+    put(msi, "link", { link: true });
+    io.realpath.mockImplementation(async (path) => {
+      if (path === msi) throw Object.assign(new Error("synthetic missing link target"), { code: "ENOENT" });
+      return get(path).canonical;
+    });
+    await expect(resolveTrustedPowerShellHost()).rejects.toThrow("trusted PowerShell 7 MSI host");
+    expect(io.spawn).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["no package", []],
     ["ambiguous packages", "duplicate"],
@@ -131,6 +142,13 @@ describe("PowerShell 7 host trust", () => {
   ])("refuses the Store record when %s is %s", async (field, value, message) => {
     packages[0][field] = value;
     await expect(resolveTrustedPowerShellHost()).rejects.toThrow(message);
+    expect(io.lstat).not.toHaveBeenCalledWith(storeHost);
+  });
+
+  it("refuses a Store package that Windows reports as unhealthy before reading its installation", async () => {
+    packages[0].Status = "Modified";
+    await expect(resolveTrustedPowerShellHost()).rejects.toThrow("PowerShell 7 Store package status is not Ok");
+    expect(io.lstat).not.toHaveBeenCalledWith(storeDirectory);
     expect(io.lstat).not.toHaveBeenCalledWith(storeHost);
   });
 
@@ -215,14 +233,28 @@ describe("PowerShell 7 host trust", () => {
     const [host, args, options] = io.spawn.mock.calls[0];
     expect(host).toBe(queryHost);
     expect(args.slice(0, 4)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
-    expect(args[4]).toContain("$ErrorActionPreference = 'Stop'");
-    expect(args[4]).toContain("$env:PSModulePath = 'NUL'");
-    expect(args[4]).toContain("$PSModuleAutoLoadingPreference = 'None'");
-    expect(args[4]).toContain("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)");
-    expect(args[4]).toContain("Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force");
-    expect(args[4]).toContain("Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force");
-    expect(args[4]).toContain("Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main");
-    expect(args[4]).not.toContain(storeDirectory);
+    // Partial assertions let a query fabricate trusted fields or hide a second
+    // registration before the resolver can reject Windows' actual evidence.
+    const expectedBootstrap = String.raw`$ErrorActionPreference = 'Stop'
+$env:PSModulePath = 'NUL'
+$PSModuleAutoLoadingPreference = 'None'
+Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force
+# Appx's localized manifest uses Utility's ConvertFrom-StringData. Autoloading
+# stays disabled, so that dependency must already be imported from the OS tree.
+Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$packages = @(Appx\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | ForEach-Object {
+  [pscustomobject]@{
+    PackageFamilyName = $_.PackageFamilyName
+    Publisher = $_.Publisher
+    SignatureKind = [string]$_.SignatureKind
+    IsDevelopmentMode = $_.IsDevelopmentMode
+    Status = [string]$_.Status
+    InstallLocation = $_.InstallLocation
+  }
+})
+Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $packages -Compress`;
+    expect(args[4]).toBe(expectedBootstrap);
     const expectedEnvironment = {
       APPDATA: queryDirectory, ComSpec: String.raw`C:\Windows\System32\cmd.exe`, HOME: queryDirectory,
       JARVIS_HERMES_APPX_MODULE: appxManifest, JARVIS_HERMES_UTILITY_MODULE: utilityManifest,

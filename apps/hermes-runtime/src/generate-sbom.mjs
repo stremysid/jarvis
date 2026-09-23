@@ -163,6 +163,7 @@ $packages = @(Appx\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter
     Publisher = $_.Publisher
     SignatureKind = [string]$_.SignatureKind
     IsDevelopmentMode = $_.IsDevelopmentMode
+    Status = [string]$_.Status
     InstallLocation = $_.InstallLocation
   }
 })
@@ -178,13 +179,18 @@ Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $packages -Compress`;
 }
 
 export async function resolveTrustedPowerShellHost() {
+  // Only lstat can establish that the MSI entry itself is absent. realpath's
+  // ENOENT can instead mean a dangling link, which must not unlock fallback.
   try {
-    return await validateTrustedExecutable(trustedPowerShellHost, "trusted PowerShell 7 MSI host");
-  } catch (error) {
-    // Only absence permits fallback. A redirected or unreadable MSI host must
-    // still refuse, rather than conceal a broken trust boundary behind Store.
-    if (error.cause?.code !== "ENOENT") throw error;
+    await lstat(trustedPowerShellHost);
+  } catch (cause) {
+    if (cause.code === "ENOENT") return resolveTrustedStorePowerShellHost();
+    throw new Error("trusted PowerShell 7 MSI host is unavailable", { cause });
   }
+  return await validateTrustedExecutable(trustedPowerShellHost, "trusted PowerShell 7 MSI host");
+}
+
+async function resolveTrustedStorePowerShellHost() {
   const packages = await queryPowerShellPackages();
   if (!Array.isArray(packages) || packages.length !== 1) throw new Error("trusted PowerShell 7 host is unavailable: expected one registered Microsoft.PowerShell Store package after the MSI host was absent");
   const installed = packages[0];
@@ -195,6 +201,9 @@ export async function resolveTrustedPowerShellHost() {
   // deployed, protected package, rather than a user-controlled loose layout.
   if (installed.SignatureKind !== "Store") throw new Error("PowerShell 7 package is not signed by the Windows Store");
   if (installed.IsDevelopmentMode !== false) throw new Error("PowerShell 7 Store package is a development registration");
+  // A matching signed identity is insufficient when Windows reports that the
+  // installed package is damaged or otherwise not ready to run.
+  if (installed.Status !== "Ok") throw new Error("PowerShell 7 Store package status is not Ok");
   const location = installed.InstallLocation;
   if (typeof location !== "string" || !/^[A-Za-z]:\\/.test(location) || resolve(location) !== location) throw new Error("PowerShell 7 Store install location is not an exact drive-absolute directory");
   const directory = await validateTrustedDirectory(location, "PowerShell 7 Store install location");
