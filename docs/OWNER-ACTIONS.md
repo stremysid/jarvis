@@ -11,6 +11,8 @@ agent's memory and never in the repository.
 
 Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
+D2L research actions added 2026-09-23; unrelated deployment/voice rows have not been re-verified.
+
 ## Done — kept so they are not asked for again
 
 | Action | Evidence |
@@ -30,6 +32,10 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 
 | Action | Why only you | State |
 |---|---|---|
+| **Run the short D2L read-only capability check, after reviewing the design** | Only your existing logged-in browser can establish the board's student access. Follow [E1–E3](plan/2026-09-23-d2l-access-design.md#e1--establish-the-session-and-supported-versions-3-minutes); return only versions, endpoint templates, statuses, field names and counts, never credentials, host, identities or private bodies. E5/E6 add expiry and coverage observations during ordinary use | **unrun; design research only** |
+| **Test the collector probes after inspecting them** | [E4](plan/2026-09-23-d2l-access-design.md#e4--tabless-gx-worker-termination-and-alarms-5-minutes-per-machine-after-probe-exists) gives a small unrun probe recipe and needs both actual Opera profiles. E7 is conditional on an existing authorized Safari distribution route; E8 needs a separately authorized isolated P2 login. No purchase, enrollment, Windows configuration change or school write is authorized by this row | **unrun; recipe only, no probe installed or executed** |
+| **Inspect Pulse's documented export options only if already available** | [E12](plan/2026-09-23-d2l-access-design.md#e12--pulses-legitimate-export-boundary-2-minutes-if-already-installed) can establish a legitimate export contract if one exists; do not extract app tokens or change accounts | **optional, unverified; does not block Windows research** |
+| **Review existing school policy and installation permission before a live collector rollout** | [E10](plan/2026-09-23-d2l-access-design.md#e10--policy-and-distribution-35-minutes-owner-only) checks personal automation/data-transfer terms and managed-profile restrictions. Technical access is not policy permission. No school contact or repeated OAuth-key request is needed for this review | **unverified** |
 | **Deploy `main`** | The live gateway is `352991e`. Undeployed: #137's voice change (the spent passphrase repeat) and #133's model default, which does not matter while `DEEPSEEK_MODEL` is Flash. No migration. Pull `C:\javis`, then `scripts/deploy.ps1 -Publish`. **Note `scripts/deploy.ps1` has no revision guard at all** — no `rev-parse`, no dirty-tree check, nothing comparing against `origin/main` — so this command ships whatever the checkout happens to contain and reports success. [#150](https://github.com/stremysid/jarvis/pull/150) adds the guard; once it merges, `-Publish` refuses a stale or dirty checkout and names both revisions. Until then, verify by hand that `C:\javis` is on `main` and clean. **At 22:33 UTC on 2026-09-22 it was neither:** it was on `688fe02`, and `apps/local-agent/jarvis_local/transport/pipe_server.py` has an uncommitted change nobody has claimed. Decide whether to keep that change before you pull. No builder may touch `C:\javis` | **not started** |
 | Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
 | Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |

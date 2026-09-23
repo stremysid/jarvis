@@ -7,7 +7,15 @@ this does not override them.
 **Verify this brief before trusting it.** Written 2026-09-22 against `f6bab5b`. Where it is
 wrong, say so — that is a finding, not a nuisance.
 
-## Why this exists, and why it is the only route left
+**Design review, 2026-09-23:** [D2L access research](plan/2026-09-23-d2l-access-design.md)
+recommends a Windows session/API extension as primary and P2 as fallback, conditional on
+unrun owner experiments. This does not reassign the DeepSeek builder or claim a working
+reader. The page-reader interface is injectable, but its types, repository and schema are
+Classroom-specific; a D2L adapter alone is insufficient. Prefer measured API access before
+guessing HTML selectors, and a session before a stored school password. The build instructions
+below remain the original proposal pending that design decision.
+
+## Why this exists
 
 Phase 3's exit test is *"a D2L email arrives and the deadline appears with nothing from you."*
 **That test cannot pass by email.** Sid enabled every notification option; D2L sends an activity
@@ -15,20 +23,21 @@ summary naming the course, a count such as *"76 New Emails"*, and a link. No ass
 The dates are behind the D2L login. Classroom is impossible on this board. The Brightspace feed
 does not exist. All four are in `docs/FACTS.md` — read the rows rather than re-deriving them.
 
-So the only machine that can read a deadline is one that is **logged in as Sid**, and the only
-one of those is the PC. That is this brief.
+The available route requires an authenticated student context. This brief proposes the PC;
+the laptop and iPhone may also supply one, and their actual access remains unverified.
 
 P2 is also **Phase 4/5 work wearing a Phase 3 hat**: a machine that can act on its own. Build the
 PC's ability to act and school follows. Do not build a D2L-specific mechanism that ignores this.
 
 ## What already exists — read it before designing
 
-Most of the cloud half is built. The gap is the reader, not the store.
+The cloud has useful storage and signing machinery. The reader **and provider-aware storage
+integration** remain: see the design's concrete Classroom constraints before sizing the work.
 
 | Piece | Where | What it gives you |
 |---|---|---|
 | The observation store | `src/school/school-observation-repository.ts`, `migration 0027_school_observations.sql` | `school_assignment_observations` + `_revisions`, and the missing-work derivation |
-| A source-agnostic sync | `src/school/classroom-observation-sync.ts` | `ClassroomSubmissionPageReader.listSubmissionPage(courseId, pageToken)` — **the client is an interface, not Classroom**. It reports `outcome`, `pages`, `seen`, `undatedCoursework`, `rejected`, `transitions`, and holds a D1 statement budget |
+| An injectable sync reader | `src/school/classroom-observation-sync.ts` | `ClassroomSubmissionPageReader.listSubmissionPage(courseId, pageToken)` returns Classroom-shaped observations. It reports `outcome`, `pages`, `seen`, `undatedCoursework`, `rejected`, `transitions`, and holds a D1 statement budget; its repository/schema do not yet accept D2L provenance |
 | Deadlines | `migration 0011_deadlines.sql` | `deadlines`, `deadline_sources` — `last_success_at` lives here, and P3 needs it |
 | The device's signed push | `src/http/sync-routes.ts` | accepts `/sync/pull`, `/sync/ack`, `/memory/distill` (`DISTILL_PATH`), `/sync/memory/project` (`MEMORY_PROJECTION_PATH`) |
 | Credential sealing | `jarvis_local/crypto/dpapi.py` | `DpapiProtector.protect(bytes) -> bytes` / `.unprotect`. Already the pattern this machine uses for the device key |
@@ -116,7 +125,7 @@ can state. A silent break that keeps serving the last success is the failure tha
 ## Gates
 
 ```powershell
-uv run --project apps/local-agent --group dev pytest -q
+uv run --project apps/local-agent --group dev pytest -q --ignore=tests/integration
 uv run --project apps/local-agent --group dev mypy jarvis_local     # cwd apps/local-agent
 uv run --project apps/local-agent --group dev ruff check .
 pnpm exec vitest --config vitest.workspace.ts run <each affected file alone>

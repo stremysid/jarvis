@@ -228,6 +228,13 @@ after a deploy, not by argument.
 
 **Done when:** a D2L email arrives and the deadline appears correctly with nothing from you.
 
+**Feasibility note, 2026-09-23:** [FACTS](../FACTS.md) records that this board's D2L
+notifications contain no assignment or due date, so the email-specific exit test above
+cannot pass here. [D2L access research](2026-09-23-d2l-access-design.md) proposes the same
+automatic outcome through an authenticated collector. This is a recommendation awaiting
+the design decision and owner experiments, not a replacement implementation or a claim
+that live acceptance has passed.
+
 ## Phase 4: Control
 
 **Goal:** Jarvis can act on its own safely before it starts calling and scheduling.

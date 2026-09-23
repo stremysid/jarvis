@@ -3,6 +3,55 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex design researcher: D2L access alternatives and the actual integration gaps
+
+Signed: Codex, GPT-6; reasoning-effort setting not exposed. Design research only, based on
+fresh `origin/main` `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, branch
+`codex/d2l-access-design`. No school-host requests, credentials, live database access,
+product implementation or Windows configuration changes.
+
+**Recommendation, not a verified deployment:** see
+`docs/plan/2026-09-23-d2l-access-design.md`. Use Opera GX MV3 session/API collection on
+both Windows machines if the student-session and tabless experiments pass. Keep P2 with
+its DeepSeek builder as the session-first, API-first fallback. Safari is an optional
+foreground contributor; Pulse token reuse has no verified supported contract. None
+promises new data while every usable browser is asleep. Registered, narrowly scoped
+OAuth would improve unattended access but remains unavailable; no repeat app-key task.
+
+**Premise corrections:** the page reader is injected, but its result types, repository
+and migration 0027 enforce Classroom provenance. Undated resources and standalone grades
+need provider-aware evidence storage, not a reader-only swap. Existing signed routes do
+not ingest school data. A new audience does not scope a general device key: use separate
+school-only key/nonces with the existing signing protocol. DPAPI's public entropy constant
+does not exclude other processes running as Sid; the contrary source comment is wrong.
+FACTS reports no MFA; actual SSO lifetime remains unknown. No-calendar-feed does not prove
+the authenticated calendar API is empty. CODE-VS-JUDGMENT now records the traced
+`deriveMissingWorkPage` interpretation; no behavior was changed.
+
+**Evidence and handoff:** the design has 36 distinct public-source URLs, a versioned
+endpoint inventory, all requested route comparisons, 12 explicitly unrun experiments,
+security/ordering/coverage rules and PR-sized tasks. OWNER-ACTIONS holds only the steps
+requiring Sid's browser, policy or distribution access. Small carrier notes correct the
+PC-only and source-agnostic claims; P2 implementation ownership is unchanged. Future
+builders must use source states and coverage as evidence for Jarvis's judgment.
+
+**Observed gates before this entry:** `node scripts/check-state.mjs` passed (3 carriers).
+The external documentation checker passed 7 checks, failed 0, skipped 0; it checked 33
+added relative links, 4 anchors, 441 preserved existing log headings, 3 JavaScript syntax
+examples and 1 JSON manifest. `git diff --check` passed. The checker's first attempt
+aborted at Node's 1 MiB `git show` output buffer; increasing that read buffer allowed the
+complete passing run. It was not a product-test failure. Final post-entry counts and
+the exact remote head are in the PR body and external ledger. Package suites and
+mutation tests are **not applicable**: only Markdown changed, with no runtime guard.
+No example was executed against a browser or school.
+
+**Safety/evidence limits:** the supplied Downloads incident report was absent; no
+local-agent/permission-changing code ran. No deploy tree, protected runtime/scratch path,
+sync-recovery-owned source, migration or real database was touched. Student endpoint
+access, installed GX/iOS behavior, policy permission and live acceptance are unverified.
+Automated and independent adversarial review follow this PR; this author does not claim
+either. Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-access-design.md`.
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,

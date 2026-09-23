@@ -37,6 +37,8 @@ repository is the only thing every session reads.**
 | Fact | How we know | Observed | Still true? |
 |---|---|---|---|
 | The school account is **Microsoft 365**; it cannot reach `console.cloud.google.com`, so Google Classroom OAuth credentials cannot be obtained | Sid stated it directly; a reviewer session had walked him through the setup a second time before recording it | 2026-09-17 | yes |
+| Sid uses **Opera GX on both Windows machines**. Installed browser versions, tabless extension behavior and school-session lifetime have not been measured by the design researcher | Sid's explicit D2L access research task; [design and experiments](plan/2026-09-23-d2l-access-design.md) | 2026-09-23 | yes, owner-reported |
+| A **school-registered Brightspace OAuth application key is not available to Sid as a student**. Do not repeat app-key setup as an owner action without new evidence | Sid's explicit D2L access research task; [design evidence](plan/2026-09-23-d2l-access-design.md) | 2026-09-23 | yes, owner-reported |
 | Consequence: **Classroom has no usable route.** The REST client is wired but credential-blocked; no Classroom handling exists in the email parser; the notification-email route was proposed, not built | Code read at `5a8acf3`; `GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS` occurs zero times in `src` | 2026-09-18 | yes |
 | LDSB Brightspace exposes **no calendar or iCal feed**, so `BRIGHTSPACE_ICAL_URL` has no value to hold. **Never ask him for one** | `KNOWN_ISSUES.md`; the board's configuration | 2026-09-15 | yes |
 | The fleet is a **Windows 11 home PC, a Windows 11 laptop, an iPhone 16**, and a Tesla as an integration rather than a host. There is **no server, NAS or VPS** | `CLAUDE.md`; Sid | 2026-09-18 | yes |

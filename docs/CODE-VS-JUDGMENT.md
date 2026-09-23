@@ -86,6 +86,14 @@ line whenever anything is dropped, so silence is never unexplained.
 
 ---
 
+### School — additional finding from the 2026-09-23 design read
+
+Coverage remains **partial**. This is one traced finding, not a completed school audit.
+
+| # | Symbol | The decision code is making | Surface it should move to |
+|---|---|---|---|
+| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation | Expose the source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those observation references. Retain mechanical timestamps/provenance. Do not copy this Classroom interpretation into D2L: paper/group work and individualized dates need their actual evidence. The [D2L design](plan/2026-09-23-d2l-access-design.md) records the integration consequence; this PR changes no runtime behavior |
+
 ## How to use this list
 
 1. **Every entry is a work item, not a complaint.** The third column is the deliverable: the
