@@ -37,8 +37,11 @@ from jarvis_local.node import (
     NodeSettings,
     NodeStartupError,
     _safe_node_cycle,
+    _validate_existing_device_key,
+    _windows_control_endpoint,
     build_node,
     run_node,
+    run_serve,
 )
 from jarvis_local.scheduler import STOP_AUTHENTICATION, SchedulerState
 from jarvis_local.service import (
@@ -54,6 +57,12 @@ from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import UnixSocketInUseError, UnixSocketServer, send_unix_control_request
 
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux node acceptance")
+
+#: The mirror of `linux_only`, and it exists because its absence put two tests on
+#: Linux CI that cannot run there: they build a Windows named-pipe endpoint, which
+#: reaches `current_user_sid` and therefore `ctypes.WinDLL` -- a name that does not
+#: exist on Linux, so they failed with AttributeError rather than skipping.
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="named pipes are a Windows mechanism")
 
 
 def linux_environment(**overrides: str) -> dict[str, str]:
@@ -463,7 +472,7 @@ def settings_at(
         device_key_path=root / "device.key",
         archive_path=archive or root / "archive.sqlite3",
         memory_path=memory or root / "memory.sqlite3",
-        control_socket_path=root / "control.sock",
+        control_endpoint_name=os.fspath(root / "control.sock"),
     )
 
 
@@ -966,10 +975,10 @@ def test_real_socket_retry_clears_quarantine_without_stopping_the_node(tmp_path:
         try:
             responses.append(send_unix_control_request(
                 CliCommand("retry-quarantined", {"fact_id": fact_id}),
-                settings.control_socket_path,
+                settings.control_endpoint_name,
             ))
-            responses.append(send_unix_control_request(CliCommand("status"), settings.control_socket_path))
-            responses.append(send_unix_control_request(CliCommand("stop"), settings.control_socket_path))
+            responses.append(send_unix_control_request(CliCommand("status"), settings.control_endpoint_name))
+            responses.append(send_unix_control_request(CliCommand("stop"), settings.control_endpoint_name))
         except BaseException as error:
             errors.append(error)
 
@@ -1064,7 +1073,7 @@ def test_authentication_exit_is_nonzero_and_does_not_print_the_raw_error(
             return STOP_AUTHENTICATION
 
     monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
-    monkeypatch.setattr("jarvis_local.node.build_node", lambda _: AuthRuntime())
+    monkeypatch.setattr("jarvis_local.node.build_node", lambda _settings, **_kwargs: AuthRuntime())
     code = run_node(JarvisLocalConfig.load(linux_environment()))
 
     assert code == EXIT_NODE_AUTHENTICATION
@@ -1077,7 +1086,7 @@ def test_startup_failure_is_nonzero_and_sanitized(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def fail(_: NodeSettings) -> NodeRuntime:
+    def fail(_settings: NodeSettings, **_kwargs: object) -> NodeRuntime:
         raise NodeStartupError("secret path and exception")
 
     monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
@@ -1093,24 +1102,26 @@ def test_an_existing_socket_reports_its_configured_path_and_conditional_recovery
 ) -> None:
     endpoint = "/run/jarvis/owner's control.sock"
 
-    def fail(_: NodeSettings) -> NodeRuntime:
+    def fail(_settings: NodeSettings, **_kwargs: object) -> NodeRuntime:
         raise UnixSocketInUseError("synthetic private exception detail")
 
     monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
     monkeypatch.setattr("jarvis_local.node.build_node", fail)
     assert run_node(JarvisLocalConfig.load(linux_environment(JARVIS_CONTROL_SOCKET=endpoint))) == 4
     output = capsys.readouterr().out
-    rendered_endpoint = os.fspath(Path(endpoint))
-    assert rendered_endpoint in output
+    # The endpoint is a string, not a `Path`: a `Path` rewrites a POSIX
+    # separator on Windows, and the recovery command has to name the file the
+    # person would actually type.
+    assert endpoint in output
     assert "stop" in output.lower() and "stale socket" in output
-    assert "rm -- " + shlex.quote(rendered_endpoint) in output
+    assert "rm -- " + shlex.quote(endpoint) in output
     assert "synthetic private" not in output
 
 
 def test_an_unsafe_store_parent_reports_the_path_and_required_mode(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def fail(_: NodeSettings) -> NodeRuntime:
+    def fail(_settings: NodeSettings, **_kwargs: object) -> NodeRuntime:
         raise SQLiteDirectoryError("SQLite store parent /srv/shared requires owner-only permissions (0700)")
 
     monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
@@ -1119,3 +1130,141 @@ def test_an_unsafe_store_parent_reports_the_path_and_required_mode(
     output = capsys.readouterr().out
     assert "/srv/shared" in output
     assert "0700" in output
+
+
+# --- the same assembly, bound to the Windows control channel ----------------
+#
+# `node` and `serve` are one assembly and two platform bindings. These run the
+# Windows binding on the Linux boxes the suite actually executes on, which is
+# the only way the Windows half is covered at all: the exit test for it is by
+# hand, on one machine, once.
+
+
+def windows_environment(**overrides: str) -> dict[str, str]:
+    values = {
+        "JARVIS_CLOUD_BASE_URL": "https://gateway.example",
+        "JARVIS_DEVICE_ID": "device-1",
+        "JARVIS_PRINCIPAL_ID": "principal-1",
+        "JARVIS_DEVICE_KEY_PATH": r"C:\Users\Sid\AppData\Local\Jarvis\keys\device.key",
+        "JARVIS_ARCHIVE_PATH": r"C:\Users\Sid\AppData\Local\Jarvis\archive.sqlite3",
+        "JARVIS_MEMORY_PATH": r"C:\Users\Sid\AppData\Local\Jarvis\memory.sqlite3",
+    }
+    values.update(overrides)
+    return values
+
+
+def windows_settings(tmp_path: Path) -> NodeSettings:
+    return NodeSettings(
+        cloud_base_url="https://gateway.example",
+        device_id="device-1",
+        principal_id="principal-1",
+        device_key_path=tmp_path / "device.key",
+        archive_path=tmp_path / "archive.sqlite3",
+        memory_path=tmp_path / "memory.sqlite3",
+        control_endpoint_name=r"\\.\pipe\jarvis-local-agent",
+    )
+
+
+def test_the_windows_assembly_defaults_to_the_pipe_the_cli_already_speaks_to() -> None:
+    settings = NodeSettings.from_config(JarvisLocalConfig.load(windows_environment()), platform="win32")
+
+    assert settings.control_endpoint_name == r"\\.\pipe\jarvis-local-agent"
+
+
+def test_a_control_socket_named_on_windows_is_not_where_the_agent_binds() -> None:
+    """`JARVIS_CONTROL_SOCKET` is documented as the Linux equivalent, so on
+    Windows it is not consulted at all -- not read, not validated, and not
+    bound. The CLI sends to the pipe name unless it is told otherwise."""
+    environment = windows_environment(JARVIS_CONTROL_SOCKET=r"C:\Jarvis\control.sock")
+
+    settings = NodeSettings.from_config(JarvisLocalConfig.load(environment), platform="win32")
+
+    assert settings.control_endpoint_name == r"\\.\pipe\jarvis-local-agent"
+
+
+def test_a_posix_control_socket_on_windows_is_ignored_rather_than_refused() -> None:
+    """A POSIX path is not absolute to Windows, so validating it there would
+    refuse a `.env` a Windows host cannot use anyway -- and refusing it would
+    stop a boot over a value nothing reads."""
+    environment = windows_environment(JARVIS_CONTROL_SOCKET="/run/jarvis/control.sock")
+
+    settings = NodeSettings.from_config(JarvisLocalConfig.load(environment), platform="win32")
+
+    assert settings.control_endpoint_name == r"\\.\pipe\jarvis-local-agent"
+
+
+def test_an_unsupported_platform_is_refused_rather_than_assembled() -> None:
+    with pytest.raises(NodeConfigurationError, match="Linux or Windows"):
+        NodeSettings.from_config(JarvisLocalConfig.load(windows_environment()), platform="darwin")
+
+
+def test_the_linux_assembly_still_takes_the_socket_the_environment_named() -> None:
+    settings = NodeSettings.from_config(JarvisLocalConfig.load(linux_environment()), platform="linux")
+
+    assert settings.control_endpoint_name == "/run/jarvis/control.sock"
+
+
+def test_the_posix_owner_and_mode_checks_are_not_applied_to_a_windows_assembly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`os.geteuid` does not exist on Windows and `st_mode` there is synthesized,
+    so a key Windows accepts must not be refused by a check only POSIX has.
+
+    `geteuid` is patched in because Windows has none: without it the Linux
+    assertion below would skip for the very reason this test exists to
+    distinguish itself from, and it would pass on the machine it is written
+    for while proving nothing."""
+    key = tmp_path / "device.key"
+    key.write_bytes(b"x")
+    key.chmod(0o644)
+    monkeypatch.setattr(os, "geteuid", (lambda: key.stat().st_uid), raising=False)
+
+    with pytest.raises(NodeStartupError, match="group or world"):
+        _validate_existing_device_key(key, platform="linux")
+    _validate_existing_device_key(key, platform="win32")
+
+
+def test_serve_refuses_a_host_that_cannot_bind_the_pipe(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
+
+    assert run_serve(JarvisLocalConfig.load(windows_environment())) == 3
+    assert "requires Windows" in capsys.readouterr().out
+
+
+@windows_only
+def test_a_second_agent_on_the_pipe_is_refused_by_name_rather_than_serving_beside_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FILE_FLAG_FIRST_PIPE_INSTANCE is what makes a second launcher fail here.
+    Neutering it lets two processes serve one name, and clients then reach
+    whichever instance Windows hands them."""
+    settings = windows_settings(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+
+    def refused(*_: object, **__: object) -> int:
+        raise OSError(5, "Access is denied.", None, 5)
+
+    monkeypatch.setattr("jarvis_local.transport.pipe_server.create_pipe_instance", refused)
+
+    with pytest.raises(UnixSocketInUseError, match=r"jarvis-local-agent"):
+        build_node(settings, control_factory=_windows_control_endpoint, platform="win32")
+
+
+@windows_only
+def test_an_unexpected_pipe_failure_is_not_reported_as_a_name_already_in_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the two "that name is taken" errno values mean another agent. Every
+    other failure to create the pipe is a real one and keeps its own face."""
+    settings = windows_settings(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+
+    def failed(*_: object, **__: object) -> int:
+        raise OSError(87, "The parameter is incorrect.", None, 87)
+
+    monkeypatch.setattr("jarvis_local.transport.pipe_server.create_pipe_instance", failed)
+
+    with pytest.raises(OSError, match="parameter is incorrect"):
+        build_node(settings, control_factory=_windows_control_endpoint, platform="win32")

@@ -32,12 +32,16 @@ from tests.test_node import EmptyCycleOpener, linux_environment, settings_at
 
 settings = settings_at(Path(sys.argv[1]))
 builder = node.build_node
-node.build_node = lambda settings: builder(settings, opener=EmptyCycleOpener())
+# `run_node` now passes the platform through to `build_node`, so a stub that
+# accepts only `settings` breaks the call instead of stubbing it: the child
+# exits 4 and the parent's `assert process.poll() is None` fails. That is how
+# this surfaced on Linux while passing on Windows.
+node.build_node = lambda settings, **kwargs: builder(settings, opener=EmptyCycleOpener(), **kwargs)
 config = JarvisLocalConfig.load(linux_environment(
     JARVIS_DEVICE_KEY_PATH=str(settings.device_key_path),
     JARVIS_ARCHIVE_PATH=str(settings.archive_path),
     JARVIS_MEMORY_PATH=str(settings.memory_path),
-    JARVIS_CONTROL_SOCKET=str(settings.control_socket_path),
+    JARVIS_CONTROL_SOCKET=str(settings.control_endpoint_name),
 ))
 raise SystemExit(node.run_node(config))
 """
@@ -51,7 +55,7 @@ raise SystemExit(node.run_node(config))
         while True:
             assert process.poll() is None
             try:
-                response = send_unix_control_request(CliCommand("status"), settings.control_socket_path)
+                response = send_unix_control_request(CliCommand("status"), settings.control_endpoint_name)
                 if "cycles_recorded 1" in response.lines:
                     break
             except OSError:
@@ -61,7 +65,7 @@ raise SystemExit(node.run_node(config))
             if time.monotonic() >= deadline:
                 pytest.fail("the child node never served its first cycle status")
             time.sleep(0.02)
-        identity = settings.control_socket_path.stat().st_ino
+        identity = Path(settings.control_endpoint_name).stat().st_ino
         for killed in (False, True):
             if killed:
                 process.kill()
@@ -72,13 +76,13 @@ raise SystemExit(node.run_node(config))
                 capture_output=True, text=True, timeout=5,
             )
             assert restarted.returncode == 4, (restarted.stdout, restarted.stderr)
-            assert str(settings.control_socket_path) in restarted.stdout
+            assert str(settings.control_endpoint_name) in restarted.stdout
             assert "stale socket" in restarted.stdout
             assert "rm --" in restarted.stdout
-            assert settings.control_socket_path.is_socket()
-            assert settings.control_socket_path.stat().st_ino == identity
+            assert Path(settings.control_endpoint_name).is_socket()
+            assert Path(settings.control_endpoint_name).stat().st_ino == identity
             if not killed:
-                assert send_unix_control_request(CliCommand("status"), settings.control_socket_path).code == "ok"
+                assert send_unix_control_request(CliCommand("status"), settings.control_endpoint_name).code == "ok"
     finally:
         if process.poll() is None:
             process.kill()

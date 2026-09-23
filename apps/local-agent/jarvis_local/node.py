@@ -19,9 +19,9 @@ import sys
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import FrameType
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -62,6 +62,12 @@ QUARANTINE_RETRY_WAIT_SECONDS = 0.1
 def _is_linux() -> bool:
     # Behind a function so mypy cannot erase the branch on a win32 run.
     return sys.platform.startswith("linux")
+
+
+def _running_on_windows() -> bool:
+    # Same reason as `_is_linux`: the Windows branch has to survive mypy to be
+    # tested on the Linux boxes the rest of the suite runs on.
+    return sys.platform.startswith("win")
 
 
 class NodeConfigurationError(RuntimeError):
@@ -212,7 +218,7 @@ class Closable(Protocol):
     def close(self) -> None: ...
 
 
-ControlFactory = Callable[[ControlServer, Path], ControlEndpoint]
+ControlFactory = Callable[[ControlServer, str], ControlEndpoint]
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,7 +229,10 @@ class NodeSettings:
     device_key_path: Path
     archive_path: Path
     memory_path: Path
-    control_socket_path: Path
+    #: A named-pipe name on Windows and a filesystem path on Linux. A `Path`
+    #: would rewrite the separator of whichever form the host is not, and one
+    #: of the two callers here is always assembling for the other platform.
+    control_endpoint_name: str
 
     @classmethod
     def from_config(
@@ -236,8 +245,8 @@ class NodeSettings:
         if missing:
             raise NodeConfigurationError("missing configuration: " + ", ".join(missing))
         current_platform = sys.platform if platform is None else platform
-        if not current_platform.startswith("linux"):
-            raise NodeConfigurationError("jarvis node requires Linux")
+        if not _is_supported_platform(current_platform):
+            raise NodeConfigurationError("jarvis requires Linux or Windows")
 
         values = config.environment
         cloud_base_url = values["JARVIS_CLOUD_BASE_URL"].strip()
@@ -249,11 +258,23 @@ class NodeSettings:
             for name in ("JARVIS_DEVICE_KEY_PATH", "JARVIS_ARCHIVE_PATH", "JARVIS_MEMORY_PATH")
         }
         socket_value = values.get(CONTROL_SOCKET_CONFIG, "").strip()
-        if socket_value:
+        # Consulted only on Linux, because a POSIX socket path is not an
+        # absolute path to Windows and validating it there would refuse a
+        # configuration Windows cannot use anyway. The pipe name is not
+        # configurable: `cli._control` sends to `DEFAULT_PIPE_NAME` unless
+        # somebody passes `--pipe-name`, so a second name here would be a
+        # service the CLI cannot find.
+        if socket_value and not current_platform.startswith("win"):
             configured_paths[CONTROL_SOCKET_CONFIG] = socket_value
-        invalid_paths = [name for name, value in configured_paths.items() if not _is_absolute_linux_path(value)]
+        invalid_paths = [
+            (name, value)
+            for name, value in configured_paths.items()
+            if not _is_absolute_path_for(current_platform, value)
+        ]
         if invalid_paths:
-            raise NodeConfigurationError("Linux paths must be absolute: " + ", ".join(invalid_paths))
+            raise NodeConfigurationError(
+                "paths must be absolute: " + ", ".join(name for name, _ in invalid_paths)
+            )
 
         archive = Path(configured_paths["JARVIS_ARCHIVE_PATH"])
         memory = Path(configured_paths["JARVIS_MEMORY_PATH"])
@@ -265,8 +286,36 @@ class NodeSettings:
             device_key_path=Path(configured_paths["JARVIS_DEVICE_KEY_PATH"]),
             archive_path=archive,
             memory_path=memory,
-            control_socket_path=Path(socket_value) if socket_value else default_unix_socket_path(values),
+            control_endpoint_name=_default_control_endpoint_name(current_platform, socket_value, values),
         )
+
+
+def _is_supported_platform(current_platform: str) -> bool:
+    return current_platform.startswith(("linux", "win"))
+
+
+def _default_control_endpoint_name(
+    current_platform: str,
+    socket_value: str,
+    values: Mapping[str, str],
+) -> str:
+    """The channel's name, from the platform, unless the environment chose one.
+
+    The named pipe is the whole point on Windows: the CLI already speaks that
+    half, and `JARVIS_CONTROL_SOCKET` is documented as the Linux equivalent, so
+    a Windows run that inherits it from a `.env` must still bind the pipe the
+    CLI sends to. The platform is checked first for exactly that reason.
+    """
+    if current_platform.startswith("win"):
+        from jarvis_local.transport.pipe_server import DEFAULT_PIPE_NAME
+
+        # Imported here rather than at module scope: `pipe_server` is imported
+        # by `cli`, which imports this module, and the cycle would be an
+        # ImportError rather than a type error.
+        return DEFAULT_PIPE_NAME
+    if socket_value:
+        return socket_value
+    return os.fspath(default_unix_socket_path(values))
 
 
 def _is_https_origin(value: str) -> bool:
@@ -285,8 +334,25 @@ def _is_https_origin(value: str) -> bool:
     )
 
 
-def _is_absolute_linux_path(value: str) -> bool:
-    return "\0" not in value and PurePosixPath(value).is_absolute()
+def _is_absolute_path_for(current_platform: str, value: str) -> bool:
+    """Whether `value` is an absolute path on the platform being configured.
+
+    Per platform rather than "absolute somewhere", because a Windows path on
+    Linux is a relative POSIX filename and accepting it would assemble a node
+    whose stores land wherever the process happened to start.
+    """
+    if not value or "\0" in value:
+        return False
+    if current_platform.startswith("win"):
+        return PureWindowsPath(value).is_absolute()
+    return PurePosixPath(value).is_absolute()
+
+
+def _is_absolute_path(value: str) -> bool:
+    """Absolute on either platform. For values that carry no platform."""
+    if not value or "\0" in value:
+        return False
+    return PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()
 
 
 def _validate_distinct_store_paths(archive_path: Path, memory_path: Path) -> None:
@@ -300,15 +366,22 @@ def _validate_distinct_store_paths(archive_path: Path, memory_path: Path) -> Non
         raise NodeConfigurationError("archive and memory must use separate files")
 
 
-def _validate_existing_device_key(path: Path) -> None:
+def _validate_existing_device_key(path: Path, *, platform: str | None = None) -> None:
+    current_platform = sys.platform if platform is None else platform
     try:
         metadata = path.lstat()
     except FileNotFoundError as error:
         raise NodeStartupError("the enrolled device key is missing") from error
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
         raise NodeStartupError("the enrolled device key is not a regular file")
-    if _is_linux():
-        if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
+    # Chosen from the platform being configured, not from the interpreter's,
+    # and the capability is read rather than assumed: the suite runs the
+    # Windows-assembled node on Linux, where calling `os.geteuid` would fail the
+    # test rather than take the branch it is testing. `st_mode` and `st_uid` on
+    # Windows are synthesized (`st_uid` is 0), so applying these there would
+    # refuse a key Windows itself accepts.
+    if current_platform.startswith("linux") and hasattr(os, "geteuid"):
+        if metadata.st_uid != os.geteuid():
             raise NodeStartupError("the enrolled device key has an unexpected owner")
         if metadata.st_mode & 0o077:
             raise NodeStartupError("the enrolled device key is accessible to group or world")
@@ -411,8 +484,60 @@ class NodeRuntime:
             signal.signal(signum, handler)
 
 
-def _control_endpoint(server: ControlServer, path: Path) -> ControlEndpoint:
+def _control_endpoint(server: ControlServer, path: str) -> ControlEndpoint:
     return UnixSocketServer(server, path)
+
+
+class _NamedPipeControlEndpoint:
+    """`NamedPipeServer` behind the endpoint shape `build_node` already drives.
+
+    The two transports disagree about *when* the name is claimed, which is the
+    whole reason this exists. `UnixSocketServer` binds inside `start` because
+    `serve_forever` is also called directly by the paths that never build a
+    node, while a pipe claims its name in `CreateNamedPipe` -- the first
+    instance is what sets FILE_FLAG_FIRST_PIPE_INSTANCE. Creating it in `start`
+    keeps the invariant `build_node` depends on: a duplicate launcher fails
+    before any store is touched, rather than in a thread nobody is watching.
+    """
+
+    def __init__(self, server: ControlServer, pipe_name: str) -> None:
+        from jarvis_local.transport.pipe_server import NamedPipeServer
+
+        self.server = NamedPipeServer(server, pipe_name)
+        self.listening = 0
+
+    def start(self) -> None:
+        from jarvis_local.transport.pipe_server import ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY
+
+        if self.listening:
+            return
+        try:
+            self.listening = self.server.create_instance(first=True)
+        except OSError as error:
+            # Except on Windows 7 and earlier, where FILE_FLAG_FIRST_PIPE_INSTANCE
+            # is ignored and the same condition reports ERROR_PIPE_BUSY. Both are
+            # translated here, at the one place that knows the instance was
+            # created `first`, so nothing downstream reads a Win32 number to tell
+            # "already served" from a genuine failure to create a pipe.
+            if error.winerror not in (ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY):
+                raise
+            raise UnixSocketInUseError(f"the control endpoint {self.server.pipe_name} is already in use") from error
+
+    def serve_forever(self, should_continue: Callable[[], bool]) -> None:
+        self.server.serve_forever(should_continue, listening=self.listening)
+
+    def close(self) -> None:
+        self.server.close()
+
+
+def _windows_control_endpoint(server: ControlServer, endpoint: str) -> ControlEndpoint:
+    """The assembly's Windows binding: one name, one owner.
+
+    `pipe_server.py` is already a complete, tested Windows server; the only
+    thing missing was a caller. Handing it the same `ControlServer` the Unix
+    socket path gets is the whole of the platform difference here.
+    """
+    return _NamedPipeControlEndpoint(server, endpoint)
 
 
 def _safe_node_cycle(
@@ -460,10 +585,11 @@ def build_node(
     *,
     opener: Any = None,  # noqa: ANN401
     control_factory: ControlFactory = _control_endpoint,
+    platform: str | None = None,
 ) -> NodeRuntime:
     """Open stores and assemble the signed replication, distillation, and projection cycle."""
     _validate_distinct_store_paths(settings.archive_path, settings.memory_path)
-    _validate_existing_device_key(settings.device_key_path)
+    _validate_existing_device_key(settings.device_key_path, platform=platform)
     try:
         key = platform_device_key_store(settings.device_key_path).load_existing()
         if not isinstance(key, Ed25519PrivateKey):
@@ -478,7 +604,7 @@ def build_node(
 
     control = control_factory(
         ControlServer(LocalAgentService(control_handlers(state, retry_quarantined=retry_coordinator.submit))),
-        settings.control_socket_path,
+        settings.control_endpoint_name,
     )
     # Claim the singleton endpoint before migrations touch either database. A
     # duplicate process must fail without doing any store work at all.
@@ -546,24 +672,83 @@ def build_node(
 
 def run_node(config: JarvisLocalConfig, *, socket_path: Path | None = None) -> int:
     """CLI boundary: emit stable diagnoses without printing exception values."""
+    return _serve(config, command="node", socket_path=socket_path)
+
+
+def run_serve(config: JarvisLocalConfig) -> int:
+    """CLI boundary for the Windows entry point the logon task starts.
+
+    Same assembly, same exit codes, same sanitised diagnoses as `node`; the
+    only difference is which platform binding `build_node`'s control factory
+    puts on the channel.
+    """
+    return _serve(config, command="serve")
+
+
+def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], socket_path: Path | None = None) -> int:
+    """Run one foreground service and turn how it ended into an exit code."""
+    current_platform = sys.platform
+    # The endpoint is named even when the configuration never parses, because
+    # the duplicate case that message exists for is reached from a
+    # configuration that was fine. Read from the one function that decides it,
+    # so the sentence cannot name something other than what was bound.
+    requested_endpoint = (
+        os.fspath(socket_path)
+        if socket_path is not None
+        else _default_control_endpoint_name(
+            current_platform,
+            config.environment.get(CONTROL_SOCKET_CONFIG, "").strip(),
+            config.environment,
+        )
+    )
     try:
-        settings = NodeSettings.from_config(config)
-        if socket_path is not None:
-            if not _is_absolute_linux_path(os.fspath(socket_path)):
-                raise NodeConfigurationError("Linux paths must be absolute: --socket-path")
-            settings = replace(settings, control_socket_path=socket_path)
-        runtime = build_node(settings)
-        reason = runtime.run()
+        if command == "serve":
+            # Checked rather than merely documented: the exit test for this
+            # entry point runs on Windows, and a POSIX run would otherwise fail
+            # with a ctypes error from inside the pipe binding rather than a
+            # sentence saying which host this command is for.
+            if not _running_on_windows():
+                raise NodeConfigurationError("jarvis serve binds the Windows named pipe and requires Windows")
+            settings = NodeSettings.from_config(config)
+            runtime = build_node(settings, control_factory=_windows_control_endpoint, platform=current_platform)
+            # No signal handlers: Windows delivers Ctrl+C to every process
+            # attached to the console, so a boot-spawned agent would stop the
+            # moment somebody interrupted the launching shell. `stop` over the
+            # control pipe is this host's shutdown.
+            reason = runtime.run(install_signal_handlers=False)
+        else:
+            # The mirror of the `serve` check below it, and it is here because its
+            # absence was a regression: `NodeSettings.from_config` now accepts
+            # Windows, so without this `jarvis node` on Windows got past the
+            # platform gate and failed further in as "the Jarvis node could not
+            # start" (exit 4) instead of refusing as the Linux-only command it is.
+            # `AGENTS.md` says not to port this command, and a message that says
+            # so is the difference between a refusal and a mystery.
+            if not _is_linux():
+                raise NodeConfigurationError(
+                    "jarvis node requires Linux; on Windows the service is `jarvis serve`"
+                )
+            settings = NodeSettings.from_config(config)
+            if socket_path is not None:
+                if not _is_absolute_path(os.fspath(socket_path)):
+                    raise NodeConfigurationError("Linux paths must be absolute: --socket-path")
+                settings = replace(settings, control_endpoint_name=os.fspath(socket_path))
+            runtime = build_node(settings, platform=current_platform)
+            reason = runtime.run()
     except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
     except UnixSocketInUseError:
-        endpoint = os.fspath(settings.control_socket_path)
+        recovery = (
+            f"   rm -- {shlex.quote(requested_endpoint)}\n"
+            if current_platform.startswith("linux")
+            else "There is no stale pipe to remove: a closed pipe name disappears with its process.\n"
+        )
         print(
-            f"the control socket endpoint {endpoint} already exists or is in use. "
-            "Stop jarvis-node and confirm no manually started node owns the endpoint. "
-            "Only if it is a stale socket, not a symlink or other file, run: "
-            f"rm -- {shlex.quote(endpoint)} ; then restart jarvis-node. "
+            f"the control endpoint {requested_endpoint} already exists or is in use.\n"
+            "Stop the running jarvis node and confirm no manually started one owns the endpoint.\n"
+            "Only if it is a stale socket, not a symlink or other file:\n"
+            f"{recovery}"
             "See docs/runbooks/fact-projection.md for the recovery sequence."
         )
         return EXIT_NODE_STARTUP

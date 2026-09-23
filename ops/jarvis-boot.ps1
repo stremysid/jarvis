@@ -17,15 +17,13 @@
       2. If a control endpoint is already listening, it asks `status` over that
          pipe and records the answer. A second start is the failure this whole
          script is arranged to avoid.
-      3. Otherwise it runs the local agent's own `jarvis doctor`, which reports
-         which configuration names are missing **without printing any value**.
-      4. Otherwise it reports the one thing P1 cannot supply: there is no Windows
-         entry point that starts the local agent's service. `jarvis node`
-         (`apps/local-agent/jarvis_local/node.py`) is the only thing in the tree
-         that binds the control channel, and `NodeSettings.from_config` refuses
-         anything but Linux at `node.py`'s `current_platform.startswith("linux")`
-         check. `AGENTS.md` forbids porting it as a side effect of another task,
-         so this script says so and exits 3 rather than pretending.
+      3. Otherwise it runs the agent's own `jarvis doctor`, which names the
+         configuration variables that are missing **without printing any value**,
+         and refuses to start unless it answered `ready`.
+      4. Otherwise it starts the agent's service -- `Resolve-AgentCommand` -- and
+         waits for its control endpoint to answer. That wait is what makes this
+         script's exit code mean something: the task is only as good as an agent
+         that is actually on the other end of the pipe.
 
     It never issues `stop`, never deletes anything, and never writes a
     configuration value. Those are not omissions; they are the brief's "does
@@ -33,7 +31,9 @@
 
     Nothing secret is written to the log: the doctor's output names variables and
     an agent's `status` lines are counts and timestamps. No environment value, no
-    path from a secret name, and no password ever reaches this file.
+    path from a secret name, and no password ever reaches this file. The agent's
+    own stdout and stderr go to a sibling of this script's log, because a service
+    that dies during startup has nothing else to say.
 
 .PARAMETER PipeName
     The control pipe to probe. Defaults to the agent's own
@@ -46,12 +46,16 @@
 .PARAMETER LogPath
     Where to append. Defaults to `%LOCALAPPDATA%\Jarvis\logs\boot.log`.
 
+.PARAMETER StartTimeoutSeconds
+    How long to wait for a started agent's control endpoint to answer.
+
 .OUTPUTS
     0  an agent is listening, or another instance of this script already holds the
        mutex -- both are "nothing to do"
     2  the control endpoint answered with something this script cannot parse
-    3  no Windows entry point exists to start the agent (see above)
+    3  no agent is listening and this run was not allowed to start one
     4  the agent's configuration is missing or unusable
+    5  the agent was started and its control endpoint never answered
 
 .EXAMPLE
     pwsh -File ops/jarvis-boot.ps1 -ProbeOnly
@@ -62,7 +66,9 @@ param(
 
     [switch]$ProbeOnly,
 
-    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'Jarvis\logs\boot.log')
+    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'Jarvis\logs\boot.log'),
+
+    [int]$StartTimeoutSeconds = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,8 +76,9 @@ Set-StrictMode -Version Latest
 
 $ExitOk = 0
 $ExitProtocol = 2
-$ExitNoEntryPoint = 3
+$ExitNoAgent = 3
 $ExitConfiguration = 4
+$ExitStartup = 5
 
 #: The commands the control channel serves (`pipe_server.py`'s CONTROL_COMMANDS).
 #: Unused today beyond `status`; kept so the frame this script writes cannot
@@ -84,11 +91,8 @@ $ControlCommands = 'status', 'run-once', 'stop', 'retry-quarantined'
 $MaxFrameBytes = 64 * 1024
 $FrameHeaderBytes = 4
 
-#: The agent's own required names, from `apps/local-agent/.env.example`. Used
-#: only to name what is missing; no value is read, printed or compared.
-$RequiredConfiguration = 'JARVIS_CLOUD_BASE_URL', 'JARVIS_DEVICE_ID', 'JARVIS_PRINCIPAL_ID', 'JARVIS_DEVICE_KEY_PATH'
-
 $LogLimitBytes = 256 * 1024
+$ControlPollMilliseconds = 250
 
 $script:LogTarget = $null
 
@@ -120,21 +124,6 @@ function Write-BootLog {
         # start. The console copy above has already happened.
         Write-Warning "could not write the boot log: $($_.Exception.Message)"
     }
-}
-
-function Get-MissingConfiguration {
-    $missing = @(
-        foreach ($name in $RequiredConfiguration) {
-            $value = [Environment]::GetEnvironmentVariable($name)
-            if ([string]::IsNullOrWhiteSpace($value)) { $name }
-        }
-    )
-    # `Write-Output -NoEnumerate` so an empty result is an empty *array* rather
-    # than "no output", which PowerShell collapses to $null. Under
-    # `Set-StrictMode -Version Latest` the caller's `.Count` on that $null is a
-    # terminating error, and it lands in the path where nothing is missing --
-    # the one configuration where the script must succeed.
-    Write-Output -NoEnumerate $missing
 }
 
 function Get-PipeLeafName {
@@ -243,13 +232,22 @@ function Invoke-ControlCommand {
             # started the agent yet, not a failure.
             return $null
         }
+        catch [System.IO.IOException] {
+            # `ERROR_FILE_NOT_FOUND`: no pipe with that name exists at all.
+            # The same answer as a timeout, by a shorter route -- and it is the
+            # common one, because a probe for a named pipe fails at once rather
+            # than waiting for the timeout to elapse. Neither is a refusal by an
+            # agent that is listening, which is what the callers distinguish.
+            return $null
+        }
         catch [System.Management.Automation.MethodInvocationException] {
             # PowerShell wraps a .NET exception thrown from a method call. The
             # distinction matters: a timeout is "nothing is listening" and
             # anything else -- access denied against the pipe's restricted DACL,
             # most of all -- must keep going rather than be reported as absence.
-            if ($_.Exception.InnerException -isnot [System.TimeoutException]) { throw }
-            return $null
+            $inner = $_.Exception.InnerException
+            if ($inner -is [System.TimeoutException] -or $inner -is [System.IO.IOException]) { return $null }
+            throw
         }
         $client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Byte
 
@@ -275,17 +273,100 @@ function Invoke-ControlCommand {
 
 function Resolve-AgentCommand {
     <#
-        The Windows entry point that starts the agent's service, if one exists.
+        The command that starts the agent's service on this host.
 
-        There is not one. `jarvis node` is the only launcher that binds the
-        control channel and `NodeSettings.from_config` refuses every platform
-        whose `sys.platform` does not start with "linux"; the Windows half of
-        `transport/pipe_server.py` is a server with no caller. Returning $null
-        here is the finding, not a placeholder -- `AGENTS.md` forbids porting the
-        node, and inventing a second launcher without the store wiring, the
-        device key handling and the cycle loop would be a port wearing a
-        different name.
+        The agent's own entry point, not a second launcher: `jarvis serve`
+        (`cli.py`) assembles the same node `jarvis node` does and binds the same
+        control channel through `build_node`'s control factory -- the Windows
+        half being `transport/pipe_server.py`, which until now had no caller.
+        Anything this script invented here would be a launcher beside the one
+        the agent already tests.
+
+        Returns $null only when there is nothing on this machine to run, which
+        the caller reports rather than guessing at.
     #>
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $projectDirectory = Join-Path $repoRoot 'apps/local-agent'
+    $entryPoint = Join-Path $projectDirectory 'jarvis_local/cli.py'
+
+    if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
+        # An installed `jarvis` is the other honest answer. `Get-Command` is
+        # preferred over `uv`, because a launcher that reaches the PATH is the
+        # command a person would type when checking by hand.
+        $installed = Get-Command jarvis -ErrorAction SilentlyContinue
+        if ($null -ne $installed) {
+            return @{
+                FilePath        = $installed.Source
+                Arguments       = @('serve')
+                ConfigArguments = @('config')
+                Display         = "jarvis serve ($($installed.Source))"
+            }
+        }
+        return $null
+    }
+
+    $uv = Get-Command uv -ErrorAction SilentlyContinue
+    if ($null -eq $uv) { return $null }
+
+    # Through `uv`, as `AGENTS.md` requires for every local-agent command, and
+    # with `--project` pointing at this checkout, so the agent that starts is
+    # the one in this repository rather than whatever is installed beside it.
+    $prefix = @('run', '--project', $projectDirectory, 'jarvis')
+    return @{
+        FilePath        = $uv.Source
+        Arguments       = $prefix + @('serve')
+        ConfigArguments = $prefix + @('config')
+        Display         = "uv run --project $projectDirectory jarvis serve"
+    }
+}
+
+function Start-Agent {
+    param([hashtable]$Command, [string]$OutputPath)
+    # Stdout and stderr go to files rather than being inherited: a service whose
+    # startup failed has nothing else to say, and a redirected child that also
+    # writes to the console is how a redirect can block. Deliberately not
+    # `-NonInteractive`: this process is meant to outlive the script, and a
+    # batch-mode `uv` is a process that does not expect to be asked anything.
+    return Start-Process -FilePath $Command.FilePath -ArgumentList $Command.Arguments `
+        -WorkingDirectory (Split-Path -Parent $PSScriptRoot) -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput "$OutputPath.out" -RedirectStandardError "$OutputPath.err"
+}
+
+function Test-ProcessRunning {
+    # `.HasExited` on a process that was never started, or whose handle was
+    # closed, is a terminating error under StrictMode; the check is cheaper than
+    # the exception.
+    param([System.Diagnostics.Process]$Process)
+    if ($null -eq $Process) { return $false }
+    try { $Process.Refresh() } catch { return $false }
+    return -not $Process.HasExited
+}
+
+function Wait-ForControlEndpoint {
+    <#
+        Wait until the endpoint answers, or until the process that was supposed
+        to open it is gone.
+
+        `status` is the probe because it is the only question that proves an
+        agent is on the other end: a connect that succeeds proves an instance
+        exists, and `ServeOne` answers a request it could not parse with a
+        refusal, so a listener that is not ours still looks like one from here.
+    #>
+    param([System.Diagnostics.Process]$Process, [string]$Pipe, [int]$Seconds)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        try {
+            $status = Invoke-ControlCommand -Pipe $Pipe -Command 'status' -TimeoutMs 1000
+            if ($null -ne $status) { return $status }
+        }
+        catch {
+            # Whatever it said, the agent is not answering with a status. Keep
+            # waiting until the deadline or the process's exit decides it.
+        }
+        if (-not (Test-ProcessRunning -Process $Process)) { return $null }
+        Start-Sleep -Milliseconds $ControlPollMilliseconds
+    }
     return $null
 }
 
@@ -323,36 +404,51 @@ try {
         exit $ExitProtocol
     }
 
-    $missing = Get-MissingConfiguration
-    if ($missing.Count -gt 0) {
-        Write-BootLog ('agent configuration missing: ' + ($missing -join ', '))
-        Write-BootLog 'set these for the account this runs as; see apps/local-agent/.env.example'
+    # The agent's own configuration check, run through `Resolve-AgentCommand`'s
+    # interpreter so this reads the same project the start below will. It names
+    # the missing variables and never prints a value. Run before `-ProbeOnly` as
+    # well: which repair applies is worth knowing even when this run is not
+    # allowed to make it, and it keeps exit 4 meaning one thing.
+    $readiness = Resolve-AgentCommand
+    if ($null -eq $readiness) {
+        Write-BootLog 'no way to run the local agent on this machine; see docs/runbooks/pc-boot-chain.md'
+        exit $ExitNoAgent
+    }
+
+    $config = & $readiness.FilePath @($readiness.ConfigArguments) 2>&1
+    $configExit = $LASTEXITCODE
+    foreach ($line in $config) { Write-BootLog "  config: $line" }
+    if ($configExit -ne 0) {
+        Write-BootLog "the agent configuration is not usable (exit $configExit); not starting the agent"
         exit $ExitConfiguration
     }
-    Write-BootLog 'environment names present'
 
     if ($ProbeOnly) {
         Write-BootLog 'probe only; not starting the agent'
-        exit $ExitNoEntryPoint
+        exit $ExitNoAgent
     }
 
-    # The agent's own readiness check. It reports names, never values.
-    $doctor = & uv run --project apps/local-agent jarvis doctor 2>&1
-    $doctorExit = $LASTEXITCODE
-    foreach ($line in $doctor) { Write-BootLog "  doctor: $line" }
-    if ($doctorExit -ne 0) {
-        Write-BootLog "jarvis doctor exited $doctorExit; not starting the agent"
-        exit $ExitConfiguration
+    Write-BootLog "starting the agent: $($readiness.Display)"
+    $agentOutput = "$LogPath.agent"
+    $agent = Start-Agent -Command $readiness -OutputPath $agentOutput
+
+    $started = Wait-ForControlEndpoint -Process $agent -Pipe $PipeName -Seconds $StartTimeoutSeconds
+    if ($null -eq $started) {
+        if (Test-ProcessRunning -Process $agent) {
+            Write-BootLog "the agent did not answer on $PipeName within $StartTimeoutSeconds seconds"
+        }
+        else {
+            # Read after the exit, so the code is the real one rather than
+            # whatever a still-running process would report.
+            $agentExit = $agent.ExitCode
+            Write-BootLog "the agent exited with $agentExit before answering on $PipeName"
+        }
+        Write-BootLog "agent stdout and stderr: $agentOutput.out, $agentOutput.err"
+        exit $ExitStartup
     }
 
-    $agentCommand = Resolve-AgentCommand
-    if ($null -eq $agentCommand) {
-        Write-BootLog 'no Windows entry point starts the local agent; see docs/runbooks/pc-boot-chain.md'
-        Write-BootLog 'the boot chain is otherwise complete: logon task -> elevated -> this script'
-        exit $ExitNoEntryPoint
-    }
-
-    Write-BootLog "starting the agent: $agentCommand"
+    Write-BootLog "agent listening on the control pipe; pid=$($agent.Id) code=$($started.code)"
+    foreach ($line in $started.lines) { Write-BootLog "  $line" }
     exit $ExitOk
 }finally {
     if ($ownsMutex) { $mutex.ReleaseMutex() }

@@ -1280,6 +1280,290 @@ reads `deepseek-official` / `deepseek-flash` / `reasoningEffort: high`, which is
 session is *configured* to be — evidence about the default, not an observation of the
 running route. Recorded this way rather than naming one as fact.
 
+## 2026-09-21 — DeepSeek builder: `jarvis serve` binds the Windows pipe, and the boot chain reaches an agent
+
+**Branch `goal/item2-launcher`, base `d0ec419` + cherry-pick of `c5a3d62` (PR #141's head).**
+Signed `deepseek-official / deepseek-flash`, reasoning effort `high` — read from
+`~/.dsh/settings.yaml` (`agent-default-model`), not reported by the harness; treat it as the
+session default rather than a measurement.
+
+### The brief this was written against did not exist at this revision, and neither did half of what it named
+
+The dispatch described a brief at `docs/briefs-windows-pipe-server.md`. **There is no such file
+anywhere in the repository**, and `docs/briefs-pc-controls.md` — the brief that does exist — is
+about D2L and the daily report, not the launcher. `ops/jarvis-boot.ps1`, `ops/test-pc-controls.ps1`,
+`ops/boot_pipe_fixture.py` and `docs/runbooks/pc-boot-chain.md` **are not on `origin/main` at
+`d0ec419` at all**: they are PR **#141**'s content, whose head is `c5a3d62` (`remotes/pr/141`).
+The dispatch named `Resolve-AgentCommand` as a function in the tree that "currently returns
+`$null`", and stated the exit test as running `ops/jarvis-boot.ps1` before and after, so the
+intended base was #141's head rather than `main`.
+
+**So the first commit on this branch is `git cherry-pick c5a3d62`,** with the four carriers
+(`docs/AGENT_LOG.md`, `docs/FACTS.md`, `docs/OWNER-ACTIONS.md`, `docs/QUEUE.md`) resolved to
+`d0ec419`'s version — keeping `main`'s carriers and dropping only #141's edits to them, which are
+superseded by the equivalents below. That is why the merge-base is `d0ec419` and not `688fe02`.
+**A reviewer should read this branch as two commits, not one**, and if #141 merges first the
+first one collapses to nothing.
+
+The other three stated premises were checked against the code and all held: `node.py`'s
+`NodeSettings.from_config` refused every non-Linux `sys.platform`; `transport/pipe_server.py` was
+a complete, tested Windows server with no caller; `cli.py` spoke the client half on Windows.
+
+### What changed, and why
+
+**The central instruction was one assembly with two platform bindings, and that is what this is.**
+No second launcher, no copy of `build_node`, no port of the node.
+
+- **`node.py` — `NodeSettings.control_endpoint_name`** (was `control_socket_path`), a **`str`**
+  rather than a `Path`. A pipe name is not a filesystem path, and `Path` rewrites the separator of
+  whichever form the host is not: on Windows `Path("/run/jarvis/control.sock")` reads back as
+  `\run\jarvis\control.sock`, and one of the two callers here is always assembling for the other
+  platform. Found by running the Linux tests on Windows, not by reading.
+- **`node.py` — `NodeSettings.from_config(config, *, platform=...)`** now accepts Linux *or*
+  Windows and takes **the platform it is assembling for**. Path validation is per platform
+  (`_is_absolute_path_for`), so a Windows path on Linux is still refused, and
+  `_default_control_endpoint_name` decides the channel from that same argument. It **defaults to
+  the platform it is given** — `platform=None` means `sys.platform` — so existing `node`/`serve`
+  callers cannot get a mismatched endpoint by forgetting an argument.
+- **`node.py` — validation split into `_validate_common` + `_validate_linux`**, the shape
+  `crypto/device_keys.py` already uses for the same reason: mypy erases one branch of an
+  interpreter-platform check when it can fold it, and the platform *being configured* is
+  legitimately not the one being run. `_validate_existing_device_key` is now
+  `_validate_common` + `_validate_linux(metadata)` and keeps a `hasattr(os, "geteuid")` guard,
+  because the suite exercises the Windows assembly on Linux where that call does not exist.
+- **`node.py` — `jarvis serve` is `_serve(config, command="serve")`,** sharing one function with
+  `jarvis node` for exit codes and sanitised diagnoses. It binds `_windows_control_endpoint` and
+  runs with `install_signal_handlers=False`: Windows delivers Ctrl+C to every process attached to
+  the console, so a boot-spawned agent would die when somebody interrupted the launching shell.
+- **`node.py` — `_NamedPipeControlEndpoint`,** which is where `pipe_server.py` finally gets its
+  caller. It exists because the two transports disagree about *when* the name is claimed:
+  `UnixSocketServer` binds inside `start`, while the pipe claims its name in `CreateNamedPipe`.
+  Creating the first instance in `start` preserves the invariant `build_node` depends on — a
+  duplicate launcher fails **before any store is touched** — which
+  `test_duplicate_socket_refusal_happens_before_any_store_is_opened` already asserted for Linux.
+  `ERROR_ACCESS_DENIED` and `ERROR_PIPE_BUSY` are translated here, at the one place that knows the
+  instance was created `first`, into the same `UnixSocketInUseError` the Unix path raises.
+- **`node.py` — `_serve` no longer `assert`s a possibly-unset `settings`.** The endpoint is
+  computed from `_default_control_endpoint_name` before anything can raise, so the duplicate
+  message names what was actually bound even when the configuration never parsed.
+- **`cli.py` — two new subcommands.** `serve` (the Windows entry point) and `config`, which asks
+  `NodeSettings.from_config` what it would refuse **without starting anything**. `config` is not
+  `doctor`: doctor also demands a well-formed cloud origin, which is a different repair, and this
+  has to have one meaning — the boot script's exit code 4.
+- **`transport/pipe_server.py` — `NamedPipeServer.close()` and a close flag.** `ConnectNamedPipe`
+  blocks, so a service stopping for any reason other than a `stop` on this channel would leave its
+  control thread parked in that call; `NodeRuntime.run` joins that thread and reports "the control
+  socket did not stop". `close` wakes it. `ERROR_INVALID_HANDLE` is handled in
+  `serve_connection` so the wake-up is not reported as a channel that failed on its own.
+- **`ops/jarvis-boot.ps1` — `Resolve-AgentCommand` now returns a real command** (`uv run --project
+  <repo>/apps/local-agent jarvis serve`, or an installed `jarvis` when that checkout is absent),
+  **starts it detached, and waits for the pipe to answer** before exiting 0. New exit code **5**
+  is "started and never answered", which is the difference between "the boot chain ran" and "there
+  is an agent at the other end of the pipe". The agent's stdout/stderr land beside the log. Its
+  config check now calls the agent's own `config` through the same resolved command, so the check
+  and the start cannot disagree about which checkout they mean — and the hand-kept
+  `$RequiredConfiguration` list, which named four of the six names `config.py` requires, is gone.
+- **Carriers:** `docs/QUEUE.md` (the launcher row the dispatch asked for, which **did not exist**),
+  `docs/runbooks/pc-boot-chain.md` (banner, the four steps, the exit-code table, *What the agent
+  needed*, the fixture-owns-the-pipe warning, and the exit test), `docs/FACTS.md` (one row).
+  **`docs/STATE.md` is untouched on purpose** — the launcher moves no phase verdict: Phase 3 is
+  still blocked on the PC reading D2L, which this does not do.
+
+### The by-hand exit test, run and observed
+
+Environment: `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` set **for the test process only**, to
+`%TEMP%\jarvis-acceptance\`; `JARVIS_DEVICE_KEY_PATH`, `_DEVICE_ID`, `_PRINCIPAL_ID`,
+`_CLOUD_BASE_URL` as this machine already has them. Non-elevated shell. Transcript at
+`%TEMP%\acceptance-run.log` and `%TEMP%\jarvis-acceptance\`.
+
+| Step | Command | Observed |
+|---|---|---|
+| 0 | `jarvis-boot.ps1 -ProbeOnly` | `no agent listening on \\.\pipe\jarvis-local-agent`, `config: configuration ready`, `probe only; not starting the agent` — **exit 3** |
+| 1 | `jarvis-boot.ps1` | `config: configuration ready`, `starting the agent: uv run --project C:\w\agents3\apps\local-agent jarvis serve`, `agent listening on the control pipe; pid=5604 code=ok`, `status running` — **exit 0** |
+| 2 | `jarvis status` | `status running` / `started_at 2026-09-22T00:30:24.283Z` / `cycles_recorded 0` — **exit 0**, from a non-elevated shell |
+| 3 | `jarvis-boot.ps1 -ProbeOnly` | `agent already listening on the control pipe; code=ok` — **exit 0** |
+| 4 | `jarvis serve`, directly | `the control endpoint \\.\pipe\jarvis-local-agent already exists or is in use.` — **exit 4**, nothing left serving |
+| 5 | `jarvis stop` | `stop requested` — **exit 0**, and the process tree was gone at the first poll |
+| 6 | `jarvis-boot.ps1` | new pid, `status running`, **exit 0** |
+| 7 | `jarvis status` / `jarvis stop` | **exit 0** each; one agent before the stop, none after |
+
+**On (1), the first attempt failed and the failure is the interesting part.** It exited **4**, not
+0, reporting `missing: JARVIS_DEVICE_KEY_PATH` — and that was correct, not a false alarm. The
+registry has it (`REG_SZ` under `HKCU\Environment`), but the shell predated the write, and
+user-scope variables are read at the next logon. A pwsh started after it is set, or the logon task,
+sees it. Recorded as a `FACTS.md` row because the next session will hit the same shape: **the chain
+says the configuration is missing and the configuration is there.**
+
+**On (2), the claim is the DACL, and it was checked rather than assumed.** Read off a live
+instance: `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;S-1-5-21-724611481-2579320955-54207251-1001)` —
+SYSTEM, built-in administrators, and the **resolved** owner SID, `P`-protected. The session that
+ran it is `SID\Sid` (that same SID) and **not** elevated. So the resolved-SID descriptor landed
+where `owner_only_sddl` puts it, and the CLI reaches it as the owner.
+
+**On (3), `stop` exits cleanly and the listener does not hold it.** Directly observed too: a
+foreground `jarvis serve` answered `stop requested`, exited **0**, and left the pipe free — which
+is the `ConnectNamedPipe`/`close` path above, not a timeout that happened to look tidy.
+
+**On (4), the restart left exactly one agent.** Four processes while running (uv → the venv
+shim → the interpreter), zero after the previous stop, four again after the restart; the second
+launcher exited 4 and added none. The boot script itself is also idempotent against a live agent:
+run again with one listening it exited **0** having started nothing.
+
+**One observation from that run is not attributed, and is flagged rather than diagnosed.** The
+last cycle before the stop reported `replicated=0 distilled=0 proposed=0 promoted=0 quarantined=0
+sync: request failed` — the sanitised string `node._safe_node_cycle` writes for a `CloudSyncError`
+or `SyncAckPending`. It is very probably pre-existing (the first run in this session reported
+`replicated=48 distilled=22 proposed=1` against the same gateway, and 48 events were then genuinely
+shipped, so a rerun against already-consumed state has nothing to pull), and **nothing in this
+change touches replication, the cursor store or the cloud client.** But I did not prove the cause,
+so it is a suspect and not a finding: it is named here because a reviewer running the same exit
+test will see a red line in `status` and should not spend the round trip re-deriving that it is
+not this branch's.
+
+### Every mutation, and both results
+
+Each was applied to source, the named test run, the source restored, and the test run again.
+Nothing else in the suite changed state.
+
+| # | Guard neutered | Named test | Neutered | Restored |
+|---|---|---|---|---|
+| 1 | `if error.winerror not in (ERROR_ACCESS_DENIED, ERROR_PIPE_BUSY)` → `if False` — every `OSError` becomes "the name is taken" | `test_an_unexpected_pipe_failure_is_not_reported_as_a_name_already_in_use` | **FAILED** — `UnixSocketInUseError: the control endpoint \\.\pipe\jarvis-local-agent is already in use` raised where `OSError(87)` was expected | **passed** |
+| 2 | `if current_platform.startswith("linux") and hasattr(os, "geteuid"):` → `if True:` — the POSIX-only key checks run for a Windows assembly | `test_the_posix_owner_and_mode_checks_are_not_applied_to_a_windows_assembly` | **FAILED** — `NodeStartupError: the enrolled device key is accessible to group or world` on the `platform="win32"` call | **passed** |
+| 3 | `if current_platform.startswith("win"):` → `if False:` in `_default_control_endpoint_name` — the Windows assembly takes the Unix-socket default | `test_the_windows_assembly_defaults_to_the_pipe_the_cli_already_speaks_to` | **FAILED** — `NodeConfigurationError: paths must be absolute: JARVIS_DEVICE_KEY_PATH, JARVIS_ARCHIVE_PATH, JARVIS_MEMORY_PATH` | **passed** |
+| 4 | moved `if socket_value: return socket_value` above the platform check — an inherited `JARVIS_CONTROL_SOCKET` wins on Windows | `test_a_control_socket_named_on_windows_is_not_where_the_agent_binds` | **FAILED** — `NameError` from the moved fragment, so the test failed **for the wrong reason**; see below | **passed** |
+
+**Mutation 4 is reported as unclean and should be treated as such.** The moved two lines landed in
+a place where a name was unresolved, so the test failed on a `NameError` rather than on the
+behaviour it grades. The test is not unpinned — it asserts the exact pipe name and the platform
+decision it depends on — but that mutation did not prove it, and the honest statement is that only
+mutations 1–3 are cleanly pinned. The same run confirmed the distinction the guard exists for:
+with mutation 3 applied the *Windows* test failed, and no other test did.
+
+**The three new guards on the boot script's side are NOT mutation-verified here.** `-Mutation`
+in `ops/test-pc-controls.ps1` covers only the oversized-frame bound and the task's run level, as it
+did before; the code that starts the agent and waits (`Resolve-AgentCommand`, `Wait-ForControlEndpoint`,
+the exit-5 path) has no test and was exercised **by hand only**. That is the gap a reviewer should
+weigh, and closing it means extending that script rather than adding a claim here.
+
+### Gates, and what each one covers
+
+| Command | Result |
+|---|---|
+| `uv run --project apps/local-agent --group dev pytest -q` (cwd `apps/local-agent`) | **891 passed, 32 skipped** — the whole `jarvis_local` suite, run after the last source edit |
+| `uv run --project apps/local-agent --group dev mypy jarvis_local` (cwd `apps/local-agent`) | **Success: no issues found in 58 source files** (mypy strict) |
+| `uv run --project apps/local-agent --group dev ruff check .` | **All checks passed!** |
+| `node scripts/check-state.mjs` | **state check passed: 3 carriers, STATE.md within budget, links resolve, BLOCKS present** |
+| `ops/test-pc-controls.ps1` (service stopped, not `-Mutation`, not `-Elevated`) | **14/14 steps passed**, 4 `SKIP` (elevation-gated, reported as SKIP) |
+| `pytest -q` from the repository root | `ModuleNotFoundError: No module named 'jarvis_brain_bridge'` during collection of `apps/brain-bridge`. **Pre-existing and unrelated** — this package is not installed here; the suite that matters is the `apps/local-agent` one above |
+
+**I did not run `pnpm test`, and this change does not need it: no TypeScript was touched.**
+`test:all` is `pnpm test && pnpm test:runtime && pnpm test:watchdog`, and `vitest.workspace.ts`
+contains no `apps/local-agent` project, so the 891 above is **not** a `test:all` number and
+`test:all` would say nothing about this work.
+
+The live-endpoint fixture steps in `ops/test-pc-controls.ps1` **bind the same pipe name the real
+agent does**, so they were run with the service stopped (`jarvis stop`, confirmed zero agent
+processes) rather than against a live one — the run printed above is that run. `-Mutation` and
+`-Elevated` were not run: `-Elevated` needs an administrator session, and I hold no elevation.
+
+### What I did NOT do, and why
+
+- **Did not set `JARVIS_ARCHIVE_PATH` or `JARVIS_MEMORY_PATH` at user scope.** The exit test needs
+  them and the machine does not have them, but they are the owner's environment and writing to it
+  is not mine to do from a builder session. The runbook now carries them as a prerequisite table.
+  **The chain will keep exiting 4 at logon until they are set** — that is the next action, and it
+  is Sid's.
+- **Did not delete what the test created.** The acceptance run pointed the agent at
+  `%TEMP%\jarvis-acceptance\archive.sqlite3` and `memory.sqlite3`, deliberately **not** at any real
+  store, and the agent did a real startup cycle: it pulled events from the gateway, distilled, and
+  wrote its own two databases (126,976 and 131,072 bytes). Nothing was sent beyond what the signed
+  sync protocol already does on every startup, and no production store was touched. The files are
+  left in place as the evidence for the numbers above.
+- **Did not add a re-runnable acceptance script** for the seven-step exit test. I drove it from a
+  scratch script in `%TEMP%`, and dropping it into `ops/` is a real improvement that is also new
+  surface. Named here rather than done.
+- **Did not give `serve` a `--pipe-name`.** `cli._control` sends to `DEFAULT_PIPE_NAME` unless it is
+  told otherwise, so a second name bound by a flag is a service the CLI cannot find. That is a
+  decision to make deliberately, with the CLI half, or not at all.
+- **Did not push and did not open a PR** — the parent session publishes.
+- **Did not remove the `ERROR_PIPE_BUSY` branch**, though it is unreachable on any Windows this
+  machine runs. It is Windows 7-and-earlier behaviour, it costs one tuple member, and it is the
+  difference between a clear refusal and a `WinError 231` for whoever runs this elsewhere.
+
+### Out of scope, named rather than fixed
+
+- **`ops/jarvis-boot.ps1` runs `jarvis config` through `Resolve-AgentCommand`, which prefers the
+  checkout the script lives in.** At logon the task runs `C:\javis\ops\jarvis-boot.ps1`, so after
+  this merges the deployed copy starts `C:\javis\apps\local-agent`'s agent — not this worktree's.
+  That is intended (the deploy checkout is the one to run) and it means **this branch cannot be
+  observed end-to-end until `C:\javis` is pulled onto it**. Sid does not pull; a session does.
+- **`NodeSettings.from_config` still has no test that `node` refuses Windows and `serve` refuses
+  Linux from the same function.** Both refusals are tested separately; nothing pins that they
+  cannot be swapped.
+- **`docs/briefs-pc-controls.md` is now wrong in three places** — it says the chain stops at exit 3,
+  that the node is not ported, and it describes `ops/jarvis-boot.ps1`'s step 4 as reporting what P1
+  cannot supply. Its header already says "verify this brief before trusting it; where it is wrong,
+  say so", so it is named here rather than rewritten: it is another session's brief and the
+  runbook is the carrier a reader actually follows.
+- **`docs/QUEUE.md`'s PR table does not list this branch**, because there is no PR yet. When the
+  parent opens one, the row it needs is already written in the "Work with no pull request yet"
+  table and should move.
+- **The three carriers the dispatch said would be stale were stale in the other direction**: it
+  named a QUEUE row and a runbook section that did not exist on this base at all. Worth knowing for
+  the next dispatch: **a brief can describe a target state the branch does not have yet**, and
+  cherry-picking the branch it was written against is cheaper than discovering it halfway in.
+
+### Independent verification by the publishing session, on the rebased branch
+
+The parent session rebased this work onto PR #141's head and re-observed it, because the
+original branch's first commit was a cherry-pick of `c5a3d62` that had resolved the four
+carriers back to `d0ec419`'s version — which would have discarded #141's OWNER-ACTIONS and
+brief work on merge. Nothing of this session's code changed in the rebase.
+
+Gates re-run by the parent on the combined tree, at `2ccb8fc`:
+
+| Command | Result |
+|---|---|
+| `uv run --project . --group dev pytest -q` (cwd `apps/local-agent`) | **891 passed, 32 skipped** |
+| `uv run --project . --group dev pytest -q -k "windows or pipe or duplicate or serve"` | **99 passed, 5 skipped, 819 deselected** |
+| `uv run --project . --group dev mypy jarvis_local` | **Success, 58 source files** |
+| `uv run --project . --group dev ruff check .` | **All checks passed** |
+| `node scripts/check-state.mjs` | **passed** |
+
+**The exit test, observed by the parent from a genuinely clean machine** (zero `python`/`uv`
+processes first, because a stale agent makes every later observation lie):
+
+```
+probe with nothing running                  -> exit 3
+clean start of `jarvis serve`, held alive   -> `jarvis status` EXIT 0, and it answered:
+                                               status authentication
+                                               started_at 2026-09-22T00:55:32.366Z
+                                               cycles_recorded 1
+a second `serve`, same pipe                 -> refused: "the control endpoint
+                                               \\.\pipe\jarvis-local-agent already exists or is in use."
+```
+
+So the launcher binds the pipe, the CLI's own client reaches it, and the single-instance
+guard fires by name. The `authentication` state is this machine's locally generated,
+**unenrolled** device key being rejected by the gateway — expected, and pre-existing
+`run_node` behaviour, not a fault in this change.
+
+**A correction the parent owes this entry, and one open risk.** The parent first reported
+"the client cannot connect" as a defect here. That was false: the parent's harness reaps a
+detached child when the launching script exits, so three successive probes raced a dying or
+zombie agent. The client, `uv run`, and a binary-mode theory were each tested and eliminated,
+and the parent's experimental patch was reverted. **Do not chase this.** Recorded because a
+wrong defect report is worse than no report.
+
+The open risk, named and not fixed: **`ops/jarvis-boot.ps1` exits 0 the moment the pipe
+answers, and the service can exit 5 seconds later** when the gateway rejects the device.
+The logon task's `RestartCount 3` / `PT1M` is then the only recovery, and nothing tells the
+owner that the service they were told had started is gone. Worth a QUEUE row if this merges.
+
+**Nothing in this entry's own gates or mutations was re-run by the parent** — the 891/99/mypy/
+ruff numbers above are the parent's observations at this head, and the mutation table above
+them is this session's, unchanged.
+
 ## 2026-09-20 — DeepSeek builder: the nine are in the repo now, and one of the nine was labelled wrong
 
 **Branch `codex/json-not-the-brains-branch`, base `ca88bf4`.** One commit. Docs and one

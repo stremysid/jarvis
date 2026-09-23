@@ -55,6 +55,7 @@ from __future__ import annotations
 import contextlib
 import json
 import re
+import threading
 from collections.abc import Callable
 from typing import IO, Any, Protocol
 
@@ -294,6 +295,14 @@ _PIPE_UNLIMITED_INSTANCES = 255
 _PIPE_BUFFER_BYTES = 64 * 1024
 
 _ERROR_PIPE_CONNECTED = 535
+#: `CreateNamedPipe` answers "this name already has a server" with ACCESS_DENIED,
+#: because FILE_FLAG_FIRST_PIPE_INSTANCE was set. On Windows 7 and earlier that
+#: flag does not exist and the same condition reports PIPE_BUSY. Both are named
+#: here so the one caller that creates an instance `first` can translate them
+#: into one refusal instead of leaking a Win32 number.
+ERROR_ACCESS_DENIED = 5
+ERROR_INVALID_HANDLE = 6
+ERROR_PIPE_BUSY = 231
 _EOF_WINERRORS = frozenset({109, 232, 233})  # BROKEN_PIPE, NO_DATA, PIPE_NOT_CONNECTED
 
 _SDDL_REVISION_1 = 1
@@ -467,7 +476,11 @@ class PipeStream:
     def close(self) -> None:
         import _winapi
 
-        _winapi.CloseHandle(self.handle)
+        # Tolerated rather than asserted: the server closing the handle and the
+        # peer hanging up can both reach this, and a number Windows has already
+        # released is not a failure to report.
+        with contextlib.suppress(OSError):
+            _winapi.CloseHandle(self.handle)
 
 
 class _ClientStream:
@@ -497,6 +510,14 @@ class NamedPipeServer:
     One connection at a time, on purpose. These commands set a flag or read a
     list of twenty records; a thread pool to serve them concurrently would be
     resident memory bought for a queue that is never longer than one.
+
+    A pipe name has no filesystem entry, so -- unlike the Unix socket -- there
+    is nothing to clean up after a crash and `close` exists for a different
+    reason: `ConnectNamedPipe` blocks until somebody connects, so a service
+    stopping for any reason other than a `stop` on this channel would otherwise
+    leave its control thread parked in that call. `close` is what lets
+    `NodeRuntime.run` join that thread instead of waiting out its timeout and
+    reporting a socket that never stopped.
     """
 
     def __init__(
@@ -508,9 +529,61 @@ class NamedPipeServer:
         self.server = server
         self.pipe_name = pipe_name
         self.sddl = sddl or owner_only_sddl(current_user_sid())
+        self._instance_lock = threading.Lock()
+        #: The spare instance, created before the current one is served so the
+        #: name is never momentarily unclaimed.
+        self._listening = 0
+        #: The instance `serve_connection` is blocked on right now, if any.
+        #:
+        #: Separate from `_listening` because they are different handles:
+        #: `create_instance` publishes the spare while the connect is blocked on
+        #: the previous one. A `close` that took only `_listening` closed the
+        #: spare and left the blocked call blocked -- the service stopped
+        #: accepting, never exited, kept the pipe name, and the logon task could
+        #: not restart it.
+        self._serving = 0
+        self._close_requested = False
 
     def create_instance(self, first: bool = False) -> int:
-        return create_pipe_instance(self.pipe_name, self.sddl, first=first)
+        handle = create_pipe_instance(self.pipe_name, self.sddl, first=first)
+        with self._instance_lock:
+            self._listening = handle
+        return handle
+
+    def close(self) -> None:
+        """Stop accepting and wake whoever is waiting for a client.
+
+        Idempotent, and safe to call from another thread while `serve_forever`
+        is blocked -- that is the only way it is ever called.
+        """
+        with self._instance_lock:
+            if self._close_requested:
+                return
+            self._close_requested = True
+            listening, self._listening = self._listening, 0
+            serving, self._serving = self._serving, 0
+        _close_quietly(listening)
+        if serving:
+            self._wake_blocked_connect()
+        _close_quietly(serving)
+
+    def _wake_blocked_connect(self) -> None:
+        """Connect once and hang up, purely to end a blocked `ConnectNamedPipe`.
+
+        Closing the handle from another thread does **not** reliably wake a
+        blocking connect -- measured, not assumed, and it is why this exists
+        rather than reaching for cancellation. A listener left parked there
+        never returns, so the process never exits, the pipe name stays claimed,
+        and the logon task cannot start a replacement.
+
+        The connection is deliberate and immediately dropped, and the server
+        side checks `_close_requested` and serves nothing, so this cannot be
+        mistaken for a client request. Best effort by design: if the connect
+        fails, the handle close that follows is the remaining attempt.
+        """
+        with contextlib.suppress(OSError):
+            stream = connect_to_pipe(self.pipe_name)
+            stream.close()
 
     def serve_connection(self, handle: int) -> CliResponse:
         """Wait for a client on `handle`, serve one request, hang up.
@@ -529,9 +602,21 @@ class NamedPipeServer:
                 # and connecting to it. That is a connection, not a failure.
                 if error.winerror != _ERROR_PIPE_CONNECTED:
                     raise
+            # A woken listener has no client worth serving: `close` made this
+            # connection only to end the wait, and the peer is already gone.
+            if self._close_requested:
+                return CliResponse(MALFORMED_REQUEST)
             response = self.server.serve_one(stream, stream)
             _flush_and_disconnect(handle)
             return response
+        except OSError as error:
+            # The only way to reach this is `close` racing the connect above:
+            # the handle was closed under the blocking call. An unexpected
+            # failure here would be reported as a control channel that stopped
+            # itself, which is the opposite of what a deliberate close is.
+            if error.winerror != ERROR_INVALID_HANDLE or not self._close_requested:
+                raise
+            return CliResponse(MALFORMED_REQUEST)
         finally:
             stream.close()
 
@@ -552,19 +637,37 @@ class NamedPipeServer:
         if not listening:
             listening = self.create_instance(first=True)
         try:
-            while should_continue():
+            while should_continue() and not self._close_requested:
                 serving, listening = listening, 0
+                with self._instance_lock:
+                    self._serving = serving
                 try:
                     listening = self.create_instance()
                 except BaseException:
+                    with self._instance_lock:
+                        self._serving = 0
                     _close_quietly(serving)
                     raise
                 # `serve_connection` owns `serving` from here and closes it on
                 # every path. Closing it here as well would eventually close
                 # some later handle that Windows had reused the number for.
-                self.serve_connection(serving)
+                try:
+                    self.serve_connection(serving)
+                finally:
+                    # `close` may already have taken and closed it; clearing the
+                    # slot here is what stops a second close of a number Windows
+                    # can reuse.
+                    with self._instance_lock:
+                        self._serving = 0
         finally:
-            _close_quietly(listening)
+            # The spare instance may be the same handle `close` already took,
+            # or a different one that arrived after it; both are closed, and
+            # neither is closed twice.
+            with self._instance_lock:
+                pending, self._listening = self._listening, 0
+            _close_quietly(pending)
+            if listening != pending:
+                _close_quietly(listening)
 
 
 def connect_to_pipe(pipe_name: str) -> ByteStream:
