@@ -223,17 +223,17 @@ describe("PowerShell 7 host trust", () => {
     expect(args[4]).toContain("Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force");
     expect(args[4]).toContain("Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main");
     expect(args[4]).not.toContain(storeDirectory);
-    expect(options).toEqual({
-      windowsHide: true,
-      cwd: queryDirectory,
-      env: {
-        APPDATA: queryDirectory, ComSpec: String.raw`C:\Windows\System32\cmd.exe`, HOME: queryDirectory,
-        JARVIS_HERMES_APPX_MODULE: appxManifest, JARVIS_HERMES_UTILITY_MODULE: utilityManifest,
-        LOCALAPPDATA: queryDirectory, Path: String.raw`C:\Windows\System32`, PATHEXT: ".COM;.EXE",
-        PSDisableModuleAnalysisCacheCleanup: "1", PSModuleAnalysisCachePath: "NUL", PSModulePath: modules,
-        SystemRoot: String.raw`C:\Windows`, TEMP: queryDirectory, TMP: queryDirectory,
-        USERPROFILE: queryDirectory, WINDIR: String.raw`C:\Windows`, XDG_CONFIG_HOME: queryDirectory,
-      },
-    });
+    const expectedEnvironment = {
+      APPDATA: queryDirectory, ComSpec: String.raw`C:\Windows\System32\cmd.exe`, HOME: queryDirectory,
+      JARVIS_HERMES_APPX_MODULE: appxManifest, JARVIS_HERMES_UTILITY_MODULE: utilityManifest,
+      LOCALAPPDATA: queryDirectory, Path: String.raw`C:\Windows\System32`, PATHEXT: ".COM;.EXE",
+      PSDisableModuleAnalysisCacheCleanup: "1", PSModuleAnalysisCachePath: "NUL", PSModulePath: modules,
+      SystemRoot: String.raw`C:\Windows`, TEMP: queryDirectory, TMP: queryDirectory,
+      USERPROFILE: queryDirectory, WINDIR: String.raw`C:\Windows`, XDG_CONFIG_HOME: queryDirectory,
+    };
+    // A neutered allowlist must fail on names before a reporter can print any
+    // inherited values from the machine running the mutation.
+    expect(Object.keys(options.env).sort()).toEqual(Object.keys(expectedEnvironment).sort());
+    expect(options).toEqual({ windowsHide: true, cwd: queryDirectory, env: expectedEnvironment });
   });
 });
