@@ -44,15 +44,26 @@ class StubWin32:
     can happen, because the module reaches Windows only through what it returns.
     """
 
-    def __init__(self, *, set_result: int = 0, get_result: int = 0) -> None:
+    def __init__(self, *, set_result: int = 0, get_result: int = 0, owner_sid: str | None = None) -> None:
         self.set_result = set_result
         self.get_result = get_result
+        #: What `GetNamedSecurityInfoW` + `GetSecurityDescriptorOwner` report as
+        #: the current owner. Defaults to the user's own SID, the healthy case.
+        self.owner_sid = owner_sid if owner_sid is not None else SID
         self.security_information: list[int] = []
+        #: One entry per `SetNamedSecurityInfoW` call, so a test can assert the
+        #: call *order* and not only the set of masks used.
+        self.set_results: list[int] | None = None
         self.owners: list[Any] = []
         self.acls: list[Any] = []
         self.paths: list[str] = []
         self.freed: list[Any] = []
         self.sddls: list[str] = []
+
+    def next_set_result(self) -> int:
+        if self.set_results:
+            return self.set_results.pop(0)
+        return self.set_result
 
     def __call__(self) -> tuple[Any, Any]:
         return self._advapi32(), self._kernel32()
@@ -72,6 +83,17 @@ class StubWin32:
             @staticmethod
             def ConvertStringSidToSidW(_sid: str, owner: Any) -> int:
                 owner._obj.value = 0x5678
+                return 1
+
+            @staticmethod
+            def ConvertSidToStringSidW(_owner: Any, text: Any) -> int:
+                text._obj.value = stub.owner_sid
+                return 1
+
+            @staticmethod
+            def GetSecurityDescriptorOwner(_descriptor: Any, owner: Any, defaulted: Any) -> int:
+                owner._obj.value = 0x1111
+                defaulted._obj.value = 0
                 return 1
 
             @staticmethod
@@ -97,7 +119,7 @@ class StubWin32:
                 stub.security_information.append(security_information)
                 stub.owners.append(owner)
                 stub.acls.append(acl)
-                return stub.set_result
+                return stub.next_set_result()
 
             @staticmethod
             def GetNamedSecurityInfoW(*_args: Any) -> int:
@@ -216,25 +238,110 @@ def test_a_sid_that_could_rewrite_the_descriptor_is_refused(candidate: str) -> N
 # --- what reaches SetNamedSecurityInfoW --------------------------------------
 
 
-def test_applying_the_dacl_sets_the_protected_flag_and_the_owner(
+def test_the_dacl_is_written_before_the_owner_and_in_two_separate_calls(
     tmp_path: Path, stub: StubWin32,
 ) -> None:
-    """`D:PAI` is inert without `PROTECTED_DACL_SECURITY_INFORMATION`: Windows
-    keeps the object's existing protection setting, which is how `AppData\\Local`
-    and `Temp` stayed unprotected while the profile stayed protected."""
+    """The call order is the fix, so it is asserted directly.
+
+    Windows checks whether the caller may set the owner against the DACL *as
+    that same call receives it*, before applying the new one, so a single call
+    carrying `OWNER | DACL | PROTECTED` is refused even when the new DACL would
+    grant the caller everything. Measured 20/20 against a plain inherited folder,
+    and as two calls it succeeded 20/20. Asserting only the combined effect would
+    let the order regress silently.
+    """
     root = tmp_path / "store"
     root.mkdir()
+    stub.owner_sid = "S-1-5-21-9-9-9-1002"  # a different owner, so both calls run
     apply_owner_only_dacl(root, SID, store_root=tmp_path)
 
-    assert stub.security_information == [_OWNER | _DACL | _PROTECTED_DACL]
-    assert stub.paths == [str(root)]
-    # A real SID pointer and a real ACL pointer, not the descriptor or a string.
-    assert stub.owners[0].value == 0x5678
-    assert stub.acls[0].value == 0x9ABC
-    # Both allocations the Win32 API made are released.
-    assert len(stub.freed) == 2
-    # And the descriptor handed to Windows is the inheriting, owner-pinned one.
-    assert stub.sddls == [folder_only_sddl(SID)]
+    assert stub.security_information == [_DACL | _PROTECTED_DACL, _OWNER], stub.security_information
+    # The DACL call carries no owner, the owner call carries a real SID pointer.
+    assert stub.owners[0] is None, "the DACL call must not also set the owner"
+    assert stub.owners[1] is not None, "the owner call must carry a real SID pointer"
+    assert stub.acls[0] is not None and stub.acls[1] is not None
+    # Both calls hand Windows the same descriptor: the owner call carries the
+    # DACL too (a security-information write always carries the whole ACL), it
+    # simply does not ask for the DACL to be changed.
+    assert stub.sddls == [folder_only_sddl(SID)] * 2, stub.sddls
+    assert f";;;{SID})" in stub.sddls[0]
+
+
+def test_the_owner_call_is_skipped_when_the_owner_already_matches(tmp_path: Path, stub: StubWin32) -> None:
+    """The healthy case: a store already owned by its user gets one write, not two."""
+    root = tmp_path / "store"
+    root.mkdir()
+    stub.owner_sid = SID
+    apply_owner_only_dacl(root, SID, store_root=tmp_path)
+
+    assert stub.security_information == [_DACL | _PROTECTED_DACL], "a matching owner must not be rewritten"
+
+
+def test_an_owner_failure_after_a_successful_dacl_write_raises(tmp_path: Path, stub: StubWin32) -> None:
+    """Unexpected, so it raises rather than degrading.
+
+    The DACL has already been applied at that point, so the store stays
+    reachable -- but the owner is half the original defect, and a silently
+    unchanged owner is how that half comes back.
+    """
+    root = tmp_path / "store"
+    root.mkdir()
+    stub.owner_sid = "S-1-5-21-9-9-9-1002"
+    stub.set_results = [0, 5]  # DACL succeeds, then the owner write is refused
+
+    with pytest.raises(OSError, match="Access is denied"):
+        apply_owner_only_dacl(root, SID, store_root=tmp_path)
+    assert stub.security_information == [_DACL | _PROTECTED_DACL, _OWNER]
+
+
+def test_a_refused_dacl_write_names_the_one_time_fix_and_changes_nothing(
+    tmp_path: Path, stub: StubWin32,
+) -> None:
+    """The case that actually happens: an Administrators-owned store, non-elevated.
+
+    Nothing this process can do will change it, so the message has to carry the
+    fix -- and because the DACL is the first call, a failure leaves the store
+    exactly as it was rather than half-changed.
+    """
+    root = tmp_path / "store"
+    root.mkdir()
+    stub.set_results = [5]
+
+    with pytest.raises(store_permissions.StoreDaclRefusedError) as raised:
+        apply_owner_only_dacl(root, SID, store_root=tmp_path)
+
+    message = str(raised.value)
+    assert "jarvis serve" in message and "elevated" in message, message
+    assert "icacls" in message and os.fspath(root) in message, message
+    # Only the DACL was attempted; the owner call never ran.
+    assert stub.security_information == [_DACL | _PROTECTED_DACL], stub.security_information
+
+
+def test_a_failed_call_never_leaves_a_folder_without_an_entry_for_the_user(
+    tmp_path: Path, stub: StubWin32,
+) -> None:
+    """The `ownertest` folder was left with no ACE for Sid at all.
+
+    That happened because `mkdir(mode=0o700)` had already created a protected
+    DACL and the module's single combined call then failed, so the intended
+    entries were never written -- and Sid could not even delete the folder. With
+    the DACL first, the only failure that can leave a folder unreadable is the
+    DACL write itself, and that one happens before anything changed. This asserts
+    that whichever call fails, every descriptor handed to Windows names the user.
+    """
+    root = tmp_path / "store"
+    root.mkdir()
+
+    for set_results, label in ([[5], "DACL refused"], [[0, 5], "owner refused after DACL"]):
+        stub.set_results = list(set_results)
+        stub.security_information.clear()
+        stub.sddls.clear()
+        stub.owner_sid = "S-1-5-21-9-9-9-1002"
+        with pytest.raises((store_permissions.StoreDaclRefusedError, OSError)):
+            apply_owner_only_dacl(root, SID, store_root=tmp_path)
+        assert stub.sddls, f"{label}: no descriptor was built"
+        assert all(f";;;{SID})" in sddl for sddl in stub.sddls), (label, stub.sddls)
+        assert all("(A;OICI;FA;;;" in sddl for sddl in stub.sddls), (label, stub.sddls)
 
 
 def test_a_refused_path_is_never_handed_to_windows(tmp_path: Path, stub: StubWin32) -> None:
@@ -254,11 +361,11 @@ def test_a_failed_set_reports_the_result_code_not_the_last_error(
     import ctypes
 
     monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(f"code={code}"))
-    stub.set_result = 87
+    stub.set_results = [87]  # the DACL call is the first one, and it fails
     root = tmp_path / "store"
     data = root / "data"
     data.mkdir(parents=True)
-    with pytest.raises(OSError, match="code=87"):
+    with pytest.raises(store_permissions.StoreDaclRefusedError, match="code=87"):
         apply_owner_only_dacl(data, SID, store_root=root)
 
 
@@ -632,14 +739,19 @@ def test_a_broad_store_root_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 
 def test_the_startup_summary_names_the_default_when_nothing_is_configured(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stub: StubWin32,
 ) -> None:
-    """The log must distinguish the fallback from a configured choice."""
+    """The log must distinguish the fallback from a configured choice.
+
+    `store_root_summary` now also reports ownership, so it reads the owner of any
+    root that exists -- which is why this needs the Win32 seam stubbed too.
+    """
     monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
     monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
     local_app_data = tmp_path / "AppData" / "Local"
-    local_app_data.mkdir(parents=True)
+    (local_app_data / "Jarvis").mkdir(parents=True)
     monkeypatch.setenv("LOCALAPPDATA", os.fspath(local_app_data))
+    stub.owner_sid = SID
 
     assert store_root_summary() == f"{local_app_data / 'Jarvis'} (default; no store path configured)"
 

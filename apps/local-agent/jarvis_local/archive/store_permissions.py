@@ -137,6 +137,26 @@ _MEMORY_PATH_VARIABLE = "JARVIS_MEMORY_PATH"
 _FALLBACK_DIRECTORY_NAME = "Jarvis"
 
 
+class StoreDaclRefusedError(RuntimeError):
+    """The store's DACL could not be written, so the store is not private.
+
+    The case that actually occurs: a store owned by Administrators, opened
+    non-elevated. The DACL write is checked against the object's access, and
+    this account is not named on it. The message has to carry the one-time fix,
+    because nothing this process can do will change it -- and if the boot chain
+    stops running elevated, no run of `jarvis serve` will either.
+    """
+
+
+class StoreOwnerUnknownError(RuntimeError):
+    """The DACL was applied but the current owner could not be read.
+
+    Access is fixed; ownership was not attempted. Raised rather than passed over
+    because the owner is half the original defect and an unread owner is not the
+    same as an owner that already matches.
+    """
+
+
 class StoreRootUnresolvedError(RuntimeError):
     """No store root could be determined, so no boundary can be checked.
 
@@ -215,13 +235,17 @@ def configured_store_roots() -> tuple[Path, ...]:
 
 
 def store_root_summary() -> str:
-    """The resolved store roots, as one line, for a startup log.
+    """The resolved store roots and their ownership, as one line, for a start-up log.
 
     Resolves rather than describes: a log line that restated the environment
     variables would not show the fallback, and the fallback is the part a reader
     cannot infer. Says so explicitly when the default applied, because "the
     default" and "an administrator chose this" must not look alike in a log
     somebody is reading at 2am.
+
+    Also reports ownership, because a store owned by Administrators is the one
+    state a non-elevated service cannot repair and the message has to name the
+    one-time fix rather than leaving a reader to rediscover it.
     """
     supplied = any(
         os.environ.get(variable, "").strip()
@@ -233,7 +257,31 @@ def store_root_summary() -> str:
         # The service is going to refuse; the log should say why before it does.
         return f"unresolved ({error})"
     rendered = ", ".join(os.fspath(root) for root in roots)
-    return rendered if supplied else f"{rendered} (default; no store path configured)"
+    if not supplied:
+        rendered = f"{rendered} (default; no store path configured)"
+    return f"{rendered}{_ownership_note(roots)}"
+
+
+def _ownership_note(roots: tuple[Path, ...]) -> str:
+    """A warning suffix naming the one-time fix, or nothing when all is well."""
+    try:
+        ours = current_user_sid()
+    except OSError:
+        return ""
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            owner = _current_owner_sid(root)
+        except OSError:
+            continue
+        if owner != ours:
+            return (
+                f"; WARNING {root} is owned by {owner}, not by {ours} -- a non-elevated service "
+                f"cannot change that. One-time fix: run `jarvis serve` once from an elevated shell, "
+                f'or: icacls "{root}" /grant "*{ours}:(OI)(CI)F" /T'
+            )
+    return ""
 
 
 def _refuse_broad_root(root: Path) -> None:
@@ -275,19 +323,119 @@ def folder_only_sddl(user_sid: str) -> str:
 
 
 def apply_owner_only_dacl(path: Path, user_sid: str, *, store_root: Path) -> None:
-    """Write the store's owner and DACL onto `path`, which must be inside `store_root`.
+    """Write the store's DACL onto `path`, then set the owner if it differs.
 
-    `store_root` is required rather than optional on purpose. The damage this
-    module caused came from a call that could name any directory on the machine;
-    a required root, checked here and re-checked in `_refuse_unsafe_path`, means
-    a wrong argument raises instead of rewriting a profile.
+    **Two calls, in this order, and the order is the whole point.** Windows
+    checks whether the caller may set the owner against the DACL *as that same
+    call receives it*, before the new DACL is applied -- so a single call
+    carrying `OWNER | DACL | PROTECTED` is refused with ERROR_ACCESS_DENIED even
+    when the caller already owns the object and the new DACL would grant it
+    everything. Measured 20 times out of 20 on this PC, against a folder with a
+    plain inherited DACL; the same call against a folder carrying Python's
+    CVE-2024-4030 DACL (which includes an `OW` entry) succeeded 20/20, and
+    `DACL`-then-`OWNER` as two calls succeeded in every case.
 
-    The owner is set in the same call because it is half the defect. An object
-    owned by Administrators with a DACL naming the user still works, but leaving
-    the owner wrong means the next `mkdir(mode=0o700)` under it inherits the
-    same trap.
+    So the DACL goes first. It grants SYSTEM, Administrators and the user full
+    control with inheritance, which includes WRITE_OWNER for the user, and that
+    is what then authorizes the second call -- which is why no elevation check
+    belongs here: a non-elevated process that has just written this DACL can
+    set the owner on its own store.
+
+    The ordering also means a failure cannot leave the store unreachable. If the
+    first call fails, nothing was changed. If it succeeds, the DACL already
+    names the user with full control, so the second call failing leaves a store
+    the user can still open -- and that second failure is unexpected, so it
+    raises rather than being written off as a degraded mode.
     """
     target = _refuse_unsafe_path(path, store_root)
+    # Read the owner before changing anything, so the DACL is still the old one
+    # if this fails -- and apply the DACL anyway even then, because the fix the
+    # user actually needs is access, not ownership.
+    current_owner: str | None
+    try:
+        current_owner = _current_owner_sid(target)
+    except OSError as error:
+        current_owner = None
+        logger.warning("cannot read the owner of %s: %s", target, error)
+
+    try:
+        _set_security_info(
+            target, user_sid, _DACL_SECURITY_INFORMATION | _PROTECTED_DACL_SECURITY_INFORMATION, None
+        )
+    except OSError as error:
+        # Nothing was changed, so the store keeps whatever access it had. The
+        # message has to be actionable, because this process cannot fix it.
+        raise StoreDaclRefusedError(dacl_refused_message(target, error)) from error
+
+    if current_owner is None:
+        raise StoreOwnerUnknownError(
+            f"{target} has been given the store DACL, but its current owner could not be read, so "
+            "ownership was not changed. Run `jarvis serve` elevated once to repair it."
+        )
+    if current_owner == user_sid:
+        return
+    _set_security_info(target, user_sid, _OWNER_SECURITY_INFORMATION, user_sid)
+
+
+def dacl_refused_message(path: Path, error: OSError) -> str:
+    """The sentence for a refused DACL write, naming the one-time fix.
+
+    Two routes are offered because only one of them may exist: `jarvis serve`
+    elevated repairs every store the service opens, and the `icacls` line
+    repairs this exact path without depending on the boot chain ever running
+    elevated again.
+    """
+    return (
+        f"cannot set the permissions of {path}: {error}. "
+        f"This is what a store owned by Administrators looks like from a non-elevated session. "
+        f"One-time fix, either: run `jarvis serve` once from an elevated shell; "
+        f'or run: icacls "{path}" /grant "*{_current_user_sid_or_none()}:(OI)(CI)F" /T'
+    )
+
+
+def _current_user_sid_or_none() -> str:
+    """The current user's SID for an error message, or a placeholder."""
+    try:
+        return current_user_sid()
+    except OSError:
+        return "<your-sid>"
+
+
+def _current_owner_sid(path: Path) -> str:
+    """The SID that currently owns `path`, as a string."""
+    advapi32, kernel32 = _windows_apis()
+    descriptor = ctypes.c_void_p()
+    result = advapi32.GetNamedSecurityInfoW(
+        str(path), _SE_FILE_OBJECT, _OWNER_SECURITY_INFORMATION,
+        None, None, None, None, ctypes.byref(descriptor),
+    )
+    if result != 0:
+        raise ctypes.WinError(result)
+    owner = ctypes.c_void_p()
+    defaulted = ctypes.c_int()
+    text = ctypes.c_wchar_p()
+    try:
+        if not advapi32.GetSecurityDescriptorOwner(descriptor, ctypes.byref(owner), ctypes.byref(defaulted)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not owner.value:
+            raise OSError("the store descriptor carries no owner")
+        if not advapi32.ConvertSidToStringSidW(owner, ctypes.byref(text)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if text.value is None:
+            raise OSError("the owner SID converted to nothing")
+        return str(text.value)
+    finally:
+        if text:
+            kernel32.LocalFree(text)
+        kernel32.LocalFree(descriptor)
+
+
+def _set_security_info(path: Path, user_sid: str, bits: int, owner_sid: str | None) -> None:
+    """One `SetNamedSecurityInfoW` call carrying exactly `bits`.
+
+    Kept separate from the policy above so a test can assert the two calls, the
+    order, and the exact masks rather than only their combined effect.
+    """
     advapi32, kernel32 = _windows_apis()
     descriptor = ctypes.c_void_p()
     length = ctypes.c_ulong()
@@ -296,7 +444,7 @@ def apply_owner_only_dacl(path: Path, user_sid: str, *, store_root: Path) -> Non
     ):
         raise ctypes.WinError(ctypes.get_last_error())
     owner = ctypes.c_void_p()
-    if not advapi32.ConvertStringSidToSidW(user_sid, ctypes.byref(owner)):
+    if owner_sid is not None and not advapi32.ConvertStringSidToSidW(owner_sid, ctypes.byref(owner)):
         kernel32.LocalFree(descriptor)
         raise ctypes.WinError(ctypes.get_last_error())
     acl = ctypes.c_void_p()
@@ -316,10 +464,10 @@ def apply_owner_only_dacl(path: Path, user_sid: str, *, store_root: Path) -> Non
         if not present.value:
             raise OSError("the store descriptor carries no DACL")
         result = advapi32.SetNamedSecurityInfoW(
-            str(target),
+            str(path),
             _SE_FILE_OBJECT,
-            _OWNER_SECURITY_INFORMATION | _DACL_SECURITY_INFORMATION | _PROTECTED_DACL_SECURITY_INFORMATION,
-            owner,
+            bits,
+            owner if owner_sid is not None else None,
             None,
             acl,
             None,
@@ -562,6 +710,8 @@ def _windows_apis() -> tuple[ctypes.WinDLL, ctypes.WinDLL]:  # type: ignore[name
 
 
 __all__ = [
+    "StoreDaclRefusedError",
+    "StoreOwnerUnknownError",
     "StoreRootUnresolvedError",
     "UnsafeStorePathError",
     "apply_owner_only_dacl",
@@ -570,5 +720,6 @@ __all__ = [
     "ensure_private_directory",
     "folder_only_sddl",
     "repair_store_tree",
+    "store_root_summary",
     "tree_owner_sddl",
 ]

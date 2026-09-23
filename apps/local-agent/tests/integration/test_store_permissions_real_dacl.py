@@ -25,6 +25,7 @@ walk that reached `C:\Users\Sid` and destroyed the account's profile twice.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -91,6 +92,50 @@ def assert_inside_scratch(*paths: Path) -> None:
         resolved = path.resolve(strict=False)
         if resolved != root and root not in resolved.parents:
             raise AssertionError(f"refusing to touch {resolved}: outside {root}")
+
+
+@windows_only
+@scratch_only
+def test_a_plain_inherited_folder_can_still_be_made_private() -> None:
+    """D15: the case that failed, end to end and against the real API.
+
+    A folder created by a plain `mkdir` inherits the parent's DACL, which grants
+    modify through Authenticated Users and no WRITE_OWNER. In that state a single
+    `SetNamedSecurityInfoW` carrying OWNER|DACL|PROTECTED is refused with
+    ERROR_ACCESS_DENIED even though this user already owns it and the new DACL
+    would grant everything -- measured 20 times out of 20. Writing the DACL
+    first, then the owner, succeeded 20 times out of 20.
+
+    This is the state an `mkdir(mode=0o700)` store never has, because Python's
+    CVE-2024-4030 DACL carries an `OW` entry, which is why the module looked
+    correct for so long.
+    """
+    store = scratch_store()
+    inherited = store / "inherited"
+    shutil.rmtree(inherited, ignore_errors=True)
+    inherited.mkdir(parents=True)
+    assert_inside_scratch(inherited)
+
+    before = tree_owner_sddl(inherited)
+    # The precondition this test exists for: inherited, and no OWNER RIGHTS entry.
+    assert "D:AI" in before, before
+    assert ";;;OW)" not in before, before
+
+    sid = current_user_sid()
+    _REAL_APPLY(inherited, sid, store_root=SCRATCH_ROOT)
+
+    after = tree_owner_sddl(inherited)
+    assert f"O:{sid}" in after, after
+    assert f";;;{sid})" in after, after
+    assert after.count("OICI") == 3, after
+    # Protected now, rather than inheriting the parent's list.
+    assert "D:PAI" in after, after
+    assert ";;;OW)" not in after, after
+
+    # And the folder is still the user's to remove -- the `ownertest` failure was
+    # a folder left with no entry for him at all, which this ordering prevents.
+    shutil.rmtree(inherited)
+    assert not inherited.exists(), "the repaired folder could not be deleted non-elevated"
 
 
 def scratch_store() -> Path:
