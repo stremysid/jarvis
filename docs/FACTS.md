@@ -21,7 +21,9 @@ repository is the only thing every session reads.**
    fixed, in the same change.** A new fact that leaves the old claim standing makes the
    repository disagree with itself, which is worse than not recording it.
 3. **Every row carries a source and a date.** No bare assertions. `scripts/check-state.mjs`
-   enforces this, and lists rows whose "still true?" is unset or older than 30 days.
+   requires four cells, a non-placeholder source and a real `YYYY-MM-DD` observation date.
+   It emits a GitHub `::warning` for observations older than 30 UTC calendar days, or
+   when "Still true?" is unset, `no`, `unknown` or `unconfirmed`. Those warnings do not fail CI.
 
 ## What belongs here, and what does not
 

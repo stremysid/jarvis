@@ -3,6 +3,44 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
+
+Signed: Codex (GPT-6), builder. Base: `f9472d18a3634f186b36675c8da5995292da9e1d`.
+
+All 20 reported #152 behavior cases reproduced against the unchanged base script;
+none was false. #153's diff does contain the follow-up queue row. The authoritative
+baseline fixture run was **5 passed, 32 failed, 0 skipped** (37 tests).
+
+The checker now rejects malformed register rows, placeholder sources, impossible
+dates and broken local Markdown links (including FACTS, anchors, references, spaced
+targets and wrong-case Windows paths). It annotates stale observations/regeneration
+dates and unset/no/unknown/unconfirmed facts with `::warning`. Register boundaries,
+code/escaped pipes, code examples, CI run IDs and the 150-line boundary are covered.
+FACTS prose now describes those rules. **No existing carrier row violated a new
+rule**; this is not a renewed claim that every row's factual content is current.
+
+Observed final gates: checker **57 passed / 0 failed / 0 skipped**; full scripts
+**84 / 0 / 0**; root `pnpm test` **5,461 / 0 / 0 in 209 passing files**, exit 0.
+No flake rerun was needed. `node scripts/check-state.mjs` passes with **0 warnings**;
+three Node syntax checks and `git diff --check` pass. Mutations: **57 killed,
+0 survived, 0 not applied, 0 invalid**, each named test failed twice and passed
+after byte-identical restoration. Runner self-checks: **3 / 0 / 0**.
+
+The complete [builder evidence](reviews/2026-09-23-check-state-hardening.md) includes
+the crafted inputs, exact mutation-to-test map, the three initially surviving
+mutations and strengthened fixtures, all development counts, design limits and
+commands. CI explicitly runs the new suite beside the existing Windows deployment
+test and in the Linux state-carriers job. Linux execution, GitHub annotation display
+and a separate YAML-parser result are not claimed locally (PyYAML was unavailable
+offline). Automated and independent adversarial review follow the PR.
+
+No sync-recovery builder file, migration, production state or secret was touched.
+No owner-only action arose. The branch is for review only; no merge or deployment
+is authorized to this builder. Ledger retained outside the repo at
+`C:\Users\Sid\codex-ledgers\check-state-harden.md`; the task's worktree is removed
+after the PR is published. Next: the assigned reviewers assess this head when the
+PR opens.
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
