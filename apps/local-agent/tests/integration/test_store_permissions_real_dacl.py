@@ -38,11 +38,14 @@ from jarvis_local.archive.store_permissions import (
 )
 from jarvis_local.transport.pipe_server import current_user_sid
 
-# Captured at import, before any fixture runs. `tests/conftest.py` replaces this
-# with a no-op for the whole suite -- that fixture is what stops every other
-# test from changing a real permission, and it must not be able to disarm this
-# one, whose entire purpose is to change one.
+# Captured at import, before any fixture runs. `tests/conftest.py` replaces these
+# with no-ops for the whole suite -- that fixture is what stops every other test
+# from changing a real permission, and it must not be able to disarm the tests
+# whose entire purpose is to change one. `ensure_private_directory` is the entry
+# the store-open path uses, so it is the one that has to be real here.
 _REAL_APPLY = store_permissions.apply_owner_only_dacl
+_REAL_ENSURE = store_permissions.ensure_private_directory
+_REAL_REPAIR = store_permissions.repair_store_tree
 
 SCRATCH_ROOT = Path(r"C:\jarvis-test-scratch")
 SCRATCH_STORE = SCRATCH_ROOT / "data"
@@ -136,6 +139,121 @@ def test_a_plain_inherited_folder_can_still_be_made_private() -> None:
     # a folder left with no entry for him at all, which this ordering prevents.
     shutil.rmtree(inherited)
     assert not inherited.exists(), "the repaired folder could not be deleted non-elevated"
+
+
+ADMIN_OWNED = SCRATCH_ROOT / "admin-owned"
+ADMINISTRATORS_SID = "S-1-5-32-544"
+
+#: Names the second half of this test. The first half can run on any machine; the
+#: second cannot, because it needs an elevated shell to have repaired the folder
+#: first. Set `JARVIS_ADMIN_OWNED_REPAIRED=1` after running the `icacls` line the
+#: error message prints.
+admin_owned_repaired = pytest.mark.skipif(
+    os.environ.get("JARVIS_ADMIN_OWNED_REPAIRED") != "1",
+    reason="pass JARVIS_ADMIN_OWNED_REPAIRED=1 after repairing the folder from an elevated shell",
+)
+
+
+def admin_owned_folder() -> Path:
+    """The elevated-created folder, or skip.
+
+    Skips rather than creating it: it must be owned by Administrators, and only
+    an elevated shell can make that true. Creating it here would produce a folder
+    this process owns, which is the opposite of the state under test.
+
+    The owner is read with `_current_owner_sid`, which returns the numeric SID.
+    `tree_owner_sddl` renders the owner alias -- `BA` for Administrators -- and
+    comparing that against `S-1-5-32-544` silently never matches, which is how
+    this test skipped when the folder it wanted was sitting right there.
+    """
+    if not ADMIN_OWNED.is_dir():
+        pytest.skip(f"{ADMIN_OWNED} does not exist; create it from an elevated shell")
+    owner = store_permissions._current_owner_sid(ADMIN_OWNED)
+    if owner != ADMINISTRATORS_SID:
+        pytest.skip(f"{ADMIN_OWNED} is owned by {owner}, not Administrators ({ADMINISTRATORS_SID})")
+    return ADMIN_OWNED
+
+
+@pytest.fixture
+def real_store_bodies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo the suite-wide no-op for the two tests that must reach Windows.
+
+    `tests/conftest.py` replaces `apply_owner_only_dacl` with a no-op *in the
+    module namespace*, so the real `ensure_private_directory` -- even captured
+    before the fixture ran -- still calls the stub when it looks the name up at
+    call time. Without this, `ensure_private_directory` silently does nothing and
+    the admin-owned test "passes" by not raising.
+
+    This is why the file's other tests call the captured `_REAL_*` functions
+    directly. These two go through `ensure_private_directory`, which is the entry
+    the store-open path itself uses, so the attribute has to be restored instead.
+    """
+    monkeypatch.setattr(store_permissions, "apply_owner_only_dacl", _REAL_APPLY)
+    monkeypatch.setattr(store_permissions, "repair_store_tree", _REAL_REPAIR)
+
+
+@windows_only
+@scratch_only
+def test_an_administrators_owned_store_is_refused_with_both_fixes_named(
+    real_store_bodies: None,
+) -> None:
+    """The one state a non-elevated service cannot repair, against a real folder.
+
+    Every other assertion about `StoreDaclRefusedError` uses a stub returning 5.
+    This one meets the real thing: a folder created by an elevated shell, owned
+    by Administrators, opened non-elevated with the user named on no ACE. The
+    DACL write is refused before anything changes, so the folder must come out
+    exactly as it went in -- that is what makes running this safe.
+    """
+    folder = admin_owned_folder()
+    assert_inside_scratch(folder)
+    before = tree_owner_sddl(folder)
+
+    with pytest.raises(store_permissions.StoreDaclRefusedError) as raised:
+        _REAL_ENSURE(folder, current_user_sid(), store_root=SCRATCH_ROOT)
+
+    message = str(raised.value)
+    after = tree_owner_sddl(folder)
+    # Printed rather than only asserted, so the run itself carries the evidence.
+    print(f"SDDL before: {before}")
+    print(f"SDDL after : {after}")
+    print(f"owner      : {folder} is owned by {before.split('D:')[0]}")
+    print(f"ERROR MESSAGE:\n{message}")
+
+    # Both fixes are named, and they are different fixes for different situations.
+    assert "jarvis serve" in message and "elevated" in message, message
+    assert "icacls" in message, message
+    assert os.fspath(folder) in message, message
+    # The DACL line has to be selectable from the message verbatim.
+    icacls_line = next(
+        (part.strip() for part in message.split("or run:") if part.strip().startswith("icacls")),
+        None,
+    )
+    print(f"ICACLS LINE TO RUN ELEVATED:\n  {icacls_line}")
+    assert icacls_line is not None, message
+    assert "/grant" in icacls_line, icacls_line
+    # Nothing changed: the failed write is checked before it is applied.
+    assert after == before, f"the folder was modified by a refused call:\n{after}\n{before}"
+
+
+@windows_only
+@scratch_only
+@admin_owned_repaired
+def test_an_administrators_owned_store_opens_after_the_owner_repair(real_store_bodies: None) -> None:
+    """The second half: after Sid runs the printed line elevated, the open works.
+
+    Asserts the resulting descriptor exactly, because "it stopped raising" is not
+    the same as "the store is private to its user".
+    """
+    folder = admin_owned_folder()
+    assert_inside_scratch(folder)
+    sid = current_user_sid()
+
+    _REAL_ENSURE(folder, sid, store_root=SCRATCH_ROOT)
+
+    after = tree_owner_sddl(folder)
+    print(f"SDDL after repair and store open: {after}")
+    assert after == f"O:{sid}D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{sid})", after
 
 
 def scratch_store() -> Path:
