@@ -421,27 +421,59 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE receipt_kind = 'snapshot'").first<{ count: number }>())?.count).toBe(0);
   });
 
-  it("wedges when a capped page straddles the cursor", async () => {
+  it("ends a page that would straddle the cursor at the cursor, so the acknowledgement is accepted", async () => {
     // The agent asks for 128 (DEFAULT_PAGE_SIZE) and the gateway materializes at
-    // most 48 (MAXIMUM_MATERIAL_EVENTS), so a catching-up device can be handed a
-    // page that *contains* the cursor: here the cursor is 267 and the page runs
-    // 240 -> 288.
+    // most 48 (MAXIMUM_MATERIAL_EVENTS), so a catching-up device can be offered a
+    // page that *contains* the cursor. This test used to assert the resulting
+    // wedge: 240 -> 288 against a cursor of 267 is neither a replay (267 < 288)
+    // nor a cursor match (267 !== 240), so the acknowledgement was refused and the
+    // device re-pulled the identical range forever.
     //
-    // That page is neither a replay (267 < 288) nor a cursor match (267 !== 240),
-    // so the acknowledgement is refused. The device re-pulls the identical range
-    // and is refused identically -- the same permanent wedge as the original 267
-    // report, reached by a different route.
+    // The page now stops at the cursor, so what the device stores is 240 -> 267
+    // and what it acknowledges has `throughSequence === cursor`, which the
+    // already-covered branch accepts.
     await append(300);
     await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 267 WHERE consumer_name = ?")
       .bind(`device:${primary.deviceId}`).run();
     const page = await pull(pullBody(240, 128)); // what the agent actually asks for
-    expect(page).toMatchObject({ fromSequence: 240, toSequence: 288 });
-    expect(page.events).toHaveLength(48);
+    expect(page).toMatchObject({ fromSequence: 240, toSequence: 267 });
+    expect(page.events).toHaveLength(27);
 
-    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 240, throughSequence: 288 }))
-      .rejects.toThrow("cursor_compare_failed");
-    // Refused, and the cursor does not move: the wedge is a stable state.
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 240, throughSequence: 267 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 267, replayed: true });
     expect(await cursor()).toBe(267);
+
+    // And the device then advances normally: the next page starts exactly at the
+    // cursor, so it is a cursor match and applies.
+    const next = await pull(pullBody(267, 128));
+    expect(next).toMatchObject({ fromSequence: 267, toSequence: 300 });
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: next.snapshotId, expectedCurrent: 267, throughSequence: 300 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 300, replayed: false });
+    expect(await cursor()).toBe(300);
+  });
+
+  it("does not shorten a page for a device that is merely behind the cursor", async () => {
+    // The cap must fire only for a page that would *cross* the cursor. A device
+    // walking toward it at its own pace must keep getting full pages, or catching
+    // up would be throttled to a crawl.
+    await append(300);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 267 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+    const page = await pull(pullBody(48, 128));
+    expect(page).toMatchObject({ fromSequence: 48, toSequence: 96 });
+    expect(page.toSequence).toBeLessThan(267); // untouched by the cursor
+  });
+
+  it("does not cap a fresh device that pulls from zero", async () => {
+    // A brand-new cursor is 0 and a new device pulls from 0. An unconditional cap
+    // at the cursor would serve it an empty page forever and bootstrap would never
+    // start -- which is why the condition is a strict straddle, not `after <
+    // cursor`.
+    await append(10);
+    expect(await cursor()).toBe(0);
+    const page = await pull(pullBody(0, 128));
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 10 });
+    expect(page.events).toHaveLength(10);
   });
 
   it("aborts a direct acknowledgement with a stale expected current without changing the cursor", async () => {
