@@ -47,6 +47,173 @@ retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
 the final merge commit runs the full gateway suite. No force
 push, merge into main, deployment, real database operation, real provider call
 or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
+
+Limited to Sid's post-review requests: literal LDSB host assertions for every
+route; a source scan covering every runtime script and popup HTML/CSS, permitting
+only the probe read's fetch call; removal of unused `alarms`; fixed-path,
+reviewed-SHA PowerShell loading steps; extension removal after copying; and the
+runbook's missing code-span delimiter. No collector feature or runtime API logic
+changed. The permission is now **storage only** plus the single LDSB host.
+
+Normal merge `fdc2cd05741065985e7a3d335ae106309b9988f9` includes main at
+`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Both top-insert conflicts were resolved
+by retaining the existing entries/rows. #160's capability and collector-probe
+owner requests are superseded by the single #163 row; they were not imported.
+No force-push or merge of the PR into main is authorised by this work.
+
+Observed after hardening: focused **3/0/0**; full extension suite **35 pass / 0
+fail / 0 skip**, 0 cancelled/todo; full mutation sweep **51 killed / 0 unconfirmed
+/ 0 NOT APPLIED**, each with baseline/restored **1/0/0** and two mutated **0/1/0**
+runs. H1, H9, popup HTML EventSource, remote worker import and duplicate transport
+call mutations all fail the intended named tests. The changed permission mutation
+also detects reintroducing `alarms`. State check passes for **3 carriers**;
+PowerShell loading block parses with **0 errors** but was not executed.
+[Evidence](research/2026-09-23-d2l-probe-test-evidence.md) retains both rounds.
+
+Browser/account checks remain owner-only. The same external ledger is retained;
+the real collector waits for a later round in this session.
+
+Signed: **Codex, builder**, 2026-09-23.
+
+## 2026-09-23 — Codex builder: D2L GET-only shape probe, ready for independent review
+
+Built on freshly fetched `origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`
+in `C:\w\d2l-probe-run`, branch `codex/d2l-probe-run`. The task authorises this
+probe and its terms risk; no browser, tenant, secret, production or deploy-tree
+interaction occurred. No migration or parallel sync-builder file is changed.
+
+`apps/d2l-extension` is an unpacked MV3 Opera GX probe: exactly the LDSB host,
+alarms/storage, a hard-coded GET transport, and fixed route templates. It reads
+versions, paged LP 1.43 enrollments, LE 1.82 scheduled items (including due, with
+orgUnitIdsCSV), content tree, folders, every folder's **student** mysubmissions,
+grades and overdue items. Accessible Groups are included. The no-tab background
+pass and open-tab content pass take one click each and retain separate reports.
+Only allowlisted field names, structural counts, null/set counts and HTTP statuses
+reach session storage, popup and clipboard. No key/signing/push or school judgment.
+
+**Premise findings:** #161 at `63ae51d2ebfe18470d5a36a7fc9ec9e1a11b3618` does not
+contain the prompt's overdueItems empty-envelope or content/myItems/due 400
+observations; those remain owner-supplied. Manifest V3 cannot constrain HTTP
+methods, so GET is enforced in the sole fetch call. The requested incident file
+was absent in Downloads; no permission-changing code was run. See the
+[runbook](runbooks/d2l-extension.md) for sources and limitations.
+
+**Observed gates:** final package suite **33 pass / 0 fail / 0 skip** (run once);
+mutations **46 killed / 0 unconfirmed / 0 not applied**, each with a named passing
+baseline, two named failures and a passing byte-exact restoration; state checker
+**pass, 3 carriers**; JS syntax **5 pass / 0 fail**. A startup-error regression
+first failed **0/1/0**, proving a swallowed tab-query failure; fixed and mutation
+verified. [Exact evidence](research/2026-09-23-d2l-probe-test-evidence.md) records
+the named tests and counts. Browser/account behaviour and CI are not claimed.
+
+Only Sid can load and run it; the action is in `OWNER-ACTIONS.md`. Reviewers can
+proceed with the automated and independent adversarial passes. This builder does
+not merge or wait for review. The external continuity ledger remains at
+`C:\Users\Sid\codex-ledgers\d2l-probe-run.md` after worktree removal.
+
+Signed: **Codex, builder**, 2026-09-23.
+
+## 2026-09-23 — Codex builder: issue #24, trusted PowerShell Store discovery
+
+Signed: Codex (GPT-6), builder on `codex/hermes-msix`, from freshly fetched
+`origin/main` at `f9472d18a3634f186b36675c8da5995292da9e1d`.
+
+Fix round 1 for [PR #156](https://github.com/stremysid/jarvis/pull/156): merged
+`origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` normally, retaining
+the reviewed `6c419d0` history. The review correctly identified that the old
+absence claim below was too broad: a dangling MSI link's `realpath` ENOENT
+also allowed Store fallback. Only the independent MSI `lstat` probe can now
+select Store; executable validation errors remain outside that catch.
+
+The query now carries Windows' package `Status` and requires `Ok`. An exact
+bootstrap assertion pins every projected field and the complete package list.
+Removed the three repaired SBOM exemptions from `gate.ps1`, retaining its
+source-lock exemption, and corrected the runbook's executable/alias mix-up.
+New regression tests reproduced **43 passed, 3 failed, 0 skipped** before the
+source fix (dangling link, unhealthy package, missing bootstrap status).
+The first fixed focused run passed **64 tests, 0 failed, 0 skipped**.
+The mutation spec now has 51 entries: six review-supplied query faults, the
+dangling-link fault, the health guard and a hardcoded health projection, plus
+the existing 42. The old cause-propagation mutation is replaced by an explicit
+MSI-absence fallback mutation because causes no longer select fallback.
+Revision evidence at `e12b349ac61cc6b5abceb6b3b37eb0d2521bae3b`:
+
+- **51/51 mutations killed**, each expected failure confirmed twice; **0**
+  survived, wrong-test, unconfirmed, not-applied or invalid. The source restore
+  was byte-identical. The subsequent focused run passed **64, failed 0,
+  skipped 0** (46 host, 14 integrity, 4 PATH-shadow/security tests).
+- Builder's local Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
+  37.32 seconds. At `5c8a470`, the [Hermes CI job](https://github.com/stremysid/jarvis/actions/runs/35930123889/job/107414429041)
+  ran the complete requested 16-file set: **158 passed, 0 failed, 0 skipped**,
+  including all seven unchanged attestation-contract tests. Independent review
+  also ran that 16-file set locally with **158/158 passing** (review result
+  relayed by Sid, 2026-09-23). Only source-lock and workflow-containment are
+  excluded from that set; no owner decision is needed.
+- Package lint and typecheck: exit 0 each, four configured syntax checks each.
+  Gate script parses; six isolated allowance checks pass (the three SBOM
+  failures are no longer excused, source-lock remains, a different source-lock
+  failure is rejected, and the allowance has exactly one entry).
+  `node scripts/check-state.mjs` passed all three carriers; no check failed.
+- Read-only Windows Appx recheck reports Store signing, non-development mode,
+  `Status = Ok`, the Microsoft family and the same 7.6.6 installation location.
+
+No flaky-file rerun was needed. Detailed red/green reports and mutation output
+are `C:\Users\Sid\codex-ledgers\hermes-msix-r1-*`. This revision leaves the
+permissions, registry, services, tasks and forbidden scratch path alone.
+
+Initial submission evidence follows; these counts predate fix round 1.
+
+The original SBOM pair reproduced **15 passed, 3 failed, 0 skipped** on this
+PC. Those three files are unchanged between `12a64b2` and this base. The MSI
+executable is absent; Windows Appx reports the genuine Microsoft PowerShell
+Store package at the versioned WindowsApps location in `FACTS.md`. Corrected
+that register's conflation of the real executable and the separate user alias.
+The prompt's CI premise needs narrowing: Hermes passed on both revisions, but
+the workspace job failed in runs `35808137393` and `35920809820`.
+
+The resolver keeps MSI first and falls back only on absence. Store evidence
+comes from the fixed Windows PowerShell OS host, with validated absolute Appx
+and Utility modules, no profiles or inherited environment, closed discovery,
+and the existing bounded process-tree runner. Family, publisher, Store signing,
+non-development registration, exact API-reported location and canonical file
+checks all precede PowerShell 7 execution. The module-discovery regression now
+uses this resolver rather than scanning an assumed MSI directory.
+
+Observed gates on the home Store installation:
+
+- Full `pnpm --filter @jarvis/hermes-runtime exec vitest run test`, with no
+  exclusions: **294 passed, 0 failed, 0 skipped in 18 files**, 882.92 seconds.
+  The extended source-lock file passed 77 tests; containment passed 61.
+- Final restored SBOM/host selection: **62 passed, 0 failed, 0 skipped** in
+  three files. The 44 host tests fake both installation layouts independently
+  of the machine; the original three regressions exercise the real Store host.
+- **42/42 distinct mutations killed**, every expected failure confirmed twice,
+  all restores byte-identical. There were 44 successful mutation executions
+  including two deliberate rechecks. The first sweep also had **1 NOT APPLIED**
+  (an environment anchor matched twice), corrected and then killed. **0**
+  survived, wrong-test, invalid or unconfirmed results. Reproduce with
+  `reviewer-tools/mutate.ps1 -Spec reviewer-tools/mutation-specs-hermes-msix.json
+  -GateDir <clean-worktree>`.
+- Package `typecheck` and `lint`: both exit 0, four configured JavaScript syntax
+  checks each. `node scripts/check-state.mjs`: passes all three carriers.
+
+Production source has not changed since full-gate revision `679ce48`. During
+and after that gate, only the host test's exact diagnostic assertion, fixture
+labels and safe reporting of inherited environment names were tightened; the
+affected mutations and final 62-test selection were then rerun. The real OS
+query was also probed with a nonexistent package name: it returned `[]` and
+the resolver issued its named PowerShell 7 missing-host refusal.
+
+MSI execution on this PC, an actual custom package volume, hostile package
+registration, live Hermes acquisition and the new PR's CI were not verified
+locally. MSI selection is covered by the isolated fixtures; the PR's Windows
+runner supplies the real MSI layout. Package identity/signature rationale and
+Microsoft documentation links are in the PR body. Full reports and the
+continuity ledger remain under `C:\Users\Sid\codex-ledgers\hermes-msix*`.
+
+No production, deploy-tree or parallel sync-builder files were touched. No
+owner action is required for this local fix. Independent review follows the PR.
 
 ## 2026-09-23 — Codex GPT-6 builder: [#154](https://github.com/stremysid/jarvis/pull/154) round 1 restores the critical-path guard
 
