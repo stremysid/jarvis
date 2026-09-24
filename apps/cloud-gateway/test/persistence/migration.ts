@@ -38,6 +38,7 @@ import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_a
 import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
 import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
 import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
+import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -140,6 +141,7 @@ export async function applyMemoryIngressMigration(): Promise<void> {
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+    { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -307,9 +309,10 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+    { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
+    { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
   ]);
   await newestRuntimeMigrated;
-  await applyD1Migrations(env.DB, [{ name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) }]);
 }
 
 /**
@@ -358,6 +361,7 @@ const allCloudGatewayMigrations = Object.freeze([
   },
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
+  { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
 ]);
 
 /**
