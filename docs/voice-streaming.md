@@ -110,8 +110,8 @@ format; the guard's extended proof type is backward compatible with its strings.
 
 The model can still omit a novel claim marker or attach the wrong semantic
 description to a real receipt. Code checks provenance and exact sentence scope;
-it cannot prove arbitrary English meaning. Sid rejected the regex-only design,
-and round 2 removes it. See the partial
+it cannot prove arbitrary English meaning. The independent review required
+removing the regex-only design, and round 2 does so. See the partial
 [code-versus-judgment register](CODE-VS-JUDGMENT.md).
 
 ## Round 2 validation

@@ -111,9 +111,21 @@ class VaultRepository:
         self._database = open_vault_schema(database, now=now or utc_now_iso())
 
     @classmethod
-    def open(cls, path: Path, *, now: str | None = None) -> VaultRepository:
+    def open(
+        cls,
+        path: Path,
+        *,
+        now: str | None = None,
+        store_root: Path | None = None,
+        repair_permissions: bool = False,
+    ) -> VaultRepository:
         moment = now or utc_now_iso()
-        return cls(ArchiveDatabase.open(Path(path), now=moment), now=moment)
+        return cls(
+            ArchiveDatabase.open(
+                Path(path), now=moment, store_root=store_root, repair_permissions=repair_permissions
+            ),
+            now=moment,
+        )
 
     @property
     def connection(self) -> sqlite3.Connection:

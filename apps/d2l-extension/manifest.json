@@ -1,20 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "Jarvis D2L shape probe",
-  "version": "0.1.0",
-  "description": "Read-only API shape checks for the LDSB Brightspace session.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://ldsb.elearningontario.ca/*"],
-  "background": { "service_worker": "worker.js" },
+  "name": "Jarvis D2L collector",
+  "version": "0.2.0",
+  "description": "Read-only LDSB and Durham course collection for Jarvis.",
+  "permissions": ["alarms", "storage"],
+  "host_permissions": ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*", "https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev/*"],
+  "background": { "service_worker": "worker.js", "type": "module" },
   "action": { "default_popup": "popup.html" },
   "content_scripts": [{
-    "matches": ["https://ldsb.elearningontario.ca/*"],
+    "matches": ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*"],
     "js": ["probe.js", "content.js"],
     "run_at": "document_idle",
     "all_frames": false,
     "world": "ISOLATED"
   }],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca https://durham.elearningontario.ca https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev"
   }
 }

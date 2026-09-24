@@ -79,7 +79,7 @@ line whenever anything is dropped, so silence is never unexplained.
 
 This register remains partial. PR #171's first version made regexes the only
 judge of action claims on voice. Calling that an "accepted stopgap" was wrong:
-Sid had not accepted it. His round-2 ruling requires the model to declare each
+Sid had not accepted it. The independent review required the model to declare each
 action sentence outside the spoken prose. The voice marker names its proving
 tool and this turn's receipt ids; code strips the marker, redacts the unsplit
 prose, and verifies that exact sentence's proof before speech. Unsupported
@@ -107,7 +107,7 @@ and rewrite are unchanged by #171.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions; these language heuristics also mistake some worked explanations for actions. | `OWNER_AGENT_SYSTEM_PROMPT` and the model's `claimedActions` should carry the judgment; receipts enforce proof. #162 narrows the tutoring heuristic and retains a fallback for undeclared real actions. Its runtime change is not part of this PR. The school intake still guards claims, including a leading "Done." attached to a removed external-action claim. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a worked verb object plus a completely parsed explanation prefix and tail. Unknown continuation words, destinations and second actions remain claims, including verbs absent from the original action list. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
 | 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
@@ -130,6 +130,14 @@ transport bounds, not a decision about which capacity the owner should choose.
 per-course inserted/deduplicated counts while limiting examples to fit Telegram.
 Schedule repair notices describe the existing storage ceilings, not new planning policy.
 This is a partial register, not a completed audit of school or university code.
+
+### Fixed collector name judgment (PR #170 round 2)
+
+`apps/d2l-extension/collector.js:offering` previously excluded the exact name
+`DCE D2L BrightSpace Orientation`. That name-based relevance decision is deleted:
+every active accessible course offering is read and Jarvis judges its evidence.
+The collector's queue limits are explicitly owner-authorised storage bounds, with
+visible eviction counts. This remains a partial register, not a completed audit.
 
 ## How to use this list
 

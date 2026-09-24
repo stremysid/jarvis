@@ -58,6 +58,7 @@ import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } f
 import { DeepSeekAgentProvider } from "../../src/providers/deepseek-provider.js";
 import { agentFrame, agentResponse, textResponse, toolFrames } from "../fixtures/deepseek-agent-stream.js";
 import { UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
+import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 const OWNER = "principal:voice-agent-owner";
@@ -451,6 +452,24 @@ describe("the voice agent adapter", () => {
     // Cancellation cannot undo a commit already in progress. No speech is
     // sent to the cancelled turn, and the durable pin is not misreported away.
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_item_pins WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("delivers every sentence of a worked explanation on an ordinary owner voice turn", async () => {
+    const provider = new FakeAgentProvider([stopped(WORKED_REPLY)]);
+    await expect(runVoiceTurn({ text: "Explain the homework step by step.", provider })).resolves.toBe(WORKED_REPLY);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question over voice: %s", async (reply) => {
+    const provider = new FakeAgentProvider([stopped(reply)]);
+    await expect(runVoiceTurn({ text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks an undeclared action after a worked object over voice", async () => {
+    const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
+    await expect(runVoiceTurn({ text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
+    expect(provider.requests).toHaveLength(1);
   });
 
   it("runs a memory tool call over a call and speaks the receipt", async () => {

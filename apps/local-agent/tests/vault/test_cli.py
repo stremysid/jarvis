@@ -101,6 +101,44 @@ def test_sync_before_setup_says_what_to_do_next(
     assert "jarvis vault setup" in capsys.readouterr().out
 
 
+def test_the_vault_command_creates_no_directory_and_writes_no_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`jarvis vault` is a reader, so it must not be able to write an ACL.
+
+    The `repair_permissions=False` argument is what guarantees that, so this
+    works through `main` rather than asserting the argument was passed: a
+    non-existent store is left non-existent, instead of the command manufacturing
+    a directory tree and changing the permissions of everything on the way in --
+    which is what it did while the `JARVIS_ALLOW_REAL_DACL` gate was briefly
+    removed, and is why D12 must stay removed without that gate coming back as
+    the mechanism.
+    """
+    archive = tmp_path / "profile" / "missing" / "archive.sqlite3"
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", str(archive))
+    monkeypatch.setenv("JARVIS_PRINCIPAL_ID", PRINCIPAL)
+    monkeypatch.setenv("JARVIS_VAULT_ROOT", str(tmp_path / "profile" / "Jarvis Vault"))
+
+    exit_code = main(["vault", "sync"])
+
+    assert exit_code != 0, "a store this command did not create cannot be read"
+    assert not archive.parent.exists(), "the read-only opener created the store directory"
+    assert not archive.exists(), "the read-only opener created the store file"
+    assert "does not exist" in capsys.readouterr().out
+
+
+def test_a_relative_archive_path_is_refused_rather_than_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two working directories would otherwise mean two different stores."""
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", "relative/archive.sqlite3")
+    monkeypatch.setenv("JARVIS_PRINCIPAL_ID", PRINCIPAL)
+    monkeypatch.setenv("JARVIS_VAULT_ROOT", str(tmp_path / "Jarvis Vault"))
+
+    assert main(["vault", "sync"]) == 2
+    assert "must be an absolute path" in capsys.readouterr().out
+
+
 def test_setup_then_sync_then_search_round_trips(
     environment: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

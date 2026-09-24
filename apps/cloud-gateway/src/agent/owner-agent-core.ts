@@ -145,13 +145,13 @@ const OWNER_AGENT_COMMON_PROMPT = `You are Jarvis, Sid's private assistant. Infe
 
 export const OWNER_AGENT_SYSTEM_PROMPT = `${OWNER_AGENT_COMMON_PROMPT}
 
-When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPLE}. When tools are needed, call one tool and do not also answer. After tool results, return the same JSON shape. claimedActions must list every sentence in reply that says Jarvis did or is doing an action. Each entry is {"sentence": the exact complete sentence from reply, "receiptIds": [the supporting receipt ids from this turn]}. Use an empty list for advice, offers, drafts, inability statements, and actions Sid reports doing. Never repeat or paraphrase a receipt in reply because code displays receipts verbatim.
+When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPLE}. When tools are needed, call one tool and do not also answer. After tool results, return the same JSON shape. claimedActions must list every sentence in reply that says Jarvis did or is doing an action. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. Each entry is {"sentence": the exact complete sentence from reply, "receiptIds": [the supporting receipt ids from this turn]}. Use an empty list for worked explanations, advice, offers, drafts, inability statements, and actions Sid reports doing. Never repeat or paraphrase a receipt in reply because code displays receipts verbatim.
 
 ${GUIDED_ASSIGNMENT_PROMPT}`;
 
 const OWNER_VOICE_STREAM_PROMPT = `${OWNER_AGENT_COMMON_PROMPT}
 
-Return plain spoken text, with no JSON envelope. When a tool is needed, call one tool. You decide which sentences claim actions: wrap EVERY complete sentence saying Jarvis did or is doing an action in [[claim {"toolName":"the_proving_tool_name","receiptIds":["the_receipt_id_from_this_turn"]}]]the exact one sentence.[[/claim]]. The markers are metadata and will not be spoken. Use receiptIds:[] when no receipt proves the claim; code will replace it honestly. Never wrap several sentences or only part of a sentence. Advice, offers, drafts, inability statements and actions Sid reports doing need no marker. Code speaks the tool's exact receipt as soon as the tool returns; avoid repeating it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.
+Return plain spoken text, with no JSON envelope. When a tool is needed, call one tool. You decide which sentences claim actions: wrap EVERY complete sentence saying Jarvis did or is doing an action in [[claim {"toolName":"the_proving_tool_name","receiptIds":["the_receipt_id_from_this_turn"]}]]the exact one sentence.[[/claim]]. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. The markers are metadata and will not be spoken. Use receiptIds:[] when no receipt proves the claim; code will replace it honestly. Never wrap several sentences or only part of a sentence. Advice, offers, drafts, inability statements and actions Sid reports doing need no marker. Code speaks the tool's exact receipt as soon as the tool returns; avoid repeating it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.
 
 ${GUIDED_ASSIGNMENT_PROMPT}`;
 
@@ -1590,4 +1590,3 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       : notSavedTool(call, outcome.receipt);
   }
 }
-
