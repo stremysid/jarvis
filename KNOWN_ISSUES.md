@@ -1,5 +1,30 @@
 # Known issues
 
+## School collector retention and public pairing remain bounded only in part
+
+The session-API collector is approved (Sid, 2026-09-23); older school sections below
+describe the separate iCalendar and notification paths. Collector review round 1
+keeps its existing public pairing contract. Four starts per ten minutes now apply
+per configured principal, so one principal's starts cannot exhaust another's
+budget. All unauthenticated requests to Sid's configured endpoint still count
+against Sid's budget. Someone can keep that public endpoint exhausted; this is
+not an abuse-resistant invitation mechanism.
+
+Expired pending keys and used nonces are not pruned. Key history is included in
+backups; nonces are excluded. Both tables grow over time, and the collector list
+is not paginated. A retention follow-up must preserve audit references, terminal
+revocation and the complete signature/replay window. No cleanup job or live
+deletion was added in this fix round. Read aggregates return one row each, and
+refusals are now a bounded sample of the latest read, with truncation explicit.
+
+The review also identified an untested enrollment-retirement case: a course
+absent from later manifests may leave a stale per-course deadline source, whose
+digest label is only "Brightspace". This round does not retire sources or claim
+that scenario was verified. A duplicate activation tap still replies "No collector
+was activated by this tap" even if the first tap activated it; the signed pairing
+status route reports the actual key state. These are separate follow-ups from
+the corrected tool gates, normal 403s and undated digest evidence.
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd

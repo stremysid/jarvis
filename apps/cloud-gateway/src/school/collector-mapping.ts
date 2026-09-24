@@ -108,6 +108,8 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       const dateSource = personal !== null ? "content/myItems" : assignment !== null ? "assignment DueDate" : availability !== null ? "availability end" : null;
       const ownPath = `dropbox/folders/${key}/submissions/mysubmissions/`;
       const submission = routes.get(prefix + ownPath) ?? required(`dropbox/folders/${key}/submissions/`);
+      // An unfamiliar successful container cannot stand in for the observed empty object.
+      if (submission?.status === 200 && submission.complete) record(submission.body);
       const ownPositive = submission?.route === prefix + ownPath && submission.status === 200 && submission.complete
         && submission.body !== null && !Array.isArray(submission.body) && typeof submission.body === "object"
         && submission.body.Status === 1;

@@ -117,6 +117,19 @@ describe("school evidence and projection", () => {
     }
   });
 
+  it("fails unfamiliar successful submission containers while retaining complete submission refusals", async () => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    for (const own of [false, true]) {
+      for (const body of [null, [], "unexpected login page", true]) {
+        const routes = batch.routes.map((row, i) => i === 3 ? { ...row, route: row.route + (own ? "mysubmissions/" : ""), body } : row);
+        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes })).outcome).toBe("failed");
+        const refused = routes.map((row, i) => i === 3 ? { ...row, status: 403 } : row);
+        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: refused })).outcome).toBe("good");
+      }
+    }
+  });
+
   it("bounds refusals to the latest read and requested limit without losing the older good read time", async () => {
     const f = await collectorFixture();
     const first = observedBatch(f);

@@ -829,5 +829,21 @@
     "replace": "if (d2l.state === \"current\")",
     "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
     "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "submission-container",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (submission?.status === 200 && submission.complete) record(submission.body);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails unfamiliar successful submission containers while retaining complete submission refusals"
+  },
+  {
+    "name": "submission-refusal-shape",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (submission?.status === 200 && submission.complete) record(submission.body);",
+    "replace": "if (submission !== null && submission !== undefined) record(submission.body);",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails unfamiliar successful submission containers while retaining complete submission refusals"
   }
 ]
