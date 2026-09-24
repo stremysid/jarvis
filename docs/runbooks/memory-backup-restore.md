@@ -66,7 +66,7 @@ if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatc
 Write-Host "RESTORE TARGET: $ScratchDatabase is disposable scratch, not production."
 $ConfirmedScratch = Read-Host 'Read RESTORE TARGET aloud, then type the exact scratch name again'
 if ($ConfirmedScratch -cne $ScratchDatabase) { throw 'The separately typed scratch name did not match.' }
-$CreateOutput = & node $wrangler d1 create $ScratchDatabase 2>&1
+$CreateOutput = & node $wrangler d1 create $ScratchDatabase --config $ProductionConfig --env '' 2>&1
 $CreateExit = $LASTEXITCODE
 $CreateOutput | Write-Host
 if ($CreateExit -ne 0) { throw 'Scratch D1 creation failed.' }

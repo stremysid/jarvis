@@ -25,6 +25,70 @@ function runSplit(raw: string, split: number) {
   return { emitted, final, text: emitted.map((item) => item.text).join("") };
 }
 
+describe("voice sentence release after unsplit redaction", () => {
+  it.each([
+    ['The file has password = "alpha. bravo charlie" inside. Continue safely.', "bravo charlie"],
+    ['The file has password = "alpha. bravo charlie. trailing\\escape" inside. Continue safely.', "bravo charlie"],
+    ["The file has password = 'alpha. bravo charlie. trailing\\escape' inside. Continue safely.", "bravo charlie"],
+    ["The header is Authorization: Digest a1b2c3. d4e5f6g7h8 secret.", "d4e5f6g7h8"],
+    ['A safe sentence. password = "alpha. bravo charlie" stays private.', "bravo charlie"],
+    ["A safe sentence. Authorization: Digest a1b2c3. d4e5f6g7h8\nContinue safely.", "d4e5f6g7h8"],
+    ["Key: -----BEGIN PRIVATE KEY-----\nalpha. bravo charlie\n-----END PRIVATE KEY----- is private.", "bravo charlie"],
+  ])("keeps every spoken prefix of %s equal to a prefix of its whole redaction", (raw, secret) => {
+    const canonical = new Redactor().redactText(raw);
+    expect(canonical.ok).toBe(true);
+    if (!canonical.ok) throw new Error("synthetic_redaction_failed");
+    for (let split = 1; split < raw.length; split += 1) {
+      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+      let heard = "";
+      for (const [index, text] of [raw.slice(0, split), raw.slice(split)].entries()) {
+        heard += redactor.push(token(index, text)).map((part) => part.text).join("");
+        expect(heard).not.toContain(secret);
+        expect(canonical.text.startsWith(heard), `split ${split}`).toBe(true);
+      }
+      expect(redactor.complete().text).toBe(canonical.text);
+      heard += redactor.drain().map((part) => part.text).join("");
+      expect(heard).toBe(canonical.text);
+    }
+    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    let heard = "";
+    for (const [index, character] of [...raw].entries()) {
+      heard += redactor.push(token(index, character)).map((part) => part.text).join("");
+      expect(canonical.text.startsWith(heard), `character ${index}`).toBe(true);
+      expect(heard).not.toContain(secret);
+    }
+    redactor.complete();
+    expect(heard + redactor.drain().map((part) => part.text).join("")).toBe(canonical.text);
+  });
+
+  it("releases a stable sentence with its natural whitespace before EOF", () => {
+    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    expect(redactor.push(token(0, "A sentence."))).toEqual([]);
+    expect(redactor.push(token(1, " Next"))).toEqual([{ index: 0, text: "A sentence. " }]);
+    expect(redactor.complete().text).toBe("A sentence. Next");
+    expect(redactor.drain()).toEqual([{ index: 1, text: "Next" }]);
+  });
+
+  it("rejects a changed redacted prefix before releasing any additional text", () => {
+    let calls = 0;
+    const canonical = new Redactor();
+    const redactor = new StreamingOutputRedactor({
+      ...canonical,
+      redact: (input) => canonical.redact(input),
+      redactText: () => canonical.redactText(++calls === 1 ? "First. " : "Changed. Next. "),
+    }, undefined, true);
+    expect(redactor.push(token(0, "First. "))).toEqual([{ index: 0, text: "First. " }]);
+    expect(() => redactor.push(token(1, "Next. "))).toThrow("stream_redaction_failed");
+  });
+
+  it("preserves an EOF suffix containing only whitespace in sentence mode", () => {
+    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    expect(redactor.push(token(0, " "))).toEqual([]);
+    expect(redactor.complete().text).toBe(" ");
+    expect(redactor.drain()).toEqual([{ index: 0, text: " " }]);
+  });
+});
+
 describe("StreamingOutputRedactor cross-token safety", () => {
   const fixtures = [
     {

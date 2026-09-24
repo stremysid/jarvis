@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
+import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { TelegramRateLimiter } from "../../src/channels/telegram/telegram-rate-limit.js";
 import {
@@ -39,6 +40,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
+import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 let serial = 0;
@@ -533,6 +535,8 @@ describe("owner Telegram agent", () => {
     await expect(runTurn({ harness, text: "yo", provider })).resolves.toBe("Hey Sid.");
     expect(provider.requests).toHaveLength(1);
     expect(provider.requests[0]?.toolChoice).toBe("auto");
+    expect(provider.requests[0]?.systemPrompt).toContain("claimedActions must list");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
   });
 
   it.each([
@@ -2655,6 +2659,29 @@ describe("owner Telegram agent", () => {
     expect(provider.requests[1]?.toolResults).toHaveLength(2);
   });
 
+  it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {
+    const harness = await ownerHarness("tutoring-sentences");
+    const reply = WORKED_REPLY;
+    const provider = new FakeAgentProvider([stopped(reply)]);
+
+    await expect(runTurn({ harness, text: "Explain the homework step by step.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question on Telegram: %s", async (reply) => {
+    const harness = await ownerHarness("guided-question");
+    const provider = new FakeAgentProvider([stopped(reply)]);
+    await expect(runTurn({ harness, text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks an undeclared action after a worked object on Telegram", async () => {
+    const harness = await ownerHarness("worked-object-claim");
+    const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
+    await expect(runTurn({ harness, text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("rewrites an unsupported action claim once and removes it deterministically if still unsupported", async () => {
     const harness = await ownerHarness("honesty");
     const claim = [{ sentence: "I sent the email.", receiptIds: [] }];
@@ -2785,9 +2812,8 @@ describe("the capability tier gate in tool dispatch", () => {
       `SELECT origin, origin_reference FROM decision_items WHERE origin = 'autonomy-tier3-tool'`,
     ).all<{ origin: string; origin_reference: string }>();
     expect(results).toHaveLength(1);
-    // The question is bound to the capability and a fingerprint of the exact
-    // arguments, so the tap authorizes this action and not a later one.
-    expect(results[0]?.origin_reference).toContain("school.track:");
+    expect(results[0]?.origin_reference)
+      .toBe(confirmationReference("school_update", "school.track", await argumentsFingerprint("{}")));
   });
 
   it("records the refusal in the audit ledger with the outcome that caused it", async () => {

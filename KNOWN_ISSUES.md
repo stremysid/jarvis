@@ -1,5 +1,90 @@
 # Known issues
 
+## Tier-3 confirmations issued before tool binding (2026-09-24)
+
+`codex/tool-gate-binding` changes confirmation references from
+`capability:argumentsHash` to a JSON tuple of tool name, capability and argument
+hash. A previously issued confirmation cannot prove its tool name and deliberately
+does not match the new gateway, even if the owner answers its pending button after
+deployment. The old answer remains recorded but is not consumed or upgraded.
+The owner must ask for the action again and tap the newly issued confirmation.
+There is no compatibility fallback or migration in this change.
+
+A changed second autonomy outcome denies that attempt, even when the new outcome
+is `permitted`. Its receipt names the change and says the tap was spent. The
+claim is not refunded. Migration `0039` and its atomic single-use consumption
+remain required; [the existing rollout](docs/reviews/2026-09-23-tier3-tap.md)
+still applies. These regressions are written but await the harness's runtime and
+mutation checks; this builder did not run Vitest or verify a live deployment.
+
+## DeepSeek error response body can outlive its timeout (2026-09-24)
+
+`DeepSeekModelAdapter.stream` in
+[`deepseek-provider.ts`](apps/cloud-gateway/src/providers/deepseek-provider.ts)
+clears `overall` after receiving non-success response headers, then awaits
+`response.text()` for the error detail. A stalled error body therefore has no
+request deadline. PR #174 is changing this file; its builder should keep the
+deadline armed through that body read and pin the case with an injected fetch.
+
+## Owner voice streaming acceptance (PR #171, 2026-09-24)
+
+Live DeepSeek tool-call streaming and phone latency remain unverified. The
+round-2 model marker protocol checks this-turn receipt/tool provenance for one
+declared sentence, with regexes only as an omission backstop. An omitted novel
+claim or a semantically wrong description attached to a real receipt is still
+a model failure code cannot prove away. #172 is now merged into this branch;
+local integration covers its real guided-assignment service with a fake
+Telegram provider. Live model compliance and provider delivery remain untested.
+See [the design and evidence](docs/voice-streaming.md) and the first live check
+in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md). No live check or rollout is implied.
+
+Two low-severity follow-ups from the independent review remain open and are not
+fixed in this merge round:
+
+- **L2′:** A literal `[[` in ordinary prose, such as "In Obsidian, write
+  `[[Page name]]` to link.", throws `voice_claim_invalid` and aborts the spoken
+  reply.
+- **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
+  order.
+
+## Reply-claim tutoring exemptions are deliberately conservative and partial
+
+PR #162 requires a positive worked object of the claim verb and a completely
+parsed explanation prefix and tail. Unknown words and clauses remain claims;
+destination, recipient and real-world value vetoes also remain. It cannot prove arbitrary
+natural-language action claims. The existing advice/draft exceptions remain,
+including the `asked about` exception in `allowedFirstPersonActionClaim`.
+
+Eighteen earlier PR tutoring fixtures now deliberately produce a refusal because
+their objects fall outside the requested grammar: for example, saving rounding
+until later, sharing a denominator, and adding oxygen atoms. They remain named
+regression cases in `tutoring-reply-guard.test.ts`. The supported chemistry forms
+use worked laws, formulas and examples. Broadening those forms requires new
+adversarial and mutation evidence; a marker anywhere in the sentence is not proof
+that an unknown recipient or store is part of an explanation.
+
+Round three also refuses bare "the program" and "the helper": those can name
+an admissions program or a person. Code examples must identify the function,
+compiler, loop, constructor or method. "I added a stronger hook to your opening
+paragraph draft below" remains conservatively refused because the possessive
+destination is outside the exemption. The review supplied six of its 34 tutoring
+sentences; five now survive, but the complete 34-sentence artifact was unavailable.
+The lab-report passive submission/upload gap reported in that review is closed.
+
+Round four leaves two measured gaps in this interim backstop:
+
+- **F1:** A claim in the next sentence or on the next line after an exempted
+  worked sentence gets no "I can't confirm that action" notice. The veto is
+  sentence-scoped. Main at least flagged these.
+- **F2:** The held-out corpus has 22 claim shapes missed at both this branch's
+  head and main: passive nouns not on the list, contractions, unlisted verbs, a
+  subject that is not directly before the verb, and unlisted adverbs.
+
+There will be no further regex or word-list round. The planned replacement is a
+model-declared `{ sentence, toolNames }` claim checked against this turn's
+receipts. The plumbing from #172 is on main now. When that replacement lands,
+CODE-VS-JUDGMENT row 11 is deleted.
+
 Checked on 2026-09-23 against fetched `origin/main` at
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. These are remaining code limits
 or explicitly unverified acceptance requirements, not a claim about today's
@@ -28,7 +113,22 @@ backups; nonces are excluded. Both tables grow over time, and the collector list
 is not paginated. A retention follow-up must preserve audit references, terminal
 revocation and the complete signature/replay window. No cleanup job or live
 deletion was added in this fix round. Read aggregates return one row each, and
-refusals are now a bounded sample of the latest read, with truncation explicit.
+refusals are a bounded sample of the latest read per reported host, with truncation explicit.
+
+The receiver compatibility follow-up accepts both boards and retries pairing delivery
+with the same decision. Delivery remains at-least-once if Telegram accepts a message
+and the process fails before recording delivery; repeated taps still bind the same
+decision and cannot create a second key. Status covers reported hosts, not boards the
+extension has never reported. Host-only failure batches make discovery/session failures
+reportable, but #170 must emit them and remove its old compatibility hold after rollout.
+The gateway never follows a paging URL. Unknown projections remain raw with explicit
+labels; a good receipt does not mean every shape has a deadline adapter. Positive own
+submission shapes, Opera GX persistence/federation, live two-board ingestion and the
+real database upgrade remain unverified by this builder.
+
+Positive submission detection currently requires an object with `Status: 1`, but
+the owner-observed `mysubmissions/` route returns an array. Empty arrays remain
+unknown evidence, and no populated-array projection has been observed.
 
 The review also identified an untested enrollment-retirement case: a course
 absent from later manifests may leave a stale per-course deadline source, whose

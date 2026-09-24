@@ -24,6 +24,7 @@ import {
 import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../agent/owner-argument-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
 import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
@@ -31,7 +32,7 @@ import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
-import type { ModelAgentProvider } from "../providers/provider-types.js";
+import type { ModelAgentProvider, ModelAgentStreamProvider, ModelFunctionCall } from "../providers/provider-types.js";
 import {
   composeReceiptReply,
   OwnerAgentCore,
@@ -71,7 +72,7 @@ interface PreviousVoiceAssistant {
 
 export interface OwnerVoiceAgentDependencies {
   readonly guidedAssignmentTelegram?: TelegramProvider;
-  readonly provider: ModelAgentProvider;
+  readonly provider: ModelAgentProvider & ModelAgentStreamProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;
   /**
@@ -100,6 +101,7 @@ export interface OwnerVoiceAgentDependencies {
   readonly autonomy: ToolAutonomyGateContract;
   readonly turnTimeoutMs?: number;
   readonly now?: () => Date;
+  readonly timeZone?: string;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -121,11 +123,13 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     safeText(voice.ownerPrincipalId, 1_024);
   }
 
+  protected override streamingProvider(): ModelAgentStreamProvider { return this.voice.provider; }
+
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: OWNER_VOICE_AGENT_CHANNEL_PROMPT,
-      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
+      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
+      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:
@@ -162,9 +166,9 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       recordReferences: (): void => undefined,
       /**
        * The decision is raised durably in the core and that is the whole
-       * authorization: `consumeStandingDecision` claims a tap by capability and
-       * argument fingerprint with no channel in the query, so a tap Sid gives
-       * in Telegram authorizes the same call. What a call cannot do is present
+       * authorization: `consumeStandingDecision` claims a tap by tool name,
+       * capability and argument fingerprint with no channel in the query, so a
+       * tap Sid gives in Telegram authorizes the same call. What a call cannot do is present
        * the question, which is what the spoken refusal says.
        */
       recordDecision: (): void => undefined,
@@ -179,6 +183,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       // does not mean touching the loop, only this catalogue and the adapter
       // that runs it.
       pipelineModel: (): ModelAdapter | null => null,
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
+        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
+          channelCode: 1, requireDirectOwnerText: false })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,

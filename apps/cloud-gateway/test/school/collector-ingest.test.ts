@@ -34,8 +34,64 @@ describe("school evidence and projection", () => {
     expect(status.evidence).toHaveLength(5);
     expect(status.evidence.find((row) => row.route === batch.routes[0]!.route)?.raw_json).toBe(JSON.stringify(batch.routes[0]!.body));
     expect(status.evidence[0]!.mapped_json).toContain("Undated practice");
-    expect(await env.DB.prepare("SELECT title, due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first())
+    expect(await env.DB.prepare("SELECT title, due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first())
       .toEqual({ title: "Synthetic essay [availability end]", due_at: "2026-09-24T03:59:00.000Z" });
+  });
+
+  it.each([
+    ["an empty object", 200, {}],
+    ["a refusal", 403, {}],
+    ["a missing-tool response", 404, {}],
+  ] as const)("keeps one deadline identity after a good read when folders returns %s", async (_label, status, body) => {
+    const f = await collectorFixture();
+    await ingest(f, observedBatch(f));
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const next = observedBatch(f);
+    await ingest(f, { ...next, routes: next.routes.map((route, index) => index === 0 ? { ...route, status, body } : route) });
+    expect((await repo(f).status()).state).toBe("current");
+    const deadlines = await env.DB.prepare("SELECT external_id, status FROM deadlines WHERE source_id = ? AND status = 'open' ORDER BY external_id")
+      .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).all();
+    expect(deadlines.results).toEqual([{ external_id: "folder-17", status: "open" }]);
+  });
+
+  it("keeps the last good assignment date when the folder list is refused", async () => {
+    const f = await collectorFixture();
+    const first = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    first.routes[0].body[0].DueDate = "2026-10-01T12:00:00Z";
+    await ingest(f, first);
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const next = observedBatch(f);
+    const refused = { ...next, routes: next.routes.map((route, index) => index === 0 ? { ...route, status: 403, body: {} } : route) };
+    const mapped = mapSchoolCourse(refused);
+    expect(mapped.items.some((item) => item.id === "folder-17")).toBe(false);
+    expect(mapped.unmapped).toContain(`${refused.routes[1]!.route}:linked_topic_folder_list_unread`);
+    expect((await ingest(f, refused)).outcome).toBe("good");
+    expect((await repo(f).status()).state).toBe("current");
+    expect(await env.DB.prepare("SELECT due_at FROM deadlines WHERE source_id = ? AND external_id = 'folder-17'")
+      .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toEqual({ due_at: "2026-10-01T12:00:00.000Z" });
+  });
+
+  it("does not turn a quiz-linked topic into an assignment folder", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Synthetic quiz", ToolItemId: 55,
+      TypeIdentifier: "Quiz", EndDateTime: "2026-10-05T00:00:00Z" });
+    batch.routes.push({ ...batch.routes[2], route: `/d2l/api/le/1.82/${f.courseId}/quizzes/`, body: { Objects: [
+      { QuizId: 55, Name: "Synthetic quiz", DueDate: "2026-10-04T00:00:00Z", EndDate: "2026-10-05T00:00:00Z" },
+    ], Next: null } });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items.some((item) => item.id === "folder-55")).toBe(false);
+    expect(mapped.items.map((item) => item.id)).toEqual(expect.arrayContaining(["topic-42", "quiz-55", "quiz-55-end"]));
+  });
+
+  it("does not give an assignment folder a quiz-linked topic's end date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Synthetic quiz", ToolItemId: 18,
+      TypeIdentifier: "Quiz", EndDateTime: "2026-10-05T00:00:00Z" });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({ dueAt: null, dateSource: null, dateRoute: null });
+    expect(mapped.items.find((item) => item.id === "topic-42")).toMatchObject({ dueAt: "2026-10-05T00:00:00.000Z" });
   });
 
   it("prefers myItems dates then assignment DueDate then availability end and labels each source", async () => {
@@ -53,11 +109,109 @@ describe("school evidence and projection", () => {
     expect(mapSchoolCourse(batch).items[0]).toMatchObject({ dueAt: "2026-09-22T12:00:00.000Z", dateSource: "availability end" });
   });
 
+  it("prefers assignment DueDate to the folder Availability end date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes[0].body[0].Availability = {
+      StartDate: null, EndDate: "2026-09-26T12:00:00Z", StartDateAvailabilityType: null, EndDateAvailabilityType: null,
+    };
+    expect(mapSchoolCourse(batch).items[0]).toMatchObject({
+      dueAt: "2026-09-25T12:00:00.000Z", dateSource: "assignment DueDate", dateRoute: batch.routes[0].route,
+    });
+  });
+
+  it("uses the folder Availability end date when assignment DueDate is null and labels its source", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = {
+      StartDate: null, EndDate: "2026-09-23T12:00:00Z", StartDateAvailabilityType: null, EndDateAvailabilityType: null,
+    };
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({
+      dueAt: "2026-09-23T12:00:00.000Z", dateSource: "folder Availability EndDate", dateRoute: batch.routes[0].route,
+    });
+    expect(mapped.deadlines[0]?.title).toBe("Synthetic essay [folder Availability EndDate]");
+  });
+
+  it("labels an unknown folder Availability shape without dropping the rest of the course", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = { ClosesAt: "2026-09-23T12:00:00Z" };
+    batch.routes[0].body[1].DueDate = "2026-09-27T12:00:00Z";
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.failures).toEqual([]);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:folder_availability_shape_unknown`);
+    expect(mapped.items.find((item) => item.id === "folder-17")).toMatchObject({ dueAt: null, dateSource: null });
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({ dueAt: "2026-09-27T12:00:00.000Z", dateSource: "assignment DueDate" });
+    expect((await ingest(f, batch)).outcome).toBe("good");
+    expect(await repo(f).status()).toMatchObject({ state: "current", unmappedRoutes: 1 });
+  });
+
+  it.each([
+    ["numeric", 5],
+    ["malformed", "not-a-date"],
+  ] as const)("labels a %s folder Availability EndDate without dropping the rest of the course", async (_shape, endDate) => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = { EndDate: endDate };
+    batch.routes[0].body[1].DueDate = "2026-09-27T12:00:00Z";
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.failures).toEqual([]);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:folder_availability_shape_unknown`);
+    expect(mapped.items.find((item) => item.id === "folder-17")).toMatchObject({ dueAt: null, dateSource: null });
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({
+      dueAt: "2026-09-27T12:00:00.000Z", dateSource: "assignment DueDate",
+    });
+    expect(mapped.deadlines.map((deadline) => deadline.externalId)).toContain("folder-18");
+  });
+
+  it("records differing myItems and folder DueDate values while retaining the existing projected date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, status: 200, fetchedAt: batch.startedAt,
+      complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-26T12:00:00Z" }] });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-26T12:00:00.000Z", dateSource: "content/myItems" });
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:ambiguous_assignment_date`);
+  });
+
+  it("does not record a disagreement when myItems and folder DueDate values are equal", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, status: 200, fetchedAt: batch.startedAt,
+      complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-25T12:00:00Z" }] });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-25T12:00:00.000Z", dateSource: "content/myItems" });
+    expect(mapped.unmapped).not.toContain(`${batch.routes[0].route}:folder-17:ambiguous_assignment_date`);
+  });
+
+  it("names each item whose content dates disagree", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push(
+      { TopicId: 42, Title: "Conflicting assignment link", ToolItemId: 17,
+        TypeIdentifier: "Dropbox", EndDateTime: "2026-09-30T00:00:00Z" },
+      { TopicId: 50, Title: "Synthetic content", TypeIdentifier: "Content",
+        EndDateTime: "2026-10-01T00:00:00Z" },
+      { TopicId: 50, Title: "Conflicting synthetic content", TypeIdentifier: "Content",
+        EndDateTime: "2026-10-02T00:00:00Z" },
+    );
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.unmapped).toEqual([
+      `${batch.routes[1].route}:folder-17:ambiguous_content_date`,
+      `${batch.routes[1].route}:topic-50:ambiguous_content_date`,
+    ]);
+    expect(mapped.items.find((item) => item.id === "folder-17")?.dueAt).toBeNull();
+    expect(mapped.items.find((item) => item.id === "topic-50")?.dueAt).toBeNull();
+  });
+
   it("keeps empty submissions and denied folder counts as evidence and only labels a positive own status submitted", async () => {
     const f = await collectorFixture();
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
     expect(mapSchoolCourse(batch).items.map((item) => item.submission)).toEqual(["unknown", "unknown"]);
-    batch.routes[3].route += "mysubmissions/";
     batch.routes[3].body = { Status: 1 };
     expect(mapSchoolCourse(batch).items[0]!.submission).toBe("positive submission status");
     for (const status of [0, 2, 3]) {
@@ -85,7 +239,7 @@ describe("school evidence and projection", () => {
     const status = await repo(f).status({ limit: 100 });
     expect(status.state).toBe("failed");
     expect(status.lastGoodReadAt).toBe(first.startedAt);
-    expect(status.refused).toEqual([{ route: b.routes[2]!.route, course: "another-course", status: 401, fetched_at: b.startedAt }]);
+    expect(status.refused).toEqual([{ route: b.routes[2]!.route, course: "another-course", host: b.host, disposition: "session expired", status: 401, fetched_at: b.startedAt }]);
     expect(status.evidence).toHaveLength(15);
   });
 
@@ -98,15 +252,15 @@ describe("school evidence and projection", () => {
     expect((await ingest(f, { ...batch, routes })).outcome).toBe("good");
     const status = await repo(f).status();
     expect(status).toMatchObject({ state: "current", lastGoodReadAt: batch.startedAt });
-    expect(status.refused).toEqual([{ route: routes.find((route) => route.status === 403)!.route, course: f.courseId, status: 403, fetched_at: batch.startedAt }]);
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first()).toEqual({ n: 1 });
+    expect(status.refused).toEqual([{ route: routes.find((route) => route.status === 403)!.route, course: f.courseId, host: batch.host, disposition: "refused", status: 403, fetched_at: batch.startedAt }]);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toEqual({ n: 1 });
   });
 
   it("keeps required tool refusals empty while failing transport, authentication, incomplete and unfamiliar results", async () => {
     const f = await collectorFixture();
     const batch = observedBatch(f);
     const refused = { ...batch, routes: batch.routes.map((route) => ({ ...route, status: 403, body: null })) };
-    expect(mapSchoolCourse(refused)).toEqual({ items: [], deadlines: [], failures: [] });
+    expect(mapSchoolCourse(refused)).toEqual({ items: [], deadlines: [], failures: [], unmapped: [] });
     expect((await ingest(f, refused)).outcome).toBe("good");
     for (const status of [0, 301, 302, 401, 500, 503]) {
       const invalid = { ...batch, readId: newUlid(f.clock()), routes: batch.routes.map((route, i) => i === 2 ? { ...route, status } : route) };
@@ -117,17 +271,25 @@ describe("school evidence and projection", () => {
     }
   });
 
-  it("fails unfamiliar successful submission containers while retaining complete submission refusals", async () => {
+  it("retains unknown JSON submissions without guessing a status and labels non-JSON bodies as session failures", async () => {
     const f = await collectorFixture();
     const batch = observedBatch(f);
-    for (const own of [false, true]) {
-      for (const body of [null, [], "unexpected login page", true]) {
-        const routes = batch.routes.map((row, i) => i === 3 ? { ...row, route: row.route + (own ? "mysubmissions/" : ""), body } : row);
-        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes })).outcome).toBe("failed");
-        const refused = routes.map((row, i) => i === 3 ? { ...row, status: 403 } : row);
-        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: refused })).outcome).toBe("good");
-      }
+    for (const body of [null, [], "unexpected login page", true]) {
+      const routes = batch.routes.map((row, i) => i === 3 ? { ...row, body } : row);
+      expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes })).outcome).toBe(typeof body === "string" ? "failed" : "good");
+      expect(mapSchoolCourse({ ...batch, routes }).items[0]!.submission).toBe("unknown");
+      const refused = routes.map((row, i) => i === 3 ? { ...row, status: 403 } : row);
+      expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: refused })).outcome).toBe(typeof body === "string" ? "failed" : "good");
     }
+  });
+
+  it("names the missing mysubmissions route instead of falling back to all-users submissions", async () => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    const allUsersRoute = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/17/submissions/`;
+    const mapped = mapSchoolCourse({ ...batch, routes: batch.routes.map((row, index) => index === 3 ? { ...row, route: allUsersRoute } : row) });
+    expect(mapped.failures).toContain(`${allUsersRoute}mysubmissions/:not_read`);
+    expect(mapped.items[0]!.submission).toBe("unknown");
   });
 
   it("bounds refusals to the latest read and requested limit without losing the older good read time", async () => {
@@ -181,7 +343,7 @@ describe("school evidence and projection", () => {
       } }; } };
     } } as unknown as D1Database;
     expect((await new SchoolCollectorRepository(database, f.owner, f.clock).status()).state).toBe("current");
-    expect(rowsReturned).toEqual([1, 1]);
+    expect(rowsReturned).toEqual([1, 1, 0]);
   });
 
   it("counts undated work from the latest good whole read and names it in a current digest", async () => {
@@ -243,7 +405,6 @@ describe("school evidence and projection", () => {
     const batch = observedBatch(f);
     const variants = [
       { ...batch, routes: batch.routes.filter((_, index) => index !== 1) },
-      { ...batch, routes: batch.routes.map((route, i) => i === 0 ? { ...route, body: {} } : route) },
       { ...batch, routes: batch.routes.map((route, i) => i === 0 ? { ...route, complete: false } : route) },
       { ...batch, routes: batch.routes.filter((_, i) => i !== 3) },
     ];
@@ -251,7 +412,7 @@ describe("school evidence and projection", () => {
       expect(mapSchoolCourse(variant).failures.length).toBeGreaterThan(0);
       expect((await ingest(f, { ...variant, readId: newUlid(f.clock()) })).outcome).toBe("failed");
     }
-    expect(await env.DB.prepare("SELECT * FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT * FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toBeNull();
   });
 
   it("preserves later projected dates when an older device read arrives and keeps immutable evidence", async () => {
@@ -263,9 +424,9 @@ describe("school evidence and projection", () => {
     await ingest(f, latest);
     expect((await ingest(f, old)).outcome).toBe("good");
     expect((await repo(f).status()).lastGoodReadAt).toBe(latest.startedAt);
-    expect(await env.DB.prepare("SELECT due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first())
+    expect(await env.DB.prepare("SELECT due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first())
       .toEqual({ due_at: "2026-09-28T12:00:00.000Z" });
-    await expect(env.DB.prepare("UPDATE deadlines SET last_seen_at = ? WHERE source_id = ?").bind(old.startedAt, `d2l-api:${f.courseId}`).run())
+    await expect(env.DB.prepare("UPDATE deadlines SET last_seen_at = ? WHERE source_id = ?").bind(old.startedAt, `d2l-api:ldsb.elearningontario.ca:${f.courseId}`).run())
       .rejects.toThrow("school_collector_older_deadline");
     const row = (await repo(f).status()).evidence[0]!;
     await expect(env.DB.prepare("UPDATE school_collector_evidence SET status = 200 WHERE evidence_id = ?").bind(row.evidence_id).run())
@@ -279,7 +440,7 @@ describe("school evidence and projection", () => {
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
     batch.routes[0].body[0].Id = "x".repeat(512);
     batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
-    batch.routes[3].route = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${"x".repeat(512)}/submissions/`;
+    batch.routes[3].route = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${"x".repeat(512)}/submissions/mysubmissions/`;
     expect(mapSchoolCourse(batch).failures).toEqual([]);
     expect((await ingest(f, batch)).outcome).toBe("failed");
     const status = await repo(f).status();
@@ -344,21 +505,22 @@ describe("school evidence and projection", () => {
     expect(failed.text.toLowerCase()).not.toContain("nothing due");
   });
 
-  it("refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes", async () => {
+  it("labels unknown projection shapes while preserving other mapped evidence", async () => {
     const f = await collectorFixture();
     for (const alter of [
       (b: any) => { b.routes[0].body[0].Id = -1; },
       (b: any) => { b.routes[0].body[0].Name = ""; },
       (b: any) => { b.routes[0].body[0].DueDate = "not a date"; },
       (b: any) => { b.routes[0].body[0].DueDate = "2026-02-31T12:00:00Z"; },
-      (b: any) => { b.routes[2].body = { Errors: [{ Message: "Unexpected" }] }; },
       (b: any) => { b.routes[0].body.push(b.routes[0].body[0]); },
-      (b: any) => { b.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Conflicting", ToolItemId: 17, EndDateTime: "2026-09-30T00:00:00Z" }); },
+      (b: any) => { b.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Conflicting", ToolItemId: 17,
+        TypeIdentifier: "Dropbox", EndDateTime: "2026-09-30T00:00:00Z" }); },
       (b: any) => { b.routes.push({ ...b.routes[0], route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, body: { Surprise: [] } }); },
     ]) {
       const batch = structuredClone(observedBatch(f));
       alter(batch);
-      expect(mapSchoolCourse(batch).failures).toContain("unsupported_or_invalid_route_shape");
+      expect(mapSchoolCourse(batch).failures).toEqual([]);
+      expect(mapSchoolCourse(batch).unmapped.length).toBeGreaterThan(0);
     }
     expect(evidenceShape(null)).toBe("null");
     expect(evidenceShape({ Errors: [] })).toBe("object(Errors)");

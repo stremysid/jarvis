@@ -1,0 +1,506 @@
+[
+  {
+    "name": "H1 Durham is accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "!SCHOOL_HOSTS.includes(root.host as SchoolHost)",
+    "replace": "root.host !== SCHOOL_HOST",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "H2 News is accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "|news\\/|quizzes\\/",
+    "replace": "|quizzes\\/",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "H3 Quizzes are accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "|news\\/|quizzes\\/",
+    "replace": "|news\\/",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "H4 Host failure is accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "const hostFailure = root.course === null;",
+    "replace": "const hostFailure = false;",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "H5 Host failure cannot claim enrollment success",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "root.courseIds.length !== 0 || root.enrollmentComplete !== false",
+    "replace": "root.courseIds.length !== 0",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts a compact oversized-manifest failure and refuses a host-only success or invented course"
+  },
+  {
+    "name": "H6 Host failure cannot invent a course manifest",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "root.courseIds.length !== 0 || root.enrollmentComplete !== false",
+    "replace": "root.enrollmentComplete !== false",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts a compact oversized-manifest failure and refuses a host-only success or invented course"
+  },
+  {
+    "name": "H7 Host failure carries evidence",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": " || hostFailure && root.routes.length === 0",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts a compact oversized-manifest failure and refuses a host-only success or invented course"
+  },
+  {
+    "name": "H8 Host versions route is accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "[\"/d2l/api/versions/\", \"/d2l/api/lp/1.43/enrollments/myenrollments/\"]",
+    "replace": "[\"/d2l/api/lp/1.43/enrollments/myenrollments/\"]",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "H9 Host enrollment route is accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "[\"/d2l/api/versions/\", \"/d2l/api/lp/1.43/enrollments/myenrollments/\"]",
+    "replace": "[\"/d2l/api/versions/\"]",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts a compact oversized-manifest failure and refuses a host-only success or invented course"
+  },
+  {
+    "name": "H10 Host failure cannot smuggle course evidence",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "? [\"/d2l/api/versions/\", \"/d2l/api/lp/1.43/enrollments/myenrollments/\"].includes(url.pathname)",
+    "replace": "? true",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts a compact oversized-manifest failure and refuses a host-only success or invented course"
+  },
+  {
+    "name": "H11 Paged myItems routes are accepted",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "(url.pathname === myItemsRoute.split(\"?\")[0] && url.searchParams.get(\"orgUnitIdsCSV\") === courseId)",
+    "replace": "(route.route === myItemsRoute)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
+  },
+  {
+    "name": "M1 Observed Objects envelopes are mapped",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "return list(envelope.Objects);",
+    "replace": "return list(envelope);",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
+  },
+  {
+    "name": "M2 Missing Next pages fail coverage",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "while (next !== null && next !== undefined)",
+    "replace": "while (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
+  },
+  {
+    "name": "M3 Cyclic Next pages fail coverage",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (seen.has(key) || page?.status !== 200 || !sameTool)",
+    "replace": "if (seen.has(key)) break;\n      if (page?.status !== 200 || !sameTool)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
+  },
+  {
+    "name": "M4 Student arrays retain unknown items",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const ownPositive = submission?.route",
+    "replace": "if (submission?.status === 200) record(submission.body);\n      const ownPositive = submission?.route",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts observed empty student submissions as unknown evidence with their original body"
+  },
+  {
+    "name": "M5 Complete 404 tools remain normal",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "![200, 403, 404].includes(row.status)",
+    "replace": "![200, 403].includes(row.status)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "records complete optional-tool 404 responses as missing while keeping projected deadlines"
+  },
+  {
+    "name": "M6 Unknown shapes remain labelled",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "unmapped.push(`${route.route}:${evidenceShape(route.body)}:projection_unknown`);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores unfamiliar JSON shapes with projection labels and prevents an empty digest from calling them nothing due"
+  },
+  {
+    "name": "M7 Quiz due dates remain due dates",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const dueAt = date(quiz.DueDate);",
+    "replace": "const dueAt = null;",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "M8 Quiz availability ends remain visible",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const end = date(quiz.EndDate);",
+    "replace": "const end = null;",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "M9 Undated quizzes are kept",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const key = id(quiz.QuizId);",
+    "replace": "if (quiz.DueDate === null && quiz.EndDate === null) return;\n        const key = id(quiz.QuizId);",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "M10 Both distinct quiz dates are projected",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (dueAt !== null && end !== null && dueAt !== end) items.push",
+    "replace": "if (false) items.push",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "accepts announcements as raw evidence and projects quiz due dates and availability ends without guessing submission"
+  },
+  {
+    "name": "M11 Scheduled items retain no-date-known evidence",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "items.push({ id: `myitem-${id(item.ItemId)}`",
+    "replace": "if (false) items.push({ id: `myitem-${id(item.ItemId)}`",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
+  },
+  {
+    "name": "M12 Unlinked myItems stay visible as unknown",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (!seen.has(key)) unmapped.push(`${route}:unlinked_myItems_item`)",
+    "replace": "if (false) unmapped.push(`${route}:unlinked_myItems_item`)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps unlinked and conflicting dates visible without projecting an arbitrary date"
+  },
+  {
+    "name": "M13 Conflicting content dates cannot choose the first date",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "topicDates.set(key, { ...candidate, at: null });",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps unlinked and conflicting dates visible without projecting an arbitrary date"
+  },
+  {
+    "name": "M14 Duplicate resources cannot choose the first date",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (previous !== -1) items[previous] = { ...items[previous]!, dueAt: null, dateSource: null, dateRoute: null };",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps unlinked and conflicting dates visible without projecting an arbitrary date"
+  },
+  {
+    "name": "M15 Unmapped route counts avoid duplicates",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "unmapped: [...new Set(unmapped)]",
+    "replace": "unmapped",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "counts an unmapped route once even when several of its items cannot be projected"
+  },
+  {
+    "name": "M16 Non-JSON means session expired",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": " || typeof row.body === \"string\"",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "labels non-JSON bodies and redirects as expired sessions even when the HTTP status resembles an optional refusal"
+  },
+  {
+    "name": "M17 Redirects mean session expired",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": " || row.status >= 300 && row.status < 400",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "labels non-JSON bodies and redirects as expired sessions even when the HTTP status resembles an optional refusal"
+  },
+  {
+    "name": "M18 Collector session failure bodies remain visible",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": " && row.body.collectorFailure === \"session-expired\"",
+    "replace": " && false",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "labels non-JSON bodies and redirects as expired sessions even when the HTTP status resembles an optional refusal"
+  },
+  {
+    "name": "R1 Stored reads retain Durham provenance",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "Number(batch.enrollmentComplete), now, batch.host)",
+    "replace": "Number(batch.enrollmentComplete), now, \"ldsb.elearningontario.ca\")",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "R2 Projection IDs include the host",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "const sourceId = `d2l-api:${batch.host}:${batch.course.id}`;",
+    "replace": "const sourceId = `d2l-api:${batch.course.id}`;",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "R3 Older reads compare only within a host",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND r.host = ? AND b.outcome",
+    "replace": "AND ? IS NOT NULL AND b.outcome",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "R4 A read manifest cannot switch hosts",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND enrollment_complete = ? AND host = ?",
+    "replace": "AND enrollment_complete = ? AND ? IS NOT NULL",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "refuses a second course that tries to change the host of an existing read manifest"
+  },
+  {
+    "name": "R5 A host-only failure cannot report good",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "batch.course === null ? \"failed\" : await this.project",
+    "replace": "batch.course === null ? \"good\" : await this.project",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "R6 Read summaries remain per-host",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND r.host = ? GROUP BY",
+    "replace": "AND ? IS NOT NULL GROUP BY",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "R7 A failed host cannot be masked",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "hosts.some((host) => host.state === \"failed\")",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "R8 A stale host cannot be masked",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "hosts.some((host) => host.state === \"stale\")",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "reports a stale host even when another host has a fresh successful read"
+  },
+  {
+    "name": "R9 Unknown projection labels are stored",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "JSON.stringify(mapped.unmapped)",
+    "replace": "\"[]\"",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores unfamiliar JSON shapes with projection labels and prevents an empty digest from calling them nothing due"
+  },
+  {
+    "name": "R10 Last good coverage uses the older host time",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "hosts.map((host) => host.lastGoodReadAt!).sort()[0]!",
+    "replace": "hosts.map((host) => host.lastGoodReadAt!).sort().at(-1)!",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "persists Durham provenance and isolates equal course IDs across hosts even when Durham arrives late"
+  },
+  {
+    "name": "R11 Host-only evidence does not invent a course",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "NULLIF(e.course, '') AS course",
+    "replace": "e.course",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "R12 Missing tools are labelled",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "THEN 'missing tool'",
+    "replace": "THEN 'read failure'",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "records complete optional-tool 404 responses as missing while keeping projected deadlines"
+  },
+  {
+    "name": "R13 Session failures appear in status",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "sessionExpired: unmapped?.session_expired === 1",
+    "replace": "sessionExpired: false",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "labels non-JSON bodies and redirects as expired sessions even when the HTTP status resembles an optional refusal"
+  },
+  {
+    "name": "R14 Host session failures are persisted",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "batch.routes.some(sessionExpired) ? \"session_expired\" : \"host_read_failed\"",
+    "replace": "\"host_read_failed\"",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "R15 Refusals include both hosts",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "latestReads[1]?.collector_id ?? \"\", latestReads[1]?.read_id ?? \"\"",
+    "replace": "\"\", \"\"",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "R16 Refusal rows stay bounded",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "ORDER BY e.evidence_id LIMIT ?`)\n      .bind(this.owner, latestReads",
+    "replace": "ORDER BY e.evidence_id LIMIT (? + 1000)`)\n      .bind(this.owner, latestReads",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "bounds refusals to the latest read and requested limit without losing the older good read time"
+  },
+  {
+    "name": "R17 Latest read aggregation stays bounded",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "ORDER BY r.started_at DESC, r.received_at DESC, r.read_id DESC LIMIT 1`)\n        .bind",
+    "replace": "ORDER BY r.started_at DESC, r.received_at DESC, r.read_id DESC`)\n        .bind",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "returns at most one row from each read aggregate while retaining the last complete good read"
+  },
+  {
+    "name": "R18 Last good read aggregation stays bounded",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "ORDER BY r.started_at DESC, r.received_at DESC, r.read_id DESC LIMIT 1`).bind",
+    "replace": "ORDER BY r.started_at DESC, r.received_at DESC, r.read_id DESC`).bind",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "returns at most one row from each read aggregate while retaining the last complete good read"
+  },
+  {
+    "name": "S1 Historical read hosts remain LDSB",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
+    "find": "DEFAULT 'ldsb.elearningontario.ca'",
+    "replace": "DEFAULT 'durham.elearningontario.ca'",
+    "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
+    "expect": "migrates existing LDSB projections without changing deadline identities, revisions, reminders or status"
+  },
+  {
+    "name": "S2 Existing deadlines move to the LDSB namespace",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
+    "find": "UPDATE deadlines SET source_id = 'd2l-api:ldsb.elearningontario.ca:' || substr(source_id, 9)",
+    "replace": "UPDATE deadlines SET source_id = source_id",
+    "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
+    "expect": "migrates existing LDSB projections without changing deadline identities, revisions, reminders or status"
+  },
+  {
+    "name": "S3 Legacy source health is retired without deleting history",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
+    "find": "UPDATE deadline_sources SET active = 0",
+    "replace": "UPDATE deadline_sources SET active = 1",
+    "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
+    "expect": "migrates existing LDSB projections without changing deadline identities, revisions, reminders or status"
+  },
+  {
+    "name": "S4 Retry decisions are unique at the database boundary",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
+    "find": "CREATE UNIQUE INDEX school_collector_pair_decision",
+    "replace": "CREATE INDEX school_collector_pair_decision",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "recovers pairing decision creation failure and converges concurrent proof retries on one decision"
+  },
+  {
+    "name": "P1 Proved pairings can retry",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND status = 'pending'\n        AND expires_at > ? RETURNING collector_id",
+    "replace": "AND status = 'pending' AND proved_at IS NULL\n        AND expires_at > ? RETURNING collector_id",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "retries failed pairing notification with a fresh signature and the same decision before activating on its tap"
+  },
+  {
+    "name": "P2 Pairing retries use the existing decision",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "WHERE principal_id = ? AND origin = ? AND origin_reference = ? LIMIT 1",
+    "replace": "WHERE principal_id = ? AND origin = ? AND origin_reference = ? AND 0 LIMIT 1",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "retries failed pairing notification with a fresh signature and the same decision before activating on its tap"
+  },
+  {
+    "name": "P3 Concurrent decision creation recovers the winning row",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "if (concurrent === null) throw error;",
+    "replace": "throw error;",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "recovers pairing decision creation failure and converges concurrent proof retries on one decision"
+  },
+  {
+    "name": "P4 Failed delivery can be retried",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "if (decision.deliveredAt === null)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "retries failed pairing notification with a fresh signature and the same decision before activating on its tap"
+  },
+  {
+    "name": "P5 Successful delivery is not resent on ordinary retry",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "if (decision.deliveredAt === null)",
+    "replace": "if (true)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "retries failed pairing notification with a fresh signature and the same decision before activating on its tap"
+  },
+  {
+    "name": "T1 Reading school evidence does not spend an action tap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "// Reading evidence spends no action authority. Revocation still requires its tap.",
+    "replace": "const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "reads school evidence without spending an action tap even when school tracking is tier three"
+  },
+  {
+    "name": "T2 Forwarded context cannot block school evidence reads",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (call.name === \"school_d2l_status\") {",
+    "replace": "if (call.name === \"school_d2l_status\") {\n      if (this.dependencies.directPipelineText === false) return refusedTool(call, port.pipelineAuthorityRefusal);",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "reads school evidence without spending an action tap even when school tracking is tier three"
+  },
+  {
+    "name": "D1 Digest names the failed host",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "for (const host of d2l.hosts ?? [])",
+    "replace": "for (const host of [])",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "keeps a first-run host session failure visible after the other host succeeds"
+  },
+  {
+    "name": "D2 Digest labels session expiry",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "detail: host.sessionExpired ?",
+    "replace": "detail: false ?",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "labels non-JSON bodies and redirects as expired sessions even when the HTTP status resembles an optional refusal"
+  },
+  {
+    "name": "D3 Digest reports unknown projections",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.unmappedRoutes > 0)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
+    "expect": "stores unfamiliar JSON shapes with projection labels and prevents an empty digest from calling them nothing due"
+  },
+  {
+    "name": "D4 Digest retains undated work",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.state === \"current\" && d2l.lastGoodReadUndatedItems > 0)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "M19 Next pages must belong to the same tool",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const sameTool = new URL(key).pathname === new URL(routeKey(route.route)).pathname;",
+    "replace": "const sameTool = true;",
+    "testPath": "apps/cloud-gateway/test/school/collector-pages.test.ts",
+    "expect": "does not count a different tool response as the next myItems page"
+  }
+]
