@@ -21,7 +21,11 @@ repository is the only thing every session reads.**
    fixed, in the same change.** A new fact that leaves the old claim standing makes the
    repository disagree with itself, which is worse than not recording it.
 3. **Every row carries a source and a date.** No bare assertions. `scripts/check-state.mjs`
-   enforces this, and lists rows whose "still true?" is unset or older than 30 days.
+   requires four cells, a nonempty fact, a non-placeholder source and a real `YYYY-MM-DD`
+   observation date no more than one UTC day ahead. A row after a blank gap in the register
+   fails too. Observations older than 30 UTC calendar days, or a "Still true?" cell that
+   does not start with `yes`, warn. Each file gets one GitHub `::warning` with the count
+   and first affected line; every row's detail stays in the plain log. Warnings do not fail CI.
 
 ## What belongs here, and what does not
 
@@ -36,6 +40,8 @@ repository is the only thing every session reads.**
 
 | Fact | How we know | Observed | Still true? |
 |---|---|---|---|
+| School catch-up is Sid's top priority; he plans to paste D2L assignment lists directly into Telegram | Sid's school-paste builder brief, 2026-09-23; owner-reported intent | 2026-09-23 | yes |
+| Sid tracks everything in iPhone Calendar. School is his top priority | Sid's calendar-feed task instruction | 2026-09-23 | yes |
 | The school account is **Microsoft 365**; it cannot reach `console.cloud.google.com`, so Google Classroom OAuth credentials cannot be obtained | Sid stated it directly; a reviewer session had walked him through the setup a second time before recording it | 2026-09-17 | yes |
 | Consequence: **Classroom has no usable route.** The REST client is wired but credential-blocked; no Classroom handling exists in the email parser; the notification-email route was proposed, not built | Code read at `5a8acf3`; `GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS` occurs zero times in `src` | 2026-09-18 | yes |
 | LDSB Brightspace exposes **no calendar or iCal feed**, so `BRIGHTSPACE_ICAL_URL` has no value to hold. **Never ask him for one** | `KNOWN_ISSUES.md`; the board's configuration | 2026-09-15 | yes |

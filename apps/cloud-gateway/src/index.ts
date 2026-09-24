@@ -41,6 +41,7 @@ import {
 } from "./conversation/outbox-dispatcher.js";
 import type { Env } from "./env.js";
 import { handleLiveness } from "./http/health.js";
+import { handleCalendarFeedRequest } from "./http/calendar-feed-routes.js";
 import { handleProductionVoiceRequest, requestProductionTelegramCall } from "./voice/production-routes.js";
 import { handleSyncRequest, isSyncPath } from "./http/sync-routes.js";
 import {
@@ -110,6 +111,7 @@ function unavailable(): Response {
 const telegramLimiter = new TelegramRateLimiter();
 // Separate allowance: monitoring traffic must never consume Telegram admission.
 const livenessLimiter = new TelegramRateLimiter(30, 43_200);
+const calendarLimiter = new TelegramRateLimiter(30, 43_200);
 const providerCircuitBreaker = new ProviderCircuitBreaker();
 
 export function buildTelegramConversationRepository(
@@ -243,6 +245,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         const universityRepository = new UniversityTrackerRepository(env.DB);
         const schoolModel = new SchoolCatchupModelAdapter({
           model: baseModel,
+          database: env.DB, // Without this, a pinned daily capacity never reaches the planner.
           repository: schoolRepository,
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
@@ -726,6 +729,12 @@ export default {
 
   async fetch(request, env, ctx): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    if (/^\/calendar(?:\/|$)/u.test(pathname)) {
+      return handleCalendarFeedRequest(request, env, {
+        clock: () => new Date(),
+        rateLimiter: { allow: () => calendarLimiter.admit("calendar", Date.now()).allowed },
+      });
+    }
     if (pathname === "/health") {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD", "cache-control": "no-store" } });
