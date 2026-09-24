@@ -35,15 +35,28 @@ export class SchoolCollectorPairing {
     const input = exact(body, ["challenge"]);
     const now = this.now();
     if (input.challenge !== key.challenge || key.expires_at <= now.toISOString()) throw new Error("school_challenge_invalid");
-    const claimed = await this.database.prepare(`UPDATE school_collector_keys SET proved_at = ?
-      WHERE collector_id = ? AND principal_id = ? AND status = 'pending' AND proved_at IS NULL
+    const claimed = await this.database.prepare(`UPDATE school_collector_keys SET proved_at = COALESCE(proved_at, ?)
+      WHERE collector_id = ? AND principal_id = ? AND status = 'pending'
         AND expires_at > ? RETURNING collector_id`).bind(now.toISOString(), key.collector_id, this.owner, now.toISOString()).first();
     if (claimed === null) throw new Error("school_challenge_consumed");
-    const decision = await new DecisionService({ repository: new DecisionRepository(this.database), now: this.now }).raise({
+    const repository = new DecisionRepository(this.database);
+    const existing = async (): Promise<DecisionItem | null> => {
+      const row = await this.database.prepare(`SELECT decision_id FROM decision_items
+        WHERE principal_id = ? AND origin = ? AND origin_reference = ? LIMIT 1`)
+        .bind(this.owner, SCHOOL_PAIR_ORIGIN, key.collector_id).first<{ decision_id: string }>();
+      return row === null ? null : repository.readItem(row.decision_id);
+    };
+    // Proof persists across an interrupted raise or delivery. The unique origin index
+    // lets racing retries recover the same decision instead of asking for a second tap.
+    const decision = await existing() ?? await new DecisionService({ repository, now: this.now }).raise({
       principalId: this.owner, origin: SCHOOL_PAIR_ORIGIN, originReference: key.collector_id, urgency: "urgent",
       question: `Pair school collector ${JSON.stringify(key.device_label)}? Match code ${key.pairing_code} in your extension. Expires in 10 minutes.`,
       detail: "Tier 3: this key may only send Brightspace evidence. Confirm only if you started pairing and both codes match. It cannot read memory or sync data.",
       expiresAt: key.expires_at, choices: [{ key: "confirm", label: "Confirm this collector" }, { key: "reject", label: "Reject" }],
+    }).catch(async (error: unknown) => {
+      const concurrent = await existing();
+      if (concurrent === null) throw error;
+      return concurrent;
     });
     await this.database.prepare("UPDATE school_collector_keys SET decision_id = ? WHERE collector_id = ? AND decision_id IS NULL")
       .bind(decision.decisionId, key.collector_id).run();

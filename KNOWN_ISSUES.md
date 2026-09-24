@@ -1,5 +1,26 @@
 # Known issues
 
+## Owner voice streaming acceptance (PR #171, 2026-09-24)
+
+Live DeepSeek tool-call streaming and phone latency remain unverified. The
+round-2 model marker protocol checks this-turn receipt/tool provenance for one
+declared sentence, with regexes only as an omission backstop. An omitted novel
+claim or a semantically wrong description attached to a real receipt is still
+a model failure code cannot prove away. #172 is now merged into this branch;
+local integration covers its real guided-assignment service with a fake
+Telegram provider. Live model compliance and provider delivery remain untested.
+See [the design and evidence](docs/voice-streaming.md) and the first live check
+in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md). No live check or rollout is implied.
+
+Two low-severity follow-ups from the independent review remain open and are not
+fixed in this merge round:
+
+- **L2′:** A literal `[[` in ordinary prose, such as "In Obsidian, write
+  `[[Page name]]` to link.", throws `voice_claim_invalid` and aborts the spoken
+  reply.
+- **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
+  order.
+
 ## Reply-claim tutoring exemptions are deliberately conservative and partial
 
 PR #162 requires a positive worked object of the claim verb and a completely
@@ -66,7 +87,22 @@ backups; nonces are excluded. Both tables grow over time, and the collector list
 is not paginated. A retention follow-up must preserve audit references, terminal
 revocation and the complete signature/replay window. No cleanup job or live
 deletion was added in this fix round. Read aggregates return one row each, and
-refusals are now a bounded sample of the latest read, with truncation explicit.
+refusals are a bounded sample of the latest read per reported host, with truncation explicit.
+
+The receiver compatibility follow-up accepts both boards and retries pairing delivery
+with the same decision. Delivery remains at-least-once if Telegram accepts a message
+and the process fails before recording delivery; repeated taps still bind the same
+decision and cannot create a second key. Status covers reported hosts, not boards the
+extension has never reported. Host-only failure batches make discovery/session failures
+reportable, but #170 must emit them and remove its old compatibility hold after rollout.
+The gateway never follows a paging URL. Unknown projections remain raw with explicit
+labels; a good receipt does not mean every shape has a deadline adapter. Positive own
+submission shapes, Opera GX persistence/federation, live two-board ingestion and the
+real database upgrade remain unverified by this builder.
+
+Positive submission detection currently requires an object with `Status: 1`, but
+the owner-observed `mysubmissions/` route returns an array. Empty arrays remain
+unknown evidence, and no populated-array projection has been observed.
 
 The review also identified an untested enrollment-retirement case: a course
 absent from later manifests may leave a stale per-course deadline source, whose

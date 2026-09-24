@@ -91,6 +91,22 @@ item 1. Enumerated while verifying item 1 rather than by the audit:
 Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
 line whenever anything is dropped, so silence is never unexplained.
 
+### Additional voice finding (2026-09-23)
+
+This register remains partial. PR #171's first version made regexes the only
+judge of action claims on voice. Calling that an "accepted stopgap" was wrong:
+Sid had not accepted it. The independent review required the model to declare each
+action sentence outside the spoken prose. The voice marker names its proving
+tool and this turn's receipt ids; code strips the marker, redacts the unsplit
+prose, and verifies that exact sentence's proof before speech. Unsupported
+declarations get a fixed honest line, without a rewrite call.
+
+Regexes remain an omission backstop, as on Telegram. They cannot establish that
+an arbitrary untagged sentence is not a claim, or decide whether a declared
+paraphrase faithfully describes the receipt. Those judgments remain the model's.
+See [the protocol and evidence](voice-streaming.md). Telegram's JSON inventory
+and rewrite are unchanged by #171.
+
 ### Memory
 
 | # | Symbol | The decision code is making | Surface it should move to |
@@ -197,6 +213,14 @@ Last verified against the code: 2026-09-21, at `0611803`. Coverage is partial â€
 of this file.
 
 ## School collector findings, 2026-09-23 (still a partial register)
+
+Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
+storable unknown JSON as a failed school read. It records projection labels and keeps
+raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
+deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decision](https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523).
+The pipeline's direct-text authority still applies because that decision removed the safety
+tier, not the authenticated-source boundary. Collector revocation still requires its
+tier-three tap. The two existing judgment findings below remain open.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|

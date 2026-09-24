@@ -73,6 +73,26 @@ must run the new round-5 file, the affected deadline suite and the S8/S11/S12/S1
 mutations. No live provider, database, migration, deployment, secret, PC or owner
 operation was performed.
 
+Main merge (#171, #175): retained #171's `streamAgent` voice path, plain-spoken
+claim-marker prompt and guided-draft delivery wording alongside #166's shared
+argument catalogue, durable channel-1 owner-turn proof and configured deadline
+zone; #175's D2L receiver and migration 0045 remain intact. The production
+composition test `gives an owner's call memory, shared argument, guided assignment
+and school collector tools in the configured owner zone` now asserts the streaming
+request while retaining its deadline catalogue and zone assertions. All
+`deadline-voice.test.ts` cases now use the streaming fixture; the successful case
+is renamed `records a marked spoken deadline claim from the durable turn date in
+the configured owner zone` and proves that a `deadline_record` marker names the
+same tool as its current receipt before the sentence is spoken. No extra copied
+deadline text was needed in `OWNER_VOICE_STREAM_PROMPT`: both channels receive the
+same deadline tool description, and voice retains its owner-zone/durable-turn
+channel prompt. Available post-merge checks: source TypeScript has zero
+diagnostics; test TypeScript retains its 143 existing diagnostics and names
+neither the adapted fixture nor deadline voice file; state and diff checks pass,
+with the existing one-row FACTS re-verification warning. The harness owns the
+merge, staging and behavioral validation; this builder ran no Git write command
+and claims no Vitest result.
+
 ## 2026-09-24 — Codex builder: #166 round 4 narrows deadline refusals
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
@@ -228,6 +248,356 @@ Observed gates on final code `425b24d`: new deadline tests 25 passed plus reposi
 Mutation evidence: **14 unique faults killed on their named tests and confirmed on a second run**, with byte-identical restoration. Covers input format, named zone, date/clock zone matching, date/clock excerpt matching, course/title/status evidence, explicit-open refusal, current-message grounding, direct-owner and durable-turn checks, and the unchanged-row status race. Two initial probes were `KILLED/OTHER`; their corrected probes were independently confirmed, not counted as initial expected kills. Evidence and specs: `C:\Users\Sid\codex-ledgers\deadline-*.log` / `deadline-*mutations*.json`; continuity: `deadlines-reminders-run.md` in that folder.
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
+## 2026-09-24 — Codex builder: PR #175 review round 2 closes linked-tool and unreadable-folder gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.
+The harness had already started the normal merge of `origin/main` `1cad885` into
+reviewed head `ed2bc56`. Its only conflict was this log. I retained the complete
+branch and main histories and removed every conflict marker; the index remains
+unmerged until the harness stages the resolution. I ran no Git write command.
+
+Results, in the review's order:
+
+1. Toc topics use `folder-<ToolItemId>` only for `TypeIdentifier: "Dropbox"`.
+   Other tools retain `topic-<TopicId>` identity. A quiz can no longer create a
+   phantom assignment folder or lend its end date to a real folder with the same
+   numeric id.
+2. Linked Dropbox topics are not projected when the folder list is absent,
+   refused, missing or structurally unreadable. The toc evidence receives
+   `linked_topic_folder_list_unread`, and deadline ingestion leaves the last good
+   assignment date untouched. The existing good-then-`{}`/403/404 matrix remains.
+3. Host-failure enrollment evidence accepts its `?bookmark=page` pagination
+   query. `content/myItems` now requires exactly one `orgUnitIdsCSV` parameter,
+   so a second course binding is refused.
+4. Sid's decision that school evidence reads need no tier gate or tap is recorded
+   beside `school_d2l_status`, in FACTS, the judgment register and the receiver
+   review. `directPipelineText === false` still refuses before the status read,
+   and collector revocation still uses its existing tap.
+5. The optional redundant guards were kept. They are outside this small review
+   round and removing them would add unrelated behavior risk.
+
+New tests:
+
+- `keeps the last good assignment date when the folder list is refused`
+- `does not turn a quiz-linked topic into an assignment folder`
+- `does not give an assignment folder a quiz-linked topic's end date`
+- `refuses duplicate orgUnitIdsCSV course bindings on a myItems route`
+
+The host-failure compatibility test is now named `accepts a paged compact
+oversized-manifest failure and refuses a host-only success or invented course`
+and again sends `?bookmark=page`. The unfamiliar-folder compatibility assertion
+also pins both its shape label and the linked-topic unread label.
+
+Observed checks:
+
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` — exit **0**, no
+  diagnostics.
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` —
+  exit **1**, the documented **143 diagnostics in 31 files**, with **0** in
+  `collector-ingest`, `collector-compatibility` or `collector-security`.
+- `node scripts/check-state.mjs` — exit **0**, three carriers plus FACTS pass;
+  one advisory remains for the already-unverified background-access fact.
+- `git diff --check` — exit **0**. The log has no conflict markers; read-only
+  `git diff --name-only --diff-filter=U` still names it because only the harness
+  may stage the resolution.
+
+The harness must run all six collector files: `collector-ingest`,
+`collector-compatibility`, `collector-security`, `collector-pages`,
+`collector-wiring` and `collector-migration`, then the full cloud-gateway suite.
+Vitest, pnpm, mutations, the full suite, a live D2L read, production, migrations
+and deployment were not available or attempted in this container, so no runtime
+pass or mutation-kill claim is made.
+
+**Harness round 2:** after staging, the 18-file collector plus
+backup/migration/voice/Telegram/autonomy run completed **395 passed / 1 failed**;
+source typing and the state check passed. The only failure was this round's
+changed unfamiliar-folder assertion. `unmappedRoutes` sums labels in each batch's
+`unmapped_json`, but that fixture replaces the toc with `Modules: []`, so it has
+no linked topic to suppress and correctly emits only the folder-shape label. The
+test now expects one, explains why, and explicitly refuses the inapplicable
+`linked_topic_folder_list_unread` label. The separate dated-then-refused test
+retains the toc topic and pins that label. The harness must rerun the same gate;
+this container still cannot run Vitest.
+
+## 2026-09-24 — Codex builder: PR #175 review round restores receiver identity and authority boundaries
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.
+The harness had already started the normal merge of `origin/main` `d4e5416` into
+head `470d25e`. Its only conflict was this log. Both the branch's receiver entry
+and main's PR #157 entries are retained, with all conflict markers removed. I ran
+no Git write command; the harness still owns staging, commit and push.
+
+Review results, in the brief's order:
+
+1. Linked toc topics now retain `folder-<ToolItemId>` identity even when the
+   folder list is a 200 unfamiliar object, 403 or 404. The new two-read matrix
+   asserts one open `folder-17` deadline after each case, rather than a second
+   `topic-41` deadline.
+2. The all-users submissions fallback is gone. Mapping requires and names only
+   `submissions/mysubmissions/`; the protocol rejects `submissions/`. Fixtures
+   now use owner-observed `[]` bodies for mysubmissions and grades, and tests pin
+   both the protocol refusal and the exact `not_read` route.
+3. A myItems object without `ToolItemId` is labelled
+   `scheduled_item_projection_unknown` and remains raw evidence. It is not
+   projected as `myitem-<ItemId>` until a populated shape establishes identity.
+4. `directPipelineText === false` again refuses before `school_d2l_status` and
+   before any tier gate. The tier behavior itself is unchanged: a direct status
+   read remains unactioned, while revocation keeps its existing gate. Whether a
+   raw school-evidence read should ever bypass this authority is **open for Sid**;
+   the earlier round's claimed instruction is not treated as his decision.
+5. Added named coverage for a Next page returning 403, quiz
+   `PagingInfo.HasMoreItems: true`, and numeric `Next: 5`. The dead hostname
+   comparison was deleted rather than preserved as an unreachable guard.
+6. The protocol now requires the original route to equal normalized pathname
+   plus search, so dot segments cannot normalize into an allowed route. Queries
+   are accepted only for myItems and quiz pages; toc query strings are refused.
+7. KNOWN_ISSUES now says positive detection expects an object although the
+   observed mysubmissions route is an array. The status tool now also forbids a
+   “nothing due” claim when unmapped or undated evidence exists.
+8. The 0045 owner rollout row now requires checking that `decision_items` has no
+   duplicate `school-collector-pair` rows per `origin_reference` before apply.
+
+Exact checks:
+
+- `npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/collector-ingest.test.ts apps/cloud-gateway/test/school/collector-compatibility.test.ts apps/cloud-gateway/test/school/collector-security.test.ts apps/cloud-gateway/test/school/collector-pages.test.ts apps/cloud-gateway/test/school/collector-wiring.test.ts` — **exit 1, 0 test results produced**. Wrangler first reported `EROFS: read-only file system` for `/root/.config/.wrangler/logs/...`; Miniflare then stopped before collection with `Error: listen EPERM: operation not permitted 127.0.0.1`.
+- `npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/collector- apps/cloud-gateway/test/backup/memory-backup.test.ts apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts apps/cloud-gateway/test/persistence/migration` — **exit 1, 0 test results produced**, with the same exact EROFS and loopback-listener EPERM errors. The harness must run this gate.
+- `pnpm --filter @jarvis/cloud-gateway exec tsc --noEmit` — **exit 0, 0 diagnostics**. The container uses Node 22.22.2 and printed the repository's Node `>=24.19.0 <25` engine warning.
+- `pnpm --filter @jarvis/cloud-gateway typecheck:tests` — the documented
+  non-gate remains red: **143 errors in 31 files, 0 under `test/school/collector-*`**.
+- `pnpm run check:state` — **exit 0**, 3 carriers plus FACTS passed, with **1 advisory** for the already-unverified background-access fact at FACTS line 61.
+- `grep -rn '^<<<<<<<\|^>>>>>>>' apps docs KNOWN_ISSUES.md` — **0 matches**.
+- `git diff --check` — **0 findings** in this round's unstaged edits. The
+  read-only `git diff --cached --check` separately reports main's staged blank
+  line at EOF in `apps/local-agent/tests/archive/test_store_permissions.py`; I
+  did not alter that unrelated merged file.
+
+Mutation results: **0 mutations executed, 0 kill/survival results**. Every named
+mutation test uses the same Cloudflare Vitest pool that stops on the sandbox's
+loopback `EPERM`, so planting faults could not produce red/green evidence here.
+The intended guards are each pinned by named tests (three folder-list identities,
+mysubmissions-only mapping and parsing, unprojected ScheduledItem, direct-private
+status authority, canonical/query routes, and M12/M13/M14), but the harness must
+perform the required fault planting and restoration. No runtime suite, mutation,
+remote database rehearsal, migration, deploy, live D2L read or owner acceptance
+was verified in this container.
+
+## 2026-09-24 — Codex GPT-6 builder: D2L receiver compatibility after #169 and #170
+
+Signed: Codex GPT-6, cloud receiver builder for Sid. Read the full #170 description
+and gap report at `5420836`, verified #169 merged, and created
+`codex/d2l-receiver-fix` from fresh main. Normally merged #173, #172 and then #170;
+no rebase or force-push. The push-time scan caught #174 taking 0044, so this PR's
+migration is **0045**, with the SQL body unchanged and all registrations updated.
+The tested #172 integration keeps 0043 before the collector upgrade. All previous
+log entries are retained below.
+
+The receiver now accepts actual Durham/LDSB hosts, announcements, dated quizzes,
+paged myItems Objects envelopes, unknown student arrays and complete missing-tool
+404s. Raw unfamiliar JSON stays evidence, with unknown projection labels. Host
+namespaces prevent equal course IDs colliding; existing LDSB deadline identities,
+status, revisions and reminders survive the migration. Host session failures stay
+visible even when the other board succeeds. Pair proof/delivery retries reuse the
+decision after notification failure. Evidence reads spend no action tap under
+Sid's newer rule; revocation and activation keep confirmation.
+
+**No existing upload path, signing rule, header, canonical body rule, pairing field
+or course-batch field changed.** The additive host-failure variant uses
+`course:null`, `courseIds:[]`, `enrollmentComplete:false` and a versions/enrollment
+route. The extension builder must update its compatibility hold, null-course queue
+handling and optional 404 handling after receiver rollout. [Every contract change,
+decision and observed count](reviews/2026-09-24-d2l-receiver-fix.md).
+
+Final allocation checks: **161/0/0** across nine files, including all **69/0/0**
+collector tests, backup, migration parity and static remote-D1 syntax. The earlier
+combined #172 focused run was **204/0/0**. Full gateway on executable `396ace56`
+was **5304/2/0**, 202 passed and two failed files: unchanged meaning-search and
+Hermes timeout tests. Each file passed alone on that head, **70/0/0** and
+**71/0/0**. The full suite was not rerun for the later SQL filename-only allocation
+change; the exact SQL blob and fresh affected checks are recorded in the evidence.
+All **63 distinct mutation cases / 71 confirmed attempts** have named
+red/restored-green proof, with zero other mutation outcomes and byte-identical
+restoration. Source typing has zero diagnostics; test typing remains red
+with **143 outside collector / 0 collector**. No full-suite green claim.
+
+No deploy, real database migration, remote-D1 rehearsal, live Telegram/school
+request, secret, permissions, services, tasks, registry, logon or local-agent
+operation. The supplied PC incident file was absent. #157-owned files are
+unchanged. Owner-only rollout/acceptance remains in OWNER-ACTIONS; the external
+ledger remains at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+
+Next, **when the new PR is published**: independent and automated review of its
+exact head, without waiting in this builder task. **After independent clearance
+and authorized rollout**: extension integration and two-board owner acceptance.
+
+## 2026-09-24 — Codex builder: #171 merges #162 and records low follow-ups
+
+**Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/voice-streaming.**
+
+The harness began the normal merge of `origin/main` `1cad885` into reviewed
+head `7ae683b`. Both conflicts retain both parents. In `KNOWN_ISSUES.md`, the
+complete #171 owner-voice acceptance section comes first, now recording open
+L2′ (ordinary `[[` prose aborts the spoken reply) and L3′ (a held pre-tool
+refusal is spoken out of order), followed by main's complete #162 tutoring
+limitations section. In `voice-agent.test.ts`, the resolution keeps #171's
+DeepSeek stream fixtures, unreceipted-action import and all streaming tests,
+then keeps #162's tutoring-fixture import and all three worked-explanation,
+guided-question and undeclared-action voice tests.
+
+The auto-merged `owner-agent-core.ts` retains #171's streaming provider, voice
+sentence/reply pipeline and `OWNER_VOICE_STREAM_PROMPT`, plus #162's Telegram
+worked-explanation prompt text. Because the voice prompt is a separate template
+rather than inheriting that text, the same #162 sentence is carried into
+`OWNER_VOICE_STREAM_PROMPT`. The auto-merged `school-catchup-model.ts` retains
+#162's worked-object/full-clause guard and passive completion additions alongside
+#171's voice completion backstop and sentence-level receipt checks. No other
+runtime source was edited in this round.
+
+The harness must run these tests after staging the resolution:
+
+- `apps/cloud-gateway/test/voice/voice-agent.test.ts`
+- `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts`
+- `apps/cloud-gateway/test/voice/voice-reply.test.ts`
+- `apps/cloud-gateway/test/voice/voice-sentences.test.ts`
+- `apps/cloud-gateway/test/security/streaming-output-redactor.test.ts`
+- `apps/cloud-gateway/test/voice/call-session-do.test.ts`
+- `apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts`
+- `apps/cloud-gateway/test/school/guided-assignment.test.ts`
+- every `apps/cloud-gateway/test/school/tutoring-reply-*.test.ts` file
+- every `tests/acceptance/fake/voice-production-*.test.ts` file
+
+The available source check, `node_modules/.bin/tsc --noEmit -p
+apps/cloud-gateway`, exited 0, and the resolved files contain no conflict
+markers. The non-gating test config reported its existing 143 diagnostics and
+none named the two manually changed test files. This sandbox cannot run Vitest
+or pnpm, so none of the required test files was executed here. Git writes are
+forbidden, so the two resolved paths remain unmerged in the index until the
+harness stages them. No live model, phone call, provider delivery, production
+behavior, migration or deployment was verified.
+
+## 2026-09-24 — Codex builder: #171 quoted-escape prefix follow-up
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+While waiting for CI, an additional H2 probe reproduced a leak at a chunk ending
+on a backslash inside a quoted credential: the canonical regex fell back to an
+unquoted word and exposed the remaining words. Probe: 1 passed / 1 failed /
+29 skipped. The contract now consumes unfinished escapes for either quote style,
+including EOF and newline. This is an argued Telegram behavior change too:
+stronger redaction, with its tool/JSON/claim/rewrite behavior unchanged. A
+voice-only buffer delay would leave the canonical EOF leak unfixed.
+
+Fixed contract and redactor files: 34/0/0. Two new named mutations each killed
+twice, 0 other verdicts, contract source byte-restored. Final round-2 spec has
+39 confirmed named kills (the earlier survivor remains disclosed below).
+Final restored six-file run: 193/0/0. Gateway and contracts source types exit 0;
+non-gating gateway test types remain 143 diagnostics, none in new or changed
+voice/security/guided/tap fixture code. Prior head `13e6199a` passed all 9 CI jobs
+in run `35958896973`; that is not evidence for this additional fix. The new head's
+CI outcome and full-suite counts belong in the authorized PR comment.
+
+## 2026-09-24 — Codex builder: #171 round 2 claim markers, unsplit redaction and #172 integration
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+H1 now uses the model's outside-prose action marker, with a proving tool name
+and this-turn receipt ids. Code strips metadata and binds proof to exactly one
+complete sentence; regexes only catch omitted markers. All 18 review paraphrases
+have marked and untagged cases. A novel declared paraphrase proves the marker,
+not the regex, controls this boundary. The earlier "accepted stopgap" attribution
+was unsupported and is removed from CODE-VS-JUDGMENT.
+
+H2 redacts original unsplit prose before sentence splitting or honesty
+replacement. No inserted sentence newlines reach the redactor. Every split and
+character-by-character fixtures protect quoted-password and Digest-header tails.
+L1 holds terminal periods for lookahead; L2 repeats an actual pin receipt in the
+follow-up and kills removal of receipt registration; L3 drops held premature
+refusals when a tool follows. Safe sentences still reach the caller before the
+provider finishes. No live latency claim is made.
+
+Main was normally merged through `7b805fa2` (#172), merge `53756626`, after
+the earlier `29fbfcd6` merge. Conflicts preserve main's assignment tools,
+references, prompt and Telegram proof, plus voice streaming. The guided fixture
+now streams markers through the actual guided service/core/redactor with fake
+Telegram delivery. Supported draft paraphrases are spoken, stale and save-only
+proofs refused. No catalogue or migration was independently added or changed;
+#159 gate placement and claim-before-body behavior are intact.
+
+Observed round-2 focused pass/fail/skip counts: 123/0/0 (3 unit files), 26/0/0
+(voice), 159/0/0 (4 composition/socket/tap files), expanded units 129/0/0 (3 files),
+merged guided/voice/tap 69/0/0 (3 files), and restored source 189/0/0 (5 files).
+The obsolete composition-name filter ran 0/0/130, not a pass; the corrected main
+name ran 1/0/129. Source typecheck exit 0. Non-gating test typecheck first 147
+diagnostics, four new fixture errors fixed, final 143 with none in the new
+voice/security files or updated guided/tap fixtures. State check: 3 carriers
+plus FACTS, 0 warnings. `git diff --check` passes.
+
+Mutation sweep: 35 confirmed named kills and 1 survivor, all other verdicts 0,
+6 files byte-restored. The survivor's claim guard masked the inserted-newline
+fault. A corrected ordering fault and that newline fault against the no-claim
+caller fixture both die twice: supplement 2 kills, all other verdicts 0, 1 file
+restored. Final spec: 37 confirmed named kills, each twice; restored focused
+tests green. The survival remains disclosed in [the evidence](voice-streaming.md).
+
+Sid's current load rule permits only focused files locally. Full gateway,
+contracts and acceptance suites must run in GitHub Actions after this push;
+the authorized PR comment will record that run and its actual outcome/counts.
+No full local package/workspace run in round 2. Live DeepSeek tool streaming,
+marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
+live check. No live API, secret, paid action, production operation, real
+migration, deploy, merge into main or PC-setting mutation was performed.
+
+## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+Owner voice now streams plain text through the existing redactor, checks each
+sentence against receipts known at that moment, and speaks code-owned tool
+receipts before the follow-up. Telegram keeps its JSON reply, claimedActions
+and rewrite call. Voice replaces those with exact receipt wording plus bounded
+sentence-local recognizers; an unsupported recognized action becomes
+"I can't confirm that action." These are lexical checks, not proof of every
+English paraphrase. See [the design and complete evidence](voice-streaming.md)
+and the new KNOWN_ISSUES entry.
+
+Verified #147 at bde0a9b14a531b628dcb579a46c914b7df2f0f3b. Two timing
+clarifications: the 20-second loop timer starts after the profile read, and the
+output redactor releases lines, requiring a newline after each checked sentence.
+The restored eight-second provider deadline counts meaningful text/tool deltas,
+not necessarily a complete spoken sentence. Live phone latency is unmeasured.
+
+Normally merged origin/main c5310bee after the interrupted builder process.
+#159's claim-before-body gate placement is unchanged. Updated its voice mock
+and pinned pending taps, claim before a refused memory body, replay rejection,
+and preservation of an unsupported pipeline tap for Telegram. No assignment
+tools were added; codex/guided-assignment owns those. No sync-recovery or
+store-permissions source was edited by this PR, and it adds no migration.
+
+Offline fixtures follow DeepSeek's documented indexed tool-call fragments,
+terminal reason and [DONE]. They are not live captures. No live API, phone call,
+secret, paid action, production operation, remote migration, merge into main or
+deployment was performed. The first live check is in OWNER-ACTIONS.md. The
+supplied Downloads incident report was absent; no local-agent or PC-setting
+code ran.
+
+Evidence on implementation 54aa73a:
+- Full workspace: 214 files, 5,580 passed / 0 failed / 0 skipped (186.07 s).
+  Gateway: 195 files, 5,227/0/0; contracts: 5 files, 77/0/0;
+  acceptance: 14 files, 276/0/0. No flaky-file rerun needed.
+- Restored focused: 4 files, 102/0/0. The production composition pin remains
+  present and passes in the full suite.
+- 54 mutations killed twice on named tests: 51 in the merged sweep plus 3
+  supplemental parser checks. Zero survivors, wrong-test kills, unconfirmed,
+  not-applied or invalid cases. Byte restoration verified (5 files, then 1).
+  The earlier killed process stopped after 11 kills and is not a complete gate.
+- Gateway source types pass. Non-gating test types report 143 diagnostics;
+  none in the new streaming files or updated tap fixture. State check passes
+  three carriers plus FACTS with zero warnings.
+
+The two intermediate 3-failure fixture runs and all other observed counts are
+in voice-streaming.md. Mutation cases are committed in
+reviewer-tools/voice-streaming.mutations.json; named assertion logs and the full
+JSON report are beside C:\Users\Sid\codex-ledgers\voice-streaming.md.
+Independent automated and adversarial review follow; this builder does not merge.
 
 ## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
 
@@ -707,7 +1077,6 @@ All three reported examples reproduced at that base. Both ordinary and post-tool
 
 **Next, when the PR opens:** automated and independent adversarial review; this
 builder has not merged or deployed. — Codex (builder)
-
 ## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
 
 Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
@@ -1403,7 +1772,6 @@ branch fails now.
   at access-check time". The first half is factually wrong (`OW` is OWNER RIGHTS;
   `CO` is CREATOR OWNER) and is corrected. The second half was never measured on
   this machine, and the comment now says so rather than repeating the claim.
-
 ## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
 
 Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.

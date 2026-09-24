@@ -892,7 +892,7 @@ export class DefaultConversationService implements ConversationService {
     const output = new StreamingOutputRedactor(this.outputRedactor, {
       maxRawCharacters: MAX_OUTPUT_SCALARS,
       maxSanitizedCharacters: MAX_OUTPUT_SCALARS,
-    });
+    }, captured.channel === "voice");
     let finalText: SuccessfulRedaction;
     let voiceReceipt: VoiceSentReceipt | null = null;
     const budget = this.modelBudgets[captured.channel];

@@ -66,9 +66,9 @@ export function observedBatch(f: CollectorFixture, courseId = f.courseId): Schoo
         Modules: [{ ModuleId: 31, Title: "Synthetic module", StartDateTime: "2026-09-01T00:00:00Z", EndDateTime: "2026-09-24T03:59:00Z", Modules: [],
           Topics: [{ TopicId: 41, Title: "Synthetic essay", ToolItemId: 17, ActivityId: "synthetic-17", Url: "/untrusted", TypeIdentifier: "Dropbox", CompletionType: 1 }] }],
       } },
-      { route: prefix + "grades/values/myGradeValues/", status: 200, fetchedAt: at, complete: true, body: {} },
-      { route: prefix + "dropbox/folders/17/submissions/", status: 200, fetchedAt: at, complete: true, body: {} },
-      { route: prefix + "dropbox/folders/18/submissions/", status: 200, fetchedAt: at, complete: true, body: {} },
+      { route: prefix + "grades/values/myGradeValues/", status: 200, fetchedAt: at, complete: true, body: [] },
+      { route: prefix + "dropbox/folders/17/submissions/mysubmissions/", status: 200, fetchedAt: at, complete: true, body: [] },
+      { route: prefix + "dropbox/folders/18/submissions/mysubmissions/", status: 200, fetchedAt: at, complete: true, body: [] },
     ] };
 }
 

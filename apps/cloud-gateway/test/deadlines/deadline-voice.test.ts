@@ -14,16 +14,22 @@ const rows = async () => (await env.DB.prepare("SELECT * FROM deadlines").all())
 describe("deadline voice parity", () => {
   beforeEach(resetDeadlineTables);
 
-  it("records a spoken deadline from the durable turn date in the configured owner zone", async () => {
+  it("records a marked spoken deadline claim from the durable turn date in the configured owner zone", async () => {
     const turn = await voiceArgumentTurn(text, call, options);
     expect(turn.result.outcome).toBe("voice_sent");
     expect(await rows()).toMatchObject([{ course: "Chem", title: "lab", due_at: "2026-09-24T22:00:00.000Z" }]);
     expect(turn.spoken).toContain('Created "Chem": "lab"');
     expect(turn.spoken).toContain("America/Vancouver");
     expect(turn.spoken).toContain("3:00");
+    expect(turn.spoken).toContain("I recorded that deadline.");
+    expect(turn.spoken).not.toContain("[[claim");
     expect(turn.requests[0]?.tools.find(tool => tool.name === "deadline_record"))
       .toEqual(OWNER_TELEGRAM_TOOL_DEFINITIONS.find(tool => tool.name === "deadline_record"));
     expect(JSON.stringify(turn.requests[0])).toContain("Owner time zone: America/Vancouver");
+    expect(turn.requests[1]?.toolResults?.[0]?.name).toBe("deadline_record");
+    expect(JSON.parse(turn.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed", receiptId: "receipt:voice-deadline",
+    });
   });
 
   it("records a spoken deadline with the default Toronto owner zone", async () => {

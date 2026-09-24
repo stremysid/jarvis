@@ -10,7 +10,9 @@ import { Redactor } from "../../src/security/redaction.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
-import type { ModelAgentCompletionInput, ModelFunctionCall } from "../../src/providers/provider-types.js";
+import type {
+  ModelAgentCompletion, ModelAgentCompletionInput, ModelAgentStreamChunk, ModelAgentStreamInput, ModelFunctionCall,
+} from "../../src/providers/provider-types.js";
 
 export const VOICE_NOW = new Date("2026-09-23T14:00:00.000Z");
 
@@ -48,12 +50,26 @@ export async function voiceArgumentTurn(text: string,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
-    provider: { async completeAgent(input) {
-      requests.push(input);
-      return requests.length === 1
-        ? { content: null, toolCalls: [typeof call === "function" ? await call(input) : call], finishReason: "tool_calls" }
-        : { content: JSON.stringify({ reply: "Understood.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };
-    } },
+    provider: {
+      async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_argument_must_stream"); },
+      async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+        requests.push(input);
+        if (requests.length === 1) {
+          yield { type: "completed", completion: {
+            content: null,
+            toolCalls: [typeof call === "function" ? await call(input) : call],
+            finishReason: "tool_calls",
+          } };
+          return;
+        }
+        const result = JSON.parse(input.toolResults?.[0]?.content ?? "{}") as { receiptId?: unknown };
+        const reply = typeof result.receiptId === "string"
+          ? `[[claim ${JSON.stringify({ toolName: "deadline_record", receiptIds: [result.receiptId] })}]]I recorded that deadline.[[/claim]]`
+          : "Understood.";
+        yield { type: "text", text: reply };
+        yield { type: "completed", completion: { content: reply, toolCalls: [], finishReason: "stop" } };
+      },
+    },
   });
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB));
   const service = new DefaultConversationService({ repository, model, context: { async retrieve() { return []; } },
