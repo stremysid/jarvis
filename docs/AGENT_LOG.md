@@ -3,6 +3,129 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
+
+Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
+Read the complete [independent review](https://github.com/stremysid/jarvis/issues/comments/5807404294).
+Normal merge `520afacb` brings main `29fbfcd698f4ac7de947f076e43d0098e6bcc296`
+(#169). Both log histories and the receiver rollout action are retained; the
+duplicate collector pairing action is reconciled into our existing owner row.
+
+The queue now retains the newest two batches per host/course, at most 1 MiB of
+serialized UTF-8 entries, with `queue-evicted-N` in the popup. Enqueue accumulates
+in memory; one queue commit ends the run, including a caught interruption. Flush
+attempts at most eight uploads. This bounds the reviewed week-long outage to
+32 retained batches and reports 2,656 evictions for 2,688 simulated reads. A worker
+killed before commit still requires a fresh read; Opera lifecycle behavior is
+unverified. Failed commits retain pending data for retry in the current worker.
+
+Complete LDSB tool 403s no longer open fallback tabs. A course-level quiz-refusal
+test counts zero tab creations. GET assertions inject a POST argument, and a
+directly stored bad hop is revalidated at use. The mixed-queue test preserves
+held Durham evidence after successful LDSB delivery and kills the reviewer's
+exact deletion mutant. The orientation-name exclusion is removed: Jarvis receives
+every structurally eligible offering and judges relevance. Runbook additions cover
+removal, the verified Jarvis revocation tool, literal PowerShell cleanup, Node
+version and Sid's setup-only Durham example. Nothing was loaded or removed on
+Sid's actual browser, and no real revocation/deletion command was run.
+
+Final local gates: extension **50 pass / 0 fail / 0 skip**, 0 cancelled/todo;
+mutations **135 killed / 0 unconfirmed / 0 NOT APPLIED**; runtime syntax
+**10 pass / 0 fail**; runbook **3 PowerShell blocks / 0 parse errors / 0 executed**;
+state **3 carriers plus FACTS pass / 0 failures / 1 advisory** for unverified
+background/federation behavior. Focused tests were 10/0/0. Two initial multiline
+mutations were NOT APPLIED because of mixed line endings; after normalization
+both were applied and killed, before the complete 135-case sweep. See
+[round 2 evidence](research/2026-09-24-d2l-collector-round2.md).
+
+At the post-items-1–6 and final-gate checks, `codex/d2l-receiver-fix` had no open
+PR. Sid explicitly directed shipping these fixes in that case. The current
+receiver compatibility holds remain; inspect the receiver-fix PR when it opens,
+then update the wire contract/tests and remove holds it makes obsolete. No
+receiver changes, migration, production/secret or PC settings operation occurred.
+
+## 2026-09-23 — Codex builder: #170 gateway pinned, receiver compatibility verified
+
+Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`.
+Sid authorised this unblock round and marking #170 ready after green local gates.
+The supplied literal gateway is pinned in source, manifest, CSP and independent
+tests. No builder live health request was made. Fresh main
+`0d69556394cc543bb55a5a66627c1b35aa6139d4` was merged normally, preserving both
+log histories and the single collector owner action; no force push or PR merge.
+Main advanced to documentation-only #158 at
+`44a3058a0d1034340c57121eeafe3f0444edf89e` during verification. A second normal
+merge preserves both histories and its completed owner actions. Extension source,
+tests and shared verifier helpers are unchanged by that merge; only the changed
+state carriers require another state check.
+
+Receiver #169 was inspected at the requested authority
+`dfc284e6780b243f1b010e5434fa7f8e450a6b26`. Complete JSON 403s now retain their
+body as normal refusal evidence; versions/enrollments still require 200 and
+refused folder lists never overwrite the cache. Non-JSON/redirects remain session
+failures. Test-only copies of its actual parser/mapper plus its shared verifier
+accept extension signatures and supported envelopes with mocked SQL.
+
+**Ready for code review, not complete owner rollout.** The receiver still rejects
+Durham/news/quizzes, observed myItems Objects envelopes and empty student
+submission arrays. It also needs decisions on host-qualified projection IDs,
+first-run host-only failures, normal optional-tool 404s and retrying notification
+after pairing proof consumption. Every incompatibility and its disposition is in
+[the findings](research/2026-09-23-d2l-collector-contract-gaps.md). Unsupported
+host/route batches stay unchanged in the queue with visible errors. All current
+full course batches contain news/quizzes and are held until that receiver gap is
+resolved; no dropped tools or relabeled hosts conceal it.
+
+Final extension suite: **42 pass / 0 fail / 0 skip**, 0 cancelled/todo. Mutations:
+**115 killed / 0 unconfirmed / 0 NOT APPLIED**, each with passing named baseline
+and restoration plus two named fault failures. Syntax: **10 pass / 0 fail**.
+Runbook: **2 PowerShell blocks, 0 parse errors, 0 executed**. State gate:
+**3 carriers and FACTS pass, 0 failures, 1 advisory** for unverified Opera/Durham
+behavior. Earlier failures and fixes are retained in
+[the evidence](research/2026-09-23-d2l-collector-test-evidence.md).
+No account/browser access, live pairing/push, production, migration, secret,
+permission, registry or service operation occurred. The independent reviewer
+must relay the receiver issues to #169; this builder did not modify its code.
+
+## 2026-09-23 — Codex builder: two-host collector draft, receiver contract blocked
+
+Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`, based on
+the latest #163 head `ad17cc2efbd35e4e062cf5751b82f2b12408df40`. Sid explicitly
+authorised this collector round and the existing external Markdown ledger.
+
+The extension now has two-host GET reads, enrollment pagination and active-course
+filtering, tool refusals, cached folder traversal, hourly/startup sync, an isolated
+tab fallback and LDSB-first Durham federation using the locally entered hop.
+Its popup carries course names/status only. It has non-extractable Ed25519 key
+generation, IndexedDB persistence, pairing/proof, canonical signed course batches,
+bounded failure batches and a durable retry queue with fresh nonces. No academic
+judgment or inferred submission status is made by the extension.
+
+**Not load-ready.** #169 is still at `5abba944d76c92616b65255b6823435d44780d47`.
+Its host and route allowlists reject Durham/news/quizzes; its myItems mapper expects
+an array instead of the observed Objects envelope. Course projection identities
+omit host and no first-run host-only failure envelope exists. The literal gateway
+origin is absent from public checked-in config and remains unset, with a deliberate
+failing readiness test. Both questions were sent to Sid; no endpoint or wire contract
+was guessed. [Exact findings and receiver paths](research/2026-09-23-d2l-collector-contract-gaps.md).
+
+The independent owner probe, not this builder, supplied the account shapes. Older
+module-date assumptions are not applied to current courses. Official version docs
+confirm SupportedVersions contains strings. The real run still must establish Opera
+GX background access, CryptoKey persistence, Durham recovery and ingestion through
+the updated receiver. No browser/D2L access, live pairing, migration, production,
+secret, permission, registry or service operation occurred. No sync-builder file
+was touched. The requested PC incident file remains absent.
+
+Final full extension suite: **36 pass / 1 fail / 0 skip** out of 37. The one
+failure is the unset gateway readiness test, not a flaky test. Full mutations:
+**101 killed / 0 unconfirmed / 0 NOT APPLIED**, each named baseline/restoration
+1/0/0 and two faulted 0/1/0 runs. State gate: **3 carriers pass**. Runtime syntax:
+**10 pass / 0 fail**. Runbook: **2 PowerShell blocks, 0 parse errors**, not executed.
+[Full evidence](research/2026-09-23-d2l-collector-test-evidence.md) records the
+six initially unconfirmed mutations and their successful assertion fixes.
+The old owner probe request is replaced with one collector-load/pair row,
+gated on independent review and the receiver blockers; no duplicate probe request.
+Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-probe-run.md`.
 ## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
 
 Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
