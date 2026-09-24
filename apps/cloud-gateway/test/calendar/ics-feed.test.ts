@@ -115,7 +115,9 @@ describe("the private calendar composer", () => {
   it("strips controls including bidi overrides without dropping printable Unicode", () => {
     const controls = "\u0000\t\u007f\u0085\ud800\ue000\u{f0000}\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
     const feed = composeCalendarFeed({ ...input, actions: [{ ...action, text: `é${controls}🙂` }] });
-    expect(unfold(feed)).toContain("SUMMARY:Chemistry: é🙂 (25 min)");
+    // A broken stripper leaves lone surrogates. Keep them out of assertion
+    // diagnostics so the Workers test transport can report the named failure.
+    expect(unfold(feed).includes("SUMMARY:Chemistry: é🙂 (25 min)")).toBe(true);
     expect(feed.replace(/\r\n/gu, "")).not.toMatch(/\p{C}/u);
   });
 
