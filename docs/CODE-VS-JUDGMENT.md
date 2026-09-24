@@ -86,11 +86,34 @@ line whenever anything is dropped, so silence is never unexplained.
 
 ---
 
-### School and owner replies
+### School and university
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 10 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception positively matches the claim verb's worked-explanation object, rejects unknown destinations and real-world transaction context, and keeps any second action visible. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
+| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception positively matches the claim verb's worked-explanation object, rejects unknown destinations and real-world transaction context, and keeps any second action visible. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
+| 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
+
+Rows 10 and 11 retain the identifiers used by #160 and #162. The university
+intake finding is row 12, avoiding a second row 10 when those branches meet.
+
+### Fixed school intake decision (`SchoolCatchupModelAdapter.streamOwnerTool`, #164)
+
+`SchoolCatchupModelAdapter.streamOwnerTool` now skips `isUniversityExecutionRequest`
+only when `agentSelectedScope` is `school`. An assignment-list line such as
+"Email Ms. Patel if you need an extension." previously refused the whole paste.
+The school pipeline has storage and planning, but no external execution hands.
+The `school_update` description now tells Jarvis when to select that tool;
+forwarded-text provenance checks and `guardReplyClaims` remain in place.
+Pinned daily capacity, due-date priority and stated weight are prompt guidance,
+not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
+The core-profile reference is capped at 8,192 UTF-8 bytes and omitted with a rules
+notice if it cannot fit; omission never becomes profile content. These are
+transport bounds, not a decision about which capacity the owner should choose.
+`schoolPlanReceipt` summarizes only the repository's committed result, retaining
+per-course inserted/deduplicated counts while limiting examples to fit Telegram.
+Schedule repair notices describe the existing storage ceilings, not new planning policy.
+This is a partial register, not a completed audit of school or university code.
 
 ## How to use this list
 
@@ -148,3 +171,10 @@ a general hazard rather than a `memory_pin` one: the same shape can hide the nex
 
 Last verified against the code: 2026-09-21, at `0611803`. Coverage is partial — see the top
 of this file.
+
+## School collector findings, 2026-09-23 (still a partial register)
+
+| Symbol | Decision in code | Surface it should move to |
+|---|---|---|
+| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
+| `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |

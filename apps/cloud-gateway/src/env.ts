@@ -146,6 +146,9 @@ export interface Env {
    */
   BRIGHTSPACE_ICAL_URL?: string;
 
+  /** Private calendar bearer credential, at least 32 characters. Rotating it revokes old URLs. */
+  CALENDAR_FEED_TOKEN?: string;
+
   /**
    * Email Routing delivers only the configured unguessable capability address.
    * The address and the comma-separated exact From-domain pin set are
