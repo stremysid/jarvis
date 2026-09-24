@@ -265,9 +265,10 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 2 Project");
-    expect(String(send.mock.calls[0]?.[0])).not.toContain("Could not be read");
+    expect(String(send.mock.calls[0]?.[0])).not.toContain("Google Classroom grades/submissions");
     expect(String(send.mock.calls[0]?.[0])).not.toContain("not set up");
   });
 
@@ -289,8 +290,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent" });
-    expect(String(send.mock.calls[0]?.[0])).not.toContain("Could not be read");
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).not.toContain("Google Classroom grades/submissions");
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
   });
 
   it("records removed configuration without contacting the feed", async () => {
@@ -413,7 +415,8 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "bounded sweep omitted 140 in-window entries; kept at most 180 live items and 180 cancellations",
     );
