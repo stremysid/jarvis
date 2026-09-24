@@ -199,7 +199,7 @@ describe("Hermes H1 source locks", () => {
     const generator = fileURLToPath(new URL("../src/generate-sbom.mjs", import.meta.url));
     const result = await new Promise((resolve, reject) => { const child = spawn(process.execPath, [generator], { windowsHide: true }); let stderr = ""; child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stderr })); });
     expect(result.code).not.toBe(0); expect(result.stderr).toContain("--source-root");
-  });
+  }, 60_000);
 
   it("resolves the complete Windows CPython closure with strict markers, extras, and wheel ranks", async () => {
     const sbom = await loadJson("sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json");
@@ -225,7 +225,7 @@ describe("Hermes H1 source locks", () => {
       child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
     });
     expect(result.code, result.stderr).toBe(0); expect(result.stdout).toBe("Hermes H1 manifests valid\n"); expect(result.stderr).toBe("");
-  });
+  }, 60_000);
 
   it("rejects noncanonical contract fields, forbidden tool events, and source-lock hash embedding in the SBOM", async () => {
     const source = await loadJson("hermes-source-lock.json");
@@ -277,7 +277,7 @@ describe("Hermes H1 source locks", () => {
     });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toMatch(/RuntimeRoot|UNC|unsafe/i);
-  });
+  }, 60_000);
 
   it.each([1, 2, 3, 4])("recovers the real artifact entrypoint after a process-level crash following promotion %i", async (crashAfter) => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
@@ -1555,7 +1555,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
     } finally {
       await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
-  });
+  }, 60_000);
 
   it("rolls an exact handle rename back when post-move tree validation fails", async () => {
     const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-promotion-rollback-"));
@@ -1835,7 +1835,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HOSTILE_ARCHIVE_REJECTED"); expect(result.stderr).toBe("");
     } finally { await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
-  });
+  }, 60_000);
 
   it.each([
     ["source.submodules", "hidden", (manifests) => manifests.source.submodules],
@@ -1926,7 +1926,7 @@ if ($accepted.Count -ne 0) { throw ('Ordinal archive member contracts accepted: 
       child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
     });
     expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("WINDOWS_ARCHIVE_BOUNDARIES_OK"); expect(result.stderr).toBe("");
-  });
+  }, 60_000);
 
   it("rejects every hostile injected Git transcript and source-directory drift before promotion", async () => {
     const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-git-runner-"));
@@ -1951,6 +1951,6 @@ if ($accepted.Count -ne 0) { throw ('Ordinal archive member contracts accepted: 
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("GIT_TRANSCRIPT_MATRIX_OK");
     } finally { await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
-  });
+  }, 60_000);
 
 });

@@ -3,6 +3,98 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — local-agent quarantine retry test timing
+
+Signed: **Codex GPT-6 Sol (headless builder, xhigh, sandboxed)**.
+
+On `codex/local-agent-retry-wait-flake` at `5548c38`, the retry coordinator's
+0.1-second completion wait can return `queued` before the cycle thread drains
+it. That is valid service behavior. The real-socket test expected immediate
+`ok`, and a loaded CI runner exposed the assumption on PR #180. Three tests
+now monkeypatch only that wait to 1.0 second, following the existing shutdown
+test idiom and staying below the socket client's two-second deadline. Their
+immediate-success, quarantine-clear, cycle-thread, status and stopped-reason
+assertions remain. No runtime file or product behavior changed.
+
+Searched every `retry-quarantined` request and coordinator `submit()` call in
+`apps/local-agent/tests`. Tests checked, with disposition:
+
+- **Fixed:** `test_node.py::test_real_socket_retry_clears_quarantine_without_stopping_the_node`,
+  `test_node.py::test_built_node_executes_quarantine_retry_on_the_cycle_thread`,
+  `test_quarantine_control.py::test_the_sleeping_built_node_only_runs_cloud_work_after_a_successful_retry`.
+- **Checked, unchanged in `test_quarantine_control.py`:**
+  `test_retry_admission_keeps_all_pending_and_recent_status_readable_after_restart`,
+  `test_reconstructed_pending_work_wakes_a_loop_whose_first_cycle_is_delayed`,
+  `test_a_stopping_but_not_closed_coordinator_refuses_new_work`,
+  `test_real_socket_retry_and_status_stay_responsive_during_a_slow_cloud_call`,
+  `test_a_busy_cycle_returns_queued_and_reports_the_later_result`,
+  `test_a_retry_after_close_is_refused_without_queuing_or_waiting`,
+  `test_stopping_cancels_a_queued_retry_without_deleting_the_quarantine`,
+  `test_a_process_interrupt_cannot_report_fact_not_quarantined`,
+  `test_status_keeps_all_pending_retries_and_only_the_latest_completed_results`,
+  `test_pre_cycle_retry_is_applied_before_the_snapshot_is_captured`,
+  `test_a_mid_cycle_retry_is_resolved_after_commit_or_cancelled_on_stop`,
+  `test_runtime_cancels_inflight_retry_before_joining_control`,
+  `test_refused_control_work_preserves_the_original_backoff_deadline`,
+  `test_a_restart_recovers_accepted_retries_and_their_completed_history`,
+  `test_terminal_retry_outcomes_survive_reconstruction`,
+  `test_a_failed_retry_receipt_rolls_back_the_delete_and_records_failure`,
+  `test_enqueue_lock_contention_returns_a_definite_failure_without_accepting_work`,
+  `test_cancellation_storage_failure_preserves_queued_work_and_still_closes_the_node`,
+  `test_retry_recovery_remains_scoped_to_the_normalized_owner`,
+  `test_queued_work_recovers_on_a_later_boundary_after_receipt_storage_recovers`.
+  These expect `queued`, `None`, or failure, or already extend the wait; none
+  requires a completed retry inside the default 0.1 seconds.
+- **Checked, unchanged in `test_service_loop.py`:**
+  `test_retry_quarantined_clears_one_fact_and_wakes_the_loop` (synchronous stub),
+  `test_retry_quarantined_refuses_an_unknown_or_malformed_fact` (expects `queued`),
+  `test_retry_quarantined_contains_store_failure` (synchronous stub).
+- **Checked, unchanged in `test_cli_control.py`:**
+  `test_retry_quarantined_sends_the_exact_fact_id_to_the_running_node`,
+  `test_a_queued_retry_is_reported_as_accepted_but_not_applied` (mocked transport).
+
+Validation: the requested `uv run --offline pytest -q tests/test_node.py
+tests/test_quarantine_control.py`, `uv run --offline ruff check .`, and
+`uv run --offline mypy --platform win32 jarvis_local` each stopped before
+execution with `failed to open file /root/.cache/uv/sdists-v9/.git:
+Read-only file system (os error 30)`. An offline no-cache focused attempt
+could not install the uncached `pygments==2.21.0` wheel. No pytest or mutation
+result is claimed. `uv run --offline --no-project --no-cache` parsed both changed
+test files with Python's `ast` successfully; `git diff --check` passed.
+
+Next: when the harness collects this worktree, run the two-file pytest selection,
+ruff, mypy and a bounded no-drain mutation in a writable cached environment;
+when those results are available, send the PR for independent review before merge.
+
+**Round 2 (2026-09-24).** PR #180 also exposed a pre-existing Hermes Windows
+test timeout: `canonical-closure-review3.test.mjs` copies the runtime tree and
+starts a validator with a 30-second child deadline, while Vitest previously
+allowed only its default 5 seconds. The test now allows 60 seconds so the
+child's own failure can surface first. A scan of all Hermes tests that copy a
+tree or start Node, Git, or PowerShell found 16 more real-process test declarations with
+the same default. Each checked test and its timeout, before → after:
+
+- `canonical-closure-review3.test.mjs`: `makes the manifest CLI reject exact package.json drift` — 5s → 60s.
+- `artifact-security-review3.test.mjs`: `rejects a manifest pathname replacement between an earlier hash check and the exact bytes it parses`, `extracts a bounded archive snapshot even when its source pathname is swapped`, and `fails closed when payload data cannot be flushed and orders the barrier before the commit marker` — each 5s → 180s, after the helper's 120-second child deadline.
+- `path-residue-review3.test.mjs`: `rejects a preloaded HermesRuntime.%s before module bootstrap` (both cases) and `rejects superscript device aliases, console aliases, and every Windows control character` — each 5s → 180s, after the helper's 120-second child deadline.
+- `sbom-integrity-round2.test.mjs`: `rejects a fabricated release-shaped source root through the real generator before reading lock inputs`, `closes PowerShell module discovery inside the real locked-source verifier child`, `rejects duplicate-key and noncanonical raw committed JSON through the real CLI`, and `hashes the actual THIRD_PARTY_NOTICES bytes in the executable validator` — each 5s → 60s.
+- `source-lock.test.mjs`: `requires an explicit source root for deterministic SBOM generation`, `runs the manifest validator CLI over the committed artifact set`, `refuses an unsafe UNC runtime root before any source acquisition command`, `promotes only complete staging directories and never replaces or creates a partial final target`, `rejects hostile tar members and zip members before runtime extraction`, `rejects Windows ADS, device, and case-collision archive members before extraction`, and `rejects every hostile injected Git transcript and source-directory drift before promotion` — each 5s → 60s.
+
+The remaining default-5-second search hits are `powershell-host.test.mjs`'s
+mocked `spawn` tests and `sbom-integrity-round2.test.mjs`'s `runs the locked
+source verifier without an unanchored sibling workspace`, which only reads
+source text; neither launches a child or copies a tree. Tests already carrying
+explicit timeouts were left alone. No assertion, child timeout, Vitest config,
+or runtime source changed. `node --check` passed on all five edited Hermes test
+files. Vitest and pnpm were not run under this sandbox's constraints, so the harness must
+run the focused Hermes file and CI's full suite. The Round 1 Python test and
+mutation checks remain pending for the uv-cache reason above. `git diff --check`
+passed after the combined edit.
+
+Next: when the harness collects Round 2, run the focused Hermes test, the
+two-file Python selection, its mutation check, Ruff and mypy; when CI has the
+combined PR head, obtain independent review before merge.
+
 ## 2026-09-24 — PR #177 round 2: requested wording and snippet fixes
 
 Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
