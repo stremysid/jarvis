@@ -109,6 +109,67 @@ describe("school evidence and projection", () => {
     expect(mapSchoolCourse(batch).items[0]).toMatchObject({ dueAt: "2026-09-22T12:00:00.000Z", dateSource: "availability end" });
   });
 
+  it("prefers assignment DueDate to the folder Availability end date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes[0].body[0].Availability = {
+      StartDate: null, EndDate: "2026-09-26T12:00:00Z", StartDateAvailabilityType: null, EndDateAvailabilityType: null,
+    };
+    expect(mapSchoolCourse(batch).items[0]).toMatchObject({
+      dueAt: "2026-09-25T12:00:00.000Z", dateSource: "assignment DueDate", dateRoute: batch.routes[0].route,
+    });
+  });
+
+  it("uses the folder Availability end date when assignment DueDate is null and labels its source", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = {
+      StartDate: null, EndDate: "2026-09-23T12:00:00Z", StartDateAvailabilityType: null, EndDateAvailabilityType: null,
+    };
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({
+      dueAt: "2026-09-23T12:00:00.000Z", dateSource: "folder Availability EndDate", dateRoute: batch.routes[0].route,
+    });
+    expect(mapped.deadlines[0]?.title).toBe("Synthetic essay [folder Availability EndDate]");
+  });
+
+  it("labels an unknown folder Availability shape without dropping the rest of the course", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = { ClosesAt: "2026-09-23T12:00:00Z" };
+    batch.routes[0].body[1].DueDate = "2026-09-27T12:00:00Z";
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.failures).toEqual([]);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder_availability_shape_unknown`);
+    expect(mapped.items.find((item) => item.id === "folder-17")).toMatchObject({ dueAt: null, dateSource: null });
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({ dueAt: "2026-09-27T12:00:00.000Z", dateSource: "assignment DueDate" });
+    expect((await ingest(f, batch)).outcome).toBe("good");
+    expect(await repo(f).status()).toMatchObject({ state: "current", unmappedRoutes: 1 });
+  });
+
+  it("records differing myItems and folder DueDate values while retaining the existing projected date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, status: 200, fetchedAt: batch.startedAt,
+      complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-26T12:00:00Z" }] });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-26T12:00:00.000Z", dateSource: "content/myItems" });
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:ambiguous_assignment_date`);
+  });
+
+  it("does not record a disagreement when myItems and folder DueDate values are equal", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, status: 200, fetchedAt: batch.startedAt,
+      complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-25T12:00:00Z" }] });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-25T12:00:00.000Z", dateSource: "content/myItems" });
+    expect(mapped.unmapped).not.toContain(`${batch.routes[0].route}:ambiguous_assignment_date`);
+  });
+
   it("keeps empty submissions and denied folder counts as evidence and only labels a positive own status submitted", async () => {
     const f = await collectorFixture();
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
