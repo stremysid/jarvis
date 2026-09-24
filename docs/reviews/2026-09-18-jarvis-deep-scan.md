@@ -14,7 +14,7 @@
 >   here that no reader can re-derive from the repository.
 >
 > Findings that were fixed after this snapshot are not marked fixed here.
-> [docs/HANDOFF.md](../HANDOFF.md) is current state; this file is the record of
+> [docs/STATE.md](../STATE.md) is current state; this file is the record of
 > what was true when it was written.
 
 # Jarvis deep scan — 2026-09-18

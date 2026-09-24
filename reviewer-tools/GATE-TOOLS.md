@@ -1,17 +1,17 @@
 # Gate tools
 
-Two Windows PowerShell scripts on the reviewer's branch. They are not product
+Two Windows PowerShell scripts in `reviewer-tools/` on main. They are not product
 code and never ship. They exist because the review loop's two most expensive
 mistakes were both mechanical:
 
-- `pnpm test:all` is a `&&` chain, so the first failing package stops the
+- `pnpm.cmd test:all` is a `&&` chain, so the first failing package stops the
   later ones. Four hermes-runtime security tests sat red on main for six days
   because nobody saw them fail.
 - A mutation whose `find` text silently matched nothing runs no mutation, the
   suite stays green, and it gets written up as SURVIVED. That happened twice by
   hand before `mutate.ps1` existed.
 
-PowerShell, not bash: invoking the `pnpm`/`npx` shims from Git Bash on this
+PowerShell, not bash: invoking the `pnpm.cmd`/`npx.cmd` shims from Git Bash on this
 machine dies with `'C:\Program' is not recognized` before anything starts.
 Both scripts run from any directory and quote every path, because this machine
 has spaces in its program paths.
@@ -28,11 +28,11 @@ What it does, in order:
    then **proves** `HEAD` is the commit that was asked for and aborts loudly if
    it is not. A verdict about the wrong commit is worse than no verdict.
    It also refuses to start on a dirty gate copy.
-2. `pnpm install --frozen-lockfile`. It stops here if that fails; nothing
+2. `pnpm.cmd install --frozen-lockfile`. It stops here if that fails; nothing
    after it would be about the reviewed dependency graph.
-3. `pnpm lint` and `pnpm typecheck`, recorded separately.
+3. `pnpm.cmd lint` and `pnpm.cmd typecheck`, recorded separately.
 4. The three packages, **separately and unconditionally** - never `test:all`:
-   `pnpm test`, then `pnpm test:runtime`, then `pnpm test:watchdog`. An earlier
+   `pnpm.cmd test`, then `pnpm.cmd test:runtime`, then `pnpm.cmd test:watchdog`. An earlier
    failure never stops a later package from reporting.
 5. Flake classification. For every test FILE that reported a failure, the file
    is re-run alone. A test that passes alone is a load flake; one that fails
@@ -54,7 +54,7 @@ Two places the script does something other than what the loop's shorthand
 says, on purpose:
 
 - The alone-run uses the runner that can host the file. The shorthand
-  `npx vitest --config vitest.workspace.ts run <file>` is right for the
+  `npx.cmd vitest --config vitest.workspace.ts run <file>` is right for the
   gateway, contracts and acceptance tests, but the workspace config does not
   include `apps/hermes-runtime` or `apps/watchdog`; they are Node packages with
   their own configs. The shorthand there reports "No test files found", which
@@ -108,11 +108,7 @@ test.
 
 ## Worked example: `gate.ps1`
 
-Run at `origin/main` head on 2026-09-18 in `C:\Users\Sid\jarvis-pr39`:
-
-```text
-GATE-EXAMPLE-PLACEHOLDER
-```
+Not written yet: no attributable worked gate output was found in the repository.
 
 ## Worked example: `mutate.ps1`
 

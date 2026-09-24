@@ -1,5 +1,12 @@
 # The PC boot chain
 
+> **Keep the `Jarvis boot chain` task disabled until #157's manual acceptance is recorded.**
+> [#157](https://github.com/stremysid/jarvis/pull/157) merged as `d4e54167`.
+> The [owner-action rows](../OWNER-ACTIONS.md#pr-157--the-store-folder-work-in-order)
+> require a manual non-elevated `jarvis serve` run, then an elevated run, with
+> access to `%LOCALAPPDATA%\Jarvis\data` confirmed in both. Merge alone does not
+> clear this gate. The install and launcher checks below wait for that acceptance.
+
 > **P1 of three.** This runbook installs what happens between pressing the power
 > button and an elevated Jarvis process being alive. It now starts the agent as
 > well as the entry point that runs it: `ops/jarvis-boot.ps1` finishes by starting
@@ -221,19 +228,20 @@ the difference between it and `jarvis node` is which class owns the channel.
 `jarvis node` still refuses anything but Linux and `jarvis serve` refuses
 anything but Windows, so neither can quietly be the other.
 
-Two things this needs that the machine did not have, and which are **not**
-secrets:
+The two store settings are absolute paths to different files. The
+[owner-action record](../OWNER-ACTIONS.md#done--kept-so-they-are-not-asked-for-again) says Sid set them
+at user scope on 2026-09-23 and `jarvis config` reported `configuration ready`:
 
 | Name | Value |
 |---|---|
-| `JARVIS_ARCHIVE_PATH` | an absolute path to the append-only archive |
-| `JARVIS_MEMORY_PATH` | an absolute path to the memory store, a different file |
+| `JARVIS_ARCHIVE_PATH` | `%LOCALAPPDATA%\Jarvis\data\archive.sqlite` (expanded to an absolute path) |
+| `JARVIS_MEMORY_PATH` | `%LOCALAPPDATA%\Jarvis\data\memory.sqlite` (expanded to an absolute path) |
 
 They belong at **user scope**, for the account the logon task runs as, or at
-machine scope. A value set at user scope is not visible to a process that was
-already running — it is read at the next logon — so a shell that refuses to
-start the agent may simply predate the variable. That is recorded in
-[FACTS.md](../FACTS.md).
+machine scope. A value set at user scope does not update an already-running
+process. `JarvisLocalConfig` reads the process environment and does not expand
+`%LOCALAPPDATA%` in a stored value; use the resolved absolute path. See
+[config.py](../../apps/local-agent/jarvis_local/config.py) and [FACTS.md](../FACTS.md).
 
 ## Running the checks by hand
 
@@ -281,9 +289,18 @@ uv run --project apps/local-agent jarvis stop          # the process exits
 pwsh -NoProfile -File ops/jarvis-boot.ps1              # restart; exactly one agent is running
 ```
 
-It needs the three configuration names above to be set. `JARVIS_DEVICE_KEY_PATH`,
-`JARVIS_DEVICE_ID`, `JARVIS_PRINCIPAL_ID` and `JARVIS_CLOUD_BASE_URL` are already
-set on this machine; `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` are not.
+It needs all six names in `config.py`'s `REQUIRED_CONFIG`:
+`JARVIS_CLOUD_BASE_URL`, `JARVIS_DEVICE_ID`, `JARVIS_PRINCIPAL_ID`,
+`JARVIS_DEVICE_KEY_PATH`, `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH`.
+Check the current shell without printing their values:
+
+```powershell
+uv run --project C:\javis\apps\local-agent jarvis config
+```
+
+The script and log paths above match `ops/jarvis-boot.ps1`; the `C:\w\pcc`
+task output is a dated observation from a different checkout, not the path to
+register for `C:\javis`. The home PC is off overnight; this task runs at logon.
 
 ## The two things a by-hand run taught that no code review would have
 

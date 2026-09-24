@@ -11,7 +11,7 @@ choose a Linux home node. Do not port the node to Windows or proceed
 with Linux host work. The Linux deployment and recovery instructions retained
 below describe the existing implementation; they are historical, not steps for
 his Windows hosts or the R2 cloud-memory rollout.
-See the platform correction in [PR #22](https://github.com/ksid1229-ops/jarvis/pull/22).
+See the platform correction in [PR #22](https://github.com/stremysid/jarvis/pull/22).
 
 The requirement remains **memory must work with every PC off**. Linux was an
 implementation chosen during planning, not an owner-approved platform decision.
@@ -32,9 +32,9 @@ pending snapshot durable for the next node process.
 
 ## Rollout order after owner approval
 
-This runbook is introduced by PR #16. Before merging, read it from the
-[PR branch](https://github.com/ksid1229-ops/jarvis/blob/codex/r2-fact-projection/docs/runbooks/fact-projection.md);
-it is not available on `main` until that PR merges.
+This historical runbook is on `main`. For current state and work, read
+[STATE.md](../STATE.md) and [QUEUE.md](../QUEUE.md); for the Windows launcher,
+read [the PC boot-chain runbook](pc-boot-chain.md).
 
 **On POSIX hosts, before deploying either component or applying migration 0014**,
 inspect the immediate parent of every SQLite store this host uses, as the service account.
