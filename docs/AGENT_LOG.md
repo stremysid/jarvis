@@ -3,6 +3,61 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: guided assignment tools and voice scribe
+
+Signed: Codex, builder on `codex/guided-assignment`. Sid's approved accommodation:
+Jarvis chooses the simple questions, examples, scribing and draft order. Code
+provides three owner-only tier-1 tools, storage, provenance and receipts. It
+does not break down assignments or strip fillers. [Design and limits](reviews/2026-09-23-guided-assignment.md).
+
+Read pulls main's facts, retained pasted source text, catch-up actions and deadlines.
+Save stores the exact owner-agent input as `raw`, model arguments as `scribed` and
+step notes, and an assignment snapshot for later resumption. Database guards stop
+updates, deletion and replacement; a turn replay returns its original answer.
+Draft joins only saved scribed answers in model-supplied order and resolves only
+the configured owner's verified Telegram identity. A lost send acknowledgement
+is unconfirmed, never a false success or a claim that nothing was sent.
+
+Both Telegram and voice compose the same tools and shared guidance. A catalogue
+of all ids/titles/courses reaches direct owner prompts because main does not
+retain tool results between turns; it supplies references, not assignment or
+next-question decisions. No streaming implementation, sync recovery, device
+repository, local-agent code or PC settings were changed.
+
+Verified premise corrections: `0039` is on main. At start, #147 was merged while
+#162, #164 and #169 were open. Refreshed onto #164 and then #165 (`0d695563`).
+#169 remains a named follow-up, `guided-assignment-d2l-evidence`, behind the
+`AssignmentEvidenceReader` seam. `0043_guided_assignment.sql` is registered in
+all migration lists, static syntax inventory and authoritative backup tables.
+Every open PR was inspected for migration paths: #169 has `0040`, #168 has
+`0041`; `0042` is preserved for the expected PIN rebuild.
+
+Observed evidence before publication:
+
+- Focused guided file: **28 passed, 0 failed, 0 skipped**.
+- Related five-file selection before later additions: **89/0/0**. After the
+  database guards, guided plus static remote-D1 syntax: **81/0/0**.
+- Production voice composition selection: **1 passed, 0 failed, 129 skipped**.
+- Mutations: **34 distinct faults killed**. Initial 24, then six checks (four
+  new and two refreshed), then six reference checks. Every expected named
+  failure repeated with the fault still applied, all files byte-restored;
+  **0 wrong-test, unconfirmed, survived, not-applied or invalid outcomes**.
+  Specs: `reviewer-tools/mutation-specs-guided-assignment.json` and
+  `reviewer-tools/mutation-specs-guided-references.json`.
+- Production typecheck passed. Non-gating test typecheck: **143 diagnostics**,
+  **0 in the new guided-assignment test**. Do not call the test typecheck green.
+- Full gateway suite ran **once**: **5,215 passed, 1 failed, 0 skipped** across
+  197 files (196 passed, 1 failed). The failure was the backup manifest test's
+  stale expected migration `0039`; actual schema version was correctly `0043`.
+  Corrected only that expected literal, then reran its file: **27/0/0**. This was
+  a missed test registration, not a timing flake. No second full run is claimed.
+- Final state-carrier check passed with **0 warnings**; diff whitespace check passed.
+
+No live model, Telegram, call, remote D1 rehearsal, migration application, secret
+operation or deployment was performed. The test called remote-D1 syntax is
+offline. OWNER-ACTIONS carries the separately authorized rehearsal and rollout;
+QUEUE carries review. Independent review follows publication, not builder merge.
+
 ## 2026-09-23 — Codex builder: PR #165 review fixes and mutation evidence
 
 Publication follow-up: main advanced during the gates to

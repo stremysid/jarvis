@@ -34,6 +34,7 @@ Started from freshly fetched `origin/main` at `c5310bee`. #147 was merged.
 #164 (pasted school data), #169 (collector receiver), and #162 (honesty guard)
 were still open. The branch was subsequently rebased onto `0b63b916` when #164 merged, retaining
 both source-paste handling and guided assignment tools. #169 remained open.
+The final source base also includes #165 at `0d695563`.
 The code uses main's existing school facts, catch-up actions,
 deadlines and original retained owner-paste text. Main has no separate assignment
 instructions/rubric columns: the fact statement and retained source text are
@@ -82,8 +83,16 @@ Owner-authorized remote rehearsal remains necessary before rollout.
 
 ## Evidence
 
-Final test and mutation counts are recorded in the PR and the signed AGENT_LOG
-entry. The reproducible fault set is
+The single full gateway run observed **5,215 passed, 1 failed, 0 skipped**. The
+failure was a backup-manifest assertion still naming `0039`; after changing only
+that expectation to `0043`, the backup file passed **27/0/0**. The new guided file
+passed **28/0/0**; production voice composition passed **1/0/129**. All **34
+distinct mutation faults** failed their named tests twice and restored cleanly.
+Production typecheck passed; test typecheck reported **143 diagnostics**, none in
+the new guided test. No second full gateway run is claimed.
+
+Further observed counts are recorded in the PR and the signed AGENT_LOG entry.
+The reproducible fault set is
 `reviewer-tools/mutation-specs-guided-assignment.json` plus
 `reviewer-tools/mutation-specs-guided-references.json`; run them with
 `reviewer-tools/mutate.ps1` from a clean worktree. Each fault must apply, fail its
