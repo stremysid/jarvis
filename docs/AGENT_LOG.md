@@ -32,19 +32,18 @@ Revision evidence at `e12b349ac61cc6b5abceb6b3b37eb0d2521bae3b`:
   survived, wrong-test, unconfirmed, not-applied or invalid. The source restore
   was byte-identical. The subsequent focused run passed **64, failed 0,
   skipped 0** (46 host, 14 integrity, 4 PATH-shadow/security tests).
-- Broader permitted Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
-  37.32 seconds. Excluded source-lock and workflow-containment as requested.
-  **Also excluded attestation-contract's seven tests**: its temporary fixtures
-  call `chmod`, conflicting with Sid's new no-permission-changes rule. Asked
-  whether to permit those fixture calls; no permission received before this
-  run. This is not the requested complete 16-file gate. The decision is in
-  `OWNER-ACTIONS.md`; no fixture permissions were changed.
+- Builder's local Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
+  37.32 seconds. At `5c8a470`, the [Hermes CI job](https://github.com/stremysid/jarvis/actions/runs/35930123889/job/107414429041)
+  ran the complete requested 16-file set: **158 passed, 0 failed, 0 skipped**,
+  including all seven unchanged attestation-contract tests. Independent review
+  also ran that 16-file set locally with **158/158 passing** (review result
+  relayed by Sid, 2026-09-23). Only source-lock and workflow-containment are
+  excluded from that set; no owner decision is needed.
 - Package lint and typecheck: exit 0 each, four configured syntax checks each.
   Gate script parses; six isolated allowance checks pass (the three SBOM
   failures are no longer excused, source-lock remains, a different source-lock
   failure is rejected, and the allowance has exactly one entry).
-  `node scripts/check-state.mjs` passed all three carriers after the owner-action
-  row was added; no check failed.
+  `node scripts/check-state.mjs` passed all three carriers; no check failed.
 - Read-only Windows Appx recheck reports Store signing, non-development mode,
   `Status = Ok`, the Microsoft family and the same 7.6.6 installation location.
 
