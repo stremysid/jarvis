@@ -3,73 +3,94 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-24 — Codex builder: remaining redaction gaps, harness handoff
+## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
-Signed: Codex GPT-6 Astra, headless cloud builder, codex/redaction-gaps.
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.
 
-Based on `origin/main` at `f5ba9a8`, confirmed by read-only Git. No Git writes,
-PR creation, secret access, live call, migration or deployment. The root
-`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness.
-[Detailed evidence, limits and commands](reviews/2026-09-24-redaction-gaps.md).
+Base and branch confirmed read-only: HEAD and `origin/main` were
+`f5ba9a84ff32c94292b93aee4dad91adf808c4a6`, on `codex/tool-gate-binding`, with a
+clean worktree before editing. Both findings still existed in those source files.
+Read CLAUDE/AGENTS, architecture, state carriers, BUILDING, CODE-VS-JUDGMENT and
+the requested T3/B1–B4 findings. These changes enforce confirmation proof; they
+add no model judgment rule.
 
-| Brief item | Result |
+| Item | Result in this worktree |
 |---|---|
-| 1. Assignment vocabulary and digit independence | #149 already catches contextual four-digit PINs in both runtimes. Added `pin`, `passphrase`, `passcode`, `code` and the `is` delimiter to generic assignments; numeric PIN/code markers retain their prefix and sentence punctuation at any length. Spoken multiword passphrases have an explicit punctuation boundary |
-| 2. Preserve bare four-digit values | Unchanged bare six-digit rule. Exact negative fixtures cover four-digit values, years, times, dates, quantities and course codes |
-| 3. Phone shapes in both runtimes | Added country-prefixed, parenthesized and hyphenated forms with identifier boundaries and a `phone_number` marker. Whole-number matching runs before assignments can consume a prefix and expose the tail. Python refuses matching facts instead of rewriting them |
-| 4. Newline bearer pairs | Header matching consumes bearer values across CR/LF, including short header values. Bare bearer matching accepts CR/LF. Python already refused headers on main but missed newline bare bearers; the TypeScript header leak is independently pinned by exact output |
-| 5. Production field | Re-aimed the old four-digit test from `guest.pin` to `conversation.turn.text`. Existing #149 real `handleTurn` integration tests are retained |
-| 6. Streaming | Voice's unsplit redaction applies the new grammar. Telegram now retains potential credential context across lines through EOF, while safe preceding lines still release. Every emitted prefix is tested against the final expected text |
+| T3/B1 | Deny if the real second outcome differs from the first, including a change to `permitted`. The receipt states both outcomes, carries the second evaluation's audit reference and says the tap was spent. `confirmedBy` is null. An unchanged `requires_confirmation` with a consumed tap still permits. |
+| B2 | Issuance and lookup both use a JSON tuple of tool name, capability and canonical argument hash. Required `toolName` is carried through the store contract. The former same-tool/different-arguments test is replaced with pin/unpin using the same capability and identical arguments; changed-argument coverage remains separate. |
+| Legacy pending taps | Old `capability:argumentsHash` references never match the new gate, including when their buttons are answered after deployment. No fallback/backfill. Owner asks again and taps the new confirmation. Documented in KNOWN_ISSUES and the PR body. |
+| #159 consumption | The atomic claim SQL, expiry, newest-approval rule and migration 0039 are unchanged by inspection. Tests cover one permit/one claim, concurrent winners, cross-channel use, failure without refund, agent issuance and backup restore using the new references. Runtime verification is pending. |
+| Scope | No migration or T1/T2/B4 trigger edits. No Git writes, push, merge, deploy, migration application, secret access or live call. Commit and PR text are written to `.codex-commit-msg.txt` and `.codex-pr-body.md`; nothing is staged, committed or published. |
 
-New/retargeted test names:
+**New/replacement test names:**
 
-- `redacts a contextual four-digit PIN in the production turn field while preserving a bare number and a year`
-- `marks phone numbers on both channels without changing the course code or year beside them`
-- `marks a spoken passphrase as a credential without retaining any of its words`
-- `holds a bearer label and its following value line until they can be redacted together`
-- `test_redaction_gaps_match_the_gateway_decision`, parametrized from the shared table.
-- The 69 full-sentence names in `tests/fixtures/redaction-gaps.json` also name
-  gateway contract tests and streaming tests with suffix `at every split and
-  character by character`, for both release modes. Examples include `redacts
-  a contextual four-digit code`, `redacts a header bearer whose value starts
-  on another line`, `redacts a spoken multiword passphrase in context`, and
-  `preserves a bare four-digit number`. The legacy whitespace test now also
-  exercises code assignments and quoted/unquoted passphrases.
+- `denies a confirmed call when a registry change makes the second outcome $outcome` — cases `permitted`, `withheld_shadow`, `denied_unknown_capability`. Uses real registry UPDATE/DELETE between real service reads, not a stubbed outcome; asserts denial, honest receipt, both stored audits and retained consumption.
+- `does not share a confirmation between two tools with the same capability and identical arguments` — distinct references, wrong tool cannot consume, right tool gets one permit and one claim.
+- `does not let a confirmation authorize changed arguments for the same tool`.
+- `keeps tool and capability boundaries distinct when a name contains a delimiter`.
+- `requires a fresh tap for a legacy confirmation that was %s at deployment` — `pending` and `answered`, then a fresh approval permits once while the old one remains unconsumed.
+- `binds a confirmation raised by the agent to its tool and consumes the owner's answer once` — real agent issuance/delivery, recorded answer, one synthetic pipeline execution, then replay refusal.
+- Renamed schema-only coverage: `preserves answer rows across the additive migration and fails closed on tier 3 without its schema`. Its SELECT uses the new reference; it no longer implies that the legacy gateway can generate that reference. The existing Telegram dispatch test now checks the complete issued reference too.
 
-Executed: **371 differential decisions, zero differences/expectation failures;
-3,456 streams match exact expected text**. Main's same final corpus has zero
-boolean parity differences but **111 failed expectations**, demonstrating why
-parity alone cannot clear leaks. Eleven temporary-source mutations were killed:
-TypeScript assignment labels, phone rule, bare-four-digit overreach, header
-newline handling, bare-bearer newline handling, multiword passphrases, line
-retention and phone/assignment ordering; Python phone rule, assignment labels
-and bare-bearer newline handling.
-Source typecheck, Python syntax compilation, diff checks and state carriers
-pass. State check has one existing browser-background-access FACTS advisory.
-Gateway test typecheck reports **143 diagnostics, none in changed files**.
+**Verification observed:** source `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway`
+passes. Test `tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` exits 1 with
+143 diagnostics. An isolated temporary copy with the changed sources restored
+from read-only `git show origin/main:path` also reports 143; file/code/message
+multisets match exactly, ignoring shifted line numbers. No added diagnostics,
+none in autonomy tests; four existing backup-test diagnostics are outside the
+edits. `node scripts/check-state.mjs` passes with one existing D2L-background-access
+FACTS warning. `git diff --check` passes.
 
-Harness must run, in order: focused Vitest on `call-redaction`, `envelope`,
-`security/redaction`, `security/pin-redaction-turn`,
-`security/streaming-output-redactor` and `contracts/projection-policy`; focused
-Python `tests/memory/test_projection_policy.py` and
-`tests/sync/test_memory_projection.py`; the standalone Python/Node differential;
-then `pnpm test`, `pnpm typecheck`, gateway `typecheck:tests` (inspect its existing
-baseline), local-agent `uv run pytest -q --ignore=tests/integration`, Ruff and
-mypy, plus `node scripts/check-state.mjs`. Use the commands in the evidence
-page and the repository's supported Node 24.19+ runtime.
+**Harness must run, focused first:**
 
-Not verified here: Vitest/pnpm (forbidden by the harness brief), pytest
-(`No module named pytest`), Python lint/mypy, D1 integration behavior and live
-delivery. Container versions are Node 22.22.2 and Python 3.12.3. Explicit
-assignments remain syntactic: the original `pin is on` wording now has an exact
-fixture showing `on` redacted and the year retained. Unlabelled passphrases,
-complete spoken-word PIN sequences and phone formats beyond the listed shapes
-are outside the guarantee; see KNOWN_ISSUES. This is not independent clearance.
+```powershell
+pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/autonomy apps/cloud-gateway/test/persistence/tool-confirmation-rollout.test.ts apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts apps/cloud-gateway/test/school/collector-wiring.test.ts apps/cloud-gateway/test/backup/memory-backup-restore.test.ts
+pnpm test:cloud
+pnpm --filter @jarvis/cloud-gateway typecheck
+pnpm --filter @jarvis/cloud-gateway typecheck:tests
+pnpm check:state
+```
 
-- When the harness receives this worktree: run the outstanding gates and commit
-  with the supplied message/body.
-- When those gates pass: Claude reviews the exact resulting head before merge;
-  any later deployment remains a separate owner action.
+Then plant and restore faults: remove the changed-outcome guard (all three new
+registry-change cases must fail); use `verdictFor(confirmed)` (valid confirmed
+calls must fail); omit toolName from the tuple (shared-capability test must fail);
+restore the legacy encoder (both legacy tests must fail); replace the atomic
+claim with a read (sequential and concurrent single-use tests must fail).
+
+**Initial handoff limits:** Vitest runtime results, mutation kills, full-suite results or
+live rollout. The owner's harness explicitly prohibits this builder from running
+Vitest or pnpm; no passing runtime or exactly-once execution claim is made.
+The guarantee remains at-most-once authorization, not external side-effect
+completion. Independent review is still required.
+
+**Next:** when the harness receives this worktree, run the checks and return any
+failures; after they pass, the independent reviewer checks the receipt, old-tap
+cutover and issuance/consumption agreement. At owner-authorized deployment after
+review, obtain fresh confirmations and follow #159's existing migration rollout.
+
+**Harness round 2 (2026-09-24).** Owner-reported first run: 23 files, 456 passed,
+16 failed, all in `tier3-tap.test.ts`; source tsc 0 and check-state passed. The
+cause was my fixture cleanup omission, not a reference mismatch or a stubbed
+second outcome. The first registry-change case left tier 1, the next read that
+tier then left tier 2, and the third read tier 2 then deleted the row. Later
+tests correctly denied the now-unregistered capability before looking up a tap.
+The tap helper already passes `request.toolName`; the legacy fixtures deliberately
+use the old format and must still request a fresh confirmation.
+
+Both new registry-mutating tests now restore their original state in `finally`:
+the three changed-outcome cases upsert the complete original row, and pin/unpin
+restores its original shared tier. Added starting-tier, first-evaluation and
+restoration assertions. All existing expected outcomes, receipts and consumption
+assertions are retained; no test expectation was wrong under the new binding.
+No production code or security property changed in this round. Source tsc and
+check-state pass locally; test tsc remains at 143 diagnostics with none in
+autonomy tests. Runtime rerun and mutation kills remain unverified here.
+
+**Next:** when the harness receives round 2, run `tier3-tap.test.ts` alone, then
+repeat its full focused set (autonomy, channels, backup, confirmation rollout,
+collector wiring and voice-agent). Commands are in `.codex-pr-body.md`. After
+that passes, run the recorded mutation checks and proceed to independent review.
+No new test names; the named regressions above now own their cleanup.
 
 ## 2026-09-24 — PR #177 round 2: requested wording and snippet fixes
 
@@ -959,6 +980,74 @@ No full local package/workspace run in round 2. Live DeepSeek tool streaming,
 marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
 live check. No live API, secret, paid action, production operation, real
 migration, deploy, merge into main or PC-setting mutation was performed.
+
+## 2026-09-24 — Codex builder: remaining redaction gaps, harness handoff
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/redaction-gaps.
+
+Based on `origin/main` at `f5ba9a8`, confirmed by read-only Git. No Git writes,
+PR creation, secret access, live call, migration or deployment. The root
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness.
+[Detailed evidence, limits and commands](reviews/2026-09-24-redaction-gaps.md).
+
+| Brief item | Result |
+|---|---|
+| 1. Assignment vocabulary and digit independence | #149 already catches contextual four-digit PINs in both runtimes. Added `pin`, `passphrase`, `passcode`, `code` and the `is` delimiter to generic assignments; numeric PIN/code markers retain their prefix and sentence punctuation at any length. Spoken multiword passphrases have an explicit punctuation boundary |
+| 2. Preserve bare four-digit values | Unchanged bare six-digit rule. Exact negative fixtures cover four-digit values, years, times, dates, quantities and course codes |
+| 3. Phone shapes in both runtimes | Added country-prefixed, parenthesized and hyphenated forms with identifier boundaries and a `phone_number` marker. Whole-number matching runs before assignments can consume a prefix and expose the tail. Python refuses matching facts instead of rewriting them |
+| 4. Newline bearer pairs | Header matching consumes bearer values across CR/LF, including short header values. Bare bearer matching accepts CR/LF. Python already refused headers on main but missed newline bare bearers; the TypeScript header leak is independently pinned by exact output |
+| 5. Production field | Re-aimed the old four-digit test from `guest.pin` to `conversation.turn.text`. Existing #149 real `handleTurn` integration tests are retained |
+| 6. Streaming | Voice's unsplit redaction applies the new grammar. Telegram now retains potential credential context across lines through EOF, while safe preceding lines still release. Every emitted prefix is tested against the final expected text |
+
+New/retargeted test names:
+
+- `redacts a contextual four-digit PIN in the production turn field while preserving a bare number and a year`
+- `marks phone numbers on both channels without changing the course code or year beside them`
+- `marks a spoken passphrase as a credential without retaining any of its words`
+- `holds a bearer label and its following value line until they can be redacted together`
+- `test_redaction_gaps_match_the_gateway_decision`, parametrized from the shared table.
+- The 69 full-sentence names in `tests/fixtures/redaction-gaps.json` also name
+  gateway contract tests and streaming tests with suffix `at every split and
+  character by character`, for both release modes. Examples include `redacts
+  a contextual four-digit code`, `redacts a header bearer whose value starts
+  on another line`, `redacts a spoken multiword passphrase in context`, and
+  `preserves a bare four-digit number`. The legacy whitespace test now also
+  exercises code assignments and quoted/unquoted passphrases.
+
+Executed: **371 differential decisions, zero differences/expectation failures;
+3,456 streams match exact expected text**. Main's same final corpus has zero
+boolean parity differences but **111 failed expectations**, demonstrating why
+parity alone cannot clear leaks. Eleven temporary-source mutations were killed:
+TypeScript assignment labels, phone rule, bare-four-digit overreach, header
+newline handling, bare-bearer newline handling, multiword passphrases, line
+retention and phone/assignment ordering; Python phone rule, assignment labels
+and bare-bearer newline handling.
+Source typecheck, Python syntax compilation, diff checks and state carriers
+pass. State check has one existing browser-background-access FACTS advisory.
+Gateway test typecheck reports **143 diagnostics, none in changed files**.
+
+Harness must run, in order: focused Vitest on `call-redaction`, `envelope`,
+`security/redaction`, `security/pin-redaction-turn`,
+`security/streaming-output-redactor` and `contracts/projection-policy`; focused
+Python `tests/memory/test_projection_policy.py` and
+`tests/sync/test_memory_projection.py`; the standalone Python/Node differential;
+then `pnpm test`, `pnpm typecheck`, gateway `typecheck:tests` (inspect its existing
+baseline), local-agent `uv run pytest -q --ignore=tests/integration`, Ruff and
+mypy, plus `node scripts/check-state.mjs`. Use the commands in the evidence
+page and the repository's supported Node 24.19+ runtime.
+
+Not verified here: Vitest/pnpm (forbidden by the harness brief), pytest
+(`No module named pytest`), Python lint/mypy, D1 integration behavior and live
+delivery. Container versions are Node 22.22.2 and Python 3.12.3. Explicit
+assignments remain syntactic: the original `pin is on` wording now has an exact
+fixture showing `on` redacted and the year retained. Unlabelled passphrases,
+complete spoken-word PIN sequences and phone formats beyond the listed shapes
+are outside the guarantee; see KNOWN_ISSUES. This is not independent clearance.
+
+- When the harness receives this worktree: run the outstanding gates and commit
+  with the supplied message/body.
+- When those gates pass: Claude reviews the exact resulting head before merge;
+  any later deployment remains a separate owner action.
 
 ## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
 
