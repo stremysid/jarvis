@@ -57,10 +57,10 @@ each with `OrgUnit` (`Id`, `Type{Id,Code,Name}`, `Name`, `Code`, `HomeUrl`,
 `ImageUrl`) and `Access` (`IsActive`, `StartDate`, `EndDate`, `CanAccess`,
 `ClasslistRoleName`, `LISRoles`, `LastAccessed`).
 
-**The list is paged and this account needs more than one page.** The owner run
+**The list is paged, and this account may have more than one page.** The owner run
 ([owner run](2026-09-23-d2l-probe-owner-run.md)) returned 50 items with
-`HasMoreItems` set, so a reader that takes the first page sees a fraction of the
-enrolments. Paginate.
+`HasMoreItems` set, so a reader that takes the first page may be seeing only a
+fraction of the enrolments. Paginate.
 
 Observed org-unit types: `1 Organization`, `3 Course Offering`, `4 Group`,
 `467 School`.
@@ -102,15 +102,18 @@ per-cell descriptor text. That is far more than a deadline reader needs.
 In the owner's probe run ([owner run](2026-09-23-d2l-probe-owner-run.md)),
 `DueDate` was set on **13 of 42** dropbox folders in one course, null on the other
 29, null on all 3 in a second course and null on all 140 in the large unit. The
-topic-level dates were empty too — `EndDateTime` and `StartDateTime` were null
-on every topic — and `myItems`, `myItems/due` and `overdueItems` carried no dates
-at all. That run counted topic fields and did **not** count module-level dates
-separately, so whether the enclosing module carries them is **UNVERIFIED** by it,
-not refuted. So the field must be read when present, with the **module
-`EndDateTime`** and the folder's own `Availability` dates used as fallbacks when it
-is null — and on this account both fallbacks came back empty. Most work therefore
-has to be treated as **"exists, no date in D2L"**, with the date coming from Sid or
-the teacher.
+topic-level dates were empty too — `EndDateTime` was null on every topic in all
+three courses, and `StartDateTime` too where it was recorded — and `myItems`,
+`myItems/due` and `overdueItems` carried no dates at all. That run counted topic
+fields and did **not** count module-level dates separately, so whether the enclosing
+module carries them is **UNVERIFIED** by it, not refuted. The field must therefore
+be read when present, with the **module `EndDateTime`** and the folder's own
+`Availability` dates used as fallbacks when it is null — module dates were not
+counted by the run (UNVERIFIED), and folder `Availability` was set on only 2 of
+Course B's 42 folders and none of the large unit's 140
+([owner run](2026-09-23-d2l-probe-owner-run.md) L15, L25). Most work therefore has
+to be treated as **"exists, no date in D2L"**, with the date coming from Sid or the
+teacher.
 
 A deadline reader keyed on the obvious field alone reports almost nothing, and
 does so *silently* — an empty list is indistinguishable from "nothing is due".
@@ -213,8 +216,9 @@ Same session, same host, same moment as the `200`s above.
 that a valid, fully authenticated identity is not sufficient — authorisation is
 checked **per route**. It also shows that a refusal's **body depends on the
 route**, which is what makes §2.5's "empty is not refused" reading possible
-without assuming one shape everywhere: `dropbox/folders/` and one
-`mysubmissions/` call answered `403 {"Errors":[{"Message":…}]}`, while
+without assuming one shape everywhere: `dropbox/folders/` answered
+`403 {"Errors":[{"Message":…}]}`, while one `mysubmissions/` call answered
+`403 {"Errors":…}` — the run records the envelope, not the message — and
 `myGradeValues/` and `content/toc` answered `403` with a **non-JSON** body
 ([owner run](2026-09-23-d2l-probe-owner-run.md)). **Key a refusal on the status,
 not the body.**
