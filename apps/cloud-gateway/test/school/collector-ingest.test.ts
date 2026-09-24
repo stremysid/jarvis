@@ -81,12 +81,121 @@ describe("school evidence and projection", () => {
     await ingest(f, { ...a, courseIds });
     expect((await repo(f).status()).state).toBe("incomplete");
     await ingest(f, { ...b, courseIds, readId: a.readId, routes: b.routes.map((route, index) => index === 2
-      ? { ...route, status: 403, body: { Errors: [{ Message: "Not Authorized" }] } } : route) });
+      ? { ...route, status: 401, body: { Errors: [{ Message: "Not Authorized" }] } } : route) });
     const status = await repo(f).status({ limit: 100 });
     expect(status.state).toBe("failed");
     expect(status.lastGoodReadAt).toBe(first.startedAt);
-    expect(status.refused).toEqual([{ route: b.routes[2]!.route, course: "another-course", status: 403, fetched_at: b.startedAt }]);
+    expect(status.refused).toEqual([{ route: b.routes[2]!.route, course: "another-course", status: 401, fetched_at: b.startedAt }]);
     expect(status.evidence).toHaveLength(15);
+  });
+
+  it.each(["grades", "myItems"])("records a %s 403 without failing the read or hiding available deadlines", async (tool) => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    const refusal = { ...batch.routes[2]!, status: 403, body: { Errors: [{ Message: "Not Authorized" }] } };
+    const routes = tool === "grades" ? batch.routes.map((route, i) => i === 2 ? refusal : route)
+      : [...batch.routes, { ...refusal, route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}` }];
+    expect((await ingest(f, { ...batch, routes })).outcome).toBe("good");
+    const status = await repo(f).status();
+    expect(status).toMatchObject({ state: "current", lastGoodReadAt: batch.startedAt });
+    expect(status.refused).toEqual([{ route: routes.find((route) => route.status === 403)!.route, course: f.courseId, status: 403, fetched_at: batch.startedAt }]);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first()).toEqual({ n: 1 });
+  });
+
+  it("keeps required tool refusals empty while failing transport, authentication, incomplete and unfamiliar results", async () => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    const refused = { ...batch, routes: batch.routes.map((route) => ({ ...route, status: 403, body: null })) };
+    expect(mapSchoolCourse(refused)).toEqual({ items: [], deadlines: [], failures: [] });
+    expect((await ingest(f, refused)).outcome).toBe("good");
+    for (const status of [0, 301, 302, 401, 500, 503]) {
+      const invalid = { ...batch, readId: newUlid(f.clock()), routes: batch.routes.map((route, i) => i === 2 ? { ...route, status } : route) };
+      expect((await ingest(f, invalid)).outcome, `HTTP ${status}`).toBe("failed");
+    }
+    for (const route of [{ ...batch.routes[2]!, status: 403, complete: false }, { ...batch.routes[2]!, body: "not JSON data" }]) {
+      expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: batch.routes.map((row, i) => i === 2 ? route : row) })).outcome).toBe("failed");
+    }
+  });
+
+  it("bounds refusals to the latest read and requested limit without losing the older good read time", async () => {
+    const f = await collectorFixture();
+    const first = observedBatch(f);
+    await ingest(f, first);
+    let latest = first;
+    for (let i = 0; i < 6; i += 1) {
+      f.setNow(new Date(f.clock().getTime() + 60_000));
+      latest = observedBatch(f);
+      await ingest(f, { ...latest, routes: latest.routes.map((route, index) => index >= 2 ? { ...route, status: 403, body: null } : route) });
+    }
+    let refusedRowsReturned = 0;
+    const database = { prepare(sql: string) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.startsWith("SELECT e.route, e.course, e.status, e.fetched_at")) return statement;
+      return { bind(...args: unknown[]) { const bound = statement.bind(...args); return { async all() {
+        const result = await bound.all();
+        refusedRowsReturned = result.results.length;
+        return result;
+      } }; } };
+    } } as unknown as D1Database;
+    const bounded = await new SchoolCollectorRepository(database, f.owner, f.clock).status({ limit: 1 });
+    expect(refusedRowsReturned).toBe(2);
+    expect(bounded.refused).toHaveLength(1);
+    expect(bounded.refused[0]!.fetched_at).toBe(latest.startedAt);
+    expect(bounded.refusedTruncated).toBe(true);
+    expect((await repo(f).status({ limit: 100 })).refused).toHaveLength(3);
+    // A bounded latest-read query must not erase success behind a run of failures.
+    for (let i = 0; i < 6; i += 1) {
+      f.setNow(new Date(f.clock().getTime() + 60_000));
+      await ingest(f, { ...observedBatch(f), enrollmentComplete: false });
+    }
+    expect(await repo(f).status({ limit: 1 })).toMatchObject({ state: "failed", lastGoodReadAt: latest.startedAt });
+  });
+
+  it("returns at most one row from each read aggregate while retaining the last complete good read", async () => {
+    const f = await collectorFixture();
+    await ingest(f, observedBatch(f));
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    await ingest(f, observedBatch(f));
+    const rowsReturned: number[] = [];
+    // Observe real SQL results, so removing LIMIT cannot hide behind first() discarding rows.
+    const database = { prepare(sql: string) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.includes("COUNT(b.batch_id) AS received")) return statement;
+      return { bind(...args: unknown[]) { const bound = statement.bind(...args); return { async all() {
+        const result = await bound.all();
+        rowsReturned.push(result.results.length);
+        return result;
+      } }; } };
+    } } as unknown as D1Database;
+    expect((await new SchoolCollectorRepository(database, f.owner, f.clock).status()).state).toBe("current");
+    expect(rowsReturned).toEqual([1, 1]);
+  });
+
+  it("counts undated work from the latest good whole read and names it in a current digest", async () => {
+    const f = await collectorFixture();
+    await ingest(f, observedBatch(f));
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const a = observedBatch(f);
+    const b = observedBatch(f, "second-course");
+    const courseIds = [f.courseId, b.course.id];
+    await ingest(f, { ...a, courseIds });
+    await ingest(f, { ...b, readId: a.readId, courseIds });
+    expect(await repo(f).status()).toMatchObject({ state: "current", lastGoodReadUndatedItems: 2 });
+    const makeDigest = () => assembleDigest("daily", { clock: { now: f.clock }, timeZone: "America/Toronto", delivery: { send: async () => undefined },
+      sources: { readCatchupActions: async () => [], readApplicationItems: async () => [], readDeadlines: async () => [],
+        readDeadlineSources: async () => [], readProjectStatuses: async () => [], readOpenDecisions: async () => [], readD2lStatus: () => repo(f).status() } });
+    const digest = await makeDigest();
+    expect(digest.text).toContain("2 Brightspace items have no known date");
+    expect(digest.text.toLowerCase()).not.toContain("nothing due");
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    await ingest(f, { ...observedBatch(f), enrollmentComplete: false });
+    expect(await repo(f).status()).toMatchObject({ state: "failed", lastGoodReadUndatedItems: 2 });
+    expect((await makeDigest()).text).not.toContain("2 Brightspace items have no known date");
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const empty = observedBatch(f);
+    await ingest(f, { ...empty, routes: empty.routes.map((route) => ({ ...route, status: 403, body: null })) });
+    expect(await repo(f).status()).toMatchObject({ state: "current", lastGoodReadUndatedItems: 0 });
+    expect((await makeDigest()).text).not.toContain("0 Brightspace items have no known date");
   });
 
   it("requires every declared course and completed enrollment before advertising a good read", async () => {

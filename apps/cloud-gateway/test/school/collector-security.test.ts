@@ -42,6 +42,30 @@ describe("school collector security", () => {
     expect((await readKey(f.key.collector_id)).status).toBe("pending");
   });
 
+  it("refuses activation through a non-Telegram identity at the database boundary", async () => {
+    const f = await collectorFixture(false);
+    const decision = await f.pairing.prove(f.key, { challenge: f.key.challenge });
+    await f.decisions.markDelivered(decision.decisionId);
+    await env.DB.prepare("UPDATE channel_identities SET channel = 'voice' WHERE identity_id = ?").bind(f.identity).run();
+    await f.decisions.answer({ decisionId: decision.decisionId, answeredByIdentityId: f.identity, optionKey: "confirm" });
+    // Bypass the app's identical channel check to prove the trigger independently.
+    await expect(env.DB.prepare("UPDATE school_collector_keys SET status = 'active', activated_at = ? WHERE collector_id = ?")
+      .bind(f.clock().toISOString(), f.key.collector_id).run()).rejects.toThrow("school_collector_tap_required");
+    expect((await readKey(f.key.collector_id)).status).toBe("pending");
+  });
+
+  it("keeps pairing budgets separate for each configured principal", async () => {
+    const f = await collectorFixture(false);
+    for (let i = 0; i < 3; i += 1) {
+      const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
+      await f.pairing.start({ publicKeyBase64: btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey) as ArrayBuffer))), deviceLabel: "Synthetic" });
+    }
+    const other = await collectorFixture(false);
+    other.setNow(f.clock());
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
+    expect((await other.pairing.start({ publicKeyBase64: btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey) as ArrayBuffer))), deviceLabel: "Synthetic" })).status).toBe("pending");
+  });
+
   it("refuses a valid tap after pairing expiry and refuses a decision for a different collector", async () => {
     const f = await collectorFixture(false);
     const decision = await f.pairing.prove(f.key, { challenge: f.key.challenge });

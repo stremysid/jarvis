@@ -23,7 +23,7 @@ export class SchoolCollectorPairing {
       (collector_id, principal_id, public_key_base64, device_label, status, challenge, pairing_code, created_at, expires_at)
       SELECT ?, principal_id, ?, ?, 'pending', ?, ?, ?, ? FROM principals
       WHERE principal_id = ? AND status = 'active' AND principal_type = 'human'
-      AND (SELECT COUNT(*) FROM school_collector_keys WHERE created_at > ?) < 4 RETURNING *`)
+      AND (SELECT COUNT(*) FROM school_collector_keys WHERE principal_id = principals.principal_id AND created_at > ?) < 4 RETURNING *`)
       .bind(collectorId, input.publicKeyBase64, label, challenge, code, now.toISOString(),
         new Date(now.getTime() + SCHOOL_PAIR_TTL_MS).toISOString(), this.owner,
         new Date(now.getTime() - SCHOOL_PAIR_TTL_MS).toISOString()).first<CollectorKey>();
@@ -58,7 +58,7 @@ export class SchoolCollectorPairing {
       AND EXISTS (SELECT 1 FROM decision_items d JOIN decision_responses r ON r.decision_id = d.decision_id
         JOIN channel_identities i ON i.identity_id = r.answered_by_identity_id
         WHERE d.decision_id = ?3 AND d.principal_id = ?2 AND d.origin = ?4 AND d.origin_reference = collector_id
-          AND d.status = 'answered' AND r.option_key = 'confirm' AND r.responded_at < expires_at
+          AND d.status = 'answered' AND r.option_key = 'confirm' AND r.responded_at < school_collector_keys.expires_at
           AND i.identity_id = ?5 AND i.principal_id = ?2 AND i.channel = 'telegram' AND i.status = 'active' AND i.verified_at IS NOT NULL)
       RETURNING collector_id`).bind(now, this.owner, decisionId, SCHOOL_PAIR_ORIGIN, identityId).first();
     return activated !== null;

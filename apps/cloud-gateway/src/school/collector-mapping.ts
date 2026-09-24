@@ -53,7 +53,8 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
   const items: SchoolItem[] = [];
   const routes = new Map(batch.routes.map((row) => [row.route, row]));
   for (const row of batch.routes) {
-    if (row.status !== 200 || !row.complete) failures.push(`${row.route}:${row.status}:${row.complete ? "http" : "incomplete"}`);
+    // Teachers disable individual tools. A complete refusal is evidence, not a broken read.
+    if ((row.status !== 200 && row.status !== 403) || !row.complete) failures.push(`${row.route}:${row.status}:${row.complete ? "http" : "incomplete"}`);
   }
   const required = (route: string): RouteEvidence | null => {
     const result = routes.get(prefix + route);

@@ -389,6 +389,7 @@ export async function assembleDigest(
     try {
       const d2l = await dependencies.sources.readD2lStatus();
       if (d2l.state !== "current") gaps.push({ source: "Brightspace API", detail: `read ${d2l.state}; last good whole read ${d2l.lastGoodReadAt ?? "never"}. Undated work may exist; check school_d2l_status.` });
+      if (d2l.state === "current" && d2l.lastGoodReadUndatedItems > 0) gaps.push({ source: "Brightspace API", detail: `${d2l.lastGoodReadUndatedItems} Brightspace items have no known date; check school_d2l_status.` });
     } catch {
       gaps.push({ source: "Brightspace API", detail: "collector status unavailable; cannot establish what is due" });
     }
