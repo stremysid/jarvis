@@ -43,6 +43,22 @@ file, and the citations were corrected where the audit's had moved.
 
 ---
 
+## Owner deadline proof contract (#166 review rounds 1–7)
+
+| Symbol | Decision or bounded proof rule | Model-visible surface |
+|---|---|---|
+| `proveDeadlineDue` | Validates the model's proposed instant against one grounded date/clock phrase and the durable current-message timestamp, using `DIGEST_TIMEZONE ?? "America/Toronto"`. An override zone must be named in that phrase. | `deadline_record` describes the grammar and returns a specific refusal reason for one precise clarification. Course, title, effort, whether to act, and the proposed resolution remain model arguments. Receipts always use the owner zone. |
+| `resolveDate` | Next weekday and a bare weekday naming today are ambiguous. Both supported dates are returned with `deadline_ambiguous_date`; no candidate is stored by a code convention. Explicit `this` weekday accepts only the next occurrence on or after the message's local date, and no non-explicit relative form may resolve before that date. Other supported forms remain ISO, English month/day or day/month, today/tomorrow, next week optionally with weekday, and ordinal day. | Ask Sid which candidate date he means. The model proposes the resolution; code proves it or refuses. Explicit historical calendar dates remain valid. The retained nearest-occurrence rule for omitted year/ordinal and the unconfirmed bare-next-week upper bound remain **judgment findings**, not owner-approved exceptions; disclosure alone does not cure them. |
+| `proveDeadlineDue` relative-date / bare-clock branches | A clock without a date (`3pm`, `at 3pm`, `tonight at 11:59pm`) uses the durable message's local date in the owner zone under the round-2 review contract. Already-passed bare/weekday/today clocks return `deadline_time_already_passed`, never an automatic tomorrow. `OWNER_SMALL_HOURS_END_HOUR` is `null` until Sid supplies the owner-local end hour, so `today` and `tomorrow` mean the current and next calendar dates all day; the prepared adjacent-date refusal can run only inside that future window, including for date-only phrases. Under `tonight`, an a.m. clock, a suffix-less two-digit clock from `00:00` through `12:59`, or a 12 o'clock p.m. clock remains ambiguous independently of any cut-off. | The receipt names the proven local time; refusal asks for the intended date. The tool description states the disabled window, and [OWNER-ACTIONS](OWNER-ACTIONS.md) holds the unanswered hour. Explicit historical dates remain possible for reporting past deadlines. |
+| `proveDeadlineDue` date-only branch | Clocks accepted are `3pm`, `3:30 p.m.`, and `HH:mm` in 24-hour form. Missing clocks, a single-digit hour without am/pm, and repeated/nonexistent DST hours become date-only at owner-zone end of day. Bare next week uses Sunday as an **unconfirmed upper bound**, never a claim that Sid named Sunday. | The model supplies the proven `YYYY-MM-DD`; the receipt explicitly says date-only/end-of-day, or unconfirmed end-of-week bound. Numeric ambiguous dates such as `03/04` cannot establish even a unique day and are refused with `deadline_ambiguous_date`. |
+| `statusOf` | `submitted`, `handed in`, `turned in` prove submitted; `missed` proves missed; `cancelled`, `canceled` prove cancelled. Omission preserves stored status. `finished` is not proof of submission. | Aligned with #164's school tool description: school_update handles missed classwork/finished work and catch-up planning, deadline_record handles dated deadlines and explicit deadline status. Words are named in the tool schema and description rather than silently inferred. |
+| `matchingDeadline` / `recordDeadline` | Only case/whitespace share a principal-scoped identity. Chem/Chemistry uses the existing uncertain-prefix clarification path, not a semantic alias. The literal course, title and due phrase must occur in that order. Proof scans only the course-to-title and title-to-due gaps, never course/title text: a date, clock or sentence separator breaks either tie. Every vertical break becomes a comma; any other punctuation (a character that is not a letter, digit, whitespace or apostrophe), or `and`, `then`, `or`, `plus` or `also`, breaks a tie only when the same gap contains a non-connector/filler word or any digit. Unpunctuated speech remains model judgment. | `deadline_record` asks which assignment is intended when a prefix/punctuation collision occurs and refuses borrowing another assignment's date, while names such as `Pride and Prejudice`, `Monday lab writeup`, `1st draft`, `Sun Yat-sen essay`, `Q&A worksheet` and `A/B testing lab` remain ordinary title evidence when copied whole. Platform sources still may duplicate owner-reported rows. |
+
+These proof limits and date-only conventions are recorded through the independent review rounds;
+they do not grant code permission to choose study priorities or reminder wording/timing.
+`DEFAULT_LEAD_MINUTES[effort]` supplies the existing ingestion lead-window contract, with effort
+chosen by the model, so owner-reported rows reach `listReminderDue` like collected rows.
+
 ## The list
 
 Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision
@@ -205,6 +221,14 @@ deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decis
 The pipeline's direct-text authority still applies because that decision removed the safety
 tier, not the authenticated-source boundary. Collector revocation still requires its
 tier-three tap. The two existing judgment findings below remain open.
+
+Date-disagreement follow-up, 2026-09-24: no rationale for preferring a
+`content/myItems` date to the folder `DueDate` was recorded in #175's review, its
+agent-log entries or this register. The mapper retains that compatibility projection,
+but unequal values now add `ambiguous_assignment_date` to the evidence Jarvis reads;
+equal values do not. Folder `Availability.EndDate` is a separately labelled fallback,
+and an unfamiliar `Availability` shape is likewise surfaced rather than interpreted.
+This register remains partial.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|

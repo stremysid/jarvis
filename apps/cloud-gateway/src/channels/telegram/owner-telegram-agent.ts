@@ -16,6 +16,7 @@ import {
 } from "../../model/model-adapter.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../agent/owner-tools.js";
 import { ownerPipelineModel } from "../../agent/owner-pipelines.js";
+import { ownerArgumentTool } from "../../agent/owner-argument-tools.js";
 import type { TelegramProvider } from "../../providers/provider-types.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
@@ -46,7 +47,6 @@ const encoder = new TextEncoder();
 
 export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
-
 export interface OwnerTelegramAgentDependencies {
   readonly guidedAssignmentTelegram?: TelegramProvider;
   readonly provider: ModelAgentProvider;
@@ -57,6 +57,7 @@ export interface OwnerTelegramAgentDependencies {
   /** Main's broader school/study authority: direct text in a private non-bot chat. */
   readonly directPipelineText?: boolean;
   readonly authorityText: string;
+  readonly timeZone?: string;
   /** Telegram's durable pointer when Sid swipes on one of Jarvis's messages. */
   readonly replyToBotMessageId?: number | null;
   readonly targets: TelegramMemoryTargetFinder;
@@ -125,7 +126,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: "",
+      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -167,6 +168,9 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       replyTargetRefusal:
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
+        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto",
+        () => readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await adapter.previousAssistant(turnInput);

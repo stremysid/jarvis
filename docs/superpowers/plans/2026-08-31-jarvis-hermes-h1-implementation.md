@@ -1,13 +1,21 @@
 > **Superseded - read this before using this document.** Its remaining work
-> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
-> section 6 records the disposition:
+> should not be executed as written. Use [the current roadmap](../../plan/2026-09-19-jarvis-roadmap.md).
+> Historical disposition:
 >
-> Tasks 5 to 7 and 10 to 13 are superseded by R3. Tasks 0 to 3 (locks, fetch script, profile) remain the pinning mechanism.
+> Tasks 5 to 7 and 10 to 13 were superseded under the retired milestone roadmap.
+> Tasks 0 to 3 (locks, fetch script, profile) remain the pinning mechanism.
+> Checked at `c66c3870`: Task 4 is partial — the [Brain Bridge](../../../apps/brain-bridge/)
+> contains contracts and canonicalization, but lacks the planned HTTP entry point,
+> config and auth modules. Tasks 8 and 9 have [adapter](../../../apps/cloud-gateway/src/model/hermes-token-adapter.ts),
+> [selector](../../../apps/cloud-gateway/src/model/pre-admission-model-adapter.ts)
+> and test files on main; this file does not establish their full acceptance or a live H1 pilot.
 >
-> Kept rather than deleted, as section 6 instructs. Current state is
-> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+> Current state is [docs/STATE.md](../../STATE.md); what is in flight is
+> [docs/QUEUE.md](../../QUEUE.md). The older roadmap was deleted by [#131](https://github.com/stremysid/jarvis/pull/131).
 
 # Jarvis Hermes H1 Implementation Plan
+
+> **Superseded in part by [#147](https://github.com/stremysid/jarvis/pull/147) and [#171](https://github.com/stremysid/jarvis/pull/171):** the [direct DeepSeek provider](../../../apps/cloud-gateway/src/providers/deepseek-provider.ts) and owner voice composition are on main; the no-direct-DeepSeek premise below is historical.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

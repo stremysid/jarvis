@@ -30,6 +30,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { D1ToolConfirmationStore } from "../../src/autonomy/tool-confirmations.js";
@@ -1147,7 +1148,7 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("offers the complete Telegram catalogue, including memory and guided assignment tools, on a call", async () => {
+  it("offers the complete Telegram catalogue, including deadline_record, within the provider tool bound on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
     const provider = new FakeAgentProvider([stopped("Hello.")]);
@@ -1160,10 +1161,14 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
+    expect(request?.tools).toHaveLength(18);
+    expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
+      ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
+      "deadline_record",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke",
     ]));

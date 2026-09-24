@@ -8,6 +8,7 @@ import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { OWNER_TOOL_DEFINITIONS } from "../agent/owner-tools.js";
 import { ownerPipelineModel, type OwnerPipelineModels } from "../agent/owner-pipelines.js";
+import { ownerArgumentTool } from "../agent/owner-argument-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readPreviousVoiceAssistant } from "../memory/voice-memory-reference.js";
@@ -78,6 +79,7 @@ export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly autonomy: ToolAutonomyGateContract;
   readonly turnTimeoutMs?: number;
   readonly now?: () => Date;
+  readonly timeZone?: string;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -99,7 +101,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: OWNER_VOICE_AGENT_CHANNEL_PROMPT,
+      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
@@ -148,6 +150,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       replyTargetRefusal:
         "I refused that memory tool call because I cannot tell which memory you meant. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
+        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
+          channelCode: 1, requireDirectOwnerText: false })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);

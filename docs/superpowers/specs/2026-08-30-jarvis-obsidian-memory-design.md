@@ -1,5 +1,7 @@
 # Jarvis Obsidian Memory Integration Design
 
+> **Superseded in part by [the corrected memory decision](../../../DECISIONS.md#r2-cloud-memory-direction-and-corrected-attribution-2026-09-14-delegated-design-decision) and merged [#125](https://github.com/stremysid/jarvis/pull/125):** the editable-notes premise behind “Approved” below was never confirmed with Sid; D1 is authoritative and an optional one-way export is later work.
+
 **Date:** 2026-08-30
 **Status:** Approved base; privileged-journal amendment under independent review
 **Scope:** Personal and project knowledge on Sid's Windows machine
