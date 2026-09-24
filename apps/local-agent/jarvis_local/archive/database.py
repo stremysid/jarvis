@@ -190,6 +190,13 @@ def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repa
                 f"{path} does not exist, and this opener does not create stores "
                 f"(no directory or permission was written)"
             )
+        if _is_posix():
+            # The POSIX inspection still runs, because it is not a write: it
+            # reads the mode and refuses a group- or world-readable store. A
+            # reader must still be told its store is exposed, and skipping the
+            # check here would make the read-only opener the quiet way past a
+            # guard the creating one applies.
+            _restrict_sqlite_directory(path)
         return
     # pathlib's parents=True applies mode only to the final directory. Create
     # and inspect each missing component so the node never makes a public

@@ -207,7 +207,9 @@ def test_store_and_live_wal_files_ignore_a_permissive_umask(    tmp_path: Path,
     database_path = tmp_path / "state" / "store.sqlite3"
     previous = os.umask(0o022)
     try:
-        store = open_store(database_path)
+        # The creating open: `state` does not exist, and the default opener
+        # refuses to manufacture a store rather than doing it quietly.
+        store = open_store(database_path, repair_permissions=True)
         store.connection.execute("CREATE TABLE permission_probe (value TEXT)")
         store.connection.execute("INSERT INTO permission_probe VALUES ('private')")
         files = [database_path, Path(f"{database_path}-wal"), Path(f"{database_path}-shm")]
@@ -344,15 +346,36 @@ def test_store_directory_refuses_wrong_type_or_owner(
     assert closed == [7]
 
 
-@POSIX_ONLY
 @pytest.mark.parametrize("mode", [0o755, 0o750])
-def test_connect_refuses_an_existing_shared_parent_without_chmod(tmp_path: Path, mode: int) -> None:
+def test_connect_refuses_an_existing_shared_parent_without_chmod(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int,
+) -> None:
+    """The default (read-only) opener still refuses a world-readable parent.
+
+    This is what keeps `repair_permissions=False` from being the quiet way past
+    the POSIX guard. Nothing is written -- the inspection only reads the mode and
+    refuses -- so it runs on the read-only path too, and a reader is still told
+    its store is exposed instead of opening it silently.
+
+    The POSIX branch is forced, and the three `os` calls it makes are stubbed, so
+    this runs and can be mutation-killed on a Windows host; otherwise it is a
+    POSIX-only test that the machine this is developed on never executes.
+    """
     parent = tmp_path / "owner-chosen"
     parent.mkdir()
     parent.chmod(mode)
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
+    monkeypatch.setattr(database.os, "open", lambda *_args: 7)
+    monkeypatch.setattr(
+        database.os, "fstat", lambda _descriptor: SimpleNamespace(st_mode=stat.S_IFDIR | mode, st_uid=1000)
+    )
+    monkeypatch.setattr(database.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(database.os, "close", lambda _descriptor: None)
+
     with pytest.raises(PermissionError, match=r"owner-chosen.*0700"):
         connect(parent / "archive.sqlite3")
-    assert stat.S_IMODE(parent.stat().st_mode) == mode
+    if os.name == "posix":
+        assert stat.S_IMODE(parent.stat().st_mode) == mode, "connect chmodded the parent instead of refusing"
     assert not (parent / "archive.sqlite3").exists()
 
 

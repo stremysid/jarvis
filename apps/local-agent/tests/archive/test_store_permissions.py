@@ -1013,6 +1013,7 @@ def test_the_broad_root_refusal_names_its_own_reason(monkeypatch: pytest.MonkeyP
         store_permissions.configured_store_roots()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="a Windows path only has these parts on Windows")
 def test_the_windows_owned_name_arm_refuses_on_its_own() -> None:
     r"""The name-based arm, called directly so nothing else can answer first.
 
@@ -1020,6 +1021,13 @@ def test_the_windows_owned_name_arm_refuses_on_its_own() -> None:
     literal list, and its parent is not a configured root here. Asserting through
     `_REAL_APPLY` would still pass if this arm were deleted, because the literal
     list would eventually catch it -- which is how this mutation survived.
+
+    Windows-only, because the arm matches a **path part** and POSIX `pathlib`
+    does not split on a backslash: on Ubuntu `Path(r"C:\Program Files")` is one
+    part, `C:\Program Files`, so the arm cannot fire and the containment check
+    answers instead -- a different refusal with a different sentence, which is
+    what `match=` turned into a red Ubuntu job. There is no POSIX spelling of
+    this input, so the test is skipped rather than rewritten.
     """
     for entry in (r"C:\Program Files", r"C:\Program Files (x86)", r"C:\Windows"):
         refused = Path(entry)

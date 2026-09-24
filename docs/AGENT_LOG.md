@@ -3,6 +3,293 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
+
+Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
+merge of `origin/main` `29fbfcd6` (`2fce59f2`); this entry is the commit after it.
+Items 1–12 of the round-3 review, and item 13's merge and gates. The real-DACL
+integration re-run is **not** done — it waits for Sid's guard window. No new
+feature, but **item 5 is a behaviour change a reviewer should read first**.
+
+**Item 1 — the nine Ubuntu failures, from CI rather than from the brief.** The
+run at `6838a1f1` is `gh run 35940644500`; ubuntu job `107447613804` reported
+`9 failed, 968 passed, 30 skipped`, windows job `107447613529`
+`1 failed, 964 passed, 42 skipped`. Six of the nine named
+`ctypes.WinError`/`ctypes.WinDLL`, which do not exist off Windows, so the module
+raised `AttributeError` where it means to raise `OSError`. Fixed with a
+`windows_error` fixture that does `monkeypatch.setattr(ctypes, "WinError", ...,
+raising=False)` — `raising=False` is required, because on POSIX there is no
+attribute to replace and a plain `setattr` refuses to add one — plus the same
+`raising=False` on the two tests that build their own fake. One of those six,
+`test_creating_a_store_directory_uses_the_configured_boundary`, is the one the
+brief's *alternative* fix cannot reach. The brief says
+"same for `WinDLL`", but `pipe_server._win32` imports `wintypes` as well
+(`from ctypes import wintypes`), which raises on a host with no Win32 types
+whatever `WinDLL` is bound to; binding a fake DLL would only move the failure
+one line down. That test now stubs
+`jarvis_local.transport.pipe_server.current_user_sid` instead, and says why.
+The ninth, `test_the_windows_owned_name_arm_refuses_on_its_own`, was matching
+`directory Windows owns` for a `Path(r"C:\Program Files")` that POSIX `pathlib`
+does not split on a backslash, so it was one part and the arm could not fire —
+another arm answered and the `match=` went red. There is no POSIX spelling of
+that input, so it is now `skipif(os.name != "nt")`, which the brief allows. The
+other two of the nine are item 3's below.
+
+**Item 2 — the Windows failure.** `test_the_startup_summary_names_the_default_when_nothing_is_configured`
+compared the stub's owner (`StubWin32.owner_sid`) against `current_user_sid()`,
+which is a *different* seam: it lives in the pipe server and reaches real Win32
+on a Windows runner, so the runner's true SID was compared with a stub and the
+summary came back with a warning appended. `store_permissions.current_user_sid`
+is now stubbed to the same SID. This is the fix the CI log named, and the only
+one of the ten that could not be reproduced here — it needs a real Windows
+`current_user_sid` to disagree with.
+
+**Items 3 and 4 — `_ensure_sqlite_directory`.** The second
+`_restrict_sqlite_directory` call is gone from the at-or-below-boundary branch;
+`_make_directory_private` already runs it on POSIX, and on Windows it returns
+immediately, so the duplicate made the recorder see `[outer, outer, inner, inner]`.
+The comment claiming `reversed(missing)` "creates them last" was backwards and is
+corrected: `missing` is built nearest-first, so reversing it creates the topmost
+component first. Above the boundary, Windows now takes a plain
+`directory.mkdir(parents=True, exist_ok=True)` with **no mode**, because
+`mode=0o700` there is not a mode — it is the CVE-2024-4030 DACL, which is the
+thing that emptied this account's profile. POSIX keeps `0700`, where a mode is
+the only thing that makes a directory private.
+
+**A brief correction.** Item 3 says dropping the second call "fixes
+`test_every_missing_store_ancestor_is_created_private_and_validated` and
+`test_connect_applies_the_directory_guard_to_the_store_parent`". It fixes them on
+Ubuntu and *breaks* both on Windows: with the duplicate gone, the Windows branch
+never calls `_restrict_sqlite_directory` at all, and both tests asserted its call
+list. Rather than mark them POSIX-only and lose the coverage, both now
+`monkeypatch.setattr(database, "_is_posix", lambda: True)`, so the call-counting
+assertion runs on either host, and `_restrict_sqlite_file` is no-opped only on a
+Windows host (`os.geteuid` does not exist there). The test file's own comment
+says the forced branch is deliberate. Both were then mutation-killed on this
+Windows host, which is the point.
+
+**Item 5 — the default opener writes nothing.** `repair_permissions` now defaults
+to **False** on `connect`, `ArchiveDatabase.open`, `ArchiveRepository.open`,
+`VaultRepository.open` and `repair_store_permissions`, and the parameter was
+added with the same default to `MemoryDatabase.open`, `FactRepository.open` and
+`VectorIndex.open`. `agent.open_stores` is the **only** caller that passes True;
+that is `jarvis serve`'s path, and
+`test_the_service_is_the_only_caller_that_asks_for_the_permission_repair` pins
+both sides of it. With False nothing is created and no ACL is written, so four
+test call sites that *build* a store now say `repair_permissions=True` — the
+alternative would have been a default that is safe in production and a suite that
+never exercises it. **This is the change to look at**: any future caller that
+expects an open to create its store now has to ask.
+
+One thing in that branch is deliberately **not** gated on `repair_permissions`:
+the POSIX `_restrict_sqlite_directory` inspection still runs for the read-only
+opener. It is not a write — it reads the mode and refuses a group- or
+world-readable store — so skipping it would make `repair_permissions=False` the
+quiet way past a guard the creating path applies, and `jarvis vault` would open a
+world-readable store in silence. That is also what keeps
+`test_connect_refuses_an_existing_shared_parent_without_chmod` meaning what it
+says, and it was made to run on this Windows host by forcing the POSIX branch
+rather than being left as a POSIX-only test this machine never executes. The
+other POSIX-only casualty of the new default is
+`test_store_and_live_wal_files_ignore_a_permissive_umask`, which builds its store
+under a missing `state/`; it now passes `repair_permissions=True`.
+
+**No Linux host exists anywhere in this fleet, so the Ubuntu job was reasoned
+about, not run.** WSL is installed but has no distribution registered
+(`wsl --list` → `Wsl/REGDB_E_CLASSNOTFOUND`), and registering one is a system
+change this session may not make. What was done instead: every test that could
+only have caught the round-3 fixes on Ubuntu was changed to force the POSIX
+branch (`_is_posix`) or to supply the missing `ctypes` name, so the guards are
+executed and mutation-killed here. Every one of the 32 Windows-host skips was
+then read for a store opened under a directory that does not exist — that is the
+only way the new default could redden the Ubuntu job without reddening this one —
+and the two that did
+(`test_store_and_live_wal_files_ignore_a_permissive_umask`,
+`test_connect_refuses_an_existing_shared_parent_without_chmod`) were fixed above.
+**CI is still the authority on whether the Ubuntu job is green**; nothing here
+claims to have observed it.
+
+`memory/compatibility_gate.py:VectorIndex.open` is **decided, explicitly: left at
+the default**. It is a diagnostic with no production caller, it writes a
+throwaway index into a directory its caller (`_verify_offline`) already made, and
+changing a real permission is not something a self-check should do on the
+strength of having been asked to measure an embedding provider. The reasoning is
+in the code, not only here.
+
+**Item 6 — `UnsafeStorePathError` is mapped.** Added to `node._serve`'s
+store-permission arm (exit 6) and to `cli._config`'s, with a test each. As a
+`RuntimeError` it otherwise fell through to the catch-all and printed "the Jarvis
+node could not start" (exit 4), indistinguishable from a busy pipe, with the
+sentence naming the refused path thrown away — which is the whole value of that
+exception.
+
+**Item 7 — the line reaches `boot.log`.** `cli._config` prints
+`store roots: {store_root_summary()}` before `configuration ready`, so
+`jarvis-boot.ps1`'s line-by-line copy carries it and the ownership warning lands
+on the run that *succeeds* — the failing run's output goes nowhere. Asserted by
+`test_a_usable_configuration_prints_the_store_roots_before_the_ready_line`.
+
+**Item 8 — the walk no longer aborts on an unreadable directory.** `record` logs
+and appends but does not set `aborted`; only `UnsafeStorePathError` aborts.
+**Found while doing it, and fixed in the same change:** the docstring claimed "a
+refused *DACL write* is deliberately not an abort", but the only other arm was
+`except OSError` and `StoreDaclRefusedError` is a `RuntimeError` — so a real
+Administrators-owned subdirectory propagated out of `repair_store_tree` and ended
+the repair in a traceback, the exact opposite of the documented behaviour.
+`StoreDaclRefusedError` and `StoreOwnerUnknownError` are now caught explicitly.
+Tests: an unreadable directory is reported and its siblings are still repaired;
+a refused DACL write likewise. The reparse guard is now pinned **on Linux too**,
+by monkeypatching `is_reparse_point` to report a real subdirectory as a reparse
+point and asserting it is not written while its siblings are — the existing
+`mklink /J` test remains for Windows. The reparse guard previously had no
+POSIX-side pin at all, so deleting it changed nothing on the Ubuntu job.
+
+**Item 9 — `AppData` is refused.** `%USERPROFILE%\AppData` has no environment
+variable of its own: it is the parent of both `%APPDATA%` and `%LOCALAPPDATA%`,
+so the environment-root arm cannot see it, and a store directly inside it was
+accepted above both configured roots. It is now a derived arm in
+`_refuse_unsafe_path` (derived from `USERPROFILE`, not listed), with its own
+message. Both named-arm tests were rewritten to call
+`_refuse_unsafe_path(<root>, <root>)` directly with `configured_store_roots` and
+`_refuse_broad_root` neutralised, **matching the message**, for `AppData`,
+`AppData\Local`, `AppData\Roaming` and `Temp` — so only the named arm can answer
+and the previous `pytest.skip` through `_refuse_broad_root` is gone. The four
+`AppData*`/`Temp` cases skip on non-Windows; they are the machine's own paths.
+
+**Item 10 — four OWNER-ACTIONS rows** under a `[PR #157]` heading, in order: the
+one-time Administrators-owned repair (elevated `jarvis serve` once, or the printed
+`icacls` line), the non-elevated-then-elevated manual `jarvis serve` acceptance,
+re-enabling the boot task only after that passes, and deleting
+`C:\jarvis-test-scratch` after the checkpoint-5 run.
+
+**Item 11 — the real-DACL file now checks for redirects before any write.**
+`assert_not_a_redirect` fails (never skips) if `C:\jarvis-test-scratch`, its
+`data` or its `admin-owned` is a symlink or any other reparse point, or if
+`resolve(strict=True)` is not the path itself. It runs from an autouse fixture
+and again from `scratch_store()` and `admin_owned_folder()`, which create two of
+the three after the fixture has run. A redirect would make every read-back in
+that file describe a different folder while looking like it described this one —
+the same class of failure the file exists to catch.
+
+**Item 12 — documentation.** `cloud_client.py`'s citation of `12a64b2` (an
+unrelated docs commit) is now `SyncService.acknowledgeDurableReceipt` in
+`sync-service.ts`, as of `38bab94b`, which is the commit that added the
+covered-range branch — verified with `git show 38bab94b --
+apps/cloud-gateway/src/sync/sync-service.ts`. The same test file cited
+`c0c2366` for `pageUpperBound`; that is the branch's merge commit, and the symbol
+came in `cbbf5905` and took its current form in `6f7ebcd6`, which is what it now
+cites. `_store_boundary`'s dead `if not configured: return path` is deleted —
+`configured_store_roots()` is never empty, so the branch was unreachable and it
+was the "no boundary" case the module exists to remove — and so is the
+always-true `_SQLITE_FILE_SUFFIXES and` in the suffix check. "Two rules now:" is
+"Three rules now:" (three are listed). The AppData claims in the module and
+`_refuse_unsafe_path` docstrings are rewritten to say which AppData and *why it
+needed its own arm*, and they and item 9's code landed together so the sentence
+and the behaviour cannot disagree.
+
+**Item 13 — merge and gates.** `origin/main` merged normally (`2fce59f2`). One
+conflict here and one in `OWNER-ACTIONS.md`; both resolved by keeping both sides,
+and the OWNER-ACTIONS date line is this round's `2026-09-24`.
+
+| suite | result |
+|---|---|
+| `uv run pytest -q --ignore=tests/integration` in `apps/local-agent`, final revision | **981 passed, 30 skipped, 0 failed** |
+| the same command at `64b90f87`, the revision before the last three test adjustments | 979 passed, 32 skipped, 0 failed — and once 978 passed, 32 skipped, **1 failed** (the flake below) |
+| `test_quarantine_control.py` alone | **40 passed, 2 skipped** — the failure is load-sensitive, not a real one |
+| `uv run ruff check .` in `apps/local-agent` (the CI command) | clean |
+| `uv run mypy jarvis_local` | `Success: no issues found in 59 source files` |
+| `apps/cloud-gateway/test/sync/sync-service.test.ts`, run alone, after the merge | **28 passed (28)** |
+| `node scripts/check-state.mjs` | passed — 3 carriers and the FACTS register, STATE.md within budget, links resolve, BLOCKS present |
+
+The skip count moves between runs by one or two and that is the machine, not the
+code: `test_the_walk_skips_a_reparse_point_instead_of_granting_it_access` skips
+itself when `mklink /J` refuses, and the two shared-parent parameters used to be
+POSIX-only. `--ignore=tests/integration` excludes exactly one file,
+`tests/integration/test_store_permissions_real_dacl.py`, which is the one the
+guard window covers. The gateway number is one file, not `test:all`: the root
+`test:all` chains packages with `&&` and stops at the first failure, so those
+numbers are not comparable. **A same-machine baseline was not captured this round
+in a clean state** — the only mid-round run was after the source changes and
+before the test updates (5 failed, 960 passed, 37 skipped), which is not a
+baseline and is not offered as one. CI at the pushed head is the authority.
+
+**The flake, named rather than assumed.** One of the two full runs failed
+`test_enqueue_lock_contention_returns_a_definite_failure_without_accepting_work`,
+which asserts `not thread.is_alive()` after `thread.join(timeout=0.5)` — a fixed
+half-second budget on a loaded machine. It passes alone, it passed in the other
+full run, it is not in `docs/QUEUE.md`'s flake list, and the path it builds takes
+its own `EmptyCycleOpener` and touches no permission code, so it is not this
+change. A QUEUE row is added so the next session does not diagnose it again.
+**"Failed under load, passes alone"** is the whole of the claim; the cause is not
+established.
+
+**Mutations — 13, all on the committed head, every source file restored from a
+byte copy (the restores were re-run green afterwards; `git status` was clean
+before the entry was written):**
+
+| # | mutation | result |
+|---|---|---|
+| M1 | `connect`'s `repair_permissions` default back to `True` | killed — `test_a_default_open_writes_no_acl` |
+| M2 | the read-only early return in `_ensure_sqlite_directory` → `if False:` | killed — `test_a_default_open_refuses_a_store_directory_that_does_not_exist` |
+| M3 | the duplicate `_restrict_sqlite_directory` call restored | killed — both directory-guard tests |
+| M4 | `mode=stat.S_IRWXU` restored on the Windows above-boundary ancestor | killed — `test_the_ancestor_above_the_boundary_is_created_without_a_mode_on_windows` |
+| M5 | `aborted = True` restored in `record` | killed — `test_an_unreadable_directory_does_not_abandon_the_siblings_that_could_be_repaired` |
+| M6 | `except (OSError, StoreDaclRefusedError, StoreOwnerUnknownError)` → `except OSError` | killed — `test_a_refused_dacl_write_does_not_abort_the_walk_either` |
+| M7 | the reparse skip → `if False and is_reparse_point(...)` | killed — `test_a_directory_reported_as_a_reparse_point_is_not_written_to` |
+| M8 | the derived AppData arm → `if False and ...` | killed — `test_appdata_itself_is_refused` |
+| M9a | `UnsafeStorePathError` removed from `cli._config`'s arm | killed — `test_a_path_the_guard_refuses_gets_the_same_exit_code_and_sentence` |
+| M9b | `UnsafeStorePathError` removed from `node._serve`'s arm | killed — `test_serve_reports_a_path_the_guard_refuses_as_a_store_permission_failure` |
+| M10 | the `store roots:` print removed from `_config` | killed — `test_a_usable_configuration_prints_the_store_roots_before_the_ready_line` |
+| M11 | `repair_permissions=True` dropped from `open_stores` | killed — `test_the_service_is_the_only_caller_that_asks_for_the_permission_repair` |
+| M12 | the POSIX inspection removed from the read-only branch | killed — `test_connect_refuses_an_existing_shared_parent_without_chmod` |
+
+**Zero survived**, and every source file was restored byte-identically before the
+next mutation (`git status` clean afterwards). The battery was re-run in full
+against the final head after the read-only inspection was added, so the table
+matches the code as pushed rather than an earlier revision. Five of them did not
+apply on the first pass because a PowerShell here-string emits `\n` while this
+checkout is CRLF; the harness now normalises line endings before matching, and
+the five were then killed. Recorded because "not applied" is not "passed" and the
+next session writing a mutation harness here will hit the same thing.
+
+**What I did NOT do, and why.**
+
+- **The real-DACL integration run.** Not started. Sid's guard window is not open,
+  and item 11's redirect assertions were added by reading the file and reasoning
+  about the failure mode, not by running it. **Nothing in this round has been
+  verified against real Win32.** Every claim above about behaviour is a unit test
+  against the stubbed seam.
+- **A clean same-machine baseline**, as stated under the gates table.
+- **`docs/STATE.md` and `docs/QUEUE.md` were not otherwise touched.** No item
+  asked, and the round-3 work is all inside this PR. The one QUEUE addition is
+  the flake row above.
+- **`docs/FACTS.md` has no new row.** Nothing durable about Sid or his
+  environment was learned this round; the machine facts this PR depends on
+  (`C:\jarvis-test-scratch` exists, `%LOCALAPPDATA%\Jarvis` is
+  Administrators-owned) are already in the carriers and in the PR body.
+
+**Out of scope, named rather than fixed.**
+
+- `memory/compatibility_gate.py:_verify_offline` calls
+  `workdir.mkdir(mode=0o700, parents=True, exist_ok=True)`. On Windows that is
+  the same CVE-2024-4030 DACL this whole PR exists to remove from ancestors —
+  `OW`/`SY`/`BA` and nothing naming the user. It has no production caller and the
+  directory is a throwaway under a caller-chosen path, so it is named here and
+  left alone rather than folded into a review round that did not ask for it.
+- `vault/cli_commands.py` still passes `repair_permissions=False` explicitly.
+  That is now the default and the argument is redundant; it is kept because it
+  documents the intent at the call site, and removing it would make a reader
+  check the default to learn the same thing.
+- `docs/AGENT_LOG.md`'s previous entry still says the item-13 documentation
+  corrections "are not done" and names `12a64b2`. That was true when it was
+  written and is superseded by this entry; the old entry is left as the record of
+  that round.
+
+Signed: **the model and the reasoning effort are not exposed to this session** —
+no `DSH_*` variable names either, and the harness reports only a session id — so
+no signature is claimed here. Stating that plainly rather than naming a model I
+cannot confirm. Builder: DeepSeek, in the DeepSeek Harness.
+
 ## 2026-09-24 — DeepSeek builder: the local-agent round-2 items, and three of my own tests that had to be rebuilt
 
 Branch `goal/sync-recovery` (PR #157), head `92808efa`, on top of a merge of
