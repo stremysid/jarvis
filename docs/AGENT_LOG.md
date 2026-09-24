@@ -3,6 +3,50 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: #162 restores claim-by-default after review
+
+**Supersedes the earlier tutoring guard's design and evidence claim.** The
+reviewed `8dcf96b` failed open when its external-target vocabulary missed a person
+or object. The revised source/test checkpoint is `c9d8ca3`; claims now remain
+guarded unless a positive worked marker in the same sentence has no person,
+person pronoun, or storage/reservation object. Saves still reach receipt checks.
+`applied ... for you` is unconditional again except the narrow worked-rule span.
+
+- **Probe provenance matters:** the reviewer's original 70-sentence file was not
+  supplied or found in the PR. The added file labels its 70 probes as reconstructed
+  from Sid's examples/categories. On this exact reconstructed set, observed source
+  baselines caught **70/70 at `a666097`**, **11/70 at `8dcf96b`**, and **70/70 now**.
+  Its 59 reproduced regressions are not the reviewer's different 52-count corpus.
+  Each baseline source was restored byte-identically. Final code/essay cases:
+  **11/11 retained**, including milliseconds, Flask/email/parent-constructor code,
+  application essays and the teacher's rubric.
+- **Stricter tutoring policy:** seven formerly allowed sentences without any
+  required marker are retained as must-block tests, paired with marked teaching
+  variants. No pre-PR guard assertions were weakened. The prompt remains one line.
+- **Focused:** 1,162 passed / 0 failed / 0 skipped in 6 files, before one last
+  singular-subject test. **Restored corpus:** 206 / 0 / 0 in 2 files. **Full gateway
+  suite, once:** **5,321 passed / 0 failed / 0 skipped in 192 files**, no flake rerun.
+- **Mutations:** 31 expected named kills, each confirmed twice; 0 wrong-test,
+  unconfirmed, survived, not-applied or invalid. Both source files restored
+  byte-identically. Includes M10 sentence scope on both paths, M13's direct prompt
+  assertion, positive-marker/person/storage vetoes, receipt support and refusal,
+  all contextual verbs, applied-for-you bounds, code exceptions and secret requests.
+  All named tests passed afterward in the restored corpus. Exact specs and outputs
+  are alongside `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` (`tutoring-r1-*`).
+- **Other gates:** source typecheck passed; non-gating test typecheck has 143
+  errors in 31 unchanged files, none in this PR's changed tests. State check passed
+  all 3 carriers; diff check passed. CODE-VS-JUDGMENT row renumbered to 11.
+- **Normal merge:** `5df4927` has parents `8dcf96b` and `a6a0efd`. Only AGENT_LOG
+  conflicted; both histories are retained. No force push, migration, production,
+  live model/channel acceptance or PC setting change. No new owner-only action.
+- **Known gaps retained and probed:** all five optional passive statements still
+  escape (fee is paid / has been paid, email has gone out, form is in, teacher has
+  been told). The existing asked-about exemption also remains. These are disclosed
+  in the PR; the heuristic is not a comprehensive language guarantee.
+
+**Next, on the updated remote head:** automated and independent adversarial review.
+— Codex (builder)
+
 ## 2026-09-23 — Codex builder: tutoring replies keep their sentences
 
 **Branch:** `codex/tutoring-guard-run`, based on freshly fetched `a666097`.
