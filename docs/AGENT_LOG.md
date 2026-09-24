@@ -981,6 +981,16 @@ marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
 live check. No live API, secret, paid action, production operation, real
 migration, deploy, merge into main or PC-setting mutation was performed.
 
+## 2026-09-24 — Telegram body timeout and provider audit
+
+Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
+
+- **T4 result:** `TelegramRestProvider.sendMessage` and `sendChatAction` now keep their abort timers armed through `response.json()`. An aborted body read returns a transient `timeout`; each path clears its timer in `finally`. The original hung-request comment now covers the body read.
+- **Other providers result:** inspected every file under `apps/cloud-gateway/src/providers/` for fetch/body deadline ordering. Twilio and capacity readers retain deadlines through their body reads. `DeepSeekModelAdapter.stream` clears its overall timer before `response.text()` on an HTTP error; recorded the stalled-error-body follow-up in `KNOWN_ISSUES.md`. Did not edit `deepseek-provider.ts`, which #174 owns. No other headers-then-unguarded-body case found.
+- **New test names in `telegram-body-timeout.test.ts`:** `times out when sendMessage receives headers but its body stalls`; `times out when sendChatAction receives headers but its body stalls`. Both use fake timers and an abort-aware injected fetch, and assert the transient timeout, body abort, and zero pending timers. The existing Telegram test file is unchanged.
+- **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
+- **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
+
 ## 2026-09-24 — local-agent quarantine retry test timing
 
 Signed: **Codex GPT-6 Sol (headless builder, xhigh, sandboxed)**.
