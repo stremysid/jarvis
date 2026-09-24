@@ -3,6 +3,12 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 integrates newly merged #164
+
+Signed: Codex, builder. The mandatory final fetch while finishing #168 brought `0b63b916` (#164), after both once-only full runs had finished. Normally merged it into A as `bc70f023` to resolve the shared tool-description conflict. Retained #164's complete school, university and study descriptions and appended the deadline versus finished-work distinction. Both log histories and both CODE-VS-JUDGMENT sections remain. Deadline source and owner-agent core are unchanged from A's already reviewed integration source.
+
+Final integration gate: **454 passed / 0 failed / 0 skipped, 22 files** (deadline/school folders, owner-pipeline integration and classification). Source types passed, 0 diagnostics; test types remain 143 existing diagnostics, none in these changed/new files. State passed all 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff check passed. The earlier 5,227/1/0 full run and its 70/0/0 isolated rerun remain reported **before #164**, not as a final-tree full run. Per Sid's once-only full-suite instruction, only affected integration gates were rerun. No new proof guard or mutation was added by this merge; the 40 confirmed probes cover unchanged proof code. #168 receives this updated A head by normal merge next.
+
 ## 2026-09-24 — Codex builder: #166 round 1, carry into #168
 
 Signed: Codex, builder. Addresses the eleven review requests on `a4af0baa190f1cfc7d8ada717e9231714cc15bc7`. Owner timezone is wired from DIGEST_TIMEZONE with Toronto fallback; a different zone needs literal due-phrase evidence and receipts remain in the owner zone. One short grounded dueExcerpt proves date and clock together using the durable current-message event timestamp. Relative/partial forms, explicit date-only/end-of-day receipts, missing/ambiguous date reasons, status preservation/synonyms, normalised principal-scoped matching and honest upsert outcome/previous-time receipts are implemented. Effort uses the ingestion lead defaults; explicit owner metadata updates preserve the collector's existing retag contract.
