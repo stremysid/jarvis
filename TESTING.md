@@ -4,20 +4,6 @@ Command inventory checked on 2026-09-23 against
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. Use PowerShell (`pwsh`) on Windows.
 Commands below start at the repository root unless stated otherwise.
 
-## Safety on the owner's PC
-
-Do not run tests or tools that change real permissions, ownership, ACLs, services,
-scheduled tasks, registry or logon settings. Permission operations must be fully
-mocked. Do not use the owner's runtime stores, boot task or `C:\jarvis-test-scratch`
-as fixtures. Never run `apps/local-agent/tests/integration` here. Excluding that
-directory alone does not prove other tests safe: inspect the selected tests and
-their fixtures before executing them. Hermes tests also include real file-mode
-changes, so its full suite is not a safe local default under this restriction.
-
-The required incident report, `C:\Users\Sid\Downloads\jarvis-profile-incident.md`,
-was absent during this audit. No local-agent or Hermes runtime tests were run.
-See [OWNER-ACTIONS](docs/OWNER-ACTIONS.md) for recovery of that report.
-
 ## Toolchain and dependency setup
 
 [package.json](package.json) requires Node `>=24.19.0 <25` and pins
@@ -41,8 +27,8 @@ use the project's environment through `uv run`.
 | `pnpm.cmd test:cloud` | Gateway test directory, using the root workspace config. |
 | `pnpm.cmd test:acceptance` | `tests/acceptance` in that same config. |
 | `pnpm.cmd test:watchdog` | Watchdog's own [Vitest config](apps/watchdog/vitest.config.ts). |
-| `pnpm.cmd test:runtime` | Hermes's full Node Vitest selection, including the two extended files. Subject to the PC restriction above. |
-| `pnpm.cmd test:all` | Sequentially runs `test`, `test:runtime`, `test:watchdog`; stops on failure. Does not include Python or standalone Node script tests. Subject to the PC restriction above. |
+| `pnpm.cmd test:runtime` | Hermes's full Node Vitest selection, including the two extended files. |
+| `pnpm.cmd test:all` | Sequentially runs `test`, `test:runtime`, `test:watchdog`; stops on failure. Does not include Python or standalone Node script tests. |
 | `pnpm.cmd typecheck` | Recurses over package scripts. Gateway covers `src/**/*.ts`, not its test tree; Hermes uses `node --check` on four source files. |
 | `pnpm.cmd lint` | Recurses over package scripts. Four packages use `tsc --noEmit`; Hermes uses `node --check`. This is not a general-purpose lint gate. |
 | `pnpm.cmd --filter @jarvis/cloud-gateway typecheck:tests` | Gateway source and tests via `tsconfig.test.json`. Not in CI. |
@@ -62,16 +48,15 @@ The root config sets `testTimeout: 15_000`.
 
 [local-agent/pyproject.toml](apps/local-agent/pyproject.toml) requires Python
 `>=3.12,<3.15`, enables Ruff's `ANN` rules (including tests) and mypy strict mode.
-For an inspected selection with fully mocked permission operations:
+Run its suite from the package directory:
 
 ```powershell
 Push-Location apps/local-agent
-uv run pytest --ignore=tests/integration -q tests/<reviewed-file>.py
+uv run pytest -q
 Pop-Location
 ```
 
-Replace `<reviewed-file>` with an existing, safety-reviewed test; it is a
-placeholder, not a runnable file. Static checks from `apps/local-agent` are
+Static checks from `apps/local-agent` are
 `uv run ruff check .` and `uv run mypy --platform win32 jarvis_local`.
 Skip counts depend on platform and selection, so there is no fixed expected
 local skip count. [Vault conftest](apps/local-agent/tests/vault/conftest.py)
@@ -86,8 +71,7 @@ local-agent, but has no brain-bridge job.
 [CI](.github/workflows/ci.yml) runs workspace lint/typecheck/tests, watchdog,
 deployment-script tests on Windows, Hermes on Windows, local-agent on Windows
 and Ubuntu, byte-exact checkout checks, and `state-carriers`. Its local-agent
-job currently runs unrestricted `uv run pytest -q` on disposable runners;
-**do not copy that command onto this PC**. Both mypy jobs target `win32`.
+job runs `uv run pytest -q`. Both mypy jobs target `win32`.
 
 Regular Hermes CI excludes `source-lock.test.mjs` and
 `workflow-containment-review5.test.mjs`. The manually dispatched

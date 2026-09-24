@@ -8,15 +8,18 @@ was checked against `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` on 2026-09-23.
 Standing requirements:
 
 - **Jarvis is the brain; code is the body.** Code supplies tools, provenance,
-  storage and receipts. [CODE-VS-JUDGMENT](docs/CODE-VS-JUDGMENT.md) records
+  storage and receipts; **code does not decide what Sid meant**.
+  [CODE-VS-JUDGMENT](docs/CODE-VS-JUDGMENT.md) records
   implementation departures; the principle is not a claim they were removed.
 - **Ask first** for actions that spend money, affect another person or cannot
   be undone. The roadmap's intended autonomy model and the current capability
   table are distinct; see [STATE](docs/STATE.md).
+- **Everyday actions do not ask.** The roadmap's Free tier covers reading,
+  remembering, reminding, answering and updating school data.
 - **Keep credentials out of source, fixtures and logs.** Cloudflare bindings
   are not the only credential surface: the Windows agent has device-key and
   DPAPI code. A secret name in configuration is not evidence it has been set.
-- **St. Remy's codebase is outside this repository's scope.**
+- **St. Remy's codebase is off limits from a Jarvis session.**
 - **The owner's host fleet is Windows, not Linux.** Linux-targeting legacy
   code and Ubuntu CI jobs still exist; that does not authorize a Linux host.
 

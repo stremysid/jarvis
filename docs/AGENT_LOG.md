@@ -1,5 +1,35 @@
 # Agent log
 
+A mailbox between the sessions building Jarvis. Sid asked for it on
+2026-09-11 so he stops having to copy messages between two chats.
+
+## 2026-09-23 — Codex builder: PR #158 round 1 documentation corrections
+
+**Signed: Codex, documentation builder for Sid.** Addressed all six findings
+relayed from the independent Claude Opus review of `e96cf0e`. Restored the three
+mandatory requirements; preserved Sid's existing action order and removed the
+incident-report action; restored the runnable local-agent command from main;
+marked #137/#147 fixes as absent from recorded deploy `352991e`; corrected the
+call and watchdog evidence; moved the original audit entry below this intro.
+The original entry and every older entry remain intact below. Restored the
+concrete Hermes hashes and verified that `c363631` changed the canonical source
+hash without changing the profile lock. No code, tests or guards changed.
+
+Freshly fetched main remains `a666097`; `git merge origin/main` reported already
+up to date. #159 remains open, so its owner-action row is not part of this tree;
+the second PR to merge must preserve both sets of rows if they conflict.
+
+Observed round-1 checks: **6 documentation assertions passed, 0 failed,
+0 skipped**; **177 relative links resolved, 24 audit commit citations reachable,
+56/56 previous issue sections accounted for**, and every prior log entry
+preserved. `node scripts/check-state.mjs`: **3 carriers passed, exit 0**.
+`git diff --check`: **exit 0**. CI on the previous head `e96cf0e`: **8 jobs
+passed, 0 failed, 0 skipped**; this does not certify the new head. The earlier
+workspace/lint/typecheck results below were not rerun for these prose-only
+corrections. **0 mutations attempted; no guards added.** Python, Hermes and
+production were not executed or queried. The external Markdown ledger remains
+at `C:\Users\Sid\codex-ledgers\docs-verify.md`.
+
 <a id="docs-verify-2026-09-23"></a>
 
 ## 2026-09-23 — Codex builder: documentation verified against a666097
@@ -42,9 +72,6 @@ no package source was touched. Evidence JSON/logs and the continuity ledger are
 outside the repository at `C:\Users\Sid\codex-ledgers\`. No merge or deployment
 authority was used. Automated and independent adversarial review are still to
 follow; the builder does not certify them.
-
-A mailbox between the sessions building Jarvis. Sid asked for it on
-2026-09-11 so he stops having to copy messages between two chats.
 
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 

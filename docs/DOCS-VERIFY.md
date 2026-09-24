@@ -11,9 +11,8 @@ Audit base: `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, freshly fetched from
   paths, avoiding two copies that could drift.
 - The supplied older AGENTS text was stale: current AGENTS uses STATE/QUEUE/
   OWNER-ACTIONS and PATH-resolved uv. It no longer says system Python is a stub.
-- The required incident report in Downloads is absent. The explicit task safety
-  rules were retained; no local-agent or Hermes test was run, and no permission,
-  service, scheduled-task, registry, logon or production operation was performed.
+- No local-agent or Hermes test was run, and no permission, service,
+  scheduled-task, registry, logon or production operation was performed.
 - `check-state.mjs` is in CI (`f9472d1`). It is a structural check, not evidence
   that arbitrary factual statements are true.
 - The initial open-PR query returned #96, #122, #154, #155 and #156. The prompt's
@@ -34,7 +33,7 @@ Audit base: `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, freshly fetched from
 |---|---|
 | README | Package directories, entry points, bindings, shared core, tool definitions and channel composition checked. Product aspiration labeled as a goal. Removed unsupported “runs nowhere” certainty for brain bridge. Deployment explicitly bounded to recorded source/version. |
 | REQUIREMENTS | Compared against the owner's seven-phase roadmap, AGENTS and CODE-VS-JUDGMENT. Requirements separated from implemented guarantees; Windows host fleet distinguished from Ubuntu CI/legacy code; cloud secrets distinguished from local device keys. The gap-table link exists, but its assessment is dated 0611803 and predates shared voice tools. |
-| TESTING | Read all workspace package scripts, root and watchdog configs, Python pyprojects, both CI workflows, voice release driver, and script-suite inventory. Corrected scope, counts, Python guidance and release-gate behavior; described runner commands separately from safe local selections. Relative links checked mechanically. |
+| TESTING | Read all workspace package scripts, root and watchdog configs, Python pyprojects, both CI workflows, voice release driver, and script-suite inventory. Corrected scope, counts, Python guidance and release-gate behavior; local-agent command restored to the runnable command on main in round 1. Relative links checked mechanically. |
 | KNOWN_ISSUES | Read all 56 previous sections, traced their named implementations and relevant history. Dispositions below retain unresolved limits, remove fixed defects and distinguish unverified external acceptance. No planned feature is promoted to built. |
 
 ## Disposition of every previous known-issue section
@@ -90,7 +89,7 @@ a production rollout.
 | 42 | Study-coach digest check-ins are claimed before delivery | Retained pre-delivery last_prompted_on claim. |
 | 43 | Study-coach retirement and forget controls are one-way | Retained terminal supersession and no undo; grammar also accepts weak area and optional words, so old exact-shape claim corrected. |
 | 44 | Must-report gap: deployed, gateway delivery still needs verification | Removed: `aec4734` implements must-report handling; `2ebdece` fixes gateway routing; STATE records gateway heartbeat as of 352991e. |
-| 45 | Nothing watches the watchdog | Retained external-monitor gap as recorded/unverified configuration. |
+| 45 | Nothing watches the watchdog | Retained STATE's explicit “No external watchdog” observation; no fresh production query. |
 | 46 | The watchdog's alert path can be configured and still broken | Retained configured-versus-delivered distinction. |
 | 47 | One shared heartbeat secret for every component | Retained shared-secret component impersonation boundary. |
 | 48 | Two transcribed copies must be kept in step by hand | Retained manual-copy drift risk; removed categorical claim that nothing can fail before production. |
