@@ -7,6 +7,13 @@ Read the entire #170 description and its contract-gap report at
 `5420836ece76a199c3541cfba9f27fa094e3f53a`. No school account or deployed gateway
 was queried. [Design](../plan/2026-09-23-d2l-collector-design.md).
 
+Normally merged documentation-only main `54c1b67b80421e540161714e666cec1b81e3f189`
+(#173) in `e48149e3`, preserving its full owner probe report and corrected owner
+action. The extension advanced to `f8f11a4f90c96dc05cb72811e880cd8715944aed` during
+this work. Inspected its runtime diff: queue limits/session fallback changed,
+but `protocol.js`, signed paths and course batch fields did not. No rebase or
+force push occurred.
+
 ## Extension handoff: every contract change
 
 Paths, SignedRequestV1, canonical UTF-8 body bytes, body SHA-256, audience,
@@ -17,7 +24,7 @@ unchanged. Existing LDSB course batches and all pairing field names still work.
 |---|---|
 | Durham hostname accepted and persisted | Send `host:"durham.elearningontario.ca"`, exactly as #170 already constructs it. No relabelling |
 | Course `news/` and `quizzes/` routes accepted | Send the full existing batch. News remains raw evidence; dated quizzes project |
-| myItems `{Objects,Next}` and query-bearing page routes accepted | Retain each raw page under its actual route. Include all Next-linked results before claiming complete; unfetched/cyclic Next links fail coverage. Legacy arrays still work |
+| myItems `{Objects,Next}` and query-bearing page routes accepted | Retain each raw page under its actual route. Next must resolve to an observed page of the same tool; absent, cyclic or different-tool links fail coverage. Legacy arrays still work |
 | `200 []` student submissions accepted | Send the original array. Submission status remains unknown |
 | Complete optional-tool 404 accepted | Keep actual status/body and complete:true, like JSON 403. Missing tools remain visible |
 | **New host-only failure variant** | Same root fields, but `course:null`, `courseIds:[]`, `enrollmentComplete:false`. At least one versions/enrollment route result. Always outcome failed; no invented course |
@@ -53,7 +60,9 @@ items. A host failure is a compact failure report, never truncated success.
 
 #170 still holds unsupported batches locally at its reviewed head. Its builder
 must update that compatibility hold after receiver rollout and emit the new host
-failure variant. This PR changes no extension-owned file and makes no live-ingest claim.
+failure variant. Its queue's `batch.course.id` access must support null for that
+variant. Its local `normalEvidence` status also needs to recognize complete 404s.
+This PR changes no extension-owned file and makes no live-ingest claim.
 
 ## Decisions and evidence semantics
 
@@ -106,6 +115,22 @@ Iteration history, pass/fail/skip:
   These are local tests, not a remote D1 rehearsal.
 - Source typing: **0 diagnostics**. Test typing: **143 diagnostics outside
   collector files, 0 inside**, the existing non-gated debt.
+- Own review found a specific paging bug after that checkpoint. Named test
+  **does not count a different tool response as the next myItems page** was
+  **0/1/0** before the fix: a grades result satisfied a myItems Next link. Requiring
+  the same tool pathname produced **1/0/0**. The new guard and the affected missing
+  and cyclic page guards were mutation-checked after the fix.
+- Final merged collector run: **69/0/0**, six files, 17.58 seconds.
+
+Mutation evidence: **63 distinct cases killed in 65 confirmed attempts** (62 initial
+plus 3 paging follow-ups). **0 survived, 0 wrong-test kills, 0 unconfirmed,
+0 NOT APPLIED, 0 invalid**. Each named fault failed twice, then the named restored
+test passed. Initial sweep restored **8 files** byte-identically; follow-up restored
+**1 file**. Initial baselines were **15/0/0**, **21/0/0**, **1/0/0** and **9/0/0**;
+paging follow-up baselines were **15/0/0** and **1/0/0**. Every named run selected one
+test: red **0/1** twice and restored **1/0**, with **14**, **20**, **8** or **0** other
+tests skipped depending on the selected file. Logs: `d2l-receiver-fix-mutations.txt`
+and `d2l-receiver-fix-page-mutations.txt` beside the external ledger.
 
 The new mutation specification is
 [`mutation-specs-d2l-receiver-fix.json`](../../reviewer-tools/mutation-specs-d2l-receiver-fix.json).
