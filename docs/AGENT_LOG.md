@@ -3,6 +3,10 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 retains newly merged #170
+
+Signed: Codex, builder. The next fetch brought main `f56f279d` (#170 extension). Normal merge `4f8229a4` keeps both log histories. Gateway source/tests are identical to the #172 integration tree (`git diff --quiet`, exit 0), so its 789/0/0 and production 1/0/129 checks still apply. The extension's complete local Node unit suite passed **50/0/0**; no browser, live D2L session, network collector or real PC configuration was used. State/diff passed. No repeated gateway full run or new task guard. B receives this final A head.
+
 ## 2026-09-24 — Codex builder: #166 integrates newly merged #172
 
 Signed: Codex, builder. Both once-only full runs had finished when fresh main advanced to `7b805fa2` (#172). Normal merge `2e08bd48` preserves its guided tools, receipt checks, provider wiring and 0043 registration alongside the shared argument tools. Both log histories and owner-action rows remain. The generic available-tools voice prompt remains truthful for guided drafts and #168 reminders; it does not claim guided drafts are the only message delivery tool.
