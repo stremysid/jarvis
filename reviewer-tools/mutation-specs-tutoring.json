@@ -1,0 +1,458 @@
+[
+  {
+    "name": "M01 Unknown objects remain claims",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (object === undefined) return false;",
+    "replace": "if (object === undefined) return true;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "catches the exact reviewer blocker: I told your brother the formula"
+  },
+  {
+    "name": "Added numeric object is tied to the equation",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:neverNumeric|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps the complete maths explanation: We added 5 to both sides"
+  },
+  {
+    "name": "Added term remains a worked object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|neverTerm|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: I added the term 6x"
+  },
+  {
+    "name": "Added artifacts remain worked objects",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|neverArtifact|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "keeps the worked code or essay explanation: I added an email validation function"
+  },
+  {
+    "name": "A millisecond timeout is a code object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|neverTimeout|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "keeps the worked code or essay explanation: We added a 200 ms timeout"
+  },
+  {
+    "name": "Error handling is a code object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|neverErrorHandling)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: I added error handling"
+  },
+  {
+    "name": "Applied transaction modifiers veto the object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_TRANSACTION_OBJECT.test(object)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "rejects a non-explanation object or an explanation with an external context: I applied the discount rule"
+  },
+  {
+    "name": "M10 First-person context does not cross sentences",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "isWorkedExplanation(sentence.text, verb, tail)",
+    "replace": "isWorkedExplanation(reply, verb, tail)",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps tutoring sentences around a false claim"
+  },
+  {
+    "name": "M10 Completion context does not cross sentences",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "isWorkedExplanation(sentence.text, \"applied\", tail)",
+    "replace": "isWorkedExplanation(reply, \"applied\", tail)",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "limits the applied-for-you exemption to its own sentence"
+  },
+  {
+    "name": "Applied masking uses the same object and context checks",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return isWorkedExplanation(sentence.text, \"applied\", tail) ? \" \".repeat(value.length) : value;",
+    "replace": "return \" \".repeat(value.length);",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "keeps the second filed action visible"
+  },
+  {
+    "name": "Worked applied completions can be masked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return isWorkedExplanation(sentence.text, \"applied\", tail) ? \" \".repeat(value.length) : value;",
+    "replace": "return value;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps the complete maths explanation: Applied the chain rule for you"
+  },
+  {
+    "name": "Unreceipted saves still get checked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!isReceiptedInternalClaim(sentence.text, verb, receipted)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "requires a receipt before the internal saved claim can survive"
+  },
+  {
+    "name": "Receipted saves remain available",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!isReceiptedInternalClaim(sentence.text, verb, receipted)",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "requires a receipt before the internal saved claim can survive"
+  },
+  {
+    "name": "New action signed\\s+(?:you\\s+)?up stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|neverAction|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "catches the previously missing action claim: I signed you up for the 2 pm info session"
+  },
+  {
+    "name": "New action reserved stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|neverAction|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "catches the previously missing action claim: I reserved a spot for you"
+  },
+  {
+    "name": "New action cancelled stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|neverAction|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "catches the previously missing action claim: I cancelled your 4 pm appointment"
+  },
+  {
+    "name": "Passive completion Your fee has been paid stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:neverPassive\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "Your fee has been paid"
+  },
+  {
+    "name": "Passive completion Your payment was made stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|neverPassive|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "Your payment was made"
+  },
+  {
+    "name": "Passive completion Your registration was completed stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|neverPassive\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "Your registration was completed"
+  },
+  {
+    "name": "Passive completion Your email has gone out stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|neverPassive\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "Your email has gone out"
+  },
+  {
+    "name": "Passive completion Your teacher has been told stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|neverPassive\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "Your teacher has been told"
+  },
+  {
+    "name": "Passive completion The form is in stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|neverPassive\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three-held-out.test.ts",
+    "expect": "The form is in"
+  },
+  {
+    "name": "Passive completion Your meeting was booked stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|neverPassive\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "Your meeting was booked"
+  },
+  {
+    "name": "Secret requests still reach their guard",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);",
+    "replace": "const secretRanges: Array<{ start: number; end: number }> = [];",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps the secret-request guard after a worked explanation"
+  },
+  {
+    "name": "M13 Prompt rule is asserted literally",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt.",
+    "replace": "Worked explanations.",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "tells the owner model that worked explanations need no action receipt"
+  },
+  {
+    "name": "Inclusive booked has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({",
+    "replace": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({\n  booked: /^\\s+the\\s+example\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We booked the example below"
+  },
+  {
+    "name": "Inclusive scheduled has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({",
+    "replace": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({\n  scheduled: /^\\s+the\\s+example\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We scheduled the example below"
+  },
+  {
+    "name": "Inclusive requested has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({",
+    "replace": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({\n  requested: /^\\s+the\\s+example\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We requested the example below"
+  },
+  {
+    "name": "Inclusive shared has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({",
+    "replace": "const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({\n  shared: /^\\s+the\\s+example\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We shared the example below"
+  },
+  {
+    "name": "Worked object for added",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps the complete maths explanation: We added 5"
+  },
+  {
+    "name": "Worked object for applied",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|rubric(?:\\s+(?:that\\s+)?your\\s+teacher\\s+uses)?\\b)/iu,",
+    "replace": "  applied: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts",
+    "expect": "keeps the complete maths explanation: We applied the chain rule"
+  },
+  {
+    "name": "Worked object for called",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "replace": "  called: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: I called calculateArea()"
+  },
+  {
+    "name": "Worked object for told",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  told: /^\\s+the\\s+(?:loop|function|compiler)\\b/iu,",
+    "replace": "  told: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: I told the compiler"
+  },
+  {
+    "name": "Worked object for asked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  asked: /^\\s+the\\s+(?:loop|function|compiler)\\b/iu,",
+    "replace": "  asked: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: We asked the function to print"
+  },
+  {
+    "name": "Worked object for saved",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  saved: /^\\s+(?:[a-z]|(?:the\\s+)?(?:result|value))\\s+(?:as|in)\\s+a\\s+variable\\b/iu,",
+    "replace": "  saved: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-held-out.test.ts",
+    "expect": "keeps the held-out tutoring sentence: I saved the result"
+  },
+  {
+    "name": "Worked object for \"put in\"",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z](?=\\s*(?:[,.;:!?]|$|\\s+(?:and|to|into|so)\\b))/iu,",
+    "replace": "  \"put in\": /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-two.test.ts",
+    "expect": "keeps a numeric substitution with an explicit variable"
+  },
+  {
+    "name": "R3 B1 Told cannot address a program",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  told: /^\\s+the\\s+(?:loop|function|compiler)\\b/iu,",
+    "replace": "  told: /^\\s+the\\s+(?:loop|function|compiler|program)\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps an ambiguous object or unparsed clause as a claim: I told the program to print"
+  },
+  {
+    "name": "R3 B1 Asked cannot address a program",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  asked: /^\\s+the\\s+(?:loop|function|compiler)\\b/iu,",
+    "replace": "  asked: /^\\s+the\\s+(?:loop|function|compiler|program)\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps an ambiguous object or unparsed clause as a claim: We asked the program to print"
+  },
+  {
+    "name": "R3 B2 A helper must identify a function or method",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "replace": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|(?:parent\\s+)?helper(?:\\s+(?:function|method))?)\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "catches the round-three reviewer blocker: Good question! I called the helper."
+  },
+  {
+    "name": "R3 B3 A variable object cannot absorb an article and noun",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z](?=\\s*(?:[,.;:!?]|$|\\s+(?:and|to|into|so)\\b))/iu,",
+    "replace": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z](?:\\s+[a-z]+)?\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "catches the round-three reviewer blocker: I put in 2 for a refund."
+  },
+  {
+    "name": "R3 B4 The tail must parse completely",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return WORKED_CONTINUATION.test(remainder);",
+    "replace": "return true;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "catches the round-three reviewer blocker: I added a function via GitHub."
+  },
+  {
+    "name": "R3 B5 Continuations are anchored to the end",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  String.raw`^(?:\\s+(?:below|above|example|recursively|twice|to\\s+(?:${WORKED_OPERATION}|${WORKED_TARGET})|(?:in|on|with|of|around|between)\\s+${WORKED_TARGET}|of\\s+balancing\\s+${WORKED_TARGET}|of\\s+\\d+\\s+ms|explaining\\s+${WORKED_TARGET}|showing\\s+an\\s+application\\s+of\\s+the\\s+(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)|that\\s+(?:sums|checks)\\s+${WORKED_TARGET}|before\\s+(?:assigning|setting)\\s+${WORKED_TARGET}|named\\s+[a-z_][\\w]*|and\\s+got\\s+${WORKED_VALUE})|\\s*,?\\s+so\\s+(?:${WORKED_VALUE}\\s*=\\s*${WORKED_VALUE}|the\\s+roots\\s+are\\s+${WORKED_VALUE}\\s+and\\s+${WORKED_VALUE}))*\\s*[.!?]?\\s*$`,",
+    "replace": "  String.raw`^(?:\\s+(?:below|above|example|recursively|twice|to\\s+(?:${WORKED_OPERATION}|${WORKED_TARGET})|(?:in|on|with|of|around|between)\\s+${WORKED_TARGET}|of\\s+balancing\\s+${WORKED_TARGET}|of\\s+\\d+\\s+ms|explaining\\s+${WORKED_TARGET}|showing\\s+an\\s+application\\s+of\\s+the\\s+(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)|that\\s+(?:sums|checks)\\s+${WORKED_TARGET}|before\\s+(?:assigning|setting)\\s+${WORKED_TARGET}|named\\s+[a-z_][\\w]*|and\\s+got\\s+${WORKED_VALUE})|\\s*,?\\s+so\\s+(?:${WORKED_VALUE}\\s*=\\s*${WORKED_VALUE}|the\\s+roots\\s+are\\s+${WORKED_VALUE}\\s+and\\s+${WORKED_VALUE}))*\\s*[.!?]?\\s*`,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "catches the round-three reviewer blocker: I added an example to the thesis committee's folder."
+  },
+  {
+    "name": "R3 The prefix cannot hide an earlier action",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (!WORKED_CLAIM_PREFIX.test(prefix)) return false;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps an ambiguous object or unparsed clause as a claim: I accepted it, then applied the method for you."
+  },
+  {
+    "name": "R3 Parsed continuations preserve explanations",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return WORKED_CONTINUATION.test(remainder);",
+    "replace": "return false;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three-held-out.test.ts",
+    "expect": "keeps the new held-out tutoring sentence: I added -6 to both sides to isolate y."
+  },
+  {
+    "name": "R3 Worked continuation can isolate",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "replace": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I added 3 to both sides to isolate"
+  },
+  {
+    "name": "R3 Worked continuation can simplify",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "replace": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I added 3 to both sides to simplify"
+  },
+  {
+    "name": "R3 Worked continuation can check",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "replace": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I added 3 to both sides to check"
+  },
+  {
+    "name": "R3 Worked continuation can cancel",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "replace": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I added 3 to both sides to cancel"
+  },
+  {
+    "name": "R3 Worked continuation can get",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "replace": "const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel)\\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\\s+(?:this|the)\\s+thesis\\s+needs\\s+evidence)|walk\\s+through\\s+${WORKED_TARGET}|stop\\s+when\\s+[a-z]\\s+equals\\s+(?:zero|\\d+))`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I added 3 to both sides to get"
+  },
+  {
+    "name": "R3 Helpers need their code noun",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "replace": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|never-helper)\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I called the helper function."
+  },
+  {
+    "name": "R3 Function call syntax stays available",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "replace": "  called: /^\\s+(?:never-function-call|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps a complete worked clause: I called helper()."
+  },
+  {
+    "name": "R3 Parent constructors stay available",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:parent\\s+)?(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "replace": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:(?:function|constructor|method)|helper\\s+(?:function|method))\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "keeps the worked code or essay explanation: We called the parent constructor"
+  },
+  {
+    "name": "R3 Rubric attribution stays available",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|rubric(?:\\s+(?:that\\s+)?your\\s+teacher\\s+uses)?\\b)/iu,",
+    "replace": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|never-rubric)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts",
+    "expect": "keeps the worked code or essay explanation: I applied the rubric your teacher uses"
+  },
+  {
+    "name": "R3 Destinations within an object still veto it",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_DESTINATION.test(sentence)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps recipient or calendar wording in a rule name guarded: I applied the to your rule."
+  },
+  {
+    "name": "R3 Named recipients within an object still veto it",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_NAMED_RECIPIENT.test(sentence)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps recipient or calendar wording in a rule name guarded: I applied the to Alex rule."
+  },
+  {
+    "name": "R3 Calendar wording within an object still vetoes it",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_REAL_WORLD_VALUE.test(sentence)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three.test.ts",
+    "expect": "keeps recipient or calendar wording in a rule name guarded: I applied the Monday rule."
+  },
+  {
+    "name": "R3 Passive lab report completion stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_EXTERNAL_COMPLETION = /\\b(?:your\\s+)?(?:application|aif|supplement|essay|personal\\s+statement|transcript|reference|scholarship|form|request|lab\\s+report)\\b.{0,64}\\b(?:(?:is|was|have)\\s+(?:already\\s+|just\\s+|now\\s+)?(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed)|has\\s+(?:(?:already|now)\\s+)?been\\s+(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed)|got\\s+(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed))/giu;",
+    "replace": "const PASSIVE_EXTERNAL_COMPLETION = /\\b(?:your\\s+)?(?:application|aif|supplement|essay|personal\\s+statement|transcript|reference|scholarship|form|request)\\b.{0,64}\\b(?:(?:is|was|have)\\s+(?:already\\s+|just\\s+|now\\s+)?(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed)|has\\s+(?:(?:already|now)\\s+)?been\\s+(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed)|got\\s+(?:submitted|uploaded|sent|forwarded|turned\\s+in|filed))/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-round-three-held-out.test.ts",
+    "expect": "catches the new held-out false claim: The lab report was uploaded to the course website."
+  }
+]

@@ -3,6 +3,262 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #162 round 4 merges main as an interim backstop
+
+**Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/tutoring-guard-run.**
+The harness began the normal merge of `origin/main` `d4e5416` into reviewed head
+`bf3e8cb`. There were two conflicts. In `OWNER_AGENT_SYSTEM_PROMPT`, the result
+keeps main's complete text and `${GUIDED_ASSIGNMENT_PROMPT}`, inserts the branch's
+"Worked explanations…are not actions" sentence, and adds worked explanations to
+the empty-list clause. In this log, every entry from both parents is retained.
+There were no other conflicts. No regex, word list, or optional `method` change
+was made.
+
+KNOWN_ISSUES now records round-four F1 (the veto is sentence-scoped, so the next
+sentence or line gets no notice) and F2 (22 missed shapes across the five named
+categories). It names the replacement: model-declared `{ sentence, toolNames }`
+claims checked against this turn's receipts, using the #172 plumbing now on main;
+CODE-VS-JUDGMENT row 11 is deleted when that replacement lands.
+
+Observed checks in this restricted container:
+
+- `pnpm --filter @jarvis/cloud-gateway exec tsc --noEmit`: exit **1** before the
+  compiler ran, so it produced no diagnostic count: `[ERR_SQLITE_ERROR] unable
+  to open database file`. The installed compiler run directly against the same
+  source config exited **0** with **0 diagnostics**.
+- The requested Vitest command named **10 files**: all **6** tutoring test files
+  plus the **4** guided-assignment, owner-Telegram, voice and university files.
+  It exited **1**, reported **0 completed files** and no pass/fail/skip total,
+  first unable to create `/root/.config/.wrangler`, then with `Error: listen
+  EPERM: operation not permitted 127.0.0.1`. No assertion failed.
+- `grep -rn '^<<<<<<<\|^>>>>>>>' apps docs KNOWN_ISSUES.md`: **0 matches**.
+  `git diff --check`: exit **0**. The required read-only
+  `git diff --name-only --diff-filter=U` still reports the **2** edited conflict
+  paths because the harness forbids the `git add` that clears unmerged index
+  entries; the harness must stage them and rerun that check.
+
+The requested tests, a live model, Telegram, voice, production, migrations,
+deployment and secrets were not verified or touched. The harness will rerun the
+permission-blocked commands after it checks and stages the resolution.
+
+**Next, after the harness stages this resolution:** rerun the unmerged-path check
+and both requested gates, then commit and push the branch for independent review.
+
+## 2026-09-24 — Codex builder: #162 round 3 requires complete worked clauses
+
+**Signed: Codex, builder for Sid.** Read reviewer comment 5807216716 in full
+before design. This supersedes the two earlier exemption designs and their
+round-two head `40812b5`. The guard now requires a worked verb object and a
+completely parsed prefix and tail. Unknown words, destinations, semicolons and
+second actions remain claims, including verbs missing from the old denylist.
+
+- Removed `program` from told/asked. Helpers need `function`/`method` or call
+  syntax. Numeric substitution ends its variable at a clause boundary. Anchored
+  continuations include isolate/simplify/check/cancel/get. Applied-for-you
+  masking checks the same complete sentence, including actions before it.
+- Closed the review's passive lab-report upload/submission gap. Strengthened a
+  historical test's expectation while retaining its recorded main outcome.
+  The two old program/helper tutoring fixtures now explicitly name a function;
+  separate refusal tests cover the ambiguous forms.
+- The shared prompt remains this PR's one-line owner-agent-core edit. Both
+  ordinary Telegram and voice delivery preserve the worked reply and all eight
+  guided questions. The question and save receipt copied from PR #172 at
+  `6c09a86` survive the guard. No unmerged assignment tools or live model were run.
+- Main now owns row 10 for school observations and row 11 for this guard; the
+  earlier rows-1-through-9 premise is stale. Preserved both register findings and
+  every AGENT_LOG entry through normal merges of `44a3058` and `29fbfcd`.
+
+**Pre-implementation corpus:** commit `9b641014` froze 72 false claims and 36
+tutoring sentences. One accidental prior fixture, “The form is in.”, is retained
+as a control and excluded from the new-corpus denominator. All 71 other false
+claims and all 36 tutoring sentences differ from the prior tracked test fixtures;
+the frozen file's SHA-256 is unchanged. Main `44a3058`: **64/71 caught, 0/36
+tutoring retained**. Rejected `40812b5`: **45/71, 27/36**. Revision: **71/71,
+36/36**, with **zero** main-caught cases lost. Main `29fbfcd` has the identical
+guard blob. Raw revision false-claim result including the control: **72/72**.
+
+**Observed gates at `7d0f881ebf4a822f72b2903de2cc704d8212989f`:**
+
+| Check | Passed / failed / skipped, or explicit result |
+|---|---|
+| Exact reviewer blockers | Round three **25/25**, prior round **35/35** caught |
+| Code/essay regressions | **11/11** retained |
+| Guided questions through real adapters with scripted providers | Telegram **8/8**, voice **8/8** retained |
+| Restored related tests | **1590/0/0**, 11 files |
+| Mutation sweep | **57/57 distinct faults killed**, each named failure confirmed twice; **0** wrong-test, unconfirmed, survived, not-applied or invalid; **2** source files restored byte-identically |
+| Full cloud-gateway suite, exactly one run | **5862/2/0**, 205 files (203 passed, 2 failed); **not green** |
+| Each failing file rerun alone, unchanged deadlines | meaning-search **70/0/0**; hermes-token-adapter **71/0/0** |
+| Production typecheck | Exit **0** |
+| Non-gating test typecheck | Exit **1**, **143** diagnostics in **31** files; **0** in PR-changed files |
+| State check | Exit **0**, **3** carriers plus FACTS, **0** warnings |
+
+Full-run failures were the 100-input bge-m3 byte-ceiling/mutation-cap test
+(30-second timeout) and the exact-cap delimiter-free bytewise SSE test
+(15-second timeout). Their complete files passed separately. The cause remains
+unverified; isolated reruns do not replace the red full-suite result.
+
+A bounded diagnostic also caught excessive regex backtracking during development.
+Removed the overlapping qualifier parses; all 12 diagnostic inputs, including
+100 repeated clauses followed by an invalid tail, then rejected within 5 ms.
+An earlier mutation sweep was interrupted after 17 confirmed checks, restored
+byte-exactly, and replaced by the complete 57-fault sweep above. The interrupted
+run is not counted as a completed gate.
+
+The [evidence and every named mutation result](research/2026-09-24-tutoring-guard-evidence.md)
+record intermediate failures and fixes as well. The complete reviewer 69/34
+artifact was not supplied: five of the six quoted tutoring sentences survive;
+the possessive-destination hook example is conservatively refused and documented
+in KNOWN_ISSUES. This remains a partial language heuristic, not a proof of all
+natural-language honesty claims.
+
+No migration created or applied, deployment, production/secret operation,
+permission change, local-agent test, or parallel-builder-owned file edit. The
+requested incident file was absent; the PC restrictions remained in force. No
+new owner-only action. The external Markdown ledger is retained.
+
+**Next, after this revision is pushed:** automated and independent adversarial
+review of its exact remote head. This builder does not wait for or claim those
+verdicts, merge the PR, or deploy.
+
+Publication addendum: main advanced to `54c1b67b` with two documentation-only
+files from #173. Normal merge `beedcd8e` incorporates it; runtime, tests and
+mutation specs are identical to the tested checkpoint. Rechecked state carriers:
+exit 0, three carriers plus FACTS, zero warnings. No full suite was repeated.
+
+
+## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
+
+**Supersedes both earlier tutoring exemption designs.** Read review
+5805905082 in full first. A marker plus an external-target denylist failed open;
+the new exemption requires a positive worked object of the claim verb. Unknown
+objects, destinations/recipients, real-world values and second actions stay
+guarded. Saves still reach receipts. Inclusive booking/scheduling/requesting/
+sharing gets no exception. Rule-for-you masking requires no second action.
+The owner-agent diff remains one prompt line; CODE-VS-JUDGMENT is row **10**.
+
+- **Frozen before source edits:** commit `abaf3a1`, 72 new false claims plus
+  32 tutoring sentences, unchanged bytes. Main `6249ab1`: **63/72 caught,
+  0/32 tutoring retained**. Rejected `5475cb2`: **16/72 caught, 29/32 retained**.
+  Fixed: **72/72 caught, 32/32 retained**. Exact reviewer blockers: main **35/35**,
+  rejected head **0/35**, fixed **35/35**. Baseline source restored byte-identically.
+- **Provided tutoring:** all 11 code/essay examples plus numeric put-in retained
+  (**12/12**); earlier reconstructed false corpus **70/70 caught**. The complete
+  reviewer 95/34 artifact is unavailable; do not confuse those sets or claim its
+  full result. Eighteen prior PR metaphors outside the required object grammar
+  remain explicit refusal tests and are documented in KNOWN_ISSUES.
+- **Optional gaps:** all eight supplied active/passive gaps were missed at both
+  baselines and are caught now. Three historical corpus rows deliberately
+  required false signup/payment claims to pass; their original main metadata is
+  retained with stronger expected outcomes. No must-catch assertion was weakened.
+  Historical-payment advice still survives.
+- **Mutations:** **59/59 killed**, each expected named failure confirmed twice;
+  **0** wrong-test, unconfirmed, survived, not-applied or invalid. Two source files
+  restored byte-identically. Committed `reviewer-tools/mutation-specs-tutoring.json`
+  includes M10 sentence scope and M13's literal prompt assertion. The named tests
+  all pass in the restored focused run: **1,374/0/0 in 8 files**.
+- **Full gateway, once:** **5,333 pass / 81 fail / 143 skip in 197 files**, exit 1 at `9bf38c2`. Thirty individual file reruns: **950/4/0**; four residual timeout cases selected alone: **4/0/41 on both main and head**. No clean full-suite result is claimed; the underlying timeout cause remains unproven. Source typecheck passes. Test typecheck:
+  **143 diagnostics in 31 unchanged files**, none in changed tests; messages match
+  prior observed debt after line-number shifts. State check: **3 carriers plus
+  FACTS pass, 0 warnings**. Diff check passes.
+- Final fresh main `c5310bee` (#167) merged normally as `cb0b398d`; its three changed job files pass **62/0/0**. Source and state gates pass after that merge. The single full-suite measurement predates that merge.
+- Earlier normal merges `18a2c1c` (6249ab1), `7022955` (6e3f1ef), `41a9cb7` (c92078b).
+  AGENT_LOG retained both histories; additions-only diffs verify preservation.
+  Source/prompt are unchanged between the mutation sweep and full-suite checkpoint
+  `9bf38c2`. No force push, migration, production, secret or PC-setting operation;
+  no local-agent tests. The incident runbook remains absent at the supplied path.
+  No new owner-only action. Live model/channel acceptance and independent review
+  are not claimed; existing advice/draft exceptions remain a language limitation.
+
+[Named mutation tests and all observed counts](research/2026-09-23-tutoring-guard-evidence.md).
+Raw logs/JSON and the retained ledger are outside the repository at
+`C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` and its `tutoring-r2-*` siblings.
+
+**Next, on the new remote head:** automated and independent adversarial review.
+— Codex (builder)
+
+
+## 2026-09-23 — Codex builder: #162 restores claim-by-default after review
+
+**Supersedes the earlier tutoring guard's design and evidence claim.** The
+reviewed `8dcf96b` failed open when its external-target vocabulary missed a person
+or object. The revised source/test checkpoint is `c9d8ca3`; claims now remain
+guarded unless a positive worked marker in the same sentence has no person,
+person pronoun, or storage/reservation object. Saves still reach receipt checks.
+`applied ... for you` is unconditional again except the narrow worked-rule span.
+
+- **Probe provenance matters:** the reviewer's original 70-sentence file was not
+  supplied or found in the PR. The added file labels its 70 probes as reconstructed
+  from Sid's examples/categories. On this exact reconstructed set, observed source
+  baselines caught **70/70 at `a666097`**, **11/70 at `8dcf96b`**, and **70/70 now**.
+  Its 59 reproduced regressions are not the reviewer's different 52-count corpus.
+  Each baseline source was restored byte-identically. Final code/essay cases:
+  **11/11 retained**, including milliseconds, Flask/email/parent-constructor code,
+  application essays and the teacher's rubric.
+- **Stricter tutoring policy:** seven formerly allowed sentences without any
+  required marker are retained as must-block tests, paired with marked teaching
+  variants. No pre-PR guard assertions were weakened. The prompt remains one line.
+- **Focused:** 1,162 passed / 0 failed / 0 skipped in 6 files, before one last
+  singular-subject test. **Restored corpus:** 206 / 0 / 0 in 2 files. **Full gateway
+  suite, once:** **5,321 passed / 0 failed / 0 skipped in 192 files**, no flake rerun.
+- **Mutations:** 31 expected named kills, each confirmed twice; 0 wrong-test,
+  unconfirmed, survived, not-applied or invalid. Both source files restored
+  byte-identically. Includes M10 sentence scope on both paths, M13's direct prompt
+  assertion, positive-marker/person/storage vetoes, receipt support and refusal,
+  all contextual verbs, applied-for-you bounds, code exceptions and secret requests.
+  All named tests passed afterward in the restored corpus. Exact specs and outputs
+  are alongside `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` (`tutoring-r1-*`).
+- **Other gates:** source typecheck passed; non-gating test typecheck has 143
+  errors in 31 unchanged files, none in this PR's changed tests. State check passed
+  all 3 carriers; diff check passed. CODE-VS-JUDGMENT row renumbered to 11.
+- **Normal merge:** `5df4927` has parents `8dcf96b` and `a6a0efd`. Only AGENT_LOG
+  conflicted; both histories are retained. No force push, migration, production,
+  live model/channel acceptance or PC setting change. No new owner-only action.
+- **Known gaps retained and probed:** all five optional passive statements still
+  escape (fee is paid / has been paid, email has gone out, form is in, teacher has
+  been told). The existing asked-about exemption also remains. These are disclosed
+  in the PR; the heuristic is not a comprehensive language guarantee.
+
+**Next, on the updated remote head:** automated and independent adversarial review.
+— Codex (builder)
+
+## 2026-09-23 — Codex builder: tutoring replies keep their sentences
+
+**Branch:** `codex/tutoring-guard-run`, based on freshly fetched `a666097`.
+All three reported examples reproduced at that base. Both ordinary and post-tool
+`OwnerAgentCore.streamCaptured` paths call `guardReplyClaims`.
+
+- Neutral verbs and contextual inclusive "we" require an external target in the
+  same sentence; explicit sending, submission, payment and contact verbs still
+  catch pronoun-only objects. The `applied ... for you` fallback uses that target
+  rule too. Secret, draft, receipt and existing advice guards remain.
+- `owner-agent-core.ts` changes one prompt line: worked explanations are not
+  actions and need no receipt. No migration or parallel sync/store-permissions edits.
+- New `test/school/tutoring-reply-guard.test.ts`: 67 passed, 0 failed, 0 skipped
+  after restoration. The owner Telegram delivery test preserves the three reported
+  sentences and observes one model request. Existing guard assertions are unchanged.
+- Focused: 1,020 passed / 0 failed / 0 skipped in 5 files; after adding final tests,
+  the 2 changed test files passed 168 / 0 / 0. Full cloud-gateway suite, run once:
+  **5,176 passed / 0 failed / 0 skipped in 191 files**. No flaky-file rerun needed.
+- `reviewer-tools/mutate.ps1`: **17 named kills, each confirmed twice**, covering
+  all six neutral verbs, five inclusive-we verbs, the subject/target boundaries,
+  explicit sending, both applied-for-you branches and secret requests. Zero
+  wrong-test kills, unconfirmed, survived, not-applied or invalid. Source restored
+  byte-identical; every named test passed in the restored 67-test corpus.
+- Source typecheck passed. Test typecheck reports **144 errors in 32 unchanged
+  files**, matching documented debt; neither changed test file has a diagnostic.
+  `node scripts/check-state.mjs` passed (3 carriers); `git diff --check` passed.
+- Existing gap observed before this fix: "We asked about it, and your teacher
+  agreed." passes the asked-about exemption. This PR does not claim to fix that
+  gap or comprehensively classify natural language. The new caught case uses
+  "We asked for it, and your teacher agreed." Live model/Telegram/voice behavior
+  was not exercised. The partial heuristic is recorded in CODE-VS-JUDGMENT.
+- Evidence and mutation spec: `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md`
+  and its sibling logs/JSON. Incident runbook was missing at the supplied path;
+  no local-agent or PC permission/settings tests ran. No new owner-only action.
+
+**Next, when the PR opens:** automated and independent adversarial review; this
+builder has not merged or deployed. — Codex (builder)
+
 ## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
 
 Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
