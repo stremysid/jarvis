@@ -3,6 +3,187 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: PR #175 review round 2 closes linked-tool and unreadable-folder gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.
+The harness had already started the normal merge of `origin/main` `1cad885` into
+reviewed head `ed2bc56`. Its only conflict was this log. I retained the complete
+branch and main histories and removed every conflict marker; the index remains
+unmerged until the harness stages the resolution. I ran no Git write command.
+
+Results, in the review's order:
+
+1. Toc topics use `folder-<ToolItemId>` only for `TypeIdentifier: "Dropbox"`.
+   Other tools retain `topic-<TopicId>` identity. A quiz can no longer create a
+   phantom assignment folder or lend its end date to a real folder with the same
+   numeric id.
+2. Linked Dropbox topics are not projected when the folder list is absent,
+   refused, missing or structurally unreadable. The toc evidence receives
+   `linked_topic_folder_list_unread`, and deadline ingestion leaves the last good
+   assignment date untouched. The existing good-then-`{}`/403/404 matrix remains.
+3. Host-failure enrollment evidence accepts its `?bookmark=page` pagination
+   query. `content/myItems` now requires exactly one `orgUnitIdsCSV` parameter,
+   so a second course binding is refused.
+4. Sid's decision that school evidence reads need no tier gate or tap is recorded
+   beside `school_d2l_status`, in FACTS, the judgment register and the receiver
+   review. `directPipelineText === false` still refuses before the status read,
+   and collector revocation still uses its existing tap.
+5. The optional redundant guards were kept. They are outside this small review
+   round and removing them would add unrelated behavior risk.
+
+New tests:
+
+- `keeps the last good assignment date when the folder list is refused`
+- `does not turn a quiz-linked topic into an assignment folder`
+- `does not give an assignment folder a quiz-linked topic's end date`
+- `refuses duplicate orgUnitIdsCSV course bindings on a myItems route`
+
+The host-failure compatibility test is now named `accepts a paged compact
+oversized-manifest failure and refuses a host-only success or invented course`
+and again sends `?bookmark=page`. The unfamiliar-folder compatibility assertion
+also pins both its shape label and the linked-topic unread label.
+
+Observed checks:
+
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` — exit **0**, no
+  diagnostics.
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` —
+  exit **1**, the documented **143 diagnostics in 31 files**, with **0** in
+  `collector-ingest`, `collector-compatibility` or `collector-security`.
+- `node scripts/check-state.mjs` — exit **0**, three carriers plus FACTS pass;
+  one advisory remains for the already-unverified background-access fact.
+- `git diff --check` — exit **0**. The log has no conflict markers; read-only
+  `git diff --name-only --diff-filter=U` still names it because only the harness
+  may stage the resolution.
+
+The harness must run all six collector files: `collector-ingest`,
+`collector-compatibility`, `collector-security`, `collector-pages`,
+`collector-wiring` and `collector-migration`, then the full cloud-gateway suite.
+Vitest, pnpm, mutations, the full suite, a live D2L read, production, migrations
+and deployment were not available or attempted in this container, so no runtime
+pass or mutation-kill claim is made.
+
+**Harness round 2:** after staging, the 18-file collector plus
+backup/migration/voice/Telegram/autonomy run completed **395 passed / 1 failed**;
+source typing and the state check passed. The only failure was this round's
+changed unfamiliar-folder assertion. `unmappedRoutes` sums labels in each batch's
+`unmapped_json`, but that fixture replaces the toc with `Modules: []`, so it has
+no linked topic to suppress and correctly emits only the folder-shape label. The
+test now expects one, explains why, and explicitly refuses the inapplicable
+`linked_topic_folder_list_unread` label. The separate dated-then-refused test
+retains the toc topic and pins that label. The harness must rerun the same gate;
+this container still cannot run Vitest.
+
+## 2026-09-24 — Codex builder: PR #175 review round restores receiver identity and authority boundaries
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.
+The harness had already started the normal merge of `origin/main` `d4e5416` into
+head `470d25e`. Its only conflict was this log. Both the branch's receiver entry
+and main's PR #157 entries are retained, with all conflict markers removed. I ran
+no Git write command; the harness still owns staging, commit and push.
+
+Review results, in the brief's order:
+
+1. Linked toc topics now retain `folder-<ToolItemId>` identity even when the
+   folder list is a 200 unfamiliar object, 403 or 404. The new two-read matrix
+   asserts one open `folder-17` deadline after each case, rather than a second
+   `topic-41` deadline.
+2. The all-users submissions fallback is gone. Mapping requires and names only
+   `submissions/mysubmissions/`; the protocol rejects `submissions/`. Fixtures
+   now use owner-observed `[]` bodies for mysubmissions and grades, and tests pin
+   both the protocol refusal and the exact `not_read` route.
+3. A myItems object without `ToolItemId` is labelled
+   `scheduled_item_projection_unknown` and remains raw evidence. It is not
+   projected as `myitem-<ItemId>` until a populated shape establishes identity.
+4. `directPipelineText === false` again refuses before `school_d2l_status` and
+   before any tier gate. The tier behavior itself is unchanged: a direct status
+   read remains unactioned, while revocation keeps its existing gate. Whether a
+   raw school-evidence read should ever bypass this authority is **open for Sid**;
+   the earlier round's claimed instruction is not treated as his decision.
+5. Added named coverage for a Next page returning 403, quiz
+   `PagingInfo.HasMoreItems: true`, and numeric `Next: 5`. The dead hostname
+   comparison was deleted rather than preserved as an unreachable guard.
+6. The protocol now requires the original route to equal normalized pathname
+   plus search, so dot segments cannot normalize into an allowed route. Queries
+   are accepted only for myItems and quiz pages; toc query strings are refused.
+7. KNOWN_ISSUES now says positive detection expects an object although the
+   observed mysubmissions route is an array. The status tool now also forbids a
+   “nothing due” claim when unmapped or undated evidence exists.
+8. The 0045 owner rollout row now requires checking that `decision_items` has no
+   duplicate `school-collector-pair` rows per `origin_reference` before apply.
+
+Exact checks:
+
+- `npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/collector-ingest.test.ts apps/cloud-gateway/test/school/collector-compatibility.test.ts apps/cloud-gateway/test/school/collector-security.test.ts apps/cloud-gateway/test/school/collector-pages.test.ts apps/cloud-gateway/test/school/collector-wiring.test.ts` — **exit 1, 0 test results produced**. Wrangler first reported `EROFS: read-only file system` for `/root/.config/.wrangler/logs/...`; Miniflare then stopped before collection with `Error: listen EPERM: operation not permitted 127.0.0.1`.
+- `npx vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/collector- apps/cloud-gateway/test/backup/memory-backup.test.ts apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts apps/cloud-gateway/test/persistence/migration` — **exit 1, 0 test results produced**, with the same exact EROFS and loopback-listener EPERM errors. The harness must run this gate.
+- `pnpm --filter @jarvis/cloud-gateway exec tsc --noEmit` — **exit 0, 0 diagnostics**. The container uses Node 22.22.2 and printed the repository's Node `>=24.19.0 <25` engine warning.
+- `pnpm --filter @jarvis/cloud-gateway typecheck:tests` — the documented
+  non-gate remains red: **143 errors in 31 files, 0 under `test/school/collector-*`**.
+- `pnpm run check:state` — **exit 0**, 3 carriers plus FACTS passed, with **1 advisory** for the already-unverified background-access fact at FACTS line 61.
+- `grep -rn '^<<<<<<<\|^>>>>>>>' apps docs KNOWN_ISSUES.md` — **0 matches**.
+- `git diff --check` — **0 findings** in this round's unstaged edits. The
+  read-only `git diff --cached --check` separately reports main's staged blank
+  line at EOF in `apps/local-agent/tests/archive/test_store_permissions.py`; I
+  did not alter that unrelated merged file.
+
+Mutation results: **0 mutations executed, 0 kill/survival results**. Every named
+mutation test uses the same Cloudflare Vitest pool that stops on the sandbox's
+loopback `EPERM`, so planting faults could not produce red/green evidence here.
+The intended guards are each pinned by named tests (three folder-list identities,
+mysubmissions-only mapping and parsing, unprojected ScheduledItem, direct-private
+status authority, canonical/query routes, and M12/M13/M14), but the harness must
+perform the required fault planting and restoration. No runtime suite, mutation,
+remote database rehearsal, migration, deploy, live D2L read or owner acceptance
+was verified in this container.
+
+## 2026-09-24 — Codex GPT-6 builder: D2L receiver compatibility after #169 and #170
+
+Signed: Codex GPT-6, cloud receiver builder for Sid. Read the full #170 description
+and gap report at `5420836`, verified #169 merged, and created
+`codex/d2l-receiver-fix` from fresh main. Normally merged #173, #172 and then #170;
+no rebase or force-push. The push-time scan caught #174 taking 0044, so this PR's
+migration is **0045**, with the SQL body unchanged and all registrations updated.
+The tested #172 integration keeps 0043 before the collector upgrade. All previous
+log entries are retained below.
+
+The receiver now accepts actual Durham/LDSB hosts, announcements, dated quizzes,
+paged myItems Objects envelopes, unknown student arrays and complete missing-tool
+404s. Raw unfamiliar JSON stays evidence, with unknown projection labels. Host
+namespaces prevent equal course IDs colliding; existing LDSB deadline identities,
+status, revisions and reminders survive the migration. Host session failures stay
+visible even when the other board succeeds. Pair proof/delivery retries reuse the
+decision after notification failure. Evidence reads spend no action tap under
+Sid's newer rule; revocation and activation keep confirmation.
+
+**No existing upload path, signing rule, header, canonical body rule, pairing field
+or course-batch field changed.** The additive host-failure variant uses
+`course:null`, `courseIds:[]`, `enrollmentComplete:false` and a versions/enrollment
+route. The extension builder must update its compatibility hold, null-course queue
+handling and optional 404 handling after receiver rollout. [Every contract change,
+decision and observed count](reviews/2026-09-24-d2l-receiver-fix.md).
+
+Final allocation checks: **161/0/0** across nine files, including all **69/0/0**
+collector tests, backup, migration parity and static remote-D1 syntax. The earlier
+combined #172 focused run was **204/0/0**. Full gateway on executable `396ace56`
+was **5304/2/0**, 202 passed and two failed files: unchanged meaning-search and
+Hermes timeout tests. Each file passed alone on that head, **70/0/0** and
+**71/0/0**. The full suite was not rerun for the later SQL filename-only allocation
+change; the exact SQL blob and fresh affected checks are recorded in the evidence.
+All **63 distinct mutation cases / 71 confirmed attempts** have named
+red/restored-green proof, with zero other mutation outcomes and byte-identical
+restoration. Source typing has zero diagnostics; test typing remains red
+with **143 outside collector / 0 collector**. No full-suite green claim.
+
+No deploy, real database migration, remote-D1 rehearsal, live Telegram/school
+request, secret, permissions, services, tasks, registry, logon or local-agent
+operation. The supplied PC incident file was absent. #157-owned files are
+unchanged. Owner-only rollout/acceptance remains in OWNER-ACTIONS; the external
+ledger remains at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+
+Next, **when the new PR is published**: independent and automated review of its
+exact head, without waiting in this builder task. **After independent clearance
+and authorized rollout**: extension integration and two-board owner acceptance.
+
 ## 2026-09-24 — Codex builder: #171 merges #162 and records low follow-ups
 
 **Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/voice-streaming.**
@@ -651,7 +832,6 @@ All three reported examples reproduced at that base. Both ordinary and post-tool
 
 **Next, when the PR opens:** automated and independent adversarial review; this
 builder has not merged or deployed. — Codex (builder)
-
 ## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
 
 Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
@@ -1347,7 +1527,6 @@ branch fails now.
   at access-check time". The first half is factually wrong (`OW` is OWNER RIGHTS;
   `CO` is CREATOR OWNER) and is corrected. The second half was never measured on
   this machine, and the comment now says so rather than repeating the claim.
-
 ## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
 
 Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.

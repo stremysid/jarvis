@@ -87,7 +87,22 @@ backups; nonces are excluded. Both tables grow over time, and the collector list
 is not paginated. A retention follow-up must preserve audit references, terminal
 revocation and the complete signature/replay window. No cleanup job or live
 deletion was added in this fix round. Read aggregates return one row each, and
-refusals are now a bounded sample of the latest read, with truncation explicit.
+refusals are a bounded sample of the latest read per reported host, with truncation explicit.
+
+The receiver compatibility follow-up accepts both boards and retries pairing delivery
+with the same decision. Delivery remains at-least-once if Telegram accepts a message
+and the process fails before recording delivery; repeated taps still bind the same
+decision and cannot create a second key. Status covers reported hosts, not boards the
+extension has never reported. Host-only failure batches make discovery/session failures
+reportable, but #170 must emit them and remove its old compatibility hold after rollout.
+The gateway never follows a paging URL. Unknown projections remain raw with explicit
+labels; a good receipt does not mean every shape has a deadline adapter. Positive own
+submission shapes, Opera GX persistence/federation, live two-board ingestion and the
+real database upgrade remain unverified by this builder.
+
+Positive submission detection currently requires an object with `Status: 1`, but
+the owner-observed `mysubmissions/` route returns an array. Empty arrays remain
+unknown evidence, and no populated-array projection has been observed.
 
 The review also identified an untested enrollment-retirement case: a course
 absent from later manifests may leave a stale per-course deadline source, whose
