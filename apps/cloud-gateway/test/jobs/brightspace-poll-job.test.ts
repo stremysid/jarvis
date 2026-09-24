@@ -265,17 +265,14 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    // A working calendar cannot establish submission health or collector coverage.
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 2 Project");
-    expect(String(send.mock.calls[0]?.[0])).toContain(
-      "Google Classroom grades/submissions: has never completed a submission scan",
-    );
+    expect(String(send.mock.calls[0]?.[0])).not.toContain("Google Classroom grades/submissions");
     expect(String(send.mock.calls[0]?.[0])).not.toContain("not set up");
   });
 
-  it("makes no network call or source row without the URL and tells the digest it is not set up", async () => {
+  it("makes no network call or source row without the URL and omits retired digest sources", async () => {
     const fetcher = vi.fn(async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch;
     const send = vi.fn(async (_text: string) => undefined);
     const jobContext = { ...context(fetcher), delivery: { send } };
@@ -293,13 +290,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    // Unconfigured feeds and an unavailable collector cannot imply a quiet term.
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 3 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).not.toContain("Google Classroom grades/submissions");
     expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
-    expect(String(send.mock.calls[0]?.[0])).toContain("D2L notification email: not set up");
-    expect(String(send.mock.calls[0]?.[0])).toContain(
-      "Google Classroom grades/submissions: has never completed a submission scan",
-    );
   });
 
   it("records removed configuration without contacting the feed", async () => {
@@ -422,7 +415,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 3 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "bounded sweep omitted 140 in-window entries; kept at most 180 live items and 180 cancellations",
