@@ -290,6 +290,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         });
         model = new OwnerTelegramAgentAdapter({
+          guidedAssignmentTelegram: telegram,
           provider: new DeepSeekAgentProvider({
             apiKey,
             model: env.DEEPSEEK_MODEL,

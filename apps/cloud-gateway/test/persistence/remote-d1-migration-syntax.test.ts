@@ -104,6 +104,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0035_autonomy_tool_capabilities.sql",
       "0038_memory_lifetime_and_pins.sql",
       "0039_tool_confirmation_consumptions.sql",
+      "0043_guided_assignment.sql",
     ]);
   });
 

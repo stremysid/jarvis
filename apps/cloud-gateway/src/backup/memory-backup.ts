@@ -105,6 +105,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "school_course_facts",
   "school_catchup_actions",
   "school_catchup_turn_receipts",
+  "guided_assignment_answers",
   "owner_call_step_up_disabled_rejections",
   "owner_call_step_up_rejection_deliveries",
   "guest_grant_notices",

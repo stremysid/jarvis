@@ -1,0 +1,194 @@
+[
+  {
+    "name": "Owner authorization",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (input.principalId !== this.dependencies.ownerPrincipalId) throw new Error(\"guided_assignment_owner_required\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses another principal before reading any assignment work"
+  },
+  {
+    "name": "Answer principal isolation",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "FROM guided_assignment_answers WHERE principal_id = ? AND assignment_id = ?",
+    "replace": "FROM guided_assignment_answers WHERE ? IS NOT NULL AND assignment_id = ?",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal"
+  },
+  {
+    "name": "Saved catalogue principal isolation",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "assignment_json AS assignmentJson FROM guided_assignment_answers WHERE principal_id = ?",
+    "replace": "assignment_json AS assignmentJson FROM guided_assignment_answers WHERE ? IS NOT NULL",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal"
+  },
+  {
+    "name": "Fact principal isolation",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "WHERE f.principal_id = ? ORDER BY",
+    "replace": "WHERE ? IS NOT NULL ORDER BY",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal"
+  },
+  {
+    "name": "Plan principal isolation",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "WHERE a.principal_id = ? ORDER BY",
+    "replace": "WHERE ? IS NOT NULL ORDER BY",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal"
+  },
+  {
+    "name": "Raw preservation",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "input.userText, scribed, stepNotes,",
+    "replace": "input.userText.trim(), scribed, stepNotes,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing"
+  },
+  {
+    "name": "Model supplied scribing",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "input.userText, scribed, stepNotes,",
+    "replace": "input.userText, input.userText, stepNotes,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing"
+  },
+  {
+    "name": "Model chosen ordering",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "const draft = args.answerIds.map((id) => {",
+    "replace": "const draft = [...args.answerIds].reverse().map((id) => {",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "sends only saved scribed answers to the verified owner on Telegram in the model chosen order"
+  },
+  {
+    "name": "Scribed draft content",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "return answer.scribed;",
+    "replace": "return answer.raw;",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "sends only saved scribed answers to the verified owner on Telegram in the model chosen order"
+  },
+  {
+    "name": "Direct owner authority",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses an untrusted current turn even when it names a guided tool"
+  },
+  {
+    "name": "Durable owner evidence",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "await port.memoryOwnerTurn(input, null);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "requires durable direct owner evidence before the guided tool runs"
+  },
+  {
+    "name": "Guided capability gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (gated !== null) return gated;\n      return new GuidedAssignmentService",
+    "replace": "if (false) return gated!;\n      return new GuidedAssignmentService",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "enforces the capability gate before saving an answer"
+  },
+  {
+    "name": "No recipient arguments",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (args === null || typeof args !== \"object\" || Array.isArray(args)\n    || Object.keys(args).length !== fields.length || fields.some((field) => !Object.hasOwn(args, field))) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "rejects a caller supplied recipient before any draft is sent"
+  },
+  {
+    "name": "Assignment existence",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (assignment === null) throw new Error(\"guided_assignment_missing\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses an invented assignment instead of saving its answer"
+  },
+  {
+    "name": "Text shape",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (typeof value !== \"string\" || value.length === 0) throw new TypeError(\"guided_assignment_text_required\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "rejects non-text scribing instead of replacing it with the raw answer"
+  },
+  {
+    "name": "Unique nonempty selection",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (!Array.isArray(args.answerIds) || args.answerIds.length === 0\n        || new Set(args.answerIds).size !== args.answerIds.length) throw new Error(\"guided_assignment_answer_ids_invalid\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses duplicate or empty answer selections before sending a draft"
+  },
+  {
+    "name": "Answer membership",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (answer === undefined) throw new Error(\"guided_assignment_answer_missing\");",
+    "replace": "if (answer === undefined) return \"\";",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses an answer from a different assignment before sending a draft"
+  },
+  {
+    "name": "Telegram size bound",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (draft.length > 4_096) throw new Error(\"guided_assignment_draft_too_long\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses to truncate a draft that exceeds Telegram's message size"
+  },
+  {
+    "name": "Owner delivery availability",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "if (chatId === null || this.dependencies.telegram === undefined) throw new Error(\"guided_assignment_delivery_unavailable\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "refuses delivery when the owner has no unique verified Telegram identity"
+  },
+  {
+    "name": "Principal FK",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "principal_id TEXT NOT NULL REFERENCES principals(principal_id),",
+    "replace": "principal_id TEXT NOT NULL,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "requires an existing principal for a stored answer"
+  },
+  {
+    "name": "Turn FK",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "turn_id TEXT NOT NULL REFERENCES conversation_turns(turn_id),",
+    "replace": "turn_id TEXT NOT NULL,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "requires an existing conversation turn for a stored answer"
+  },
+  {
+    "name": "Retry keeps original answer",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "DO UPDATE SET turn_id = excluded.turn_id",
+    "replace": "DO UPDATE SET raw = excluded.raw, scribed = excluded.scribed, step_notes = excluded.step_notes",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "does not overwrite the original raw and scribed answer when a turn is retried"
+  },
+  {
+    "name": "No false send receipt on lost acknowledgement",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "status: \"delivery_unconfirmed\", receiptId: null",
+    "replace": "status: \"completed\", receiptId: `receipt:${call.id}`",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "reports an unconfirmed delivery without claiming that Telegram sent or rejected the draft"
+  },
+  {
+    "name": "Voice tools exposed",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS],",
+    "replace": "toolDefinitions: MEMORY_TOOL_DEFINITIONS,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "gives voice the same guided tools and persists a spoken answer"
+  }
+]
