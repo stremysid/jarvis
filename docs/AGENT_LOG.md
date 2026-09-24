@@ -3,6 +3,57 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
+
+**Supersedes both earlier tutoring exemption designs.** Read review
+5805905082 in full first. A marker plus an external-target denylist failed open;
+the new exemption requires a positive worked object of the claim verb. Unknown
+objects, destinations/recipients, real-world values and second actions stay
+guarded. Saves still reach receipts. Inclusive booking/scheduling/requesting/
+sharing gets no exception. Rule-for-you masking requires no second action.
+The owner-agent diff remains one prompt line; CODE-VS-JUDGMENT is row **10**.
+
+- **Frozen before source edits:** commit `abaf3a1`, 72 new false claims plus
+  32 tutoring sentences, unchanged bytes. Main `6249ab1`: **63/72 caught,
+  0/32 tutoring retained**. Rejected `5475cb2`: **16/72 caught, 29/32 retained**.
+  Fixed: **72/72 caught, 32/32 retained**. Exact reviewer blockers: main **35/35**,
+  rejected head **0/35**, fixed **35/35**. Baseline source restored byte-identically.
+- **Provided tutoring:** all 11 code/essay examples plus numeric put-in retained
+  (**12/12**); earlier reconstructed false corpus **70/70 caught**. The complete
+  reviewer 95/34 artifact is unavailable; do not confuse those sets or claim its
+  full result. Eighteen prior PR metaphors outside the required object grammar
+  remain explicit refusal tests and are documented in KNOWN_ISSUES.
+- **Optional gaps:** all eight supplied active/passive gaps were missed at both
+  baselines and are caught now. Three historical corpus rows deliberately
+  required false signup/payment claims to pass; their original main metadata is
+  retained with stronger expected outcomes. No must-catch assertion was weakened.
+  Historical-payment advice still survives.
+- **Mutations:** **59/59 killed**, each expected named failure confirmed twice;
+  **0** wrong-test, unconfirmed, survived, not-applied or invalid. Two source files
+  restored byte-identically. Committed `reviewer-tools/mutation-specs-tutoring.json`
+  includes M10 sentence scope and M13's literal prompt assertion. The named tests
+  all pass in the restored focused run: **1,374/0/0 in 8 files**.
+- **Full gateway, once:** **5,333 pass / 81 fail / 143 skip in 197 files**, exit 1 at `9bf38c2`. Thirty individual file reruns: **950/4/0**; four residual timeout cases selected alone: **4/0/41 on both main and head**. No clean full-suite result is claimed; the underlying timeout cause remains unproven. Source typecheck passes. Test typecheck:
+  **143 diagnostics in 31 unchanged files**, none in changed tests; messages match
+  prior observed debt after line-number shifts. State check: **3 carriers plus
+  FACTS pass, 0 warnings**. Diff check passes.
+- Final fresh main `c5310bee` (#167) merged normally as `cb0b398d`; its three changed job files pass **62/0/0**. Source and state gates pass after that merge. The single full-suite measurement predates that merge.
+- Earlier normal merges `18a2c1c` (6249ab1), `7022955` (6e3f1ef), `41a9cb7` (c92078b).
+  AGENT_LOG retained both histories; additions-only diffs verify preservation.
+  Source/prompt are unchanged between the mutation sweep and full-suite checkpoint
+  `9bf38c2`. No force push, migration, production, secret or PC-setting operation;
+  no local-agent tests. The incident runbook remains absent at the supplied path.
+  No new owner-only action. Live model/channel acceptance and independent review
+  are not claimed; existing advice/draft exceptions remain a language limitation.
+
+[Named mutation tests and all observed counts](research/2026-09-23-tutoring-guard-evidence.md).
+Raw logs/JSON and the retained ledger are outside the repository at
+`C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` and its `tutoring-r2-*` siblings.
+
+**Next, on the new remote head:** automated and independent adversarial review.
+— Codex (builder)
+
+
 ## 2026-09-23 — Codex builder: #162 restores claim-by-default after review
 
 **Supersedes the earlier tutoring guard's design and evidence claim.** The
