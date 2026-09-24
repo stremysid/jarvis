@@ -11,6 +11,9 @@ import { ArchivalService } from "../../src/archive/archival-service.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
+import { argumentsFingerprint, confirmationReference, D1ToolConfirmationStore, TIER3_TOOL_ORIGIN } from "../../src/autonomy/tool-confirmations.js";
+import { DecisionRepository } from "../../src/decisions/decision-repository.js";
+import { DecisionService } from "../../src/decisions/decision-service.js";
 import {
   cacheVerifiedMemoryBackupSet,
   continueVerifiedMemoryBackupRestore,
@@ -756,6 +759,42 @@ describe("verified memory backup restore", () => {
         restoreId: pointer.runId,
       });
     }
+  }, 300_000);
+
+  it("restores a spent tap without making its still-fresh approval usable again", async () => {
+    await seedBaseMemory();
+    await env.DB.prepare(`INSERT INTO channel_identities
+      (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at)
+      VALUES ('identity:backup-tap', 'principal:owner', 'telegram', 'synthetic-backup-tap', 'active', ?, ?)`)
+      .bind(timestamp, timestamp).run();
+    const lookup = {
+      principalId: "principal:owner", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
+    };
+    const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => instant });
+    const item = await decisions.raise({
+      principalId: lookup.principalId, origin: TIER3_TOOL_ORIGIN,
+      originReference: confirmationReference(lookup.capability, lookup.argumentsHash),
+      urgency: "normal", question: "Run the backup fixture?", choices: [{ key: "confirm", label: "Confirm" }],
+    });
+    await decisions.markDelivered(item.decisionId);
+    expect((await decisions.answer({
+      decisionId: item.decisionId, answeredByIdentityId: "identity:backup-tap", optionKey: "confirm",
+    })).outcome).toBe("recorded");
+    const store = new D1ToolConfirmationStore(env.DB, () => instant);
+    expect(await store.consumeStandingDecision(lookup)).toBe(item.decisionId);
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    expect(set.rowsByTable.get("tool_confirmation_consumptions"))
+      .toEqual([{ decision_id: item.decisionId, consumed_at: timestamp }]);
+    await recreateFreshDatabaseForBackupRestoreTest();
+    await restoreVerifiedMemoryBackupRows({
+      database: env.DB, databaseSchemaVersion: manifest.databaseSchemaVersion,
+      rowsByTable: set.rowsByTable, migrationSql: namedMigrationSources, restoreId: manifest.runId,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    });
+    expect(await env.DB.prepare("SELECT consumed_at FROM tool_confirmation_consumptions WHERE decision_id = ?")
+      .bind(item.decisionId).first()).toEqual({ consumed_at: timestamp });
+    expect(await store.consumeStandingDecision(lookup)).toBeNull();
   }, 300_000);
 
   it("restores a guest call whose voice grant is more than one page earlier", async () => {
