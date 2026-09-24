@@ -291,6 +291,8 @@ export interface OwnerAgentChannelPort {
   readonly replyTargetRefusal: string;
   /** A school/university/study pipeline adapter, when this channel exposes its tool. */
   pipelineModel(call: ModelFunctionCall): ModelAdapter | null;
+  /** Argument-bearing channel tools still pass through the shared authority and tier gates. */
+  argumentTool?(call: ModelFunctionCall): (() => Promise<ExecutedTool>) | null;
   /** The refusal when this channel does not expose the tool that was called. */
   readonly unknownToolRefusal: string;
   /**
@@ -526,7 +528,7 @@ export function refusedTool(call: ModelFunctionCall, receipt: string): ExecutedT
   });
 }
 
-function successfulTool(
+export function successfulTool(
   call: ModelFunctionCall,
   receipt: string,
   referencedItemIds: readonly Ulid[] = Object.freeze([]),
@@ -637,7 +639,7 @@ export function composeReceiptReply(receipts: readonly string[], reply: string):
   return boundedReceipt.length === 0 ? boundedReply : `${boundedReceipt}${suffix}`;
 }
 
-function wordBoundaryOccurrence(message: string, excerpt: string): number {
+export function wordBoundaryOccurrence(message: string, excerpt: string): number {
   let start = message.indexOf(excerpt);
   while (start >= 0) {
     const before = start === 0 ? "" : message[start - 1]!;
@@ -652,7 +654,7 @@ function wordBoundaryOccurrence(message: string, excerpt: string): number {
   return -1;
 }
 
-function groundedExcerpt(input: Readonly<ModelAdapterStreamInput>, value: unknown): string {
+export function groundedExcerpt(input: Readonly<ModelAdapterStreamInput>, value: unknown): string {
   const excerpt = safeText(value, 4_096);
   if (wordBoundaryOccurrence(input.userText, excerpt) < 0) {
     throw new TypeError("owner_agent_memory_grounding_invalid");
@@ -1128,6 +1130,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
+    }
+    const argumentTool = port.argumentTool?.(call);
+    if (argumentTool != null) {
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
+      await this.memoryOwnerTurn(input, port, null);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return argumentTool();
     }
     if (call.name === "school_d2l_status") {
       const args = schoolStatusOptions(parseArguments(call, ["cursor", "limit", "staleAfterMs"]));
