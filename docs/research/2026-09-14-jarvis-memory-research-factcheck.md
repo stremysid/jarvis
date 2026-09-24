@@ -1,5 +1,7 @@
 # Fact-check: "Jarvis memory: where it should live and how to build it"
 
+> **Superseded in part by merged [#129](https://github.com/stremysid/jarvis/pull/129) and [#133](https://github.com/stremysid/jarvis/pull/133):** the selected model and gateway default are now Flash; the V4 Pro default and pricing observations below are dated research, not current configuration or a refreshed price check.
+
 Report checked: `scratchpad/memory-research-2026-09-14.md` (all sections, sources S1 to S71).
 Checked 2026-09-14. Read-only: no repository, Cloudflare account, D1, R2 or provider was changed or queried.
 
