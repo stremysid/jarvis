@@ -159,6 +159,229 @@ Mutation evidence: **14 unique faults killed on their named tests and confirmed 
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
 
+## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
+
+Branch `docs/d2l-api-findings` (PR #161). `origin/main` `f56f279` (#170) merged
+normally in `8be49601` — one conflict, `docs/AGENT_LOG.md`, resolved by keeping
+both entries, no rebase and no force-push. Then items 2–5 of the review's
+paste-ready message. Two files, documentation only; `collector-mapping.ts`
+untouched.
+
+**The reviewer confirmed the pushback and corrected itself.** Its previous round
+had quoted wording that is not in the merged owner-run file ("does NOT hold",
+where the file says module dates are UNVERIFIED) and had called the `Availability`
+fallback "empty here". Both are withdrawn in this round's review, and it says so
+in its own words. Recorded because it is the second time in three rounds that a
+claim about that file needed checking against the file.
+
+**Every one of the four edits was verified against the source before it was
+written**, not taken on the review's word:
+
+| edit | the source line that settles it |
+|---|---|
+| §2.3, the `StartDateTime` claim | OR L23 records `StartDateTime` only for Course A's 5 topics; for Course B's 50 and Course C's 12 it records `EndDateTime` alone. "`EndDateTime` and `StartDateTime` were null on every topic" was therefore stronger than the run. Now: "`EndDateTime` was null on every topic in all three courses, and `StartDateTime` too where it was recorded" |
+| §2.3, "both fallbacks came back empty" | Wrong on both halves. OR L15: `Availability` null on all 140 of the large unit **but** OR L25: `Availability` **set on 2** of Course B's 42 folders. And the module `EndDateTime` fallback was never observed (OR L34), so it cannot have come back anything. Replaced with what the run records, citing L15 and L25 by number |
+| §2.8, the `mysubmissions/` refusal body | OR L26 records it as `403 {Errors}`, with no `[{"Message":…}]`. `dropbox/folders/` keeps `{"Errors":[{"Message":…}]}` (OR L12, and §2.8's own `whoami` example). The two are now written differently, which is the point of the section |
+| §2.1, pagination | OR L10: "there **may** be more pages". "needs more than one page" asserted a second page existed. Now "may have more than one page", and "Paginate." stays |
+
+**Gates, at the merge commit `8be49601` (this entry is the docs-only commit after
+it, so the tree id below moves by that commit and nothing else):**
+
+```
+$ node scripts/check-state.mjs
+  docs/FACTS.md:58: re-verify before relying on it (2026-09-23): Background access in Opera GX and direct Durham course URLs restoring 
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 1 warning(s).
+exit 0
+
+$ git merge-tree --write-tree --name-only origin/main HEAD
+345e3f5fce9be0b37aa36cbff234fa05d3b23c93
+exit 0
+```
+
+`merge-tree` printed **no file names**, which is the check the review asked for.
+**The warning count is new and it is not this branch's.** It was `0 warning(s)` when
+the review ran it, because the row it names did not exist then: `docs/FACTS.md:58`
+is absent at `7b805fa2` and arrives with `f56f279` (#170), which added four lines to
+`docs/FACTS.md`. The row is byte-identical on `origin/main`, and it is *correctly*
+marked `unconfirmed` — background Opera GX access and the Durham federation URLs
+genuinely have not been checked, which is the same fact this document's §4 records
+about the tabs-closed pass. The checker is doing its job; **the row is #170's to
+re-verify, and nothing here may change it.** It is a warning with exit 0, so the
+`state carriers are honest` job stays green.
+
+**Links.** No new link target was added this round — every citation reuses
+`2026-09-23-d2l-probe-owner-run.md`, which is one directory up from nothing: the
+research doc and the owner-run file are siblings in `docs/research/`, so
+`[owner run](2026-09-23-d2l-probe-owner-run.md)` and the FACTS row's
+`research/2026-09-23-d2l-probe-owner-run.md` both still resolve. Both were
+re-resolved by hand against each file's own directory, and the FACTS row's link is
+the one the readiness checker resolves itself (its M1 kills a wrong target there,
+while research-doc links are unchecked — its M2).
+
+**Mutations: none, and that is the honest answer rather than an omission.** This
+round changes prose in a research document and adds this entry; no guard, no
+checker input and no `FACTS.md` cell changed, so there is nothing to neuter that
+the checker or a test could catch. The one changed cell in the previous round was
+re-verified then (blank Observed → exit 1, blank source → exit 1, restored → exit
+0).
+
+**What I did NOT do.** `collector-mapping.ts` untouched, still the receiver-fix
+PR's file. No code, no test, no migration, no deploy, no live D2L request, no
+credential. The `Type`-filter question stays with the collector owner, as the
+review agrees.
+
+Signed: **the model and the reasoning effort are not exposed to this session** (no
+`DSH_*` variable names either; the harness reports only a session id), so no
+signature is claimed. Builder: DeepSeek, in the DeepSeek Harness.
+
+## 2026-09-24 — DeepSeek builder: #161 final round — the owner run becomes the citation, and two of the review's evidence claims do not hold
+
+Branch `docs/d2l-api-findings` (PR #161). `origin/main` `7b805fa2` merged normally
+(no rebase, no force-push) in `21209c34`; this entry is the commit after it. Edits
+1–7 of the round-3 review's paste-ready message, plus optional edit 8. Two files:
+`docs/research/2026-09-23-ldsb-brightspace-api-findings.md` and `docs/FACTS.md`.
+No code, and `apps/cloud-gateway/src/school/collector-mapping.ts` untouched as
+instructed.
+
+**Two of the review's evidence claims do not hold against the merged artifact, and
+I did not write them as fact.**
+
+1. **The quoted sentence is not in the file.** The review's F2 and its paste-ready
+   edit 1 both say #173's owner-run file "says outright that the dates do not live
+   on modules", and F2 quotes it as *"#161's claim that the dates live on modules
+   does NOT hold for this account"*. The merged file says the opposite kind of
+   thing: `docs/research/2026-09-23-d2l-probe-owner-run.md` L34 reads *"the probe
+   aggregates field counts and did not count module-level dates separately, so
+   **module dates are UNVERIFIED** by this run."* `grep` for `does NOT hold` across
+   `docs/` finds it nowhere in that file (the only hits are in `AGENT_LOG.md`,
+   unrelated rounds), and the file has exactly one commit (`54c1b67b`), so there is
+   no earlier revision where it said that either. **What I did:** removed #161's
+   assertion that the enclosing module carried `StartDateTime`/`EndDateTime` —
+   which is the review's actual instruction and is right, because it was stated as
+   observed — and replaced it with the observed counts, saying module-level dates
+   are **UNVERIFIED by this run, not refuted**. Writing a refutation the source
+   does not make would be the same class of error the document exists to avoid.
+2. **The rest of the figures check out exactly**, which is why the first one is
+   worth naming rather than quietly working around: `403` shapes on L12 (non-JSON
+   for `toc`/`myGradeValues`, `{Errors}` for `dropbox/folders`), grades `200 []` on
+   L24, `DueDate` 13 of 42 on L25, the mysubmissions counts on L26, and the empty
+   fallbacks on L15/L36 all match the review's table.
+
+**One thing the review offered that I deliberately did not add.** F6 and optional
+edit 8 suggest carrying #173's advice to "filter to real course offerings by
+Type". §2.1 of the same document already warns that the currently-enrolled
+sections appear as `Type.Id: 4` (Group) and that a Type-based conclusion about
+which org units are real courses is *wrong* — a filter on `Type = 3` would drop
+exactly the sections Sid is enrolled in. Adding it would have put two
+contradicting instructions in the same section. It is left for the collector owner,
+as the review itself says F6 is. The pagination half of edit 8 **is** added: #173
+L10 records `HasMoreItems` set at 50 items, which is a shape fact with no such
+conflict.
+
+**What changed, by edit number.** 1 — §2.3 now carries the owner-run counts (13 of
+42 set, 29 null; 3 null in a second course; 140 null in the large unit), says the
+topic dates were null on every topic and the `myItems`/`/due`/overdue lists carried
+no dates, marks module-level dates UNVERIFIED, keeps the `DueDate`-first fallback
+order, and adds #173 L35's own conclusion: most work is **"exists, no date in D2L"**.
+2 — §2.5's refusal row is `403`, **non-JSON**, cited to the owner run. 3 — §2.8 now
+says the refusal **body depends on the route** and to key a refusal on the status,
+not the body. 4 — §2.6 cites the owner run for `200 []` on **184** calls (41 + 3 +
+140), adds the **one** `403 {Errors}` as a refusal that must never be read as "not
+submitted", and marks `CanAccess: false` unverified. 5 — §4's in-page question now
+records that the in-tab pass **ran** and the tabs-closed background pass has
+**not**, so a service-worker read is still UNTESTED. 6 — §6's UNVERIFIED bullet
+became a citation of the owner run, the #170 sentence is narrowed to what that
+branch actually carries (`200 []` and the `{Objects}` envelope, **no 13-of-42
+figure**), the "committing the summary would settle this" sentence is dropped
+because it is settled, and the mocked-only note about `d2l-probe-test-evidence.md`
+is kept. 7 — `FACTS.md`'s source cell now credits the `200 []` shapes to the probe
+run and the URL loads to §5/§2.9 of the research doc. 8 (optional) — §2.1 says the
+enrolment list is paged and must be paginated; §2 records that `myItems` is an
+`{Objects}` envelope and that `myItems/due` and `overdueItems` returned
+`{Objects:[]}` everywhere.
+
+**Gates, at this round's working head:**
+
+```
+$ node scripts/check-state.mjs
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 0 warning(s).
+exit 0
+
+$ git merge-tree --write-tree --name-only origin/main HEAD
+e79648ff7d0cd0a1826c9020b4fead8a3892474a
+exit 0
+```
+
+`merge-tree` printed **no file names**, so the merge is clean, and the merge itself
+had already been made.
+
+**Relative links, checked by hand** because the review is right that the checker
+does not resolve links in research docs (its M5 survived): every `](…)` target in
+both changed files was extracted and resolved against the file's own directory —
+**9** in the research doc, all `2026-09-23-d2l-probe-owner-run.md`, and **3** in
+`docs/FACTS.md` (`plan/2026-09-23-d2l-collector-design.md`, `STATE.md`,
+`research/2026-09-23-d2l-probe-owner-run.md`). All 12 resolve; the one new path in
+each file is relative to that file, not to the repository root.
+
+**Mutations.** There is no code and therefore no new guard, so the only thing that
+could be neutered is the changed `FACTS.md` row. The review's M1 and M2 were
+re-run **against the new row** rather than assumed to still hold, since its source
+cell is what changed: blanking the Observed cell → `check-state.mjs` **exit 1**;
+blanking the source cell → **exit 1**; restored → output above, **exit 0**. The
+file was restored from a byte copy each time and `git diff` afterwards showed only
+the intended one-line change. The review's M3–M5 are gaps it already named
+(backticked paths are not resolved, future dates now are, research-doc links are
+not checked); nothing here changes that, and the manual link check above is the
+compensating step for M5.
+
+**What I did NOT do.** `collector-mapping.ts` was not touched: the review's §3
+finding — that `main`'s receiver rejects `body: []` on `…/mysubmissions/`, which is
+the exact shape Sid's real probe returned — belongs to the receiver-fix PR, and
+this branch has no authority over it. Nothing was deployed, merged or run against
+D2L; no browser, credential or live request was involved. No `OWNER-ACTIONS` row is
+added, and none is needed: the probe has run and this round only cites it.
+
+Signed: **the model and the reasoning effort are not exposed to this session** (no
+`DSH_*` variable names either, and the harness reports only a session id), so no
+signature is claimed. Builder: DeepSeek, in the DeepSeek Harness.
+
+## 2026-09-23 — DeepSeek builder: #161 review correction round
+
+Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. The model version
+and reasoning-effort setting are **not exposed to this session** — no `DSH_*`
+variable carries them — so this entry names neither rather than guessing.
+Corrections only; no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
+
+**Corrections applied** (all 12):
+1. §"Why this exists": the claim that **#160** assumes HTML parsing is deleted. #160's design is API-first (`9092950:docs/plan/2026-09-23-d2l-access-design.md`, Recommendation and "What changes for P2": "prefer … APIs to DOM"); only the P2 brief assumed HTML, and it is PARKED.
+2/6. §3.1 retitled "It supports #160's API-first design" and rewritten so the observations **support** #160 instead of overturning it. §3.2 verdict is now "**Survives, as designed (API first)**", and the deadlines row reads "assignment `DueDate` when present; module or availability dates as fallback".
+3. §2.6 rewritten around the **student** route `…/submissions/mysubmissions/`. The all-users route `…/submissions/` is named and rejected ("never call the all-users submissions route", #160's "Own submissions" row). §5's reproduction list and §4 row 1 now use `mysubmissions/`. The "empty `{}` means unsubmitted" reading is **deleted** — it was drawn from the wrong route.
+4. Every `200 {}` is gone. §2.5's table row is now "`200 []` = permitted, empty list". §5's grades shape is `[]`.
+5. §2.3 retitled "assignment `DueDate` is often null"; "every assignment's `DueDate` was `null`" replaced by the 13-of-42 figure with module `EndDateTime` and folder `Availability` named as fallbacks, and the silent-empty warning kept.
+7/8/9/10. §4 row 2 is now "Why do most folders lack a `DueDate`?"; §1 and §2.5 cross-references point at §2.8 (the 403 control); the P2 `1.30`/`1.51` sentence is deleted and the `1.74-`/`1.82+` cutover is marked UNVERIFIED; §4's last row and §3.1 point at merged **#163** and the probe run, not "#160's own unrun experiments".
+11. `docs/FACTS.md`: "Five URLs" → **nine** (the six routes in §5 plus three §2.9 discovery endpoints), and the `myGradeValues` claim is corrected to `200 []`, permitted-but-empty, with the student `mysubmissions/` route added.
+12. `docs/OWNER-ACTIONS.md`: the Pulse `client_id` row is **deleted**. It sat outside any table (broken rendering) and asked Sid to intercept iPhone TLS for a route §3.3 drops. §3.3 now carries one line saying no owner action is requested.
+
+**What I could not do, and why — this is the important part.** Items 4 and 5 told me to cite `docs/research/2026-09-23-d2l-probe-test-evidence.md` on `main` for the live shapes. **That file contains no live results.** It records mocked local tests only: line 34 "No Opera GX or real D2L test was run", line 108 live access "await[s] the owner action", and `OWNER-ACTIONS.md` on main still lists the probe run as **awaiting-owner**. `git grep` over `main` finds no `13 of 42` and no `200 []`; `git log --all -S"13 of 42"` proves the string has never existed in any ref in this repository. I also searched `origin/codex/d2l-collector`, `origin/codex/d2l-ingest-run`, `origin/codex/d2l-probe-run` and `origin/goal/brief-p2-d2l`. **So every live figure in this document is now marked UNVERIFIED against any repository file**, in a new §6 bullet that says exactly where it came from (Sid's report of the run) and what would settle it (committing the probe summary). The figures are stated, attributed to Sid's report, and labelled — never presented as reads this document can evidence. **The durable fix is to commit the probe summary; #161 cannot do that for #170's owner.**
+
+**One committed copy does exist, and it is not on main.** `docs/research/2026-09-23-d2l-collector-contract-gaps.md` on `origin/codex/d2l-collector` (open PR **#170**) records the probe run's shapes: "The real probe observed `200 []`" for the student submissions route (line 26), the myItems `{Objects:[...],Next:null}` envelope (line 25), and "Sparse folder DueDate … Null means no date known, not not-due; refusal means refused, not unsubmitted" (lines 74–77). §6 of the research doc cites it by PR URL and says it is not on `main` yet.
+
+**Gates.** Merge was normal — `git merge origin/main`, no rebase, no force-push. `origin/main` `29fbfcd` merged into `63ae51d` cleanly with **no conflicts** (`git merge-tree` gave tree `ec53ab3`, exit 0). `node scripts/check-state.mjs` on the corrected tree:
+
+```
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 0 warning(s).
+```
+exit 0.
+
+**Mutations: none, and that is not an omission.** This diff adds no product guard and no code, so there is nothing to neuter. The only executable thing it touches is the FACTS register, and `check-state.mjs` re-passed on the edited row. The reviewer's own M1/M2 mutations (blank Observed cell, blank source cell) both killed that row and are unchanged by my edit; M3/M4 (link resolution inside a FACTS row, future dates) still survive — **gaps in the checker, not in this PR** — and I did not fix them here.
+
+**Out of scope, named rather than fixed** (all on `main`, none touched):
+- `apps/cloud-gateway/src/school/collector-mapping.ts` **line 111** still comments "An unfamiliar successful container cannot stand in for the observed empty object", and **line 110** falls back to the all-users `dropbox/folders/<folderId>/submissions/` route. Both trace to this document's withdrawn `{}`-on-the-wrong-route reading. Line 107 already reads `DueDate` first with availability as fallback, which matches correction 6.
+- `docs/OWNER-ACTIONS.md` on `main` (line 36) still lists the probe run as **awaiting-owner**, while the collector work records the run as done and shape-only results supplied. One of the two carriers is stale; I did not have authority to decide which, so §6 says both.
+- The probe evidence document on `main` is titled as evidence and is cited as ground truth elsewhere, but records no live result. It is the reason four of the corrections above had to be marked UNVERIFIED rather than cited.
+
+No merge, deploy, migration, secret, credential, browser, live D2L or production operation occurred. Worktree `C:\w\d2l` removed after push.
+
 ## 2026-09-24 — Codex builder: #162 round 4 merges main as an interim backstop
 
 **Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/tutoring-guard-run.**
@@ -1234,6 +1457,7 @@ six initially unconfirmed mutations and their successful assertion fixes.
 The old owner probe request is replaced with one collector-load/pair row,
 gated on independent review and the receiver blockers; no duplicate probe request.
 Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-probe-run.md`.
+
 ## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
 
 Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
@@ -1335,6 +1559,7 @@ No live model, Telegram, call, remote D1 rehearsal, migration application, secre
 operation or deployment was performed. The test called remote-D1 syntax is
 offline. OWNER-ACTIONS carries the separately authorized rehearsal and rollout;
 QUEUE carries review. Independent review follows publication, not builder merge.
+
 ## 2026-09-23 — Codex GPT-6 builder: #169 publication refresh after #164, #165 and #167
 
 Signed: Codex GPT-6, receiver builder. GitHub reported a conflict after the first normal push. Fresh fetch proved main had advanced to `0d69556394cc543bb55a5a66627c1b35aa6139d4`. Merged it normally in `d3ab0827869251cd09907c74a783b8056de3a141`; no rebase or force-push. Kept all upstream runtime changes and every conflicting log/fact/queue entry. The two digest test conflicts now retain main's retired-source behavior and the collector's separate coverage gap. No upload route, signing, pairing payload or batch format changed.
