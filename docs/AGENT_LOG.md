@@ -1049,6 +1049,154 @@ are outside the guarantee; see KNOWN_ISSUES. This is not independent clearance.
 - When those gates pass: Claude reviews the exact resulting head before merge;
   any later deployment remains a separate owner action.
 
+### Round 2
+
+Signed: Codex GPT-6 Astra, headless builder, 2026-09-24, `codex/redaction-gaps`.
+Applied [the independent review](https://github.com/stremysid/jarvis/pull/183#issuecomment-5822297715)
+after the harness merged `origin/main` (`a20f055`) as `2f11478`. Git remained
+read-only; the harness owns the commit. No migration or deployment.
+
+- **F1:** Generic assignments require `:`/`=`. Only `pin`, `passcode` and `code`
+  accept prose `is`, `was`, `'s` or `’s`, optionally after `number`, and their
+  numeric values require a word boundary. Explicit `code` assignments likewise
+  require digits. `passphrase is` retains quoted and unquoted multiword handling.
+  Restored the original binder sentence in `security/redaction.test.ts`; its
+  shared fixture now expects unchanged text. The review's ordinary prose and
+  memory-location examples are preserved in both runtimes.
+- **F2:** Prose PIN/passcode/code assignments also consume the whole run of at
+  least three space/hyphen-separated digit words, including `zero` and `oh`.
+  Fixtures cover optional `number`, past tense, both apostrophes, case, mixed
+  separators, the three-word threshold, word boundaries and the fourth-word tail.
+- **F3:** Three-group phones accept spaces, dots and hyphens, plus optional
+  unsigned `1` with a separator and the existing identifier boundaries. The
+  requested bare numbers, dates, times, course codes and ordinary prose survive.
+- **F4:** KNOWN_ISSUES now records the exact multiword password-colon tail and
+  the remaining spoken-PIN limits. No wider password grammar was added.
+- **F5:** Wiring the differential into CI remains a follow-up, outside this round.
+
+These rules are **syntactic**, with no semantic exceptions or relevance guesses.
+This replaces round 1's `pin is on`/`code is` overreach described above and in
+the round-1 evidence/register. The scoped brief leaves those other documents
+untouched; KNOWN_ISSUES and this section record the corrected behavior.
+
+The shared table now has **131 cases**, each with exact TypeScript output and an
+explicit Python `refuse` decision. The existing streaming table still exercises
+every case at every two-part split and character by character in both modes.
+
+Executed: `python3 apps/local-agent/tests/memory/redaction_differential.py
+--output /tmp/redaction-round2-python.json`, then
+`node scripts/check-redaction-differential.mjs --python-results
+/tmp/redaction-round2-python.json`: **433 decisions, zero runtime differences,
+zero expectation failures; 6,276 streams match exact output**. Gateway source
+typecheck (`node_modules/.bin/tsc --noEmit -p apps/cloud-gateway`),
+`node scripts/check-state.mjs` and `git diff --check` pass. State check retains
+one pre-existing FACTS advisory about browser background access.
+
+Eight isolated temporary-source mutations were killed by the differential:
+generic prose overreach in both runtimes (16 failures each), generic `code`
+overreach in both (5 each), TypeScript truncating spoken runs at three words
+(9 exact-output failures despite zero boolean differences), Python losing spoken
+digits (10), and each runtime losing the new phone shapes (7 each).
+The working sources were never mutated for these checks.
+
+**Harness must run these complete files**, with repository-relative paths:
+
+| Runner | Test file |
+|---|---|
+| Vitest | `packages/contracts/test/call-redaction.test.ts` |
+| Vitest | `packages/contracts/test/envelope.test.ts` |
+| Vitest | `apps/cloud-gateway/test/contracts/projection-policy.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/redaction.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/pin-redaction-turn.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/streaming-output-redactor.test.ts` |
+| Vitest | `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts` — includes R01 |
+| Vitest | `apps/cloud-gateway/test/memory/memory-search.test.ts` — includes the forgotten-memory regression |
+| Vitest | `apps/cloud-gateway/test/memory/telegram-memory.test.ts` — includes both reported regressions |
+| pytest | `apps/local-agent/tests/memory/test_projection_policy.py` |
+| pytest | `apps/local-agent/tests/sync/test_memory_projection.py` |
+
+Vitest, pnpm and pytest were unavailable and were not run by this builder;
+the four reported integration failures therefore still require harness proof.
+Root `.codex-commit-msg.txt` and `.codex-pr-body-addendum.md` contain the commit
+message and the Round 2 PR addendum.
+
+- When the harness receives this worktree: run the listed focused files and
+  differential, then commit and publish the addendum using the supplied files.
+- After the harness push: CI runs the full suites; the independent reviewer
+  reviews that exact head before any merge.
+
+#### R01 follow-up after the first Round 2 harness run
+
+Signed: Codex GPT-6 Astra, headless builder, 2026-09-24. **Diagnosis: (b), a real
+defect**, not a reason to change R01's fixture or expected receipt. The harness
+reported **249 pytest passes and 763 Vitest passes / 1 failure** across the
+previously listed files, before these follow-up edits. The memory-search and
+both telegram-memory regressions passed; R01 alone still failed.
+
+Exact path: `telegram-webhook.ts` gives `onAccepted` the original `message.text`.
+`index.ts` passes that to `OwnerTelegramAgentAdapter.authorityText`.
+`DefaultConversationService.handleTurn` independently redacts the conversation
+text, commits that token and passes its text as `ModelAdapterStreamInput.userText`.
+The stream-input snapshot only copies/validates; it does not redact arguments.
+The adapter's `canActOn` compared **raw authority text with redacted user text**.
+`OwnerAgentCore.executeCall` checks `canActOn` first, selecting `authorityRefusal`
+before the memory branch can inspect `directOwnerText` and select
+`memoryAuthorityRefusal`. `pipelineAuthorityRefusal` is not reached for memory
+tools. Neither `memoryOwnerTurn` nor tool-argument parsing runs before this
+initial refusal. A DIRECT turn with the same credential text failed identically.
+
+The adapter now snapshots authority through the same `sanitizeRedaction` rule
+used by conversation ingress, retaining exact text, channel and principal
+checks. Durable `memoryOwnerTurn` still verifies the committed text and the
+direct-ingress marker. **R01, including its credential fact and receipt assertion,
+is unchanged** and now reaches its intended non-direct memory refusal.
+
+The source trace also found why authority normalization alone is insufficient:
+tool arguments are not redacted. `rememberGrounding` can classify a raw model
+fact with a redacted excerpt as inferred; `isAuthorizedRememberText` permits
+inferences, and `MemoryRepository.validateItemText` checks text shape/controls,
+not credentials. `remember` now refuses a fact if the shared syntactic redactor
+would change it, before any memory write. It does not rewrite the proposed fact
+or add a semantic classifier. Existing refusal wording remains unchanged.
+
+**Direct-turn comparison, by source trace, not executed Vitest:** read
+`origin/main` at `a20f055`, including its redactor, adapter, core and memory
+authorization. For direct text `remember my code is 12` and tool fact/excerpt
+`my code is 12`, main does not recognize this short `code is` shape. Its authority
+comparison and grounding succeed, so it stores the raw fact as stated/active
+and returns its remembered receipt. This branch before the follow-up redacts
+the text and falsely returns the generic authority refusal, storing no memory.
+After the follow-up the turn passes authority, but the raw fact is refused with
+`I could not safely apply that tool call, so nothing changed.` and no memory.
+When the model instead submits the redacted fact/excerpt, only
+`my code is [REDACTED_AUTH_DIGITS]` is stored. The receipt names that exact stored
+text: `Remembered 1 memory. You can ask in ordinary language to forget it.
+Memory: "my code is [REDACTED_AUTH_DIGITS]"`. No receipt claims the code was saved.
+
+Added four integration cases in `owner-telegram-agent.test.ts`: direct raw fact
+with raw excerpt; direct raw fact with redacted excerpt; successful storage and
+exact receipt for a redacted fact; and rejection when redacted authority text
+differs from the model turn. They assert model-visible redaction, memory rows
+and tool receipts. R01 itself still covers the non-direct credential turn.
+All five additional redaction inputs/outputs are in the shared table, now
+**136 cases with explicit Python decisions**. No other existing receipt changed.
+
+Executed after these edits: the Python/Node differential reports **438 decisions,
+0 differences, 0 expectation failures; 6,564 streams match**. Gateway source
+typecheck, state check (same one FACTS advisory) and diff check pass. The earlier
+eight mutation kills cover the redaction grammar, not these new integration
+tests. Vitest/pytest were not rerun here; the harness results above predate this
+follow-up. The commit message and 12-line PR addendum are updated.
+
+- Before committing this follow-up: harness reruns the complete
+  `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts`, including R01
+  and all four new cases, then the same nine Vitest/two pytest files listed above.
+- During that focused harness check: separately revert the authority snapshot,
+  omit its equality comparison, and bypass the raw-fact redaction check as
+  temporary mutations. The new cases must fail, then pass on restored sources.
+- After the focused gates pass: harness commits; CI runs full suites and the
+  independent reviewer checks the exact resulting head. F5 remains a follow-up.
+
 ## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
 
 Signed: Codex (GPT-6), builder on `codex/voice-streaming`.

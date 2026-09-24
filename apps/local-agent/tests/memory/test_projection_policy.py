@@ -16,8 +16,10 @@ GAPS = json.loads(
 
 
 @pytest.mark.parametrize("case", GAPS, ids=lambda case: case["name"])
-def test_redaction_gaps_match_the_gateway_decision(case: dict[str, str]) -> None:
-    assert redaction_would_change(case["text"]) is (case["text"] != case["expected"])
+def test_redaction_gaps_match_the_gateway_decision(case: dict[str, str | bool]) -> None:
+    text = str(case["text"])
+    assert redaction_would_change(text) is case["refuse"]
+    assert (text != case["expected"]) is case["refuse"]
 
 
 def expand(text: str) -> str:

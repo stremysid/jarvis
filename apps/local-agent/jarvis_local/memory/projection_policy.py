@@ -29,18 +29,25 @@ _AUTHENTICATION_WORD = (
     r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
     r"(?:\s+is)?\s*[=:]?\s*"
 )
+# Syntactic parity with calls.ts: prose requires digits, never an arbitrary word.
+_SPOKEN_DIGIT = r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b"
 
 _REDACTED_PATTERNS = (
     re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}(?![0-9])"),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}\b"),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}\b"),
+    _js_whitespace_pattern(
+        r"\b(?:pin|passcode|code)(?:\s+number)?(?:\s+(?:is|was)\s+|['’]s\s+)"
+        + r"(?:[0-9]+\b|" + _SPOKEN_DIGIT + r"(?:[ -]+" + _SPOKEN_DIGIT + r"){2,})"
+    ),
+    _js_whitespace_pattern(r"(?<![A-Za-z0-9])([\"']?)code\1\s*[=:]\s*[0-9]+\b"),
     _js_whitespace_pattern(
         r"\bauthorization\s*:\s*(?:bearer[ \t\r\n]+[A-Za-z0-9._~+/=-]+[^\r\n]*|[^\r\n]*)"
     ),
     _js_whitespace_pattern(
-        r"(?<![A-Za-z0-9])([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|"
-        r"access(?:[_-]|\s+)?token|token|secret|pin|passphrase|passcode|code)\1"
-        r"(?:\s*[=:]\s*|\s+is\s+)(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*"
+        r"(?<![A-Za-z0-9])(?:([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|"
+        r"access(?:[_-]|\s+)?token|token|secret|pin|passphrase|passcode)\1"
+        r"\s*[=:]\s*|\bpassphrase\s+is\s+)(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*"
         r"(?:\"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*"
         r"(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|"
         r"(?!\[REDACTED_(?:AUTH_DIGITS|AUTHORIZATION|CREDENTIAL|PHONE_NUMBER)\]"
@@ -52,9 +59,9 @@ _REDACTED_PATTERNS = (
         + r"[^,;.!?\r\n]*"
     ),
     re.compile(
-        r"(?<![A-Za-z0-9_+-])(?:\+1[ \t-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|"
-        r"(?:[0-9]{3}[ -])?[0-9]{3}[ -][0-9]{4}|[0-9]{10})|"
-        r"\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|[0-9]{3}-[0-9]{3}-[0-9]{4})"
+        r"(?<![A-Za-z0-9_+-])(?:\+1[ \t.-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|"
+        r"(?:[0-9]{3}[ .-])?[0-9]{3}[ .-][0-9]{4}|[0-9]{10})|"
+        r"\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:1[ .-])?[0-9]{3}[ .-][0-9]{3}[ .-][0-9]{4})"
         r"(?![A-Za-z0-9_]|-[0-9])"
     ),
     re.compile(

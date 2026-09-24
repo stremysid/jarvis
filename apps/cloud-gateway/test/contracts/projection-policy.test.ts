@@ -9,10 +9,11 @@ function expand(text: string): string {
 }
 
 describe("shared Python and gateway redaction decisions", () => {
-  it.each(gaps)("$name", ({ text, expected }) => {
+  it.each(gaps)("$name", ({ text, expected, refuse }) => {
     const result = sanitizeRedaction(text);
     expect(result).toMatchObject({ ok: true, text: expected });
-    expect(!result.ok || result.text !== text).toBe(expected !== text);
+    expect(!result.ok || result.text !== text).toBe(refuse);
+    expect(expected !== text).toBe(refuse);
   });
 
   it.each(vectors.redactionCases)("$name", ({ text, refuse }) => {

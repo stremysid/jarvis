@@ -103,7 +103,7 @@ describe("Redactor", () => {
     "The essay is due Oct 14, 2026.",
     "Room 2104 at 1430, and it costs 1500 dollars.",
     "I scored 1450 on the SAT.",
-    "The pin sits on the 2026 page of the binder.",
+    "The pin is on the 2026 page of the binder.",
     "Tell me how to spin 2026 as a gap year.",
   ])("leaves a four-digit number alone when no credential word comes right before it: %s", (text) => {
     expect(new Redactor().redact({ text, channel: "telegram", field: "conversation.turn.text" }))
