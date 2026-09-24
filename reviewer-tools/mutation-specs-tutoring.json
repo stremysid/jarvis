@@ -1,0 +1,474 @@
+[
+  {
+    "name": "M01 Unknown objects remain claims",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (object === undefined) return false;",
+    "replace": "if (object === undefined) return true;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "catches the exact reviewer blocker: I told your brother the formula"
+  },
+  {
+    "name": "Object match for added",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the complete maths explanation: We added 5 to both sides"
+  },
+  {
+    "name": "Object match for applied",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|rubric(?:\\s+(?:that\\s+)?your\\s+teacher\\s+uses)?\\s+to\\s+(?:explain\\b|(?:the|this)\\s+(?:thesis|paragraph)\\b))/iu,",
+    "replace": "  applied: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the complete maths explanation: We applied the chain rule"
+  },
+  {
+    "name": "Object match for called",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:parent\\s+)?(?:function|constructor|method|helper)\\b)/iu,",
+    "replace": "  called: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I called calculateArea()"
+  },
+  {
+    "name": "Object match for told",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  told: /^\\s+the\\s+(?:loop|function|program|compiler)\\b/iu,",
+    "replace": "  told: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I told the compiler"
+  },
+  {
+    "name": "Object match for asked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  asked: /^\\s+the\\s+(?:loop|function|program|compiler)\\b/iu,",
+    "replace": "  asked: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: We asked the program"
+  },
+  {
+    "name": "Object match for saved",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  saved: /^\\s+(?:[a-z]|(?:the\\s+)?(?:result|value))\\s+(?:as|in)\\s+a\\s+variable\\b/iu,",
+    "replace": "  saved: /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I saved the result in a variable"
+  },
+  {
+    "name": "Object match for \"put in\"",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  \"put in\": /never-a-worked-object/u,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps a numeric substitution with an explicit variable"
+  },
+  {
+    "name": "Added numeric object is tied to the equation",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:neverNumeric|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the complete maths explanation: We added 5 to both sides"
+  },
+  {
+    "name": "Added term remains a worked object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|neverTerm|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I added the term 6x"
+  },
+  {
+    "name": "Added artifacts remain worked objects",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|neverArtifact|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the worked code or essay explanation: I added an email validation function"
+  },
+  {
+    "name": "A millisecond timeout is a code object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|neverTimeout|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the worked code or essay explanation: We added a 200 ms timeout"
+  },
+  {
+    "name": "Error handling is a code object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|(?:an?\\s+)?error\\s+handling\\b)/iu,",
+    "replace": "  added: /^\\s+(?:(?:[-+]?\\d+[a-z]?|[a-z])\\s+to\\s+both\\s+sides\\b|the\\s+term\\s+[-+]?\\d*[a-z]\\b|an?\\s+(?:(?:worked|stronger|email\\s+validation)\\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\\b|an?\\s+\\d+\\s+ms\\s+timeout\\b|neverErrorHandling)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I added error handling"
+  },
+  {
+    "name": "Rubric attribution is a worked essay object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|rubric(?:\\s+(?:that\\s+)?your\\s+teacher\\s+uses)?\\s+to\\s+(?:explain\\b|(?:the|this)\\s+(?:thesis|paragraph)\\b))/iu,",
+    "replace": "  applied: /^\\s+the\\s+(?:(?:[a-z-]+\\s+){0,4}(?:rule|law|formula|theorem|method)\\b|neverRubric\\s+to\\s+(?:explain\\b|(?:the|this)\\s+(?:thesis|paragraph)\\b))/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the worked code or essay explanation: I applied the rubric your teacher uses"
+  },
+  {
+    "name": "Function call syntax is positively recognized",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:parent\\s+)?(?:function|constructor|method|helper)\\b)/iu,",
+    "replace": "  called: /^\\s+(?:neverIdentifier|the\\s+(?:parent\\s+)?(?:function|constructor|method|helper)\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the held-out tutoring sentence: I called calculateArea()"
+  },
+  {
+    "name": "Parent constructors are code objects",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:parent\\s+)?(?:function|constructor|method|helper)\\b)/iu,",
+    "replace": "  called: /^\\s+(?:[a-z_$][\\w$]*\\s*\\(\\s*\\)|the\\s+(?:function|constructor|method|helper)\\b)/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the worked code or essay explanation: We called the parent constructor"
+  },
+  {
+    "name": "Put-in requires a variable",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+.+/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: I put in 4 for your reservation"
+  },
+  {
+    "name": "Inclusive booked has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  booked: /^\\s+.*$/iu,\n  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We booked the example below"
+  },
+  {
+    "name": "Inclusive scheduled has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  scheduled: /^\\s+.*$/iu,\n  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We scheduled the example below"
+  },
+  {
+    "name": "Inclusive requested has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  requested: /^\\s+.*$/iu,\n  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We requested the example below"
+  },
+  {
+    "name": "Inclusive shared has no teaching exemption",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "replace": "  shared: /^\\s+.*$/iu,\n  \"put in\": /^\\s+[-+]?\\d+\\s+for\\s+[a-z]\\b/iu,",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: We shared the example below"
+  },
+  {
+    "name": "Applied transaction modifiers veto the object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_TRANSACTION_OBJECT.test(object)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: I applied the discount rule"
+  },
+  {
+    "name": "Destination context vetoes even before the verb",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_DESTINATION.test(sentence)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: In your office"
+  },
+  {
+    "name": "Recipient context vetoes even before the verb",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_RECIPIENT.test(recipientScan)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: For you"
+  },
+  {
+    "name": "Names veto even before the verb",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_NAMED_RECIPIENT.test(sentence)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "rejects a non-explanation object or an explanation with an external context: With Robin"
+  },
+  {
+    "name": "Telephone vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /neverExternalValue|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example referencing 555-0100"
+  },
+  {
+    "name": "AM PM time vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|neverExternalValue|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "checks context in the same sentence even when the object is locally safe"
+  },
+  {
+    "name": "Clock time vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|neverExternalValue|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "At 14:15, I added an example"
+  },
+  {
+    "name": "Year-first date vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|neverExternalValue|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example dated 2027-01-08"
+  },
+  {
+    "name": "Year-last date vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|neverExternalValue|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example dated 08/01/2027"
+  },
+  {
+    "name": "Named date vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|neverExternalValue|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example dated August 8"
+  },
+  {
+    "name": "Weekday vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|neverExternalValue|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example due next Sunday"
+  },
+  {
+    "name": "Currency or percent sign vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|neverExternalValue|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example yielding 5%"
+  },
+  {
+    "name": "Currency code vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|neverExternalValue|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added a function costing CAD 24"
+  },
+  {
+    "name": "Currency name vetoes an otherwise safe object",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|\\b\\d+\\s*(?:dollars?|euros?|pounds?|percent)\\b/iu;",
+    "replace": "const WORKED_REAL_WORLD_VALUE = /\\d{3}[-\\s]\\d{3,4}|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b|\\b\\d{1,2}:\\d{2}\\b|\\b\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\b|\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{2,4}\\b|\\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\\s+\\d|\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b|[$£€¥%]|\\b(?:cad|usd|eur)\\s*\\d|neverExternalValue/iu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example costing 9 dollars"
+  },
+  {
+    "name": "Unknown destinations are not teaching continuations",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (!WORKED_CONTINUATION.test(remainder.slice(destination.index + destination[0].length))) return false;",
+    "replace": "if (false) return false;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I added an example to someone else's journal"
+  },
+  {
+    "name": "Second action verbs veto the explanation",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "WORKED_SECOND_ACTION.test(context)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the second filed action visible"
+  },
+  {
+    "name": "Filed remains visible without a repeated subject",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const WORKED_SECOND_ACTION = new RegExp(String.raw`\\b(?:${ACTION_CLAIM_VERBS}|filed)\\b`, \"iu\");",
+    "replace": "const WORKED_SECOND_ACTION = new RegExp(String.raw`\\b(?:${ACTION_CLAIM_VERBS})\\b`, \"iu\");",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the second filed action visible"
+  },
+  {
+    "name": "Only rule objects may consume for-you",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "/\\b(?:rule|law|formula|theorem|method)$/iu.test(object)",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "I applied the rubric that your teacher uses to the paragraph for you"
+  },
+  {
+    "name": "A worked rule for-you can be recognized",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "recipientScan = recipientScan.replace(/\\bfor\\s+you\\b/iu, \"\");",
+    "replace": "recipientScan = recipientScan;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps a worked application of the rule for the owner"
+  },
+  {
+    "name": "M10 Whole-sentence context reaches first-person exemptions",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "isWorkedExplanation(sentence.text, verb, tail)",
+    "replace": "isWorkedExplanation(tail, verb, tail)",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "checks context in the same sentence even when the object is locally safe"
+  },
+  {
+    "name": "M10 First-person context does not cross sentences",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "isWorkedExplanation(sentence.text, verb, tail)",
+    "replace": "isWorkedExplanation(reply, verb, tail)",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps tutoring sentences around a false claim"
+  },
+  {
+    "name": "M10 Completion context does not cross sentences",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "isWorkedExplanation(sentence.text, \"applied\", tail)",
+    "replace": "isWorkedExplanation(reply, \"applied\", tail)",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "limits the applied-for-you exemption to its own sentence"
+  },
+  {
+    "name": "Applied masking uses the same object and context checks",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return isWorkedExplanation(sentence.text, \"applied\", tail) ? \" \".repeat(value.length) : value;",
+    "replace": "return \" \".repeat(value.length);",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the second filed action visible"
+  },
+  {
+    "name": "Worked applied completions can be masked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return isWorkedExplanation(sentence.text, \"applied\", tail) ? \" \".repeat(value.length) : value;",
+    "replace": "return value;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the complete maths explanation: Applied the chain rule for you"
+  },
+  {
+    "name": "Unreceipted saves still get checked",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!isReceiptedInternalClaim(sentence.text, verb, receipted)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "requires a receipt before the internal saved claim can survive"
+  },
+  {
+    "name": "Receipted saves remain available",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!isReceiptedInternalClaim(sentence.text, verb, receipted)",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "requires a receipt before the internal saved claim can survive"
+  },
+  {
+    "name": "New action signed\\s+(?:you\\s+)?up stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|neverAction|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "catches the previously missing action claim: I signed you up for the 2 pm info session"
+  },
+  {
+    "name": "New action reserved stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|neverAction|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "catches the previously missing action claim: I reserved a spot for you"
+  },
+  {
+    "name": "New action cancelled stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|cancelled|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "replace": "const ACTION_CLAIM_VERBS = String.raw`sent\\s+in|sending\\s+in|turned\\s+in|turning\\s+in|signed\\s+(?:you\\s+)?up|signing\\s+up|reserved|neverAction|canceled|handed\\s+in|put\\s+in|reached\\s+out|reaching\\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "catches the previously missing action claim: I cancelled your 4 pm appointment"
+  },
+  {
+    "name": "Passive completion Your fee has been paid stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:neverPassive\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your fee has been paid"
+  },
+  {
+    "name": "Passive completion Your payment was made stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|neverPassive|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your payment was made"
+  },
+  {
+    "name": "Passive completion Your registration was completed stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|neverPassive\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your registration was completed"
+  },
+  {
+    "name": "Passive completion Your email has gone out stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|neverPassive\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your email has gone out"
+  },
+  {
+    "name": "Passive completion Your teacher has been told stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|neverPassive\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your teacher has been told"
+  },
+  {
+    "name": "Passive completion The form is in stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|neverPassive\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "The form is in"
+  },
+  {
+    "name": "Passive completion Your meeting was booked stays guarded",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "replace": "const PASSIVE_RECEIPT_COMPLETION = /\\b(?:(?:fees?|payment)\\b.{0,32}\\b(?:is|has\\s+been)\\s+(?:paid|made|processed)|payment\\s+was\\s+made|registration\\s+(?:is|was|has\\s+been)\\s+(?:completed|confirmed)|(?:email|message)\\b.{0,48}\\b(?:is|was|has\\s+been|has)\\s+(?:sent|gone\\s+out)|(?:teacher|instructor)\\s+(?:was|has\\s+been)\\s+told|(?:form|request)\\s+is\\s+in(?=[.!?]|$)|neverPassive\\s+(?:is|was|has\\s+been)\\s+(?:booked|scheduled))\\b/giu;",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "Your meeting was booked"
+  },
+  {
+    "name": "Secret requests still reach their guard",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);",
+    "replace": "const secretRanges: Array<{ start: number; end: number }> = [];",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "keeps the secret-request guard after a worked explanation"
+  },
+  {
+    "name": "M13 Prompt rule is asserted literally",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt.",
+    "replace": "Worked explanations.",
+    "testPath": "apps/cloud-gateway/test/school/tutoring",
+    "expect": "tells the owner model that worked explanations need no action receipt"
+  }
+]

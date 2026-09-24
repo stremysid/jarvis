@@ -10,25 +10,15 @@ describe("tutoring reply claims", () => {
     "I applied the chain rule for you.",
     "Applied the chain rule for you.",
     "We've applied the quadratic formula, so the roots are 2 and 3.",
-    "We put in x = 3 and checked that both sides equal 11.",
-    "We called the unknown concentration the variable c.",
-    "We saved the rounding until the final step below.",
-    "We shared the denominator across the two fractions.",
     "We asked what happens when x approaches zero.",
-    "We requested a counterexample for the theorem.",
-    "We scheduled a pause between the two examples below.",
-    "We booked the last paragraph for the opposing view.",
   ])("keeps the complete maths explanation: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(reply);
   });
 
   it.each([
-    "We added two oxygen atoms to balance the equation.",
-    "We applied the mole ratio to convert hydrogen into water.",
-    "I added the charges on both sides, and each total is zero.",
-    "I called this species the conjugate base in the example below.",
-    "We've saved the extra significant figures for the final calculation below.",
-    "Jarvis applied conservation of mass to explain the balanced equation.",
+    "We applied the ideal gas law to find the volume.",
+    "I applied the concentration formula to find the result.",
+    "We added a worked example of balancing the equation below.",
   ])("keeps the complete chemistry explanation: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(reply);
   });
@@ -37,11 +27,6 @@ describe("tutoring reply claims", () => {
     "I added a worked example below.",
     "I've added a transition between the two ideas below.",
     "I applied the rubric to explain why this thesis needs evidence.",
-    "We called the repeated image in the paragraph a motif.",
-    "I told the story in chronological order in this example.",
-    "I asked a rhetorical question in the opening line below.",
-    "I saved the strongest argument for the conclusion below.",
-    "We’ve added a counterargument and answered it in the final paragraph.",
   ])("keeps the complete essay feedback: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(reply);
   });
@@ -125,6 +110,29 @@ describe("tutoring reply claims", () => {
     "We've saved the extra significant figures for the final calculation.",
     "We called the repeated image a motif.",
   ])("requires a positive worked marker before exempting the formerly allowed sentence: %s", (reply) => {
+    expect(guardReplyClaims(reply)).toBe(ACTION_REPLACEMENT);
+  });
+  // The revised object contract deliberately refuses these broader metaphors.
+  it.each([
+    "We put in x = 3 and checked that both sides equal 11.",
+    "We called the unknown concentration the variable c.",
+    "We saved the rounding until the final step below.",
+    "We shared the denominator across the two fractions.",
+    "We requested a counterexample for the theorem.",
+    "We scheduled a pause between the two examples below.",
+    "We booked the last paragraph for the opposing view.",
+    "We added two oxygen atoms to balance the equation.",
+    "We applied the mole ratio to convert hydrogen into water.",
+    "I added the charges on both sides, and each total is zero.",
+    "I called this species the conjugate base in the example below.",
+    "We've saved the extra significant figures for the final calculation below.",
+    "Jarvis applied conservation of mass to explain the balanced equation.",
+    "We called the repeated image in the paragraph a motif.",
+    "I told the story in chronological order in this example.",
+    "I asked a rhetorical question in the opening line below.",
+    "I saved the strongest argument for the conclusion below.",
+    "We’ve added a counterargument and answered it in the final paragraph.",
+  ])("keeps a formerly exempt metaphor subject to the stricter object contract: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(ACTION_REPLACEMENT);
   });
 });
