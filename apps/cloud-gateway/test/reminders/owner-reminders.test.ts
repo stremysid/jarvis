@@ -18,12 +18,17 @@ describe("owner reminder tools", () => {
     expect(seeded.replies.join(" ")).toContain(at);
   });
 
-  it("returns the original commitment when a scheduling turn is replayed", async () => {
+  it("deduplicates exact replay while keeping distinct reminders chosen in the same turn", async () => {
     const seeded = await seedReminder();
     const repo = new OwnerReminderRepository(env.DB);
-    const replay = await repo.schedule(seeded.principalId, seeded.turnId, "2026-09-24T12:00:00.000Z", "Different words");
+    const replay = await repo.schedule(seeded.principalId, seeded.turnId, seeded.reminder.due_at, seeded.reminder.text);
     expect(replay).toEqual(seeded.reminder);
     expect(await repo.list(seeded.principalId)).toHaveLength(1);
+    const second = await repo.schedule(seeded.principalId, seeded.turnId, "2026-09-24T12:00:00.000Z", seeded.reminder.text);
+    expect(second).toMatchObject({ due_at: "2026-09-24T12:00:00.000Z", text: seeded.reminder.text });
+    const third = await repo.schedule(seeded.principalId, seeded.turnId, seeded.reminder.due_at, "Zebra practice next.");
+    expect(third).toMatchObject({ due_at: seeded.reminder.due_at, text: "Zebra practice next." });
+    expect(await repo.list(seeded.principalId)).toHaveLength(3);
   });
 
   it("refuses a scheduling receipt when the committed row cannot be read back", async () => {

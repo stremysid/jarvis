@@ -76,13 +76,15 @@ describe("owner reminder delivery", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("sends only the configured owner's reminders", async () => {
+  it("selects and sends only the configured owner's reminders", async () => {
     const other = await seedReminder();
     const owner = await seedReminder();
+    const identityLookup = vi.spyOn(DeviceRepository.prototype, "findOwnerTelegramChat");
     const sendMessage = vi.fn(async () => ({ providerMessageId: "321" }));
     expect(await new OwnerReminderSender(env.DB, { sendMessage }, owner.principalId, clock).run()).toBe(1);
     expect((await new OwnerReminderRepository(env.DB).list(other.principalId))[0]?.status).toBe("pending");
     expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(identityLookup).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a reminder pending during a quiet window and sends the exact text at its end", async () => {

@@ -25,7 +25,7 @@ describe("owner reminder migration", () => {
       .rejects.toThrow("CHECK constraint failed");
   });
 
-  it("rejects a second reminder for the same owner turn", async () => {
+  it("rejects a duplicate reminder with the same owner turn and exact arguments", async () => {
     const seeded = await seedReminder();
     await expect(env.DB.prepare(`INSERT INTO owner_reminders SELECT ?, principal, due_at, text, status,
       created_turn_id, sent_at, attempts FROM owner_reminders WHERE id = ?`)

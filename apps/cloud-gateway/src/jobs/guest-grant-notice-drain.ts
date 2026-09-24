@@ -6,9 +6,10 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const RUN_LEASE_MODIFIER = "+4 minutes";
 
 /**
- * One run executes four coordination statements plus at most nine statements
+ * The notice phase executes four coordination statements plus at most nine statements
  * per notice. D1GuestGrantNoticeSink uses at most eight and advancing the
  * durable cursor uses one. A failed final coordination write adds one more.
+ * An additional drain callback has its own I/O and is outside this notice budget.
  */
 export const GUEST_GRANT_NOTICE_DRAIN_LIMITS = Object.freeze({
   noticesPerRun: 10,

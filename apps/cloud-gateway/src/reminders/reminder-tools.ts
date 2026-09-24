@@ -4,7 +4,7 @@ import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/pr
 import { OwnerReminderRepository } from "./owner-reminders.js";
 
 export const REMINDER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  { name: "reminder_schedule", description: "Schedule a Telegram message to Sid. You choose at and the exact text from his needs and context; code chooses neither. at is an explicit UTC instant YYYY-MM-DDTHH:mm:ss.sssZ. A five-minute job delivers it at or after that time, subject to the existing non-urgent quiet windows. Do not claim exact-minute delivery. One reminder per turn. Use deadline_record separately for an assignment's due date.",
+  { name: "reminder_schedule", description: "Schedule a Telegram message to Sid. You choose at and the exact text from his needs and context; code chooses neither. at is an explicit UTC instant YYYY-MM-DDTHH:mm:ss.sssZ. A five-minute job delivers it at or after that time, subject to the existing non-urgent quiet windows. Do not claim exact-minute delivery. Repeating the same at and text in one turn returns the original reminder. Use deadline_record separately for an assignment's due date.",
     parameters: { type: "object", additionalProperties: false, required: ["at", "text"],
       properties: { at: { type: "string" }, text: { type: "string", minLength: 1, maxLength: 4096 } } } },
   { name: "reminder_list", description: "List Sid's reminders, including IDs, exact text, due instants, status and attempts. A failed reminder has unconfirmed delivery or may currently be sending: it may have arrived. Check with Sid before scheduling a replacement; never infer that failed means it was not sent.",

@@ -10,7 +10,7 @@ CREATE TABLE owner_reminders (
   created_turn_id TEXT NOT NULL REFERENCES conversation_turns(turn_id) ON DELETE RESTRICT,
   sent_at TEXT CHECK (sent_at IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', sent_at) IS sent_at),
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (typeof(attempts) = 'integer' AND attempts >= 0),
-  UNIQUE (principal, created_turn_id),
+  UNIQUE (principal, created_turn_id, due_at, text),
   CHECK ((status = 'sent') = (sent_at IS NOT NULL)),
   CHECK (status NOT IN ('sent', 'failed') OR attempts > 0)
 ) WITHOUT ROWID;

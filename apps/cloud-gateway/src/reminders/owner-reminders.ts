@@ -22,12 +22,12 @@ export class OwnerReminderRepository {
     await this.database.prepare(`INSERT INTO owner_reminders
       (id, principal, due_at, text, status, created_turn_id, sent_at, attempts)
       VALUES (?, ?, ?, ?, 'pending', ?, NULL, 0)
-      ON CONFLICT (principal, created_turn_id) DO NOTHING`)
+      ON CONFLICT (principal, created_turn_id, due_at, text) DO NOTHING`)
       .bind(id, principal, dueAt, message, turnId).run();
-    // Replaying a turn returns its original commitment, including its actual
-    // wording, rather than claiming a second or different reminder was made.
-    const row = await this.database.prepare("SELECT * FROM owner_reminders WHERE principal = ? AND created_turn_id = ?")
-      .bind(principal, turnId).first<OwnerReminder>();
+    // Exact replay is idempotent, without limiting how many distinct reminders
+    // the model can choose in one turn.
+    const row = await this.database.prepare("SELECT * FROM owner_reminders WHERE principal = ? AND created_turn_id = ? AND due_at = ? AND text = ?")
+      .bind(principal, turnId, dueAt, message).first<OwnerReminder>();
     if (row === null) throw new Error("owner_reminder_write_unconfirmed");
     return row;
   }
