@@ -2619,6 +2619,15 @@ describe("owner Telegram agent", () => {
     expect(provider.requests[1]?.toolResults).toHaveLength(2);
   });
 
+  it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {
+    const harness = await ownerHarness("tutoring-sentences");
+    const reply = "We added 5 to both sides, so x = 3. We applied the chain rule. I added a worked example below.";
+    const provider = new FakeAgentProvider([stopped(reply)]);
+
+    await expect(runTurn({ harness, text: "Explain the homework step by step.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("rewrites an unsupported action claim once and removes it deterministically if still unsupported", async () => {
     const harness = await ownerHarness("honesty");
     const claim = [{ sentence: "I sent the email.", receiptIds: [] }];

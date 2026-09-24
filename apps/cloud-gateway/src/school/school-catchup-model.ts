@@ -53,12 +53,13 @@ const FIRST_PERSON_ACTION_CLAIM = new RegExp(
 );
 const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
   /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\b.{0,24}\bcompleted\b.{0,32}\bsubmission\b/iu,
-  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|applied|booked)\b.{0,40}\bfor\s+you\b/iu,
+  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|booked)\b.{0,40}\bfor\s+you\b/iu,
   new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?let\s+(?:the\s+)?${THIRD_PARTY}\s+know\b`, "iu"),
   new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
   /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
   /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
 ]);
+const CONTEXTUAL_EXTERNAL_COMPLETIONS = Object.freeze([/\bapplied\b.{0,40}\bfor\s+you\b/iu]);
 const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
 const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
 const PASSIVE_ADVICE_CONTEXT = /\b(?:once|after|when|until|before|whether|make\s+sure|check|if)\b/iu;
@@ -86,6 +87,10 @@ const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|
 // elsewhere in the message. "me", "that", "from", "in" and possessives are
 // never a target, so ordinary school requests still reach the model.
 const SCHOOL_NAMES = String.raw`waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw|mcgill|ubc|york|ottawa|carleton|guelph|laurier|tmu|ryerson|brock|trent|windsor|lakehead|laurentian|nipissing|ontario\s+tech|dalhousie|concordia|montreal|alberta|calgary`;
+const EXTERNAL_CLAIM_TARGET = new RegExp(
+  String.raw`${THIRD_PARTY}|\b(?:${SCHOOL_NAMES}|applications?|fees?|e-?mails?|extensions?|mom|dad|parents?)\b|\bon\s+your\s+behalf\b`,
+  "iu",
+);
 const REQUEST_PARTY = String.raw`(?:(?:m(?:s|r|rs|x)|dr|prof(?:essor)?|coach)\s+\p{L}[\p{L}'’-]*|(?:(?:my|the|our)\s+)?(?:[\p{L}]+\s+)?(?:teachers?|counsell?ors?|referees?|guidance(?:\s+(?:office|counsell?or))?|principal|registrar|admissions?(?:\s+office)?|school|university|college|ouac|tutor|professor)|(?:the\s+)?(?:${SCHOOL_NAMES})(?:\s+(?:admissions?(?:\s+office)?|registrar|university))?)(?!['’]s\b)(?!\s*['’]s\b)`;
 const REQUEST_EXTERNAL_OBJECT = String.raw`(?:offers?|admissions?|acceptance|spot|seat|deposit|fees?|payment|transcripts?|applications?|aif|supplement(?:ary\s+application)?|forms?|portal|account|references?(?:\s+(?:request|letter))?|recommendation|essays?|personal\s+statement|scholarships?|campus\s+tour|tour|interview|appointment|registration|lab(?:\s+report)?|homework|assignment|permission\s+slip|sat|tutoring|${SCHOOL_NAMES})`;
 const DECISION_OBJECT = String.raw`(?:offers?|admission|acceptance|spot|seat|place|application|invitation|${SCHOOL_NAMES})`;
@@ -470,6 +475,13 @@ function unsafeFirstPersonRanges(
     const sentence = sentenceAround(reply, start, end);
     const tail = sentence.text.slice(end - sentence.start);
     const verb = match.groups?.verb ?? "";
+    // These verbs also describe worked explanations. Inclusive "we" can put
+    // in a value or share a denominator; sending and paying remain claims even
+    // with only a pronoun object. A target in another sentence proves nothing.
+    const needsExternalTarget = /^(?:added|applied|called|told|asked|saved)$/iu.test(verb)
+      || (/^we(?:['’](?:ve|re))?\b/iu.test(match[0])
+        && /^(?:put\s+in|shared|requested|booked|scheduled)$/iu.test(verb));
+    if (needsExternalTarget && !EXTERNAL_CLAIM_TARGET.test(sentence.text)) continue;
     if (!allowedFirstPersonActionClaim(verb, tail)
       && !isReceiptedInternalClaim(sentence.text, verb, receipted)) {
       ranges.push(Object.freeze({ start: sentence.start, end: sentence.end }));
@@ -565,6 +577,8 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   const externalRanges = [
     ...offendingSentenceRanges(reply, scan, FALSE_EXTERNAL_COMPLETIONS),
+    ...offendingSentenceRanges(reply, scan, CONTEXTUAL_EXTERNAL_COMPLETIONS)
+      .filter(({ start, end }) => EXTERNAL_CLAIM_TARGET.test(reply.slice(start, end))),
     ...unsafeFirstPersonRanges(reply, scan, receipted),
   ];
   if (hasPassiveExternalCompletion(scan)) {
