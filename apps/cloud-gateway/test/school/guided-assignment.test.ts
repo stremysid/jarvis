@@ -11,7 +11,7 @@ import { buildTelegramConversationRepository } from "../../src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
-import type { ModelAgentCompletionInput, ModelFunctionCall } from "../../src/providers/provider-types.js";
+import type { ModelAgentCompletionInput, ModelAgentStreamInput, ModelAgentStreamChunk, ModelFunctionCall } from "../../src/providers/provider-types.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../../src/model/model-adapter.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader } from "../../src/school/guided-assignment.js";
@@ -51,10 +51,26 @@ async function run(h: Harness, text: string, tool: ModelFunctionCall | null, opt
 } = {}) {
   const requests: ModelAgentCompletionInput[] = [];
   const provider = { async completeAgent(input: ModelAgentCompletionInput) {
+    if (options.voice) throw new Error("voice_must_stream");
     requests.push(input);
     if (tool !== null && requests.length === 1) return { content: null, toolCalls: [tool], finishReason: "tool_calls" as const };
     return { content: JSON.stringify({ reply: options.reply ?? "Why does he trust them?", claimedActions: options.claimedActions?.(input) ?? [] }),
       toolCalls: [], finishReason: "stop" as const };
+  }, async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    requests.push(input);
+    if (tool !== null && requests.length === 1) {
+      yield { type: "completed", completion: { content: null, toolCalls: [tool], finishReason: "tool_calls" } };
+      return;
+    }
+    let text = options.reply ?? "Why does he trust them?";
+    for (const claim of options.claimedActions?.(input) ?? []) {
+      const toolName = input.toolResults?.find((entry) =>
+        claim.receiptIds.includes(JSON.parse(entry.content).receiptId))?.name ?? "guided_assignment_draft";
+      text = text.replace(claim.sentence, `[[claim ${JSON.stringify({ toolName, receiptIds: claim.receiptIds })}]]${claim.sentence}[[/claim]]`);
+    }
+    // Fragmented markers exercise the real speech path without a live model.
+    for (const character of text) yield { type: "text", text: character };
+    yield { type: "completed", completion: { content: text, toolCalls: [], finishReason: "stop" } };
   } };
   const turnId = newUlid();
   const owner = options.owner ?? h.principalId;
@@ -202,6 +218,8 @@ describe("guided assignment tools", () => {
     ]));
     expect(sent.reply).toContain(sentence);
     expect(sent.reply).not.toContain("can't confirm");
+    expect(sent.reply).not.toContain("[[");
+    expect(sent.reply).not.toContain("receipt:");
     expect(sent.requests).toHaveLength(2);
   });
 
@@ -218,12 +236,12 @@ describe("guided assignment tools", () => {
     expect(later.reply).not.toContain(sentence);
   });
 
-  it("does not treat a save receipt as proof that a draft was sent", async () => {
+  it.each(["voice", "Telegram"])("does not treat a %s save receipt as proof that a draft was sent", async (channel) => {
     const h = await harness(); const id = await assignment(h);
     const sentence = "I sent your draft to your Telegram.";
     const saved = await run(h, "My answer.", call("guided_assignment_save", {
       assignmentId: id, scribed: "My answer.", stepNotes: "Asked why.",
-    }), { reply: sentence, claimedActions: (request) => [{
+    }), { voice: channel === "voice", reply: sentence, claimedActions: (request) => [{
       sentence, receiptIds: [JSON.parse(request.toolResults![0]!.content).receiptId],
     }] });
     expect(saved.reply).not.toContain(sentence);

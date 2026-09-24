@@ -31,7 +31,7 @@ import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
-import type { ModelAgentProvider } from "../providers/provider-types.js";
+import type { ModelAgentProvider, ModelAgentStreamProvider } from "../providers/provider-types.js";
 import {
   composeReceiptReply,
   OwnerAgentCore,
@@ -71,7 +71,7 @@ interface PreviousVoiceAssistant {
 
 export interface OwnerVoiceAgentDependencies {
   readonly guidedAssignmentTelegram?: TelegramProvider;
-  readonly provider: ModelAgentProvider;
+  readonly provider: ModelAgentProvider & ModelAgentStreamProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;
   /**
@@ -120,6 +120,8 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     super(voice, snapshotModelAdapterStreamInput);
     safeText(voice.ownerPrincipalId, 1_024);
   }
+
+  protected override streamingProvider(): ModelAgentStreamProvider { return this.voice.provider; }
 
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;

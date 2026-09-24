@@ -20,7 +20,7 @@ import type { ModelAdapter, ModelToken } from "../../src/model/model-types.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
-import type { ModelAgentCompletion, ModelAgentProvider } from "../../src/providers/provider-types.js";
+import type { ModelAgentCompletion, ModelAgentProvider, ModelAgentStreamProvider } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
@@ -76,17 +76,21 @@ async function harness(toolName = "school_update", approved = true) {
     const text = "Run the fixture action.";
     const completions: ModelAgentCompletion[] = [
       { content: null, toolCalls: [{ id: "dispatch", name: toolName, arguments: args }], finishReason: "tool_calls" },
-      { content: JSON.stringify({ reply: "Here is the result.", claimedActions: [] }), toolCalls: [], finishReason: "stop" },
+      { content: channel === "voice" ? "Here is the result." : JSON.stringify({ reply: "Here is the result.", claimedActions: [] }), toolCalls: [], finishReason: "stop" },
     ];
     let toolResult: { status: string; receipt: string } | undefined;
-    const provider: ModelAgentProvider = { async completeAgent(input) {
-      if (input.toolResults !== undefined) {
+    const provider: ModelAgentProvider & ModelAgentStreamProvider = { async completeAgent(input) {
+      if (input.toolResults !== undefined && input.toolResults.length > 0) {
         expect(input.toolResults).toHaveLength(1);
         toolResult = JSON.parse(input.toolResults[0]!.content) as { status: string; receipt: string };
       }
       const completion = completions.shift();
       if (completion === undefined) throw new Error("unexpected_agent_call");
       return completion;
+    }, async *streamAgent(input) {
+      const completion = await this.completeAgent(input);
+      if (completion.content !== null) yield { type: "text", text: completion.content };
+      yield { type: "completed", completion };
     } };
     const pipeline = {
       async *stream(): AsyncIterable<ModelToken> {
@@ -204,5 +208,24 @@ describe("tap consumption at agent dispatch", () => {
     expect(h.executions()).toBe(1);
     expect(await h.run()).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("already used or expired") });
     expect(h.executions()).toBe(1);
+  });
+
+  it("requires a tap before streaming voice dispatches a tier-3 memory tool", async () => {
+    const h = await harness("memory_pin", false);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
+    expect(await h.claims()).toBe(0);
+    expect(await h.authorizedAudits()).toBe(0);
+  });
+
+  it("claims a memory tap before the streaming voice tool body refuses malformed arguments and never refunds it", async () => {
+    // Empty pin arguments reach the real memory body only after the shared gate.
+    // A refund on failure would let a second call reuse an already spent tap.
+    const h = await harness("memory_pin");
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
+    expect(await h.claims()).toBe(1);
+    expect(await h.authorizedAudits()).toBe(1);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("already used or expired") });
+    expect(await h.claims()).toBe(1);
+    expect(await h.authorizedAudits()).toBe(1);
   });
 });

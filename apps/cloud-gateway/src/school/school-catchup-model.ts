@@ -665,6 +665,45 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
 }
 
+export const UNRECEIPTED_VOICE_ACTION = "I can't confirm that action.";
+
+// This is only an omission backstop. The model declares action sentences in
+// the voice marker protocol; receipt validation, not vocabulary, proves them.
+const VOICE_MEMORY_COMPLETION = new RegExp(
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:(?:have|has|am|are)\s+)?(?:(?:already|just|now|also|successfully)\s+)*(?:saved|saving|stored|storing|recorded|recording|updated|updating|changed|changing|corrected|correcting|remembered|remembering|forgot|forgotten|forgetting|deleted|deleting|removed|removing|restored|restoring|confirmed|confirming|pinned|pinning|unpinned|unpinning|scheduled|scheduling|completed|completing)\b|\b(?:it|that|this|memory|fact|note|preference)\b\s*(?:['’]s|is|was|has\s+been)\s+(?:(?:already|just|now)\s+)?(?:saved|stored|recorded|updated|changed|corrected|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled)\b|^\s*(?:done|saved|stored|recorded|updated|changed|corrected|remembered|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled|submitted|sent|booked|paid)\b`,
+  "iu",
+);
+
+const VOICE_COMPLETION_BACKSTOP = /\b(?:memory\s+updated|(?:I['’]ve|I\s+have)\s+(?:made\s+a\s+note|logged|wiped|erased|put\b[^.!?]*\bin\s+your\s+notes|cancelled|set\s+a\s+reminder|taken\s+care\s+of\s+it)|(?:in\s+(?:your|my)\s+memory\s+now|now\s+in\s+(?:your|my)\s+memory)|preference\s+is\s+gone\s+now|reminder\s+(?:is\s+set|created)|message\s+went\s+out|consider\s+it\s+done|all\s+set)\b|^\s*Noted[.!]?\s*$/iu;
+
+/**
+ * Only the sentence about to be spoken can supply an exemption. A denial or
+ * draft in a later sentence cannot legalise words the caller already heard.
+ * Proofs are supplied by code after matching this turn's receipt and tool;
+ * the model's marker alone is never authority.
+ */
+export function guardVoiceReplySentence(
+  sentence: string, receipts: ReadonlySet<string>, options: ReplyClaimGuardOptions = {},
+): string {
+  const text = sentence.replace(/\s+/gu, " ").trim();
+  const secretScan = text.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;
+  if (receipts.has(text)) return text;
+  const proofs = (options.receiptedInternalSentences ?? []).filter((claim): claim is ReceiptedToolSentence =>
+    typeof claim !== "string" && claim.sentence === text);
+  const sentDraft = proofs.some((claim) => claim.toolNames.includes("guided_assignment_draft"));
+  const scan = exemptDraftAndReportSpans(text);
+  const external = offendingSentenceRanges(text, scan, FALSE_EXTERNAL_COMPLETIONS).length > 0
+    || unsafeFirstPersonRanges(text, scan, new Set(proofs.map((claim) => claim.sentence))).length > 0;
+  if (external && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
+  // Both helpers receive exactly one complete sentence, including its own
+  // attribution/denial, rather than borrowing one from elsewhere in the reply.
+  if (hasPassiveExternalCompletion(scan) && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
+  if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;
+  if (proofs.length === 0 && (VOICE_MEMORY_COMPLETION.test(scan) || VOICE_COMPLETION_BACKSTOP.test(scan))) return UNRECEIPTED_VOICE_ACTION;
+  return text;
+}
+
 function boundedUtf8(value: string, maximumBytes: number): string {
   if (encoder.encode(value).byteLength <= maximumBytes) return value;
   let result = "";

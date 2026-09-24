@@ -3,6 +3,176 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #171 merges #162 and records low follow-ups
+
+**Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/voice-streaming.**
+
+The harness began the normal merge of `origin/main` `1cad885` into reviewed
+head `7ae683b`. Both conflicts retain both parents. In `KNOWN_ISSUES.md`, the
+complete #171 owner-voice acceptance section comes first, now recording open
+L2′ (ordinary `[[` prose aborts the spoken reply) and L3′ (a held pre-tool
+refusal is spoken out of order), followed by main's complete #162 tutoring
+limitations section. In `voice-agent.test.ts`, the resolution keeps #171's
+DeepSeek stream fixtures, unreceipted-action import and all streaming tests,
+then keeps #162's tutoring-fixture import and all three worked-explanation,
+guided-question and undeclared-action voice tests.
+
+The auto-merged `owner-agent-core.ts` retains #171's streaming provider, voice
+sentence/reply pipeline and `OWNER_VOICE_STREAM_PROMPT`, plus #162's Telegram
+worked-explanation prompt text. Because the voice prompt is a separate template
+rather than inheriting that text, the same #162 sentence is carried into
+`OWNER_VOICE_STREAM_PROMPT`. The auto-merged `school-catchup-model.ts` retains
+#162's worked-object/full-clause guard and passive completion additions alongside
+#171's voice completion backstop and sentence-level receipt checks. No other
+runtime source was edited in this round.
+
+The harness must run these tests after staging the resolution:
+
+- `apps/cloud-gateway/test/voice/voice-agent.test.ts`
+- `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts`
+- `apps/cloud-gateway/test/voice/voice-reply.test.ts`
+- `apps/cloud-gateway/test/voice/voice-sentences.test.ts`
+- `apps/cloud-gateway/test/security/streaming-output-redactor.test.ts`
+- `apps/cloud-gateway/test/voice/call-session-do.test.ts`
+- `apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts`
+- `apps/cloud-gateway/test/school/guided-assignment.test.ts`
+- every `apps/cloud-gateway/test/school/tutoring-reply-*.test.ts` file
+- every `tests/acceptance/fake/voice-production-*.test.ts` file
+
+The available source check, `node_modules/.bin/tsc --noEmit -p
+apps/cloud-gateway`, exited 0, and the resolved files contain no conflict
+markers. The non-gating test config reported its existing 143 diagnostics and
+none named the two manually changed test files. This sandbox cannot run Vitest
+or pnpm, so none of the required test files was executed here. Git writes are
+forbidden, so the two resolved paths remain unmerged in the index until the
+harness stages them. No live model, phone call, provider delivery, production
+behavior, migration or deployment was verified.
+
+## 2026-09-24 — Codex builder: #171 quoted-escape prefix follow-up
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+While waiting for CI, an additional H2 probe reproduced a leak at a chunk ending
+on a backslash inside a quoted credential: the canonical regex fell back to an
+unquoted word and exposed the remaining words. Probe: 1 passed / 1 failed /
+29 skipped. The contract now consumes unfinished escapes for either quote style,
+including EOF and newline. This is an argued Telegram behavior change too:
+stronger redaction, with its tool/JSON/claim/rewrite behavior unchanged. A
+voice-only buffer delay would leave the canonical EOF leak unfixed.
+
+Fixed contract and redactor files: 34/0/0. Two new named mutations each killed
+twice, 0 other verdicts, contract source byte-restored. Final round-2 spec has
+39 confirmed named kills (the earlier survivor remains disclosed below).
+Final restored six-file run: 193/0/0. Gateway and contracts source types exit 0;
+non-gating gateway test types remain 143 diagnostics, none in new or changed
+voice/security/guided/tap fixture code. Prior head `13e6199a` passed all 9 CI jobs
+in run `35958896973`; that is not evidence for this additional fix. The new head's
+CI outcome and full-suite counts belong in the authorized PR comment.
+
+## 2026-09-24 — Codex builder: #171 round 2 claim markers, unsplit redaction and #172 integration
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+H1 now uses the model's outside-prose action marker, with a proving tool name
+and this-turn receipt ids. Code strips metadata and binds proof to exactly one
+complete sentence; regexes only catch omitted markers. All 18 review paraphrases
+have marked and untagged cases. A novel declared paraphrase proves the marker,
+not the regex, controls this boundary. The earlier "accepted stopgap" attribution
+was unsupported and is removed from CODE-VS-JUDGMENT.
+
+H2 redacts original unsplit prose before sentence splitting or honesty
+replacement. No inserted sentence newlines reach the redactor. Every split and
+character-by-character fixtures protect quoted-password and Digest-header tails.
+L1 holds terminal periods for lookahead; L2 repeats an actual pin receipt in the
+follow-up and kills removal of receipt registration; L3 drops held premature
+refusals when a tool follows. Safe sentences still reach the caller before the
+provider finishes. No live latency claim is made.
+
+Main was normally merged through `7b805fa2` (#172), merge `53756626`, after
+the earlier `29fbfcd6` merge. Conflicts preserve main's assignment tools,
+references, prompt and Telegram proof, plus voice streaming. The guided fixture
+now streams markers through the actual guided service/core/redactor with fake
+Telegram delivery. Supported draft paraphrases are spoken, stale and save-only
+proofs refused. No catalogue or migration was independently added or changed;
+#159 gate placement and claim-before-body behavior are intact.
+
+Observed round-2 focused pass/fail/skip counts: 123/0/0 (3 unit files), 26/0/0
+(voice), 159/0/0 (4 composition/socket/tap files), expanded units 129/0/0 (3 files),
+merged guided/voice/tap 69/0/0 (3 files), and restored source 189/0/0 (5 files).
+The obsolete composition-name filter ran 0/0/130, not a pass; the corrected main
+name ran 1/0/129. Source typecheck exit 0. Non-gating test typecheck first 147
+diagnostics, four new fixture errors fixed, final 143 with none in the new
+voice/security files or updated guided/tap fixtures. State check: 3 carriers
+plus FACTS, 0 warnings. `git diff --check` passes.
+
+Mutation sweep: 35 confirmed named kills and 1 survivor, all other verdicts 0,
+6 files byte-restored. The survivor's claim guard masked the inserted-newline
+fault. A corrected ordering fault and that newline fault against the no-claim
+caller fixture both die twice: supplement 2 kills, all other verdicts 0, 1 file
+restored. Final spec: 37 confirmed named kills, each twice; restored focused
+tests green. The survival remains disclosed in [the evidence](voice-streaming.md).
+
+Sid's current load rule permits only focused files locally. Full gateway,
+contracts and acceptance suites must run in GitHub Actions after this push;
+the authorized PR comment will record that run and its actual outcome/counts.
+No full local package/workspace run in round 2. Live DeepSeek tool streaming,
+marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
+live check. No live API, secret, paid action, production operation, real
+migration, deploy, merge into main or PC-setting mutation was performed.
+
+## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+Owner voice now streams plain text through the existing redactor, checks each
+sentence against receipts known at that moment, and speaks code-owned tool
+receipts before the follow-up. Telegram keeps its JSON reply, claimedActions
+and rewrite call. Voice replaces those with exact receipt wording plus bounded
+sentence-local recognizers; an unsupported recognized action becomes
+"I can't confirm that action." These are lexical checks, not proof of every
+English paraphrase. See [the design and complete evidence](voice-streaming.md)
+and the new KNOWN_ISSUES entry.
+
+Verified #147 at bde0a9b14a531b628dcb579a46c914b7df2f0f3b. Two timing
+clarifications: the 20-second loop timer starts after the profile read, and the
+output redactor releases lines, requiring a newline after each checked sentence.
+The restored eight-second provider deadline counts meaningful text/tool deltas,
+not necessarily a complete spoken sentence. Live phone latency is unmeasured.
+
+Normally merged origin/main c5310bee after the interrupted builder process.
+#159's claim-before-body gate placement is unchanged. Updated its voice mock
+and pinned pending taps, claim before a refused memory body, replay rejection,
+and preservation of an unsupported pipeline tap for Telegram. No assignment
+tools were added; codex/guided-assignment owns those. No sync-recovery or
+store-permissions source was edited by this PR, and it adds no migration.
+
+Offline fixtures follow DeepSeek's documented indexed tool-call fragments,
+terminal reason and [DONE]. They are not live captures. No live API, phone call,
+secret, paid action, production operation, remote migration, merge into main or
+deployment was performed. The first live check is in OWNER-ACTIONS.md. The
+supplied Downloads incident report was absent; no local-agent or PC-setting
+code ran.
+
+Evidence on implementation 54aa73a:
+- Full workspace: 214 files, 5,580 passed / 0 failed / 0 skipped (186.07 s).
+  Gateway: 195 files, 5,227/0/0; contracts: 5 files, 77/0/0;
+  acceptance: 14 files, 276/0/0. No flaky-file rerun needed.
+- Restored focused: 4 files, 102/0/0. The production composition pin remains
+  present and passes in the full suite.
+- 54 mutations killed twice on named tests: 51 in the merged sweep plus 3
+  supplemental parser checks. Zero survivors, wrong-test kills, unconfirmed,
+  not-applied or invalid cases. Byte restoration verified (5 files, then 1).
+  The earlier killed process stopped after 11 kills and is not a complete gate.
+- Gateway source types pass. Non-gating test types report 143 diagnostics;
+  none in the new streaming files or updated tap fixture. State check passes
+  three carriers plus FACTS with zero warnings.
+
+The two intermediate 3-failure fixture runs and all other observed counts are
+in voice-streaming.md. Mutation cases are committed in
+reviewer-tools/voice-streaming.mutations.json; named assertion logs and the full
+JSON report are beside C:\Users\Sid\codex-ledgers\voice-streaming.md.
+Independent automated and adversarial review follow; this builder does not merge.
+
 ## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
 
 Branch `docs/d2l-api-findings` (PR #161). `origin/main` `f56f279` (#170) merged
