@@ -108,7 +108,7 @@ describe("school assignment pastes", () => {
     expect(authority(false)).toEqual({ directOwnerText: false, directPipelineText: true });
     const h = await harness({ authoritative: authority(false).directPipelineText });
     const result = await collect(h.adapter.streamOwnerTool(h.input));
-    expect(result.tokens[0]?.toolOutcome).toBe("saved");
+    expect(result.tokens[0]).toMatchObject({ toolOutcome: "saved" });
     expect(h.requests[0]?.userText).toContain(CAPACITY);
     const saved = await h.repository.readSnapshot(h.principalId, TODAY);
     for (const course of fixture().courseUpdates) {

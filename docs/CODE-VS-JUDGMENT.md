@@ -93,7 +93,7 @@ line whenever anything is dropped, so silence is never unexplained.
 | 10 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged. |
 | 11 | `guardReplyClaims` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions. | Claims checked against actual tool receipts. Retained here, including on school replies: allowing assignment text into the planner does not prove an email or submission occurred. |
 
-### Fixed school intake decision (school-paste change)
+### Fixed school intake decision (`e05dff9`, school-paste change)
 
 `SchoolCatchupModelAdapter.streamOwnerTool` now skips `isUniversityExecutionRequest`
 only when `agentSelectedScope` is `school`. An assignment-list line such as

@@ -3,6 +3,53 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: school assignment pastes, pinned capacity and saved-course receipts
+
+**Branch:** `codex/school-paste-run`, isolated from freshly fetched `origin/main`
+at `a666097`. Main was integrated before push; no PR merge or deployment.
+
+The school-selected adapter now skips the university execution regex, so a D2L
+paste containing "Email Ms. Patel if you need an extension." reaches the planner.
+University/unselected behavior and corpus tests are unchanged. Forwarded Telegram
+text still refuses, and reply-claim guarding remains. Both retained decisions are
+recorded in `CODE-VS-JUDGMENT.md`.
+
+The three Telegram pipeline descriptions give concrete routing examples. The
+production school adapter reads/composes the pinned core profile as labelled JSON
+reference data, retained inside the prompt budget when conversation context is
+trimmed. Daily capacity, due-date/weight priority and not inventing missing values
+are model instructions, not a new coded ranking policy. Receipts include saved
+notes per course, resolved notes and completed study actions; a partial save does
+not claim a rejected schedule. No persistent edit to `owner-agent-core.ts`,
+`telegram-webhook.ts` or `owner-telegram-agent.test.ts`.
+
+**Observed evidence:** restored focused tests **70 passed, 0 failed, 0 skipped**
+in 3 files, including 11 new tests in `test/school/school-paste.test.ts`. Exit 0,
+with Cloudflare worker-shutdown timeout warnings. Production typecheck passed.
+Test typecheck reports **144 diagnostics**, matching the documented baseline count,
+with **0 in changed files**, after correcting one new test assertion's type.
+Full cloud-gateway suite, run once: **5,119 passed, 0 failed, 0 skipped**, 191 files.
+State check passed: **3 carriers**, exit 0.
+
+**Mutations:** **23/23 named kills**, each confirmed with the fault still applied;
+0 wrong-test kills, unconfirmed, survived, not-applied or invalid. The runner
+verified byte-exact restoration. Reproduce with `reviewer-tools/mutate.ps1` and
+`reviewer-tools/mutation-specs-school-paste.json`. The first 21 ran at `e05dff9`;
+the two receipt-wording mutations ran at `1897455`. The 25-item fixture (13 Chemistry,
+12 English, 2 actions) persisted all 25 facts in test D1; response JSON measured
+**2,795 characters / 2,795 UTF-8 bytes**. Existing 16-facts/course, 48-total-facts and
+21-action storage caps remain; this is not a claim that 25 items in one course fit.
+
+**Premise corrections / limits:** PR #159 used migration `0040`, not `0039`, when
+inspected at `26d0fec8`; this task needs none. The required incident report was
+absent from Downloads; its local attachment-cache copy was found and sections 1-3
+read before tests. Profile-view rows and model responses are synthetic; production
+database wiring has a source assertion. No live model/D2L/Telegram acceptance,
+production/database migration, PC permission change or local-agent test occurred.
+The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
+
+Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
