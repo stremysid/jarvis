@@ -131,6 +131,8 @@ it("hands the model D2L evidence through the real tool dispatcher without an act
     reasoningEffort: "none", firstTokenTimeoutMs: 8_000, timeoutMs: 30_000, contextTokenBudget: 16_000, maxOutputCharacters: 8_000, signal: new AbortController().signal })) reply += token.text;
   expect(requests.length).toBe(2);
   expect(JSON.stringify(requests[0]!.tools)).toContain("school_d2l_status");
+  expect(requests[0]!.tools.find((tool) => tool.name === "school_d2l_status")?.description)
+    .toContain("Availability end dates (folder or content) are not confirmed due dates");
   expect(JSON.stringify(requests[1])).toContain("Undated practice");
   expect(JSON.stringify(requests[1])).toContain("lastGoodReadAt");
   expect(reply).toContain("undated practice");

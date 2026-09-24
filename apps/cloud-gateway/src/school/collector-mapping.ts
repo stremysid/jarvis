@@ -135,7 +135,7 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
           // Conflicting links are evidence for Jarvis, not permission to pick a date.
           if (topicDates.has(itemId) && topicDates.get(itemId)?.at !== candidate.at) {
             topicDates.set(itemId, { ...candidate, at: null });
-            unmapped.push(`${toc.route}:ambiguous_content_date`);
+            unmapped.push(`${toc.route}:${itemId}:ambiguous_content_date`);
             continue;
           }
           topicDates.set(itemId, candidate);
@@ -161,10 +161,10 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       const personal = personalDates.get(key) ?? null;
       const assignment = date(folder.DueDate);
       const folderAvailability = folderAvailabilityEnd(folder.Availability);
-      if (!folderAvailability.known) unmapped.push(`${folders.route}:folder_availability_shape_unknown`);
+      if (!folderAvailability.known) unmapped.push(`${folders.route}:folder-${key}:folder_availability_shape_unknown`);
       const contentAvailability = topicDates.get(`folder-${key}`)?.at ?? null;
       if (personal !== null && assignment !== null && personal.at !== assignment) {
-        unmapped.push(`${folders.route}:ambiguous_assignment_date`);
+        unmapped.push(`${folders.route}:folder-${key}:ambiguous_assignment_date`);
       }
       // An unreadable higher-priority fallback cannot be treated as absent in order to select a lower one.
       const availability = folderAvailability.known ? folderAvailability.at ?? contentAvailability : null;
