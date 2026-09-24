@@ -74,6 +74,13 @@ describe("owner reported deadlines", () => {
     expect((await rows()).results).toHaveLength(0);
   });
 
+  it("refuses an offset mismatch even when both clock times occur in the evidence", async () => {
+    const text = `${message} The office closes at 4:30 pm.`;
+    await expect(recordDeadline(env.DB, input(text), call({ dueAt: "2026-09-25T15:30:00-05:00", evidenceExcerpt: text }), NOW))
+      .rejects.toThrow("deadline_zone_or_date_invalid");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
   it.each([
     ["a forwarded turn", { direct: false, durableDirect: true }],
     ["a nonprivate turn", { pipeline: false }],
