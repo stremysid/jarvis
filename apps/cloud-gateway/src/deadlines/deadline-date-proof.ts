@@ -153,19 +153,22 @@ export function proveDeadlineDue(input: {
     : "date-only: no clock time was stated";
   if (clock !== undefined && !resolved.bound) {
     const match = /^(\d{1,2})(?::(\d{2}))?([ap]m)?$/u.exec(clock)!;
-    let hour = Number(match[1]);
+    const statedHour = Number(match[1]);
+    let hour = statedHour;
     const minute = Number(match[2] ?? "0");
     if (minute > 59 || (match[3] === undefined ? hour > 23 : hour < 1 || hour > 12)) {
       return reject("deadline_invalid_time", "The clock time is invalid; ask for the intended time.");
     }
     if (match[3] !== undefined) hour = hour % 12 + (match[3] === "pm" ? 12 : 0);
-    const morningClock = match[3] === "am" || match[3] === undefined && match[1]!.length === 2 && hour <= 12;
+    const ambiguousTonightClock = match[3] === "am"
+      || match[3] === "pm" && statedHour === 12
+      || match[3] === undefined && match[1]!.length === 2 && hour <= 12;
     if (match[3] === undefined && match[1]!.length === 1) {
       note = "date-only: the clock was ambiguous without am/pm";
     } else {
       candidates = wallCandidates(resolved.date, hour, minute, zone);
       if (candidates.length !== 1) note = "date-only: the clock falls in a repeated or nonexistent local hour";
-      if (isTonight && morningClock) {
+      if (isTonight && ambiguousTonightClock) {
         return reject("deadline_ambiguous_date", `The phrase supports ${anchor} or ${addDays(anchor, 1)}. Ask Sid which date; code cannot choose between them.`);
       }
     }

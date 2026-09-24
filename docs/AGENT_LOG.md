@@ -3,6 +3,70 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item R: all requested vertical breaks now become `, ` before evidence
+gaps are cut. Any character other than a letter, digit, whitespace or straight
+or curly apostrophe is a soft separator under the existing filler rule. The
+eight punctuation/parenthesis forms and U+2028 refuse Math/quiz from borrowing
+the English essay's due phrase. `Chem:\nlab report`, `Chem - lab report`, and
+the complete punctuated/conjoined titles remain accepted. No unpunctuated
+joining-word heuristic was added.
+
+Review item S: under `tonight`, 12 o'clock with a p.m. suffix now returns
+`deadline_ambiguous_date` with the message date and following date. `12pm`,
+`12 p.m.` and `12:30pm` are covered at both 09:00 and 22:00 owner-local times;
+without `tonight`, `12pm` remains noon on the message date.
+
+Review item T: `Math unit 3 quiz due Friday at 3pm` remains accepted with Math
+as the course and quiz as the title. This keeps an unpunctuated digit-bearing
+gap out of the soft-separator rule and targets surviving mutation S14.
+
+Review item U: the model-visible deadline description names the suffix-less
+`00:00`–`12:59` and 12 o'clock p.m. `tonight` ambiguities.
+CODE-VS-JUDGMENT records the general punctuation boundary instead of an
+enumerated list, and OWNER-ACTIONS keeps Sid's still-unanswered small-hours end
+hour current. `OWNER_SMALL_HOURS_END_HOUR` remains `null`. No adapter or tool
+catalogue file changed.
+
+New test names in `deadline-review-r7.test.ts`:
+
+- `refuses a hyphen from tying Math quiz to the essay's due phrase`
+- `refuses an en dash from tying Math quiz to the essay's due phrase`
+- `refuses an em dash from tying Math quiz to the essay's due phrase`
+- `refuses a pipe from tying Math quiz to the essay's due phrase`
+- `refuses a bullet from tying Math quiz to the essay's due phrase`
+- `refuses a colon from tying Math quiz to the essay's due phrase`
+- `refuses an ellipsis from tying Math quiz to the essay's due phrase`
+- `refuses parentheses from tying Math quiz to the essay's due phrase`
+- `refuses a Unicode line separator from tying Math quiz to the essay's due phrase`
+- `accepts a colon and line break between the course and title`
+- `accepts a filler-only hyphen between the course and title`
+- `accepts the complete title Q&A worksheet`
+- `accepts the complete title A/B testing lab`
+- `accepts the complete title Romeo and Juliet essay`
+- `accepts an unpunctuated unit number between the course and title`
+- `asks which date tonight at 12pm means when sent at 09:00`
+- `asks which date tonight at 12 p.m. means when sent at 09:00`
+- `asks which date tonight at 12:30pm means when sent at 09:00`
+- `asks which date tonight at 12pm means when sent at 22:00`
+- `asks which date tonight at 12 p.m. means when sent at 22:00`
+- `asks which date tonight at 12:30pm means when sent at 22:00`
+- `keeps 12pm without tonight as noon on the message date`
+
+The harness must run `deadline-review-r7.test.ts`, the complete deadline test
+folder and full cloud-gateway suite, plus source/test TypeScript checks and the
+targeted R/S/T mutation pass, including S14. Available verification: the
+cloud-gateway source TypeScript check completed with zero diagnostics; test
+TypeScript retains its 143 pre-existing diagnostics and names none of the
+changed deadline files. `check-state.mjs` passed with its one existing FACTS
+re-verification warning, and `git diff --check` passed. This sandbox has neither
+Vitest nor pnpm, so no behavioral, full-suite or mutation result is claimed. No
+live provider, database, migration, deployment, secret, PC or owner operation
+was performed.
+
 ## 2026-09-24 — Codex builder: #166 round 5 closes deadline proof gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
