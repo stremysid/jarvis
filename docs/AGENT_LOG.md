@@ -3,6 +3,12 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 integrates newly merged #172
+
+Signed: Codex, builder. Both once-only full runs had finished when fresh main advanced to `7b805fa2` (#172). Normal merge `2e08bd48` preserves its guided tools, receipt checks, provider wiring and 0043 registration alongside the shared argument tools. Both log histories and owner-action rows remain. The generic available-tools voice prompt remains truthful for guided drafts and #168 reminders; it does not claim guided drafts are the only message delivery tool.
+
+Affected deadline/school/adapter/claims/backup/parity/syntax gate: **789 passed / 0 failed / 0 skipped, 35 files**. Targeted production voice composition: **1/0/129**, preserving owner-zone and both catalogues' assertions. Two catalogue/tier mutation rechecks killed the expected voice tests twice and restored both files byte-identically; restored voice file **6/0/0**. Source types: 0 diagnostics; test types: 143 existing diagnostics. State/diff passed with 0 state warnings. The earlier **5348/1/0** full run and **70/0/0** isolated rerun precede #172, not an exact-final-tree full claim; the full suite was not repeated under Sid's once-only instruction. No new task guard or production operation. B receives this A head and places its assigned 0041 before upstream 0043.
+
 ## 2026-09-24 — Codex builder: #166 corrects a false-green voice refusal fixture
 
 Signed: Codex, builder. While proving B's voice path, removing its durable-turn check survived. A diagnostic assertion established **0 passed / 1 failed / 10 skipped** with `conversation_turn_immutable`: the old setup UPDATE threw before tool dispatch. A used the same flawed setup. Replaced it with a shared test-only read-back mismatch and required a real refused tool result in the second model request. No production source changed. The corrected A voice file passed **6/0/0** before and after mutation. Two additional probes (remove the actual durable row-channel guard; disable the test mismatch seam) each killed that named test twice and restored both files byte-identically. Test types remain 143 existing diagnostics, none in the corrected files.
