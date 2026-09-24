@@ -3,7 +3,7 @@ import { beforeAll, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import { collectorFixture, observedBatch, bytes, readKey } from "./collector-fixtures.js";
-import { answerFromTap } from "../../src/index.js";
+import worker, { answerFromTap } from "../../src/index.js";
 import { handleSchoolRequest } from "../../src/http/school-routes.js";
 import { encodeDecisionCallbackData } from "../../src/decisions/telegram-keyboard.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
@@ -18,6 +18,18 @@ import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 
 beforeAll(applyNewestRuntimeMigration);
+
+it("receives a signed course batch through the production worker router", async () => {
+  const f = await collectorFixture();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(f.clock());
+  try {
+    const response = await worker.fetch(await f.request("/school/observations", observedBatch(f)), { ...env, OWNER_PRINCIPAL_ID: f.owner } as Env,
+      { waitUntil() {} } as unknown as ExecutionContext);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ outcome: "good" });
+  } finally { vi.useRealTimers(); }
+});
 
 it("delivers the proved pairing decision and activates it through the real Telegram tap handler", async () => {
   const f = await collectorFixture(false);

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import { collectorFixture, observedBatch, bytes, type CollectorFixture } from "./collector-fixtures.js";
@@ -7,6 +7,7 @@ import { SchoolCollectorRepository } from "../../src/school/collector-repository
 import { mapSchoolCourse, evidenceShape } from "../../src/school/collector-mapping.js";
 import type { SchoolBatch } from "../../src/school/collector-protocol.js";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
+import { DeadlineIngestion } from "../../src/deadlines/deadline-ingestion.js";
 import { assembleDigest } from "../../src/jobs/digest-job.js";
 
 beforeAll(applyNewestRuntimeMigration);
@@ -102,7 +103,11 @@ describe("school evidence and projection", () => {
     const f = await collectorFixture();
     const batch = observedBatch(f);
     const first = await ingest(f, batch);
-    expect(await ingest(f, batch)).toEqual(first);
+    const repeatedProjection = vi.spyOn(DeadlineIngestion.prototype, "ingest").mockRejectedValue(new Error("synthetic repeated projection"));
+    try {
+      expect(await ingest(f, batch)).toEqual(first);
+      expect(repeatedProjection).not.toHaveBeenCalled();
+    } finally { repeatedProjection.mockRestore(); }
     expect((await repo(f).status()).evidence).toHaveLength(5);
     await expect(ingest(f, { ...batch, course: { ...batch.course, name: "Changed" } })).rejects.toThrow("school_batch_conflict");
     const other = observedBatch(f, "different");
@@ -134,7 +139,7 @@ describe("school evidence and projection", () => {
     const latest = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
     latest.routes[0].body[0].DueDate = "2026-09-28T12:00:00Z";
     await ingest(f, latest);
-    await ingest(f, old);
+    expect((await ingest(f, old)).outcome).toBe("good");
     expect((await repo(f).status()).lastGoodReadAt).toBe(latest.startedAt);
     expect(await env.DB.prepare("SELECT due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:${f.courseId}`).first())
       .toEqual({ due_at: "2026-09-28T12:00:00.000Z" });
@@ -145,6 +150,29 @@ describe("school evidence and projection", () => {
       .rejects.toThrow("school_collector_evidence_immutable");
     await expect(env.DB.prepare("DELETE FROM school_collector_evidence WHERE evidence_id = ?").bind(row.evidence_id).run())
       .rejects.toThrow("school_collector_evidence_retained");
+  });
+
+  it("fails the read when deadline ingestion rejects an item and preserves the raw evidence", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Id = "x".repeat(512);
+    batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
+    batch.routes[3].route = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${"x".repeat(512)}/submissions/`;
+    expect(mapSchoolCourse(batch).failures).toEqual([]);
+    expect((await ingest(f, batch)).outcome).toBe("failed");
+    const status = await repo(f).status();
+    expect(status).toMatchObject({ state: "failed", lastGoodReadAt: null });
+    expect(status.evidence).toHaveLength(5);
+  });
+
+  it("fails the read when deadline persistence throws and preserves the raw evidence", async () => {
+    const f = await collectorFixture();
+    const failure = vi.spyOn(DeadlineIngestion.prototype, "ingest").mockRejectedValue(new Error("synthetic persistence failure"));
+    try {
+      expect((await ingest(f, observedBatch(f))).outcome).toBe("failed");
+      expect(await repo(f).status()).toMatchObject({ state: "failed", lastGoodReadAt: null });
+      expect((await repo(f).status()).evidence).toHaveLength(5);
+    } finally { failure.mockRestore(); }
   });
 
   it("paginates every evidence row without crossing the owner boundary", async () => {
