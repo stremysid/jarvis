@@ -1,3 +1,4 @@
+import { readPreviousVoiceAssistant } from "./voice-memory-reference.js";
 /**
  * Resolving which memory an owner control acts on.
  *
@@ -327,6 +328,26 @@ export class D1MemoryControlTargetFinder implements MemoryTargetFinder {
     turnId: Ulid,
     states: readonly MemoryLifecycleState[],
   ): Promise<readonly Ulid[]> {
+    const referenced = await this.previousReferences(ids, principalId, turnId);
+    if (referenced.length !== 1) return Object.freeze([]);
+    const itemId = referenced[0]!;
+    const state = await ids.prepare(`SELECT item_id, lifecycle_state
+      FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
+      .bind(principalId, itemId).first<ItemStateRow>();
+    if (state === null) return Object.freeze([]);
+    exactRow(state, new Set(["item_id", "lifecycle_state"]), "telegram_memory_reference_invalid");
+    if (safeUlid(state.item_id) !== itemId || typeof state.lifecycle_state !== "string"
+      || !ALL_MEMORY_STATES.includes(state.lifecycle_state as MemoryLifecycleState)) {
+      throw new TypeError("telegram_memory_reference_invalid");
+    }
+    if (!states.includes(state.lifecycle_state as MemoryLifecycleState)) {
+      return Object.freeze([]);
+    }
+    return Object.freeze([itemId]);
+  }
+  private async previousReferences(ids: D1Database, principalId: string, turnId: Ulid): Promise<readonly Ulid[]> {
+    const voice = await readPreviousVoiceAssistant(ids, { principalId, correlationId: turnId });
+    if (voice !== null) return voice.itemIds;
     const row = await ids.prepare(`SELECT previous.turn_id,
         previous.user_event_id, delivery.staged_event_id,
         staged.envelope_json AS staged_envelope_json,
@@ -376,23 +397,9 @@ export class D1MemoryControlTargetFinder implements MemoryTargetFinder {
         principalId,
       }),
     ]);
-    const referenced = [...new Set([...stagedIds, ...citedMemoryItemIds(deliveredText)])];
-    if (referenced.length !== 1) return Object.freeze([]);
-    const itemId = referenced[0]!;
-    const state = await ids.prepare(`SELECT item_id, lifecycle_state
-      FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
-      .bind(principalId, itemId).first<ItemStateRow>();
-    if (state === null) return Object.freeze([]);
-    exactRow(state, new Set(["item_id", "lifecycle_state"]), "telegram_memory_reference_invalid");
-    if (safeUlid(state.item_id) !== itemId || typeof state.lifecycle_state !== "string"
-      || !ALL_MEMORY_STATES.includes(state.lifecycle_state as MemoryLifecycleState)) {
-      throw new TypeError("telegram_memory_reference_invalid");
-    }
-    if (!states.includes(state.lifecycle_state as MemoryLifecycleState)) {
-      return Object.freeze([]);
-    }
-    return Object.freeze([itemId]);
+    return [...new Set([...stagedIds, ...citedMemoryItemIds(deliveredText)])];
   }
+
 }
 
 const HISTORY_PAYLOAD_FIELDS = new Set([

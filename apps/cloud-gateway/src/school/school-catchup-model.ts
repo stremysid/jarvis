@@ -1019,10 +1019,6 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
 
   /** Preserves code-observed save state for the owner-agent tool boundary. */
   async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram") {
-      yield* this.dependencies.model.stream(input);
-      return;
-    }
     if (this.dependencies.ownerTurnAuthoritative === false) {
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;

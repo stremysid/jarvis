@@ -454,14 +454,14 @@ function captureInput(value: unknown): Readonly<ContextRetrieverInput> {
   const input = value as Record<string, unknown>;
   const principalId = safePrincipal(input.principalId);
   const query = safeText(input.query, MAX_QUERY_BYTES, "telegram_memory_query_invalid");
-  if (Array.from(query).length > MAX_QUERY_CHARACTERS || input.channel !== "telegram"
+  if (Array.from(query).length > MAX_QUERY_CHARACTERS || (input.channel !== "telegram" && input.channel !== "voice")
     || input.purpose !== "conversation" || !Number.isSafeInteger(input.maxTokens)
     || (input.maxTokens as number) < 1 || (input.maxTokens as number) > 32_000) {
     throw new TypeError("telegram_memory_input_invalid");
   }
   return Object.freeze({
     principalId,
-    channel: "telegram",
+    channel: input.channel,
     purpose: "conversation",
     query,
     maxTokens: input.maxTokens as number,

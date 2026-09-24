@@ -1,5 +1,17 @@
 # Decisions
 
+## The phone and Telegram are the same Jarvis (2026-09-23, Sid)
+
+Approved at about 23:05 EDT for `channel-parity`:
+
+> THE ONLY difference between call and telegram is the method of communication, THAT'S IT.
+
+Jarvis chooses intent and action; code supplies tools, connectors, source proof and enforced gates. Both owner adapters import one tool catalogue and construct the same pipelines. The prompt core, pinned profile, canonical retrieval and receipt/honesty policy are shared. The small voice prompt describes speech and confirmation surfaces.
+
+Spoken yes can confirm a staged memory against the exact preceding question on the same call. Telegram's existing inferred-memory tap remains its presentation of consent. Tier 3 retains #159's claim-before-body, expiring single use and no refund on failure; the separate PIN rebuild owns spoken PINs. No channel gets an exemption.
+
+Migration 0044 retains the 19 existing pipeline owner/source guards and admits voice alongside Telegram. Relabelling calls as Telegram or removing these guards would bypass provenance and was rejected. Full assistant-transcript continuity requires the named `CHANNEL-CONTINUITY-TRANSCRIPT` follow-up in QUEUE; this PR does not claim it. [Audit and evidence](docs/reviews/2026-09-23-channel-parity.md).
+
 - D1 is the authoritative operational store; bootstrap-token hashes are consumed atomically with initial principal and device creation.
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.

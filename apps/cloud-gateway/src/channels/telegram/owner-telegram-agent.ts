@@ -1,16 +1,8 @@
-/**
- * Telegram's half of the owner agent.
- *
- * The loop, the caps, the tier gate, the receipt guard and the nine memory
- * tools live in `src/agent/owner-agent-core.ts`, because at `d0ec419` they lived
- * here and the voice path could not reach any of them. What remains in this file
- * is what is genuinely Telegram's: the swipe-reply target check, the inline
- * keyboard a tier-3 confirmation is tapped with, the referral records that reach
- * the staged assistant event, and the school/university/study pipeline adapters.
- */
+/** Telegram supplies ingress proof, swipe targets and inline consent to the shared owner agent. */
 
 import { validateEnvelope, type Ulid } from "../../../../../packages/contracts/src/index.js";
-import type { ArchiveBucket } from "../../archive/archival-service.js";import type { ToolAutonomyGateContract } from "../../autonomy/tool-gate.js";
+import type { ArchiveBucket } from "../../archive/archival-service.js";
+import type { ToolAutonomyGateContract } from "../../autonomy/tool-gate.js";
 import type { DecisionItem, RaiseDecisionInput } from "../../decisions/decision-types.js";
 import { buildDecisionKeyboard } from "../../decisions/telegram-keyboard.js";
 import {
@@ -22,7 +14,8 @@ import {
   type ModelAdapter,
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
-import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../agent/owner-tools.js";
+import { ownerPipelineModel } from "../../agent/owner-pipelines.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -31,7 +24,6 @@ import type { TelegramMemoryTargetFinder } from "../../memory/memory-control-tar
 import type {
   ModelAgentProvider,
   ModelFunctionCall,
-  ModelFunctionDefinition,
 } from "../../providers/provider-types.js";
 import {
   composeReceiptReply,
@@ -49,24 +41,6 @@ const encoder = new TextEncoder();
 
 export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
-export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  ...MEMORY_TOOL_DEFINITIONS,
-  Object.freeze({
-    name: "school_update",
-    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-  Object.freeze({
-    name: "university_update",
-    description: "Update university planning when Sid names a shortlist, admission requirement, application date or progress, for example 'add Waterloo Computer Science' or 'I finished my application draft'. Keeps supplied dates visibly verified or unverified. Use school_update for a pasted school assignment list or missed classwork. This prepares and records plans; it cannot submit applications or contact anyone.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-  Object.freeze({
-    name: "study_coach",
-    description: "Help Sid learn or practise a topic, for example 'explain titration', 'quiz me on derivatives', or 'I missed the lesson on quadratics; teach me'. Use school_update to save a pasted assignment list, record 'I finished the lab', or plan 'what should I do today'; use study_coach for the actual explanation, practice and feedback.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-]);
 
 export interface OwnerTelegramAgentDependencies {
   readonly provider: ModelAgentProvider;
@@ -142,7 +116,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     const adapter = this;
     return Object.freeze({
       channelPrompt: "",
-      toolDefinitions: OWNER_TELEGRAM_TOOL_DEFINITIONS,
+      toolDefinitions: OWNER_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
       // gate, so a steered or forwarded turn is not even audited as an action.
@@ -176,17 +150,13 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
           replyMarkup: buildDecisionKeyboard(decision),
         }));
       },
+      inferredConfirmation: "tap" as const,
       confirmationSurfaceRefusal: "",
       replyTargetsLatestAssistant: (turnInput: Readonly<ModelAdapterStreamInput>) =>
         adapter.replyTargetsLatestAssistant(turnInput),
       replyTargetRefusal:
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
-      pipelineModel: (call: ModelFunctionCall): ModelAdapter | null => {
-        if (call.name === "school_update") return adapter.telegram.schoolModel;
-        if (call.name === "university_update") return adapter.telegram.universityModel;
-        if (call.name === "study_coach") return adapter.telegram.studyCoachModel;
-        return null;
-      },
+      pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,
@@ -200,9 +170,8 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
    * `evidenceClass: "confirmed"`, and `memory_confirm`.
    *
    * Scoped to `channel = 'telegram'` because a swipe reply is a Telegram
-   * gesture and the provider message id it points at is Telegram's. The voice
-   * adapter answers null here, which those tools turn into a refusal rather
-   * than a guess.
+   * gesture and the provider message id it points at is Telegram's. Voice reads
+   * its corresponding settled relay event through `readPreviousVoiceAssistant`.
    */
   private async previousAssistant(
     input: Readonly<ModelAdapterStreamInput>,

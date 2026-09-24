@@ -30,36 +30,31 @@ The verdicts below predate `#145`: where one says the boot chain stops at exit 3
 
 | Phase | Verdict | The one thing missing |
 |---|---|---|
-| 1 The nervous system | **partial** | Infrastructure is there, and as of `goal/item4-5-voice` so is one brain for the agent loop: `OwnerAgentCore` holds the loop, the caps, the tier gate, the receipt guard and the nine memory tools once, and Telegram and voice each subclass it. **What is not collapsed** is the channel itself: a stateless Worker for Telegram and a separate `CallSession` DO for voice, with no DO holding conversation state for Telegram to share. No SMS path, no Queues |
-| 2 Memory | **code-complete; the two channels act on one store and recall from two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **A phone call now acts on `memory_items`, the same store Telegram writes** — before `goal/item4-5-voice` the voice path could not name a memory at all. Recall still differs: Telegram composes `TelegramMemoryRetriever`, voice composes `D1ContextRetriever` over `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes, and which is **empty in production** — so nothing said by text reaches a phone call's *context* |
+| 1 The nervous system | **shared owner brain; transcript continuity partial** | Channel-parity shares the 12-tool catalogue, pipeline construction, core prompt, honesty checks and canonical retrieval. Telegram Worker and voice CallSession remain transport adapters. `CHANNEL-CONTINUITY-TRANSCRIPT` in QUEUE covers the missing cross-channel assistant transcript; no SMS or Queues |
+| 2 Memory | **shared code paths; rollout unverified** | Both channels now retrieve canonical `memory_items`, projected facts and bounded D1/R2 owner history through the same reader. Same-call spoken confirmation has durable target references. Production observations below are historical and were not refreshed by channel-parity |
 | 3 School | **built, and cannot receive anything useful** | The email route is configured, and **D2L's email carries no deadline.** Sid enabled every notification option; D2L sends an activity summary naming the course with a count (*"76 New Emails"*) and a link. No assignment, no date. So the handler, parser and authenticity checks are correct and **their input cannot contain what they need**; the dates are behind the D2L login. Classroom is impossible on this board (no Google Cloud Console access) and the Brightspace feed does not exist. **The only remaining route is the PC reading D2L while logged in** — see [QUEUE.md](QUEUE.md) |
 | 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations still bind `capability:argumentsHash` across channels. The [single-use tap change](reviews/2026-09-23-tier3-tap.md) claims each tap once with a ten-minute expiry; migration `0039` and the gateway rollout await owner action |
-| 5 Calling | **plumbing proven, brain present, release gate never run** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. **As of `goal/item4-5-voice` a call dispatches the nine memory tools**: `OwnerVoiceAgentAdapter` is a `ModelAdapter` that drives `ModelAgentProvider`, with the tier gate in front and the receipts spoken. Two memory tools remain unusable on a call — `memory_confirm` and the "previous memory" lookup both need the Telegram delivery chain — and the release gate has still never been run |
+| 5 Calling | **owner capabilities shared in code; release gate unverified** | Voice now reaches the same 12 tools, including school, university and study. Migration `0044_owner_channel_parity.sql` widens 19 existing pipeline owner-turn triggers without removing their other checks. Authenticated same-call spoken memory confirmation works locally; tier 3 still requires a Telegram tap until the separate PIN rebuild. No live call or rollout in channel-parity |
 | 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
 | 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
 
 Measured against the phases in
 [`plan/2026-09-19-jarvis-roadmap.md`](plan/2026-09-19-jarvis-roadmap.md).
 
-## The one thing that changes what Jarvis is
+## Owner channel parity
 
-**There are two assistants, not one, and they are one brain short of the whole way.** Telegram and a phone
-call are still composed separately, and the agent loop they now share is only part of it:
+Sid's rule, 2026-09-23: **"THE ONLY difference between call and telegram is the method of communication, THAT'S IT."**
+Code in channel-parity implements the shared capabilities below. This is not a deployment claim.
 
-| | Telegram | Phone call |
+| Surface | Both channels | Medium-specific part |
 |---|---|---|
-| Agent loop | `OwnerAgentCore` + `OwnerTelegramAgentAdapter` | `OwnerAgentCore` + `OwnerVoiceAgentAdapter` — **one copy of the loop, the caps, the tier gate and the receipt guard** |
-| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach` | **nine: the memory tools.** No school, university or study pipeline over a call |
-| Memory it acts on | `memory_items`, through `TelegramMemoryRetriever` | `memory_items`, through `D1MemoryControlTargetFinder` — **the same store** |
-| Memory it recalls | `memory_items` and `memory_fact_projection_*` | `memory_fact_projection_*` only — a different store, written only when the Windows local agent pushes, and **empty** in production |
-| Authority | the turn is Sid's direct current Telegram text | the turn's principal is the configured owner, on a session that required the owner passphrase |
-| Core profile | injected every turn | injected every turn |
-| A tier-3 tap | an inline keyboard | raised durably, then **spoken** — the tap itself has to be given in Telegram |
+| Owner tools | One `OWNER_TOOL_DEFINITIONS` catalogue: nine memory tools, school, university and study | None |
+| Reasoning and receipts | `OwnerAgentCore`, one prompt core, one claim/rewrite policy and pinned profile | Spoken phrasing versus text; rewrite retains the medium section |
+| Memory recall | Same canonical items, projections, literal/archive history and optional meaning search | Voice retains its bounded retrieval deadline |
+| Confirmation | Same durable owner/source proof and exact wording | Inferred memory: Telegram tap or same-call spoken yes. Tier 3: Telegram tap only until PIN rebuild |
+| Conversation | Owner utterances are already shared by principal; verified immediate reply is available within each session | Voice assistant transcripts remain excluded from cross-channel history; named follow-up in QUEUE |
 
-So a call can act now, and what it acts on is the store Sid's memory actually lives in. What has not
-changed is what a call can *recall*: nothing Sid tells Jarvis by text reaches a call's context, because
-the store a call reads is still empty. The roadmap's answer is one brain that both doors reach; the
-agent half of that landed and the memory-read half did not.
+[Full audit, premise corrections and evidence](reviews/2026-09-23-channel-parity.md).
 
 ## Production
 

@@ -1,3 +1,7 @@
+import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
+import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
+import { createVoiceStreamDelivery } from "../../src/conversation/conversation-types.js";
+import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
@@ -67,6 +71,7 @@ class ToolAgentProvider implements ModelAgentProvider {
 }
 
 async function runPipelineTurn(input: {
+  readonly channel: "telegram" | "voice";
   readonly label: string;
   readonly message: string;
   readonly toolName: "school_update" | "university_update" | "study_coach";
@@ -98,64 +103,24 @@ async function runPipelineTurn(input: {
   const school = new SchoolCatchupRepository(env.DB);
   const university = new UniversityTrackerRepository(env.DB);
   const study = new StudyCoachRepository(env.DB);
-  const schoolModel = new SchoolCatchupModelAdapter({
-    model: baseModel,
-    repository: school,
-    redactor,
-    timeZone: "America/Toronto",
-    now: () => NOW,
-    ownerPrincipalId: principalId,
-    ownerTurnAuthoritative: true,
-    agentSelectedScope: "school",
-    fixedActionReceipts: true,
-  });
-  const universityModel = new SchoolCatchupModelAdapter({
-    model: baseModel,
-    repository: school,
-    universityRepository: university,
-    redactor,
-    timeZone: "America/Toronto",
-    now: () => NOW,
-    ownerPrincipalId: principalId,
-    ownerTurnAuthoritative: true,
-    agentSelectedScope: "university",
-    fixedActionReceipts: true,
-  });
-  const studyFallbackModel: ModelAdapter = {
-    async *stream() {
-      yield Object.freeze({ index: 0, text: "No validated study-coach action." });
-    },
-  };
-  const studyModel = new StudyCoachModelAdapter({
-    fallbackModel: studyFallbackModel,
-    practiceModel: baseModel,
-    repository: study,
-    redactor,
-    ownerPrincipalId: principalId,
-    ownerTurnAuthoritative: true,
-    timeZone: "America/Toronto",
-    now: () => NOW,
-  });
+  const pipelines = createOwnerPipelineModels(env, baseModel, redactor, principalId, true, () => NOW);
   const agent = new ToolAgentProvider(input.toolName);
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB), {
-    telegramDirectOwnerText: true,
+    ...(input.channel === "telegram" ? { telegramDirectOwnerText: true } : {}),
   });
   const telegram = new FakeTelegramProvider();
+  const shared = {
+    provider: agent, database: env.DB, archive: env.ARCHIVE,
+    autonomy: await testToolGate(env.DB), ownerPrincipalId: principalId,
+    directOwnerText: true,
+    targets: { async findControlTargets() { return Object.freeze([]); } },
+    decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
+    ...pipelines,
+  };
   const service = new DefaultConversationService({
     repository,
-    model: new OwnerTelegramAgentAdapter({
-      provider: agent,
-      database: env.DB,
-      archive: env.ARCHIVE,
-      autonomy: await testToolGate(env.DB),
-      ownerPrincipalId: principalId,
-      directOwnerText: true,
-      authorityText: input.message,
-      targets: { async findControlTargets() { return Object.freeze([]); } },
-      decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
-      schoolModel,
-      universityModel,
-      studyCoachModel: studyModel,
+    model: input.channel === "voice" ? new OwnerVoiceAgentAdapter(shared) : new OwnerTelegramAgentAdapter({
+      ...shared, authorityText: input.message,
     }),
     context: { async retrieve() { return Object.freeze([]); } },
     dispatcher: new DefaultOutboxDispatcher({
@@ -168,20 +133,23 @@ async function runPipelineTurn(input: {
     redactor,
     now: () => NOW,
   });
-  await expect(service.handleTurn({
-    sessionId: `telegram:${providerSubject}`,
-    principalId,
-    turnId: newUlid(),
-    text: input.message,
-    signal: new AbortController().signal,
-    channel: "telegram",
-    kind: "outbox",
-    targetIdentityId: identityId,
-    replyToMessageId: serial,
-  })).resolves.toMatchObject({ outcome: "telegram_delivered" });
+  const turnId = newUlid();
+  const sessionId = input.channel + ":" + providerSubject;
+  const pieces: string[] = [];
+  const delivery = createVoiceStreamDelivery({
+    sessionId, turnId, sendToken: async token => { pieces.push(token.text); },
+    finish: async text => { expect(pieces.join("")).toBe(text); },
+  });
+  const turn = { sessionId, principalId, turnId, text: input.message, signal: new AbortController().signal };
+  await expect(service.handleTurn(input.channel === "voice" ? { ...turn, ...delivery } : {
+    ...turn, channel: "telegram", kind: "outbox", targetIdentityId: identityId, replyToMessageId: serial,
+  })).resolves.toMatchObject({ outcome: input.channel === "voice" ? "voice_sent" : "telegram_delivered" });
+  const audit = await env.DB.prepare("SELECT capability, outcome FROM autonomy_evaluations WHERE principal_id = ?")
+    .bind(principalId).all();
+  expect(audit.results).toEqual([{ capability: capabilityForTool(input.toolName), outcome: "permitted" }]);
   return Object.freeze({
     principalId,
-    reply: telegram.requests[0]?.text ?? "",
+    reply: input.channel === "voice" ? pieces.join("") : telegram.requests[0]?.text ?? "",
     baseModel,
     school,
     university,
@@ -195,7 +163,8 @@ beforeAll(async () => {
   await applyUniversityApplicationDetailsMigration();
 });
 
-describe("owner Telegram agent validated feature pipelines", () => {
+describe.each(["telegram", "voice"] as const)("owner %s agent validated feature pipelines", (channel) => {
+  const run = (input: Omit<Parameters<typeof runPipelineTurn>[0], "channel">) => runPipelineTurn({ ...input, channel });
   it("lets the agent choose school and preserves the existing validated save and receipt", async () => {
     const structured = JSON.stringify({
       engaged: true,
@@ -216,7 +185,7 @@ describe("owner Telegram agent validated feature pipelines", () => {
         estimatedMinutes: 25,
       }],
     });
-    const result = await runPipelineTurn({
+    const result = await run({
       label: "school",
       message: "Chemistry uses Classroom and titration calculations feel weak",
       toolName: "school_update",
@@ -257,7 +226,7 @@ describe("owner Telegram agent validated feature pipelines", () => {
       applicationUpdates: [],
       workflowUpdates: [],
     });
-    const result = await runPipelineTurn({
+    const result = await run({
       label: "university",
       message,
       toolName: "university_update",
@@ -275,7 +244,7 @@ describe("owner Telegram agent validated feature pipelines", () => {
   });
 
   it("does not let a selected university tool mutate the school store", async () => {
-    const result = await runPipelineTurn({
+    const result = await run({
       label: "university-scope",
       message: "Add Waterloo Computer Science to my shortlist",
       toolName: "university_update",
@@ -314,7 +283,7 @@ describe("owner Telegram agent validated feature pipelines", () => {
   });
 
   it("lets the agent choose study coach and preserves its guarded preference save and receipt", async () => {
-    const result = await runPipelineTurn({
+    const result = await run({
       label: "study",
       message: "turn off coursework check-ins",
       toolName: "study_coach",

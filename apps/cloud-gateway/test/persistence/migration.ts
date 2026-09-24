@@ -1,3 +1,4 @@
+import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_channel_parity.sql?raw";
 import { applyD1Migrations, env } from "cloudflare:test";
 import { splitMigration } from "../../../../scripts/split-migration.mjs";
 import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?raw";
@@ -306,6 +307,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+    { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -355,6 +357,7 @@ const allCloudGatewayMigrations = Object.freeze([
     queries: splitMigration(memoryLifetimeAndPinsSql),
   },
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+  { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
 ]);
 
 /**

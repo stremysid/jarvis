@@ -293,7 +293,7 @@ describe("DeepSeekModelAdapter", () => {
     }
   });
 
-  it("keeps the exact voice request body byte-identical", async () => {
+  it("uses the same configured thinking policy for an owner pipeline on voice", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
     const adapter = new DeepSeekModelAdapter({
       apiKey: API_KEY,
@@ -310,7 +310,7 @@ describe("DeepSeekModelAdapter", () => {
         { role: "user", content: "hello" },
       ],
       stream: true,
-      reasoning_effort: "high",
+      thinking: { type: "disabled" },
       max_tokens: 65_536,
     }));
   });

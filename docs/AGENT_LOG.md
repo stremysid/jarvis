@@ -3,6 +3,17 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: channel-parity, shared owner capabilities
+
+Signed: Codex, branch `codex/channel-parity`, isolated worktree `C:\w\channel-parity`.
+Sid's exact rule is recorded in DECISIONS. [The audit](reviews/2026-09-23-channel-parity.md) distinguishes medium constraints, removed gaps and the explicitly deferred `CHANNEL-CONTINUITY-TRANSCRIPT` follow-up.
+
+The source of parity is now `src/agent/owner-tools.ts`, with one pipeline constructor/resolver in `owner-pipelines.ts`. The guided-assignment builder (#172) must add its definitions and dispatch there when integrating. The voice streaming loop and PIN rebuild remain their builders' responsibility.
+
+The real pipeline tests uncovered 19 Telegram-only database triggers as well as the two adapter restrictions. Migration 0044 widens only those channel predicates after checking main and all 11 open PRs; 0040, 0041 and 0043 were occupied. Voice references persist only with the settled relay event. Shared retrieval now reads canonical memory; the previous exact reply and target ids reach the model on both transports. Tier-3 consumption ordering is unchanged. No production, PC settings, real migrations or calls were touched.
+
+Observed focused voice/pipeline result: 23 passed, 0 failed, 0 skipped. Related 12-file gate: 538 passed, 1 failed (old school-planner source-location assertion), 0 skipped; the moved assertion was corrected and the follow-up voice/school-paste gate passed 40/0/0. Source typecheck passes. Test typecheck reports 143 errors; new parity tests have none. Final suite and mutation results will be recorded in the audit before publication.
+
 ## 2026-09-23 — Codex builder: PR #165 review fixes and mutation evidence
 
 Publication follow-up: main advanced during the gates to

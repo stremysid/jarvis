@@ -30,7 +30,7 @@ import {
   type OwnerStepUpAlarmPort,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
-import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
 import { OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import {
@@ -2416,7 +2416,7 @@ describe("CallSession production composition", () => {
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
   });
 
-  it("gives an owner's call the memory tools through the voice agent adapter the production runtime composes", async () => {
+  it("gives the production voice agent the same complete tool definitions as Telegram", async () => {
     // The fixture above answers both a streaming and an agent request, so every
     // other test in this block passes whether `createProductionCallSessionCore`
     // composes `OwnerVoiceAgentAdapter` or a bare `DeepSeekModelAdapter`. This
@@ -2431,8 +2431,8 @@ describe("CallSession production composition", () => {
     expect(modelBodies).toHaveLength(1);
     const body = modelBodies[0] as Record<string, unknown>;
     expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
-    expect((body.tools as { function: { name: string } }[]).map((tool) => tool.function.name))
-      .toEqual(MEMORY_TOOL_DEFINITIONS.map((tool) => tool.name));
+    expect((body.tools as { function: unknown }[]).map((tool) => tool.function))
+      .toEqual(OWNER_TOOL_DEFINITIONS);
     const [system] = body.messages as { role: string; content: string }[];
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);

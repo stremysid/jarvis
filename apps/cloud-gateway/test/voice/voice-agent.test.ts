@@ -1,3 +1,8 @@
+import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
+import { readPreviousVoiceAssistant, readVoiceReplyPayload } from "../../src/memory/voice-memory-reference.js";
 /**
  * Voice can act, not only talk.
  *
@@ -221,6 +226,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
     ...(input.memorySearch === undefined ? {} : { memorySearch: input.memorySearch }),
     directOwnerText: true,
+    ...createOwnerPipelineModels(env, { async *stream() { throw new Error("unexpected_pipeline"); } }, new Redactor(), input.ownerPrincipalId ?? OWNER, true, () => NOW),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
     autonomy: new ToolAutonomyGate(
       new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
@@ -265,6 +271,131 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
 }
 
 describe("the voice agent adapter", () => {
+  async function offerProposedMemory(principalId: string, sessionId: string): Promise<Ulid> {
+    const provider = new FakeAgentProvider([
+      called(tool("propose", "memory_remember", {
+        fact: "I like art", supportingExcerpt: "I draw sometimes", evidenceClass: "stated",
+        previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+      })),
+      stopped('Should I remember exactly "I like art"?'),
+    ]);
+    await runVoiceTurn({ text: "I draw sometimes", provider, ownerPrincipalId: principalId, sessionId });
+    const item = await env.DB.prepare(`SELECT item.item_id, state.lifecycle_state, version.origin
+      FROM memory_items item JOIN memory_item_state state ON state.item_id = item.item_id
+      JOIN memory_item_versions version ON version.version_id = state.current_version_id
+      WHERE item.principal_id = ?`).bind(principalId)
+      .first<{ item_id: Ulid; lifecycle_state: string; origin: string }>();
+    expect(item).toMatchObject({ lifecycle_state: "proposed", origin: "model" });
+    return item!.item_id;
+  }
+
+  it("confirms a staged model memory from a spoken yes on the same call with the real target finder", async () => {
+    const principalId = `principal:voice-confirm:${serial + 1}`;
+    const sessionId = `voice:confirm:${serial + 1}`;
+    const itemId = await offerProposedMemory(principalId, sessionId);
+    const provider = new FakeAgentProvider([
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Here is the result."),
+    ]);
+    const reply = await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId, sessionId });
+    expect(provider.requests[0]?.systemPrompt).toContain('Should I remember exactly');
+    expect(provider.requests[0]?.systemPrompt).toContain(itemId);
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "completed" });
+    expect(reply).toContain("Confirmed 1 proposed memory");
+    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId)).resolves.toMatchObject({
+      lifecycle: { state: "active" }, version: { basis: "confirmed", uncertain: false },
+    });
+  });
+
+  it("refuses a spoken yes on another call even when the proposed memory is in context", async () => {
+    const principalId = `principal:voice-confirm-other:${serial + 1}`;
+    const itemId = await offerProposedMemory(principalId, `voice:earlier:${serial + 1}`);
+    const provider = new FakeAgentProvider([
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })), stopped("Nothing changed."),
+    ]);
+    await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId,
+      context: [memoryContext("I like art", itemId)], sessionId: `voice:later:${serial + 1}` });
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+  });
+
+  it("does not use a reply sent after the current owner utterance as confirmation evidence", async () => {
+    const principalId = `principal:voice-later-reply:${serial + 1}`;
+    await offerProposedMemory(principalId, `voice:later-reply:${serial + 1}`);
+    const turn = await env.DB.prepare("SELECT turn_id FROM conversation_turns WHERE principal_id = ?")
+      .bind(principalId).first<{ turn_id: Ulid }>();
+    await expect(readPreviousVoiceAssistant(env.DB, { principalId, correlationId: turn!.turn_id })).resolves.toBeNull();
+  });
+
+  it("does not lend voice confirmation references to a Telegram turn with the same session label", async () => {
+    const principalId = `principal:voice-label:${serial + 1}`;
+    const sessionId = `shared-label:${serial + 1}`;
+    await offerProposedMemory(principalId, sessionId);
+    const correlationId = newUlid();
+    const userText = new Redactor().redactText("yes");
+    if (!userText.ok) throw new Error("fixture_redaction_failed");
+    await new ConversationRepository(env.DB, new EventRepository(env.DB), { telegramDirectOwnerText: true })
+      .getOrCreateTurn({ turnId: correlationId, sessionId, principalId, channel: "telegram", userText, now: NOW });
+    await expect(readPreviousVoiceAssistant(env.DB, { principalId, correlationId })).resolves.toBeNull();
+  });
+
+  it.each(["no, not that", "yes"])("refuses spoken confirmation %s when its immediate reply provides no staged target", async text => {
+    const principalId = `principal:voice-no-target:${serial + 1}`;
+    const sessionId = `voice:no-target:${serial + 1}`;
+    const itemId = await offerProposedMemory(principalId, sessionId);
+    await runVoiceTurn({ text: "What did you mean?", ownerPrincipalId: principalId, sessionId,
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]) });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: text })), stopped("Nothing changed."),
+    ]);
+    await runVoiceTurn({ text, provider, ownerPrincipalId: principalId, sessionId,
+      context: [memoryContext("I like art", itemId)] });
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+  });
+
+  it("keeps the call instructions and pinned profile when rewriting an unsupported action claim", async () => {
+    const principalId = `principal:voice-rewrite:${serial + 1}`;
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    await runVoiceTurn({ text: "pin that", ownerPrincipalId: principalId,
+      context: [memoryContext("I take my coffee black.", itemId)],
+      provider: new FakeAgentProvider([called(tool("pin", "memory_pin", { itemId })), stopped("")]) });
+    const provider = new FakeAgentProvider([
+      stopped("I sent the email.", [{ sentence: "I sent the email.", receiptIds: [] }]),
+      stopped("I can draft the email."),
+    ]);
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId });
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(provider.requests[1]?.systemPrompt).toContain("I take my coffee black.");
+    expect(provider.requests[1]?.tools).toEqual(provider.requests[0]?.tools);
+  });
+
+  it("rejects invalid reference metadata in a settled voice reply", () => {
+    const base = { schemaCode: 1, channelCode: 1, sensitivityCode: 1, historyEligible: false, text: "A reply." };
+    const id = newUlid();
+    expect(readVoiceReplyPayload({ ...base, memoryItemIds: [id] }).itemIds).toEqual([id]);
+    for (const payload of [
+      { ...base, channelCode: 2 }, { ...base, memoryItemIds: [] },
+      { ...base, memoryItemIds: ["invalid"] }, { ...base, memoryItemIds: [id, id] },
+      { ...base, memoryItemIds: "invalid" }, { ...base, memoryItemIds: Array.from({ length: 9 }, () => newUlid()) },
+    ]) expect(() => readVoiceReplyPayload(payload)).toThrow("owner_agent_previous_reply_invalid");
+  });
+
+  it("retrieves the same canonical memory and owner history on either channel", async () => {
+    const principalId = `principal:voice-recall:${serial + 1}`;
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    const memory = new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, now: () => NOW });
+    const input = { principalId, purpose: "conversation" as const, query: "coffee black", maxTokens: 24000 };
+    const telegram = await memory.retrieve({ ...input, channel: "telegram" });
+    const voice = await memory.retrieve({ ...input, channel: "voice" });
+    expect(voice).toEqual(telegram);
+    expect(voice.some(entry => entry.text.includes(itemId))).toBe(true);
+    expect(voice.some(entry => entry.text === "I take my coffee black.")).toBe(true);
+  });
+
   it("runs a memory tool call over a call and speaks the receipt", async () => {
     const principalId = `principal:voice-pin:${serial + 1}`;
     await seedPrincipal(principalId);
@@ -370,7 +501,7 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("offers the nine memory tools and tells the model it is speaking on a call", async () => {
+  it("offers tools that deep-equal Telegram and tells the model it is speaking on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
     const provider = new FakeAgentProvider([stopped("Hello.")]);
@@ -380,10 +511,25 @@ describe("the voice agent adapter", () => {
     const request = provider.requests[0];
     expect(request?.systemPrompt).toContain("You are speaking with Sid on a phone call.");
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
-    expect(request?.tools.map((definition) => definition.name)).toEqual([
-      "memory_remember", "memory_correct", "memory_forget", "memory_restore",
-      "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
-    ]);
+    expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
+    expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
+    const telegramProvider = new FakeAgentProvider([stopped("Hello.")]);
+    const adapter = new OwnerTelegramAgentAdapter({
+      provider: telegramProvider, database: env.DB, archive: env.ARCHIVE,
+      ownerPrincipalId: principalId, directOwnerText: true, authorityText: "hello",
+      targets: new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
+      decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
+      autonomy: new ToolAutonomyGate(new AutonomyService({ repository: new AutonomyRepository(env.DB) }), new D1ToolConfirmationStore(env.DB)),
+      ...createOwnerPipelineModels(env, { async *stream() {} }, new Redactor(), principalId, true, () => NOW),
+    });
+    for await (const _ of adapter.stream({
+      correlationId: newUlid(), principalId, channel: "telegram", userText: "hello",
+      context: [], contextTokenBudget: 24000, firstTokenTimeoutMs: 8000, timeoutMs: 20000,
+      maxOutputCharacters: 4096,
+      reasoningEffort: "low", signal: new AbortController().signal,
+    })) { /* Consume the same public ModelAdapter surface on both channels. */ }
+    expect(request?.tools).toEqual(telegramProvider.requests[0]?.tools);
+
   });
 
   it("resolves an item the context does not name, through the finder it was given", async () => {
@@ -416,10 +562,8 @@ describe("the voice agent adapter", () => {
   it("refuses a tool that no channel-neutral catalogue gives a call, instead of running it", async () => {
     const principalId = `principal:voice-unknown-tool:${serial + 1}`;
     await seedPrincipal(principalId);
-    // A school pipeline tool: it exists on Telegram and not on a call, so the
-    // turn must refuse it rather than dispatch something with no adapter behind it.
     const provider = new FakeAgentProvider([
-      called(tool("school-1", "school_update", {})),
+      called(tool("unknown-1", "unknown_tool", {})),
       stopped("I could not do that."),
     ]);
 

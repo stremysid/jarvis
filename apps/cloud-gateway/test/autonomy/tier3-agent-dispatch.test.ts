@@ -93,6 +93,7 @@ async function harness(toolName = "school_update", approved = true) {
         for await (const token of this.streamOwnerTool()) yield token;
       },
       async *streamOwnerTool() {
+        expect(await claims()).toBe(1);
         executions++;
         if (options.failBody) throw new Error("fixture_tool_failure");
         yield { index: 0, text: "Saved the fixture action.", toolOutcome: "saved" as const };
@@ -101,6 +102,7 @@ async function harness(toolName = "school_update", approved = true) {
     const shared = {
       provider, database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: principalId,
       directOwnerText, decisions, now,
+      schoolModel: pipeline, universityModel: pipeline, studyCoachModel: pipeline,
       targets: { async findControlTargets() { return []; } },
       autonomy: new ToolAutonomyGate(
         new AutonomyService({ repository: new AutonomyRepository(env.DB), now }),
@@ -160,9 +162,9 @@ async function harness(toolName = "school_update", approved = true) {
 describe("tap consumption at agent dispatch", () => {
   beforeAll(applyNewestRuntimeMigration, 120_000);
 
-  it.each(["memory_pin", "school_update"])("requires a tap before dispatching the tier-3 tool %s", async (toolName) => {
+  it.each(["memory_pin", "school_update", "university_update", "study_coach"])("requires a tap before dispatching the tier-3 tool %s on voice", async (toolName) => {
     const h = await harness(toolName, false);
-    expect(await h.run()).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
     expect(await h.claims()).toBe(0);
     expect(await h.authorizedAudits()).toBe(0);
     expect(h.executions()).toBe(0);
@@ -180,13 +182,9 @@ describe("tap consumption at agent dispatch", () => {
     expect(h.executions()).toBe(0);
   });
 
-  it("preserves a Telegram tap after voice refuses an unsupported pipeline and lets a later Telegram turn claim it once", async () => {
-    const h = await harness();
-    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "refused", receipt: expect.stringContaining("unknown tool call") });
-    expect(await h.claims()).toBe(0);
-    expect(await h.authorizedAudits()).toBe(0);
-    expect(h.executions()).toBe(0);
-    expect(await h.run()).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
+  it.each(["school_update", "university_update", "study_coach"])("lets voice claim a Telegram tap once for %s before its body and refuses reuse on Telegram", async (toolName) => {
+    const h = await harness(toolName);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
     expect(await h.claims()).toBe(1);
     expect(await h.authorizedAudits()).toBe(1);
     expect(h.executions()).toBe(1);
@@ -196,9 +194,9 @@ describe("tap consumption at agent dispatch", () => {
     expect(h.executions()).toBe(1);
   });
 
-  it("does not refund the tap after the dispatched tool body fails", async () => {
+  it.each(["voice", "telegram"] as const)("does not refund the tap after the dispatched tool body fails on %s", async (channel) => {
     const h = await harness();
-    expect(await h.run({ failBody: true })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
+    expect(await h.run({ channel, failBody: true })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
     expect(await h.claims()).toBe(1);
     expect(await h.authorizedAudits()).toBe(1);
     expect(h.executions()).toBe(1);

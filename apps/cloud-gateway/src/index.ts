@@ -1,3 +1,4 @@
+import { createOwnerPipelineModels } from "./agent/owner-pipelines.js";
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { AutonomyService } from "./autonomy/autonomy-service.js";
@@ -69,9 +70,7 @@ import {
 } from "./memory/meaning-search.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
 import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
-import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
-import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
@@ -241,54 +240,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       });
       let model: ModelAdapter = baseModel;
       if (ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId) {
-        const schoolRepository = new SchoolCatchupRepository(env.DB);
-        const universityRepository = new UniversityTrackerRepository(env.DB);
-        const schoolModel = new SchoolCatchupModelAdapter({
-          model: baseModel,
-          database: env.DB, // Without this, a pinned daily capacity never reaches the planner.
-          repository: schoolRepository,
-          redactor,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          agentSelectedScope: "school",
-          fixedActionReceipts: true,
-          refreshBrightspace: async (now, signal) => runOnDemandBrightspaceRefresh({
-            env,
-            clock: { now: () => new Date(now.getTime()) },
-            delivery: { send: async () => undefined },
-            fetcher: globalThis.fetch.bind(globalThis),
-            signal,
-          }),
-        });
-        const universityModel = new SchoolCatchupModelAdapter({
-          model: baseModel,
-          repository: schoolRepository,
-          universityRepository,
-          redactor,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          agentSelectedScope: "university",
-          fixedActionReceipts: true,
-        });
-        const studyFallbackModel: ModelAdapter = {
-          async *stream() {
-            yield Object.freeze({
-              index: 0,
-              text: "I couldn't identify one validated study-coach action from that message. Nothing changed.",
-            });
-          },
-        };
-        const studyModel = new StudyCoachModelAdapter({
-          fallbackModel: studyFallbackModel,
-          practiceModel: baseModel,
-          repository: new StudyCoachRepository(env.DB),
-          redactor,
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        });
+        const pipelines = createOwnerPipelineModels(env, baseModel, redactor, ownerPrincipalId, toolAuthority.directPipelineText);
         model = new OwnerTelegramAgentAdapter({
           provider: new DeepSeekAgentProvider({
             apiKey,
@@ -313,9 +265,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
             new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
             new D1ToolConfirmationStore(env.DB),
           ),
-          schoolModel,
-          universityModel,
-          studyCoachModel: studyModel,
+          ...pipelines,
           // Retrieval happens after construction. The adapter resolves the
           // remaining arrival-anchored budget when its stream actually starts.
           turnReceivedAt: accepted.receivedAt,

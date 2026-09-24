@@ -62,7 +62,7 @@ export interface DeepSeekAdapterOptions {
   readonly fetchImplementation?: typeof fetch;
   readonly baseUrl?: string;
   readonly model?: string;
-  /** Limits the Telegram-only wire policy to adapters composed for live chat turns. */
+  /** Selects the owner-turn wire policy on either channel. The option name predates channel parity. */
   readonly telegramTurn?: boolean;
   readonly telegramThinking?: string;
 }
@@ -178,7 +178,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     const messages = buildMessages(input);
-    const body = JSON.stringify(this.#telegramThinking !== null && input.channel === "telegram"
+    const body = JSON.stringify(this.#telegramThinking !== null
       ? {
         model: this.#model, messages, stream: true,
         thinking: { type: this.#telegramThinking }, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
