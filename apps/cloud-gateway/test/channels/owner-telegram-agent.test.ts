@@ -1068,6 +1068,42 @@ describe("owner Telegram agent", () => {
       .toMatchObject({ status: "completed" });
   });
 
+  it.each(["confirm", "forget"] as const)("executes and replays a %s tap whose decision ID contains six consecutive digits", async (operation) => {
+    const prepared = operation === "confirm"
+      ? await prepareModelConfirmationDecision("digit-run-confirm")
+      : await prepareConfirmedForget("digit-run-forget");
+    const repository = new DecisionRepository(env.DB);
+    const original = "decision" in prepared
+      ? prepared.decision
+      : await repository.readItem(prepared.decisionId);
+    if (original === null) throw new Error("owner_agent_decision_missing");
+    // Random ULIDs rarely contain an isolated six-digit run. Pin the bytes
+    // that used to be mistaken for authentication digits at webhook ingress.
+    const decisionId = (operation === "confirm"
+      ? "01m30abcde123456abcdefghjk"
+      : "01m30abcde123456abcdefghjm") as Ulid;
+    await repository.raise({ ...original, decisionId });
+    await repository.markDelivered({ decisionId, now: NOW.toISOString() });
+    const callbackData = encodeDecisionCallbackData(decisionId, "confirm");
+    const sent: string[] = [];
+    const tap = await acceptCallbackTap(prepared.harness, callbackData, "31");
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+    const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_id = ?")
+      .bind(tap.eventId).first<{ envelope_json: string }>();
+
+    expect({ storedData: JSON.parse(stored!.envelope_json).payload.data, sent }).toEqual({
+      storedData: callbackData,
+      sent: [expect.stringContaining(operation === "confirm" ? "Confirmed 1 proposed memory" : "Forgot 1 memory")],
+    });
+    const beforeReplay = await memoryRows(prepared.harness.principalId);
+    expect(beforeReplay.every((row) => row.lifecycle_state === (operation === "confirm" ? "active" : "forgotten")))
+      .toBe(true);
+    const replay = await acceptCallbackTap(prepared.harness, callbackData, "32");
+    await answerFromTap(env, replay, async (_chatId, text) => { sent.push(text); });
+    expect(sent[1]).toContain(operation === "confirm" ? "Confirmed 1 proposed memory" : "already forgotten");
+    await expect(memoryRows(prepared.harness.principalId)).resolves.toEqual(beforeReplay);
+  });
+
   it("keeps guarded free-text confirmation for a proposal Sid worded himself", async () => {
     const harness = await ownerHarness("confirm-owner-worded");
     const itemId = await proposedOwnerMemory(harness);
