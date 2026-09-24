@@ -31,13 +31,18 @@ reported already up to date, with main already present through round 1's merge.
 The merged carriers pass `node scripts/check-state.mjs` with **0 warnings** and
 no carrier row needing correction. Three Node syntax checks passed.
 
-Final full scripts suite: **152 passed / 0 failed / 0 skipped**. Root `pnpm test`:
+Final full scripts suite: **152 passed / 0 failed / 0 skipped**. Before #154, root `pnpm test`:
 **5,461 / 0 / 0 across 209 passing files**, exit 0, with no file rerun needed.
 Whitespace, preservation of every other agent-log entry, and main ancestry each
 passed; three blob comparisons confirm the tested files stayed unchanged.
 No owner-only action arose. No product package, parallel-builder file, migration,
 production state or secret changed. Hosted CI and the next independent review are
-not claimed. Next: the assigned reviewer assesses round 2 after the new head is
+not claimed. Before publication, main advanced to `a6a0efd` (#154). The normal merge
+`38de971055019c06b2d62a64c9eeb483e8690dc3` retains both log histories byte for byte.
+The carriers still pass with **0 warnings**; tested checker files are unchanged.
+The workspace rerun on that merged tree passed **5,467 / 0 / 0 across 209 files**,
+exit 0, 282.81 s. No failed-file rerun was needed.
+Next: the assigned reviewer assesses round 2 after the new head is
 pushed. The worktree is removed after publication; the external ledger is retained.
 
 ### Round 1 evidence (historical)

@@ -26,9 +26,9 @@ The main script's SHA expression was checked directly with `git show origin/main
 
 This replaces the broad URL exemption, which hid actual commit/tree/blob references, and the untyped marker exemption, which accepted hex revisions as IDs. The whole-visible-line rule and all other carrier rules remain in place. Only repository proof tooling changed; no Jarvis product decision, dependency, CI wiring, migration, parallel-builder file or production state changed.
 
-The first and final focused suites each passed **125 / 0 / 0**. After the final sweep, main was fetched again and `git merge --no-ff --no-commit origin/main` reported **Already up to date**. Current main is still `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, already an ancestor through the round 1 normal merge `565c2924c147d93771ce8f41e354adf47f7e2dc3`. No rebase, force push or artificial merge commit was used.
+The first and final focused suites each passed **125 / 0 / 0**. After the final sweep, the first fresh merge check found `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` already contained through the round 1 normal merge. Before publication, another remote check found main had advanced to **`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f` (#154)**. The push was stopped and that exact main was merged normally in **`38de971055019c06b2d62a64c9eeb483e8690dc3`**. The only conflict was the agent log; both sets of entries were retained, and byte comparisons verified both the prior log entries and every new upstream entry. No rebase or force push was used.
 
-`node scripts/check-state.mjs` on that merged branch passed with **0 warnings and 0 failures**. No carrier row required correction, and no newly discovered factual lie is claimed. All three Node syntax checks passed.
+`node scripts/check-state.mjs` passed on both merged-main revisions with **0 warnings and 0 failures**. No carrier row required correction, and no newly discovered factual lie is claimed. All three Node syntax checks passed. #154 changes Telegram code/tests and carriers but leaves scripts, dependencies, CI and task guidance unchanged. The root workspace suite was rerun on the new merged tree and passed **5467 / 0 / 0**; byte comparisons establish that the tested checker, fixture suite and mutation specification are unchanged.
 
 ## Reproducible evidence
 
@@ -48,16 +48,17 @@ Windows, Node 24.19.0, pnpm 11.19.0. Offline installation completed before the f
 |---|---:|---:|---:|---|
 | Focused checker suite | 125 | 0 | 0 | Both initial and strengthened-fixture runs |
 | Full scripts suite | 152 | 0 | 0 | `node --test scripts/test/*.test.mjs`, exit 0 |
-| Root workspace suite | 5461 | 0 | 0 | `pnpm test`, 209 passing files, exit 0, 334.53 s |
+| Workspace before the #154 merge | 5461 | 0 | 0 | `pnpm test`, 209 passing files, exit 0, 334.53 s |
+| Final workspace after the #154 merge | 5467 | 0 | 0 | `pnpm test`, 209 passing files, exit 0, 282.81 s |
 | Merged carrier check | 1 | 0 | 0 | `node scripts/check-state.mjs`, 0 warnings |
 | Node syntax checks | 3 | 0 | 0 | Checker, fixture suite and mutation runner |
 | Staged whitespace check | 1 | 0 | 0 | `git diff --cached --check` |
-| Other agent-log entries preserved | 1 | 0 | 0 | Every prior committed byte after this builder's entry preserved |
+| Other agent-log entries preserved | 2 | 0 | 0 | Both prior and new upstream entries preserved byte for byte |
 | Current main ancestry | 1 | 0 | 0 | Exact freshly fetched main is an ancestor |
 | Tested files unchanged | 3 | 0 | 0 | Checker, fixtures and spec match fix commit after final docs edits |
 
 No full-suite test failed and no flaky-file rerun was needed in round 2. Existing Wrangler test-environment binding warnings were not test failures. No mutation-runner control rerun is claimed in this round; its implementation is unchanged, and its prior control evidence remains in the historical reports.
 
-Raw observations are retained beside `C:\Users\Sid\codex-ledgers\check-state-harden.md`: `check-state-r2-baseline.tap`, `check-state-r2-focused.tap`, `check-state-r2-focused-final.tap`, `check-state-r2-mutations.log`, `check-state-r2-mutations-final.log`, `check-state-r2-boundary-mutation.log`, `check-state-r2-install.log`, `check-state-r2-scripts-full.tap`, `check-state-r2-workspace.log`, and `check-state-r2-carriers.log`.
+Raw observations are retained beside `C:\Users\Sid\codex-ledgers\check-state-harden.md`: `check-state-r2-baseline.tap`, `check-state-r2-focused.tap`, `check-state-r2-focused-final.tap`, `check-state-r2-mutations.log`, `check-state-r2-mutations-final.log`, `check-state-r2-boundary-mutation.log`, `check-state-r2-install.log`, `check-state-r2-scripts-full.tap`, both `check-state-r2-workspace*.log` files, and both `check-state-r2-carriers*.log` files.
 
 Hosted CI completion, Linux execution, and the independent review of this new head are not claimed locally. Untouched local-agent, watchdog and Hermes suites were not rerun. No owner-only action arose. The updated head is for the assigned reviewer to assess after publication; this builder has no authority to merge PR #155 into main or deploy it.
