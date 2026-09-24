@@ -3,6 +3,16 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: PR #158 round 3 includes newly merged #159
+
+**Signed: Codex, documentation builder for Sid.** A second fresh fetch found
+`6e3f1ef2450fc47acc233cb70a7fa83a76ec2144` (#159) after the #163 merge below.
+Merged that new base normally too. Preserved both parent logs and #159's
+tier-3 rollout action immediately after the first-row probe action; completed
+deploy rows remain Done and other rows keep their order. No migration was
+applied and no production query was made. Final checks are recorded in the
+PR and external ledger after commit.
+
 ## 2026-09-23 — Codex builder: PR #158 round 3 deploy wording and fresh main
 
 **Signed: Codex, documentation builder for Sid.** Merged freshly fetched main
@@ -14,6 +24,51 @@ Done, and all other owner rows retain their order. Corrected only the
 observation explicitly historical, superseded by STATE. No production query
 or runtime code change. Final state and merge-tree results are retained in
 the PR and the external Markdown ledger after commit.
+
+## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
+
+Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
+
+Corrects review of `26d0fec`: the agent used to consume a tap before memory
+and channel refusal checks. Both dispatch branches now finish those checks
+before the consuming gate. Voice's unsupported pipeline refusal leaves a
+Telegram tap unspent and writes no audit with that decision id. A later
+permitted Telegram turn claims it once. Audit/tool failures after dispatch
+still do not refund approval. Binding remains principal + capability + exact
+argument fingerprint, with no channel or call-session restriction.
+
+**Migration allocation correction from Sid:** `0039` was never reserved for
+an abandoned builder. This PR renames its migration from `0040` to `0039`;
+`0040` is assigned to D2L collector keys and `0041` to owner reminders. The
+older entry below preserves the instructions known then, not current ownership.
+Backup/restore imports, all three test lists, inventory/manifest expectations,
+rollout tests and current docs use `0039`. The migration remains additive;
+migration first is preferred, code first refuses tier 3 until schema exists.
+
+Agent regressions use real adapters, conversation service and local D1, with
+synthetic providers. They cover all four refusal checks, voice refusal then
+one later execution, both branch gates, and no refund after tool failure.
+The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
+consumeStandingDecision. Before the main merge, focused suites: 238 passed,
+0 failed, 0 skipped.
+Mutations: 10 killed twice, none survived or invalid; restored suites total
+102 passed, 0 failed, 0 skipped. Source types pass; after main's callback-test
+fix, test types retain 143 prior diagnostics in 31 files with none added.
+State checks: 3 passed. The initial fixture
+failures and named mutations are in [the review document](reviews/2026-09-23-tier3-tap.md).
+For full-suite counts on the final published head, see [PR #159](https://github.com/stremysid/jarvis/pull/159)
+and `C:\Users\Sid\codex-ledgers\tier3-round1-merged-full-gateway.json` beside the ledger.
+
+Normal merges initially reported already up to date at a666097. Main advanced
+before push to a6a0efd (#154), which was merged normally with both sides of
+the AGENT_LOG and OWNER-ACTIONS conflicts retained. Its fix covers the existing
+archived-memory test that failed in the pre-merge full run (5,132/1/0) and first
+isolated rerun (71/1/0). A main control and matched PR rerun both passed 72/0/0;
+the original occurrence's cause was not established. All earlier evidence is
+retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
+the final merge commit runs the full gateway suite. No force
+push, merge into main, deployment, real database operation, real provider call
+or local-agent test. Owner rollout remains in OWNER-ACTIONS.
 
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
@@ -235,6 +290,41 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
+
+Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
+adds a durable consumption row keyed by decision. One SQL insert checks binding
+and TTL while claiming the tap; only the winner proceeds. No call/session scope
+was added. The original answer is immutable, and consumed marks are backed up.
+
+Premise corrections: the old lookup already had a ten-minute TTL (inclusive,
+against `resolved_at`); replay was inside that window. `0001` replay was repaired
+in `8a977a1`, and the runbook says fresh remote replay works; not re-proven remotely
+here. Main has `0001`–`0035` and `0038`, PR #96 has `0036`, `0037` stays empty and
+Sid reserves `0039` for the sync builder. Final pre-push check covered every file
+page of #96, #122, #154, #155, #156, #157 and #158; none adds `0040`.
+Main remained `a666097`. Recheck every open PR before merge.
+
+Observed so far: focused gate/migration/backup suites **120 passed, 0 failed,
+0 skipped, 7 files**; source typecheck passed. Test typecheck reports 144 errors
+in 32 files, including four existing ULID fixture errors in the backup/restore
+file this change touches; none occur in the new gate or rollout tests.
+All 12 guard mutations failed their named test twice and restored to 14/14 green
+after each, with byte-identical restoration: 12 killed and zero survivors,
+unapplied or invalid mutations. Full gateway: **5,125 passed, 0 failed,
+0 skipped, 192 files**. `node scripts/check-state.mjs`: exit 0, 3 carriers.
+No flaky rerun was needed. Earlier fixture-only failures and all mutation names
+are recorded in the linked evidence, not silently omitted.
+See [design, rollout and evidence](reviews/2026-09-23-tier3-tap.md).
+
+Migration first is preferred. Code first refuses tier-3 while the new table is
+missing; old readers still work after the additive migration. Owner remote
+rehearsal, rollout and a fresh-tap acceptance check are in `OWNER-ACTIONS.md`.
+No production, secret, remote database, real tool side effect or PC permission
+operation was performed. The requested incident report was absent; the task's
+explicit PC restrictions were followed. No parallel builder's owned files changed.
+
+— Codex, builder (not reviewer)
 
 ## 2026-09-23 — Codex builder: PR #158 round 1 documentation corrections
 
