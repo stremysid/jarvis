@@ -86,6 +86,25 @@ line whenever anything is dropped, so silence is never unexplained.
 
 ---
 
+### School and university
+
+| # | Symbol | The decision code is making | Surface it should move to |
+|---|---|---|---|
+| 10 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged. |
+| 11 | `guardReplyClaims` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions. | Claims checked against actual tool receipts. Retained here, including on school replies: allowing assignment text into the planner does not prove an email or submission occurred. |
+
+### Fixed school intake decision (school-paste change)
+
+`SchoolCatchupModelAdapter.streamOwnerTool` now skips `isUniversityExecutionRequest`
+only when `agentSelectedScope` is `school`. An assignment-list line such as
+"Email Ms. Patel if you need an extension." previously refused the whole paste.
+The school pipeline has storage and planning, but no external execution hands.
+The `school_update` description now tells Jarvis when to select that tool;
+forwarded-text provenance checks and `guardReplyClaims` remain in place.
+Pinned daily capacity, due-date priority and stated weight are prompt guidance,
+not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
+This is a partial register, not a completed audit of school or university code.
+
 ## How to use this list
 
 1. **Every entry is a work item, not a complaint.** The third column is the deliverable: the

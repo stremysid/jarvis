@@ -1,0 +1,170 @@
+[
+  {
+    "name": "M01-restore-school-refusal",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "this.dependencies.agentSelectedScope !== \"school\" && isUniversityExecutionRequest(input.userText)",
+    "replace": "isUniversityExecutionRequest(input.userText)",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "saves all 25 pasted assignments"
+  },
+  {
+    "name": "M02-neuter-forwarded-boundary",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (this.dependencies.directPipelineText === false) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "refuses a forwarded assignment list"
+  },
+  {
+    "name": "M03-drop-profile-read",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (this.dependencies.database !== undefined) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "gives the planner the pinned capacity"
+  },
+  {
+    "name": "M04-drop-profile-composition",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "coreProfile = composeCoreProfile(await readCoreProfile(this.dependencies.database, input.principalId));",
+    "replace": "coreProfile = null;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "gives the planner the pinned capacity"
+  },
+  {
+    "name": "M05-drop-profile-without-context",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "compactUniversityState, now, [], coreProfile);",
+    "replace": "compactUniversityState, now, [], null);",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "saves all 25 pasted assignments"
+  },
+  {
+    "name": "M06-drop-profile-retained-context",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "retainedContext,\n        coreProfile,",
+    "replace": "retainedContext,\n        null,",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "gives the planner the pinned capacity"
+  },
+  {
+    "name": "M07-drop-capacity-guidance",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "Use the pinned daily capacity in core_profile_json as the daily planning limit",
+    "replace": "Ignore the profile capacity",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "gives the planner the pinned capacity"
+  },
+  {
+    "name": "M08-drop-ranking-guidance",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "Rank work by supplied due dates and stated weight; never invent either",
+    "replace": "Rank work however you like",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "gives the planner the pinned capacity"
+  },
+  {
+    "name": "M09-drop-profile-failure",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "coreProfile = \"Core profile could not be read; daily capacity is unknown. Do not guess it.\";",
+    "replace": "coreProfile = null;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "tells the planner when the pinned capacity could not be read"
+  },
+  {
+    "name": "M10-drop-saved-course-summary",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "...(summary.length === 0 ? [] : [\"Saved course updates (owner-reported):\", ...summary])",
+    "replace": "...[]",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports the saved work for each course"
+  },
+  {
+    "name": "M11-drop-platform-receipt",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (update.platform !== null) facts.push",
+    "replace": "if (false) facts.push",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports the saved work for each course"
+  },
+  {
+    "name": "M12-drop-resolved-receipt",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (update.resolveFactIds.length > 0) facts.push",
+    "replace": "if (false) facts.push",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports resolved notes and completed study actions"
+  },
+  {
+    "name": "M13-drop-completion-receipt",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "...(plan.completeActionIds.length === 0 ? [] : [`Marked ${plan.completeActionIds.length} study actions complete.`])",
+    "replace": "...[]",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports resolved notes and completed study actions"
+  },
+  {
+    "name": "M14-use-stale-course-name",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name\n      ?? snapshot.courses.find((course) => course.courseId === courseRef)?.name",
+    "replace": "snapshot.courses.find((course) => course.courseId === courseRef)?.name\n      ?? plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports resolved notes and completed study actions"
+  },
+  {
+    "name": "M15-drop-partial-fixed-receipt",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "? schoolPlanReceipt(schoolPlan, snapshot, today, false)",
+    "replace": "? replyWithoutUnsavedSchedule(schoolPlan)",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports saved course notes without claiming"
+  },
+  {
+    "name": "M16-claim-unsaved-schedule",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const receipt = !scheduleSaved ? PARTIAL_SCHEDULE_LINE : todayActions.length === 0",
+    "replace": "const receipt = todayActions.length === 0",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports saved course notes without claiming"
+  },
+  {
+    "name": "M17-neuter-school-claim-guard",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "return guardReplyClaims(reply);",
+    "replace": "return reply;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "still removes unsupported external-action claims"
+  },
+  {
+    "name": "M18-drop-production-profile-wire",
+    "file": "apps/cloud-gateway/src/index.ts",
+    "find": "const schoolModel = new SchoolCatchupModelAdapter({\n          model: baseModel,\n          database: env.DB,",
+    "replace": "const schoolModel = new SchoolCatchupModelAdapter({\n          model: baseModel,",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "wires the school planner"
+  },
+  {
+    "name": "M19-drop-pipeline-example",
+    "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
+    "find": "pasted D2L assignment list",
+    "replace": "generic request",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "describes when each pipeline"
+  },
+  {
+    "name": "M20-drop-pipeline-example",
+    "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
+    "find": "I finished my application draft",
+    "replace": "generic request",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "describes when each pipeline"
+  },
+  {
+    "name": "M21-drop-pipeline-example",
+    "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
+    "find": "quiz me on derivatives",
+    "replace": "generic request",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "describes when each pipeline"
+  }
+]
