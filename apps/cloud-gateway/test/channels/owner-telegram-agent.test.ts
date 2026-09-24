@@ -534,6 +534,8 @@ describe("owner Telegram agent", () => {
     await expect(runTurn({ harness, text: "yo", provider })).resolves.toBe("Hey Sid.");
     expect(provider.requests).toHaveLength(1);
     expect(provider.requests[0]?.toolChoice).toBe("auto");
+    expect(provider.requests[0]?.systemPrompt).toContain("claimedActions must list");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
   });
 
   it.each([

@@ -56,7 +56,7 @@ describe("production voice through the real DO stub and socket", () => {
         // non-streaming `completeAgent` request; the streaming shape is what a
         // bare `DeepSeekModelAdapter` asks for on other channels.
         if (body.stream === true) {
-          return new Response('data: {"choices":[{"delta":{"content":"A real socket reply."}}]}\n\ndata: [DONE]\n\n',
+          return new Response('data: {"choices":[{"index":0,"delta":{"content":"A real socket reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             { headers: { "content-type": "text/event-stream" } });
         }
         return Response.json({

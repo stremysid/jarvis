@@ -21,7 +21,7 @@
  */
 
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
@@ -48,19 +48,25 @@ import type {
   ModelAgentCompletion,
   ModelAgentCompletionInput,
   ModelAgentProvider,
+  ModelAgentStreamProvider,
+  ModelAgentStreamInput,
+  ModelAgentStreamChunk,
   ModelFunctionCall,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } from "../persistence/migration.js";
+import { DeepSeekAgentProvider } from "../../src/providers/deepseek-provider.js";
+import { agentFrame, agentResponse, textResponse, toolFrames } from "../fixtures/deepseek-agent-stream.js";
+import { UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
 import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 const OWNER = "principal:voice-agent-owner";
 let serial = 0;
 
-function stopped(reply: string, claimedActions: readonly unknown[] = []): ModelAgentCompletion {
+function stopped(reply: string): ModelAgentCompletion {
   return Object.freeze({
-    content: JSON.stringify({ reply, claimedActions }),
+    content: reply,
     toolCalls: Object.freeze([]),
     finishReason: "stop" as const,
   });
@@ -74,7 +80,7 @@ function tool(id: string, name: string, args: unknown): ModelFunctionCall {
   return Object.freeze({ id, name, arguments: typeof args === "string" ? args : JSON.stringify(args) });
 }
 
-class FakeAgentProvider implements ModelAgentProvider {
+class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly requests: ModelAgentCompletionInput[] = [];
   private readonly completions: Array<ModelAgentCompletion | Error>;
 
@@ -82,12 +88,15 @@ class FakeAgentProvider implements ModelAgentProvider {
     this.completions = [...completions];
   }
 
-  async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+  async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_must_stream"); }
+
+  async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
     this.requests.push(input);
     const completion = this.completions.shift();
     if (completion === undefined) throw new Error("unexpected_agent_call");
     if (completion instanceof Error) throw completion;
-    return completion;
+    if (completion.content !== null) yield { type: "text", text: completion.content };
+    yield { type: "completed", completion };
   }
 }
 
@@ -192,7 +201,10 @@ function memoryContext(text: string, itemId: Ulid): RetrievedContext {
 
 interface RunVoiceTurnInput {
   readonly text: string;
-  readonly provider: ModelAgentProvider;
+  readonly provider: ModelAgentProvider & ModelAgentStreamProvider;
+  readonly onToken?: (text: string) => void;
+  readonly signal?: AbortSignal;
+  readonly maxOutputCharacters?: number;
   readonly ownerPrincipalId?: string;
   readonly turnPrincipalId?: string;
   readonly context?: readonly RetrievedContext[];
@@ -238,7 +250,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
   const delivery = createVoiceStreamDelivery({
     sessionId,
     turnId,
-    sendToken: async (token) => { pieces.push(token.text); },
+    sendToken: async (token) => { pieces.push(token.text); input.onToken?.(token.text); },
     finish: async (finalText): Promise<void> => {
       // The contract `createVoiceStreamDelivery` enforces: what was streamed is
       // exactly what is finished.
@@ -247,7 +259,9 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
   });
   const service = new DefaultConversationService({
     repository,
-    model,
+    model: input.maxOutputCharacters === undefined ? model : {
+      stream: (request) => model.stream({ ...request, maxOutputCharacters: input.maxOutputCharacters! }),
+    },
     context: { async retrieve() { return input.context ?? Object.freeze([]); } },
     dispatcher: { async dispatch() { throw new Error("unexpected_dispatch"); } },
     redactor: new Redactor(),
@@ -258,7 +272,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     principalId: turnPrincipalId,
     turnId,
     text: input.text,
-    signal: new AbortController().signal,
+    signal: input.signal ?? new AbortController().signal,
     ...delivery,
   });
   if (result.outcome !== "voice_sent") throw new Error(`voice_turn_not_sent:${result.outcome}`);
@@ -266,6 +280,180 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
 }
 
 describe("the voice agent adapter", () => {
+  it("delivers the first sentence through redaction while the provider still holds the rest of the reply", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const opening = new Promise<void>((resolve) => { started = resolve; });
+    const heard: string[] = [];
+    let ended = false;
+    const provider = new DeepSeekAgentProvider({
+      apiKey: "public-synthetic-stream-key",
+      fetchImplementation: async () => new Response(new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(new TextEncoder().encode(agentFrame({ content: "Here is the first sentence. " })));
+          started();
+          await held;
+          controller.enqueue(new TextEncoder().encode(agentFrame({ content: "Here is the rest." }) + agentFrame({}, "stop") + "data: [DONE]\n\n"));
+          controller.close();
+        },
+      }), { headers: { "content-type": "text/event-stream" } }),
+    });
+    const turn = runVoiceTurn({ text: "Tell me two things", provider, onToken: (text) => heard.push(text) })
+      .then((text) => { ended = true; return text; });
+    try {
+      await opening;
+      await vi.waitFor(() => expect(heard.join("")).toContain("Here is the first sentence."), { timeout: 1_000 });
+      expect(ended).toBe(false);
+      expect(heard.join("")).not.toContain("Here is the rest.");
+    } finally { release(); }
+    expect(await turn).toBe("Here is the first sentence. Here is the rest.");
+  });
+
+  it("runs a chunked tool call mid-stream exactly once and never speaks a save claim before its receipt", async () => {
+    const principalId = `principal:voice-stream-save:${serial + 1}`;
+    const heard: string[] = [];
+    const fact = "I take my coffee black.";
+    const args = JSON.stringify({ fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal" });
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(agentResponse([
+        agentFrame({ content: "I've sa" }), agentFrame({ content: "ved that. Here is some context." }),
+        ...toolFrames("memory_remember", args), agentFrame({}, "tool_calls"), "data: [DONE]\n\n",
+      ]))
+      .mockImplementationOnce(async () => {
+        expect(heard.join("")).toContain("Memory:");
+        expect(heard.join("")).not.toContain(UNRECEIPTED_VOICE_ACTION);
+        return textResponse("I saved your other preference. You can ask me about it later.");
+      });
+    const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId,
+      provider: new DeepSeekAgentProvider({ apiKey: "public-synthetic-stream-key", fetchImplementation: fetcher }),
+      onToken: (text) => heard.push(text),
+    });
+    expect(spoken).not.toContain("I've saved that");
+    expect(spoken).not.toContain("I saved your other preference");
+    expect(spoken).toContain(UNRECEIPTED_VOICE_ACTION);
+    expect(spoken).toContain(fact);
+    expect(spoken).toContain("You can ask me about it later.");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ stream: true, tool_choice: "none" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("retains a committed receipt when the follow-up fails without claiming that nothing was saved", async () => {
+    const principalId = `principal:voice-stream-failure:${serial + 1}`;
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([
+      called(tool("save-before-failure", "memory_remember", { fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal" })),
+      new Error("synthetic_followup_failure"),
+    ]);
+    const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider });
+    expect(spoken).toContain("Memory:");
+    expect(spoken).toContain("I couldn't finish that reply.");
+    expect(spoken).not.toMatch(/nothing (?:changed|was saved)/iu);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("refuses a second tool round even when an injected provider ignores the no-tools request", async () => {
+    const principalId = `principal:voice-stream-repeat:${serial + 1}`;
+    const first = "I take my coffee black.";
+    const second = "I play piano.";
+    const remember = (id: string, fact: string) => tool(id, "memory_remember", {
+      fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+    });
+    const provider = new FakeAgentProvider([called(remember("first-action", first)), called(remember("extra-action", second))]);
+    const spoken = await runVoiceTurn({ text: `${first} ${second}`, ownerPrincipalId: principalId, provider });
+    expect(spoken).toContain("I couldn't finish that reply.");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("holds an unfinished save claim until a clean stop and checks it before speech", async () => {
+    const spoken = await runVoiceTurn({ text: "hello", provider: new FakeAgentProvider([stopped("I've saved that")]) });
+    expect(spoken).not.toContain("I've saved that");
+    expect(spoken).toContain(UNRECEIPTED_VOICE_ACTION);
+  });
+
+  it("bounds an unfinished model reply without releasing its oversized claim", async () => {
+    const spoken = await runVoiceTurn({ text: "hello", provider: new FakeAgentProvider([stopped("I've saved " + "x".repeat(4_096))]) });
+    expect(spoken).not.toContain("I've saved");
+    expect(spoken).toBe("I couldn't finish that reply. Please check any action receipt before trying again.");
+  });
+
+  it("bounds expanded refusal text before it exceeds the caller's output allowance", async () => {
+    const heard: string[] = [];
+    await expect(runVoiceTurn({ text: "hello", provider: new FakeAgentProvider([stopped("Done. Done.")]),
+      maxOutputCharacters: 32, onToken: (text) => heard.push(text),
+    })).rejects.toThrow("voice_turn_not_sent:failed");
+    expect(heard.join("").length).toBeLessThanOrEqual(32);
+  });
+
+  it("replaces an incomplete or empty stream instead of flushing its unfinished claim", async () => {
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* () { yield { type: "text", text: "I've saved that" }; };
+    const spoken = await runVoiceTurn({ text: "hello", provider });
+    expect(spoken).toContain("I couldn't finish that reply.");
+    expect(spoken).not.toContain("I've saved that");
+    expect(await runVoiceTurn({ text: "hello", provider: new FakeAgentProvider([stopped("")]) }))
+      .toBe("I couldn't form a reply. Please try again.");
+  });
+
+  it("does not speak a delta returned after the caller cancels", async () => {
+    const controller = new AbortController();
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* () {
+      controller.abort();
+      yield { type: "text", text: "This must not be spoken." };
+    };
+    const heard: string[] = [];
+    await expect(runVoiceTurn({ text: "hello", provider, signal: controller.signal, onToken: (text) => heard.push(text) }))
+      .rejects.toThrow("voice_turn_not_sent:cancelled");
+    expect(heard).toEqual([]);
+  });
+
+  it("does not dispatch a tool if cancellation arrives while the completed stream closes", async () => {
+    const principalId = `principal:voice-stream-cancel:${serial + 1}`;
+    const controller = new AbortController();
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* () {
+      try { yield { type: "completed", completion: called(tool("cancelled-action", "memory_remember", {
+        fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+      })) }; } finally { controller.abort(); }
+    };
+    await expect(runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider, signal: controller.signal }))
+      .rejects.toThrow("voice_turn_not_sent:cancelled");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("does not start the follow-up when the caller cancels after hearing a receipt", async () => {
+    const principalId = `principal:voice-stream-cancel-followup:${serial + 1}`;
+    const controller = new AbortController();
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([called(tool("saved-before-cancel", "memory_remember", {
+      fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+    })), stopped("This must not start.")]);
+    await expect(runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider, signal: controller.signal,
+      onToken: (text) => { if (text.includes("Memory:")) controller.abort(); },
+    })).rejects.toThrow("voice_turn_not_sent:cancelled");
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("does not speak a receipt when cancellation arrives during the tool itself", async () => {
+    const principalId = `principal:voice-stream-cancel-tool:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    const controller = new AbortController();
+    const heard: string[] = [];
+    const provider = new FakeAgentProvider([called(tool("cancel-during-pin", "memory_pin", { itemId })), stopped("Okay.")]);
+    await expect(runVoiceTurn({ text: "pin that", ownerPrincipalId: principalId, provider,
+      signal: controller.signal, onToken: (text) => heard.push(text),
+      targets: { async findControlTargets() { controller.abort(); return [itemId]; } },
+    })).rejects.toThrow("voice_turn_not_sent:cancelled");
+    expect(heard).toEqual([]);
+    // Cancellation cannot undo a commit already in progress. No speech is
+    // sent to the cancelled turn, and the durable pin is not misreported away.
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_item_pins WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
   it("delivers every sentence of a worked explanation on an ordinary owner voice turn", async () => {
     const provider = new FakeAgentProvider([stopped(WORKED_REPLY)]);
     await expect(runVoiceTurn({ text: "Explain the homework step by step.", provider })).resolves.toBe(WORKED_REPLY);
@@ -290,7 +478,7 @@ describe("the voice agent adapter", () => {
     const itemId = await activeMemory(principalId, "I take my coffee black.");
     const provider = new FakeAgentProvider([
       called(tool("pin-1", "memory_pin", { itemId })),
-      stopped("Pinned.", [{ sentence: "Pinned.", receiptIds: ["receipt:pin-1"] }]),
+      stopped("Okay."),
     ]);
 
     const spoken = await runVoiceTurn({
@@ -310,6 +498,75 @@ describe("the voice agent adapter", () => {
     const pins = await env.DB.prepare(`SELECT COUNT(*) AS count FROM memory_item_pins
       WHERE principal_id = ?1 AND item_id = ?2`).bind(principalId, itemId).first<{ count: number }>();
     expect(pins?.count).toBe(1);
+  });
+
+  it("speaks the follow-up's exact current receipt sentence instead of replacing it", async () => {
+    const principalId = `principal:voice-repeat-receipt:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    let repeated = "";
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* (input) {
+      const results = input.toolResults ?? [];
+      if (results.length === 0) {
+        yield { type: "completed", completion: called(tool("repeat-pin", "memory_pin", { itemId })) };
+        return;
+      }
+      const result = JSON.parse(results[0]!.content) as { receipt: string };
+      repeated = /^Pinned[^.]+\./u.exec(result.receipt)?.[0] ?? "";
+      expect(repeated).not.toBe("");
+      yield { type: "text", text: repeated };
+      yield { type: "completed", completion: stopped(repeated) };
+    };
+    const spoken = await runVoiceTurn({ text: "pin that", ownerPrincipalId: principalId, provider,
+      context: [memoryContext("I take my coffee black.", itemId)],
+    });
+    expect(spoken.split(repeated)).toHaveLength(3);
+    expect(spoken).not.toContain(UNRECEIPTED_VOICE_ACTION);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_item_pins WHERE principal_id = ?1")
+      .bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("speaks a marked save paraphrase only after its real tool receipt and strips the metadata", async () => {
+    const principalId = `principal:voice-marked-save:${serial + 1}`;
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* (input) {
+      const results = input.toolResults ?? [];
+      if (results.length === 0) {
+        yield { type: "completed", completion: called(tool("marked-save", "memory_remember", {
+          fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+        })) };
+        return;
+      }
+      const result = JSON.parse(results[0]!.content) as { receiptId: string };
+      const text = `[[claim ${JSON.stringify({ toolName: "memory_remember", receiptIds: [result.receiptId] })}]]I've logged that.[[/claim]]`;
+      for (const character of text) yield { type: "text", text: character };
+      yield { type: "completed", completion: stopped(text) };
+    };
+    const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider });
+    expect(spoken).toContain("I've logged that.");
+    expect(spoken.indexOf("Memory:")).toBeLessThan(spoken.indexOf("I've logged that."));
+    expect(spoken).not.toContain("[[");
+    expect(spoken).not.toContain("receipt:");
+    expect(spoken).not.toContain(UNRECEIPTED_VOICE_ACTION);
+  });
+
+  it.each([
+    ['The file has password = "alpha. bravo charlie" inside. Continue safely.', "bravo charlie"],
+    ["The header is Authorization: Digest a1b2c3. d4e5f6g7h8 secret.", "d4e5f6g7h8"],
+  ])("never delivers the secret tail from the unsplit reply %s to the caller", async (text, tail) => {
+    const provider = new FakeAgentProvider([]);
+    provider.streamAgent = async function* () {
+      for (const character of text) yield { type: "text", text: character };
+      yield { type: "completed", completion: stopped(text) };
+    };
+    const heard: string[] = [];
+    const spoken = await runVoiceTurn({ text: "Explain that fixture", provider, onToken: (part) => heard.push(part) });
+    expect(heard.join("")).not.toContain(tail);
+    const expected = new Redactor().redactText(text);
+    expect(expected.ok && spoken === expected.text).toBe(true);
+    expect(spoken).not.toContain("\n");
   });
 
   it("refuses every tool when the call's principal is not the configured owner", async () => {
@@ -413,7 +670,7 @@ describe("the voice agent adapter", () => {
     const itemId = await activeMemory(principalId, "I take my coffee black.");
     const provider = new FakeAgentProvider([
       called(tool("pin-4", "memory_pin", { itemId })),
-      stopped("Pinned.", [{ sentence: "Pinned.", receiptIds: ["receipt:pin-4"] }]),
+      stopped("Okay."),
     ]);
 
     // The context names nothing and this session has no previous voice turn, so
