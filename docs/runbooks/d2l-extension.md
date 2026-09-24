@@ -1,176 +1,156 @@
-# D2L extension probe (Opera GX)
+# Jarvis D2L collector — Opera GX, Windows 11
 
-This is a read-only diagnostic, not the school collector. Sid approved this probe
-and accepted the D2L terms risk on 2026-09-23. Only Sid loads it or runs it against
-his account. No key, signing, push, periodic polling or Jarvis receiver is wired.
+**Code review can proceed; complete school ingestion still needs receiver changes.**
+The gateway is pinned. Current full batches are retained locally because #169
+does not yet accept Durham or news/quizzes. Resolve [the receiver findings](../research/2026-09-23-d2l-collector-contract-gaps.md)
+before the owner rollout below. A green local suite is not live acceptance.
+This round replaces the shape probe with the collector. Sid approved the account
+reads and D2L terms risk on 2026-09-23. Builders never load it or access his account.
 
-## Load and run
+## Get the reviewed revision on the PC and laptop
 
-1. Open **PowerShell 7 (`pwsh`)**. Copy the exact 40-character commit SHA approved
-   by the reviewer for PR #163, then run the following. This creates the fixed
-   checkout `C:\Users\Sid\d2l-probe-reviewed`, outside `C:\javis`, and stops if
-   that destination already exists rather than overwriting it. No install or
-   build command is needed. Do not substitute an unreviewed latest branch head.
-
-   ```powershell
-   cd C:\Users\Sid
-   $reviewedSha = Read-Host 'Paste the reviewer-approved 40-character PR #163 commit SHA'
-   if ($reviewedSha -notmatch '^[0-9a-f]{40}$') { throw 'Expected a complete commit SHA' }
-   if (Test-Path -LiteralPath 'C:\Users\Sid\d2l-probe-reviewed') { throw 'Destination already exists; keep the existing checkout' }
-   git clone --no-checkout https://github.com/stremysid/jarvis.git C:\Users\Sid\d2l-probe-reviewed
-   if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
-   cd C:\Users\Sid\d2l-probe-reviewed
-   git checkout --detach $reviewedSha
-   if ($LASTEXITCODE -ne 0) { throw 'Reviewed commit checkout failed' }
-   if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the reviewed revision' }
-   ```
-
-2. In **Opera GX**, open `opera://extensions`, enable **Developer mode**, choose
-   **Load unpacked**, and select
-   **`C:\Users\Sid\d2l-probe-reviewed\apps\d2l-extension`**, the folder containing
-   `manifest.json`. Pin its popup if useful.
-3. Sign into LDSB yourself if necessary, then **close every tab on
-   `ldsb.elearningontario.ca`** without signing out. Open the extension popup and
-   click **Run probe**. This is the **background** pass. Wait for the pass to end;
-   reopening the popup preserves progress. Do not open D2L during this pass.
-4. Open a D2L tab in that same browser profile and refresh it once so the static
-   content script is present. Click **Run probe** again. This is the **content**
-   pass. Keep that tab open until the pass ends. With multiple matching tabs, the
-   active matching tab is used, otherwise the first one returned by the browser.
-5. Click **Copy summary**, then paste that summary to the reviewer. If clipboard
-   access is unavailable, the popup selects the report for **Ctrl+C**.
-6. **Remove the extension after pasting the summary:** return to
-   `opera://extensions`, find **Jarvis D2L shape probe**, and choose **Remove**.
-
-There is **one click per context**. A no-tab background experiment and an open-tab
-content experiment cannot happen simultaneously. The extension never opens,
-closes, navigates or reads a web page. It samples matching-tab presence before
-and after each background request and interrupts if a tab is detected. This is
-not a continuous attestation that a tab never briefly opened between samples.
-
-Reports survive popup closure and worker restart in `chrome.storage.session`;
-closing the browser clears them. A new run replaces only that context's report.
-An `incomplete` report after a worker termination is not a successful pass: run
-again. `interrupted` also covers a closed/navigated tab or a content script that
-needs a refresh. Raw error messages are never displayed.
-
-## What is probed
-
-Each context reads versions first, then LP **1.43** `myenrollments`, following
-enrollment bookmarks. It probes each distinct enrollment whose `CanAccess` is
-true, **without filtering by org-unit type or `IsActive`**. #161 observed readable
-gradebooks for Groups, so Course Offering-only discovery would miss school work.
-Access eligibility is a transport constraint, not a relevance judgment.
-
-For each discovered org unit it GETs, with LE **1.82**:
-
-- `content/myItems/` and `content/myItems/due/`, each with `orgUnitIdsCSV`;
-- `<course>/content/toc`;
-- `<course>/grades/values/myGradeValues/`;
-- `overdueItems/myItems`, with `orgUnitIdsCSV`;
-- `<course>/dropbox/folders/`, then every returned folder's
-  `submissions/mysubmissions/` (**the current student route**).
-
-The versions response is recorded as a shape, not used to silently change the
-owner-requested versions. `whoami` is not an authentication gate. A refusal on
-one route does not prevent testing unrelated routes. Enrollment or folder errors
-cannot supply traversal identifiers. Invalid identifiers stop the pass with an
-interruption rather than allowing response data to construct arbitrary URLs.
-
-This first probe reads the first scheduled/overdue page per route. It records
-whether `Next` is null or set but **does not follow `Next` URLs**, download content
-files or infer backlog completeness. Enrollment pagination is followed because
-it is necessary to discover every accessible course. A repeated, empty or
-non-string bookmark is an explicit pagination stop, not a successful empty list.
-
-## Reading the summary
-
-Each row contains a **fixed route template** (no actual identifiers), HTTP status,
-and `[]`, `{}`, `list of N`, `{Objects:[...]} of N`, `object`, `null`, or a redacted
-scalar label. Fields are aggregated across all nested objects and arrays; `set N`
-means present and non-null, and `null N` means present with a null value.
-
-The formatter emits only allowlisted schema field names. Unknown keys, including
-dictionaries keyed by identifiers or names, collapse to `<other field>`; they
-cannot leak via property names. It never prints scalar values: no names, course
-IDs, titles, grade values, dates, descriptions, API error text or URLs from bodies.
-Those omissions also mean the probe **cannot** establish that a status value
-means submitted, `-1` means a particular denial, or an end date means a deadline.
-It reports shapes, not academic judgments.
-
-`finished` means traversal ended, not that every request succeeded. Compare HTTP
-statuses per route between contexts. `200 {}` is different from `403 {…}`, and
-`non-json`, `invalid-json`, `redirect-blocked`, and `network-or-timeout` are failures,
-not empty results. The network label deliberately does not guess whether the cause
-was session policy, timeout, CORS, connectivity or something else.
-
-## Boundaries and collector seam
-
-The manifest grants exactly `storage` and the single LDSB HTTPS host.
-No alarms permission is requested; scheduling belongs to a later collector.
-No cookie, scripting, tabs, clipboard or password permission is requested.
-The browser attaches its existing session to GET requests; extension code never
-reads cookies or credentials. JSON API bodies exist transiently in memory. For
-the content pass they cross the internal extension message channel to the worker;
-only the shape projection reaches session storage, the popup or the clipboard.
-
-**A manifest cannot restrict requests to GET.** The only fetch call in `probe.js`
-hard-codes `method: "GET"`; callers can supply a fixed route key and validated
-numeric identifiers, never a URL, method or request body. Redirects are manual
-and refused; non-JSON responses are not read. Requests have a 15-second timeout.
-The isolated content script has no page-world messaging or DOM access.
-
-`read(route, args, fetchImpl)` is the reusable transport. `collect(readRoute,
-publish)` is the traversal and shape sink. A later collector can consume the
-transport behind its own reviewed projection/signing/push adapter without
-weakening this probe's shape-only sink. No key material or receiver URL belongs
-in this version, and no migration is introduced.
-
-## Evidence and unverified premises
-
-- Read [PR #161](https://github.com/stremysid/jarvis/pull/161) at
-  `63ae51d2ebfe18470d5a36a7fc9ec9e1a11b3618`. It records the host, working LP/LE
-  reads, null assignment dates, module dates, folder counts, whoami refusal and
-  the **different** `/submissions/` route. None was rechecked on Sid's account by
-  this builder. Its broad claim that OAuth registration is absent is not needed
-  by this probe and was not independently established here.
-- **Prompt/source mismatch:** that revision does not contain the prompt's
-  `overdueItems/myItems` empty-envelope observation or the `content/myItems/due/`
-  400 without `orgUnitIdsCSV`. Those are owner-supplied observations in this task,
-  not findings independently verified here or present in that research revision.
-- The [D2L content reference](https://docs.valence.desire2learn.com/res/content.html)
-  requires the org-unit list for scheduled items. The
-  [dropbox reference](https://docs.valence.desire2learn.com/res/dropbox.html)
-  documents GET `submissions/mysubmissions/` for the current user's submissions.
-  Both were checked on 2026-09-23 without contacting the LDSB tenant.
-- [Chrome's tabs reference](https://developer.chrome.com/docs/extensions/reference/api/tabs)
-  explicitly allows matching-tab queries using host permission; a broad `tabs`
-  permission is unnecessary. Its
-  [network documentation](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests)
-  distinguishes extension-worker and content-script request origins. Opera GX's
-  actual session behaviour in each context remains the experiment, not a claim.
-- The requested PC-incident file was absent at
-  `C:\Users\Sid\Downloads\jarvis-profile-incident.md`. No permission-changing code,
-  services, scheduled tasks, registry, protected Jarvis data or local-agent tests
-  were run. The prompt's conflicting `0039` reservations do not affect this work,
-  which adds no migration and touches none of the parallel sync-builder files.
-
-## Local checks
-
-From a checkout, using PowerShell and Node 24.19.0:
+Repeat on **each Windows device**, in **PowerShell 7 (`pwsh`)**. Use the complete
+commit SHA cleared by the independent reviewer. This creates a fixed checkout
+outside `C:\javis`; no build, package installation, elevation, permissions,
+registry or service changes are needed. If the path already exists, stop and
+keep it rather than overwriting an existing checkout.
 
 ```powershell
-cd C:\path\to\jarvis
-pnpm --filter @jarvis/d2l-extension test
-pnpm --filter @jarvis/d2l-extension test:mutations
+cd C:\
+$reviewedSha = Read-Host 'Paste the reviewer-approved 40-character collector commit SHA'
+if ($reviewedSha -notmatch '^[0-9a-f]{40}$') { throw 'Expected a complete commit SHA' }
+if (Test-Path -LiteralPath 'C:\w\jarvis-d2l-collector') { throw 'Destination already exists; keep the existing checkout' }
+New-Item -ItemType Directory -Path 'C:\w' -Force | Out-Null
+git clone --no-checkout https://github.com/stremysid/jarvis.git C:\w\jarvis-d2l-collector
+if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+cd C:\w\jarvis-d2l-collector
+git fetch origin $reviewedSha
+if ($LASTEXITCODE -ne 0) { throw 'Reviewed commit fetch failed' }
+git checkout --detach $reviewedSha
+if ($LASTEXITCODE -ne 0) { throw 'Reviewed commit checkout failed' }
+if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the reviewed revision' }
+```
+
+1. In Opera GX, open `opera://extensions`, enable **Developer mode**, choose
+   **Load unpacked**, and select `C:\w\jarvis-d2l-collector\apps\d2l-extension`.
+   Remove the old probe if it is still installed; do not run both extensions.
+2. Sign in on LDSB yourself. For Durham, follow the course under the LDSB homepage's
+   **My Courses in Other Boards**. There is no separate Durham login step.
+3. Open the collector popup's **Setup / pairing**. Name this device (Home PC or
+   Laptop). Paste the Durham hop URL once, then select **Save and pair**. The URL
+   is stored locally and never sent in a batch. Setup accepts an HTTPS
+   URL starting on either of the two approved D2L hosts, without URL credentials.
+   Sid's supplied course-link example is
+   `https://durham.elearningontario.ca/d2l/home/29725166`. Paste it at setup;
+   it is not a runtime default. Whether opening this direct course URL restores
+   federation remains an owner-run check.
+4. Match the popup's pairing code to Jarvis's Telegram approval request and
+   approve it there. Select **Check pairing and retry push** until it says active.
+   Each device has its own non-extractable key and pairing. The receiver's pairing
+   window is ten minutes; an expired request needs a new pairing.
+5. Select **Sync now**. Check both hosts, the last good read time, course read/refusal
+   counts and queued batches. The popup shows course names and fixed status only;
+   it never shows grades, assignment text or announcement text. A refused tool does
+   not stop the remaining tools. Failure and zero assignments are different states.
+   `receiver-contract-incompatible` means queued evidence was withheld because the
+   receiver cannot accept it yet; it does not mean the school read was empty.
+6. Close every D2L tab without signing out, then select **Test background read**.
+   This tests enrollments on both hosts with fallback disabled, so it cannot hide
+   a failed background read behind a tab. Report its statuses to the reviewer.
+7. Keep the collector enabled for hourly sync and browser-start sync. To stop,
+   disable it in `opera://extensions`. Uninstalling removes its local key and
+   queue; reinstalling requires pairing again. Neither device can sync while its
+   browser is closed. No overnight PC service is installed.
+
+If Durham expires, the collector checks LDSB first, uses an isolated LDSB tab if
+needed, then opens the saved hop in a background tab and retries Durham once.
+If that fails, sign in on LDSB and click the course link on its homepage once.
+Directly opening a Durham course URL restoring federation remains unverified.
+The popup and pushed course failures report the failed renewal. If no course has
+ever been discovered, the current receiver cannot accept a host-only failure;
+that limitation is a blocker in the findings document, not a successful empty read.
+
+## What is collected
+
+LP 1.43 enrollments are paginated. API versions are checked once per host per sync;
+missing LP 1.43 or LE 1.82 fails loudly. Only `CanAccess && IsActive` course
+offerings are read, including **DCE D2L BrightSpace Orientation** if it meets those
+structural conditions. Jarvis judges the meaning and relevance of the evidence.
+Per course, LE 1.82 reads myItems with orgUnitIdsCSV, toc, dropbox/folders, each
+folder's student `submissions/mysubmissions/`, myGradeValues, news and quizzes.
+Empty due/overdue routes are not used. API requests are spaced about one second
+apart. Each API body is evidence, not an academic judgment.
+
+Null DueDate is **no date known**. A JSON submission 403 is **refused**, never
+unsubmitted; its body is retained with `complete:true`. That flag means the response
+was fully received, not that permission was granted. Any redirect or non-JSON response, including a 200 login page, is a
+session failure. A successful empty JSON list stays an empty list. Another tool
+page is marked incomplete instead of silently claiming completeness.
+
+The manifest has only alarms and storage plus the two D2L origins and
+`https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev`. The D2L transport
+hard-codes GET with manual redirects. The gateway
+transport hard-codes POST with ambient credentials omitted. There is one fetch
+call site for either D2L origin and one for the gateway, including all popup assets
+in the static check. No cookies, password stores or page DOM are read. No remote
+code or evaluation is used. Only the extension popup accesses its own DOM.
+
+Keys and queued canonical batches persist in extension-origin IndexedDB; raw API
+bodies never enter popup storage. Retries preserve the exact body bytes and use a
+fresh signature/nonce. A refused batch stays queued while other courses are tried.
+The queue retains the newest **two** batches per host/course and at most **1 MiB**
+of serialized UTF-8 entries, evicting the oldest entries when necessary.
+`queue-evicted-<count>` in the popup reports every eviction in that run, including
+superseded reads. One flush attempts at most **eight** uploads, each with the
+existing 15-second request timeout. Held entries do not consume upload attempts.
+The queue is committed once at the end of a run, including a caught interruption;
+new evidence from a worker killed before that commit must be read again. A lost
+receipt or termination before the queue commit can cause a repeated batch.
+Course bodies at or above 64 KiB, or exceeding the receiver's structure limits,
+become explicit compact failure batches, never truncated successes. There is no
+chunking contract to invent. The 1 MiB application cap does not reserve disk space;
+browser quota or disk failures are surfaced. No quota-increasing permission is
+requested. Removal of superseded evidence and byte-cap evictions are explicit
+storage bounds authorised by Sid, not judgments about course relevance.
+
+## Remove the collector
+
+1. On each device, open `opera://extensions`, find **Jarvis D2L collector**, and
+   choose **Remove**. This removes that extension's local key, settings and queue.
+2. Ask Jarvis: **"Show my D2L collector devices, then revoke the collector for
+   [the device label I paired]."** Jarvis can identify the device through
+   `school_d2l_status` and use `school_collector_revoke`. Confirm the exact device
+   in its owner approval tap, then ask for status to check that it is revoked.
+   These tools exist in merged #169; their deployment/live operation was not
+   verified by this builder. Removing the extension alone does not revoke its
+   server record. No database command is needed in this runbook.
+3. After removal, delete only the collector checkout. In **PowerShell 7 (`pwsh`)**,
+   verify that the literal directory is the checkout created above and contains
+   no files you need, then run:
+
+   ```powershell
+   cd C:\
+   Remove-Item -LiteralPath 'C:\w\jarvis-d2l-collector' -Recurse -Force
+   ```
+
+## Local verification
+
+Use PowerShell 7 and Node 24.19.0 or later in the Node 24 line:
+
+```powershell
+cd C:\w\jarvis-d2l-collector
+node --version
+node --test apps/d2l-extension/test/*.test.js
+node apps/d2l-extension/test/mutate.js
 node scripts/check-state.mjs
 ```
 
-Tests use mocked fetch and extension APIs. The package has no dependencies and
-needs no bundler. A separate Windows CI job runs its tests. The mutation runner
-requires a single literal match, tests a named passing baseline, observes that
-named test fail twice with the fault installed, restores byte-for-byte, then
-observes it pass. A missing match is `NOT APPLIED`, never a survived mutation.
+Tests use mocked fetch and browser APIs. The mutation runner requires one exact
+source match, a passing named baseline, two named fault failures and a passing
+byte-exact restoration. Missing matches are NOT APPLIED, never survived.
 
-No browser was loaded, no D2L request made, and no actual account response, Opera
-GX installation, clipboard behaviour or worker lifetime was verified locally.
+API shapes were checked against the official [D2L version reference](https://docs.valence.desire2learn.com/res/apiprop.html)
+and the supplied probe notes. [Chrome host permissions](https://developer.chrome.com/docs/extensions/reference/api/tabs)
+allow matching-tab access without a broad tabs permission. [Extension storage](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies)
+supports IndexedDB in the service worker. These references do not prove Opera GX
+account behavior, key persistence across actual restarts, or live receiver ingestion.
