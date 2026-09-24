@@ -1,0 +1,338 @@
+[
+  {
+    "name": "voice-drops-study-tool",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "toolDefinitions: OWNER_TOOL_DEFINITIONS,",
+    "replace": "toolDefinitions: OWNER_TOOL_DEFINITIONS.filter(tool => tool.name !== \"study_coach\"),",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "offers tools that deep-equal Telegram and tells the model it is speaking on a call"
+  },
+  {
+    "name": "voice-drops-pipeline-dispatch",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),",
+    "replace": "pipelineModel: (_call: ModelFunctionCall) => null,",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-pipelines.integration.test.ts",
+    "expect": "owner voice agent validated feature pipelines > lets the agent choose school and preserves the existing validated save and receipt"
+  },
+  {
+    "name": "voice-loses-staged-references",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "recordReferences: recordPendingTelegramMemoryReferences,",
+    "replace": "recordReferences: () => undefined,",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "confirms a staged model memory from a spoken yes on the same call with the real target finder"
+  },
+  {
+    "name": "voice-inference-requires-missing-button",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "inferredConfirmation: \"reply\" as const,",
+    "replace": "inferredConfirmation: \"tap\" as const,",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "confirms a staged model memory from a spoken yes on the same call with the real target finder"
+  },
+  {
+    "name": "finder-drops-voice-references",
+    "file": "apps/cloud-gateway/src/memory/memory-control-targets.ts",
+    "find": "if (voice !== null) return voice.itemIds;",
+    "replace": "if (voice !== null) return [];",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "confirms a staged model memory from a spoken yes on the same call with the real target finder"
+  },
+  {
+    "name": "confirmation-borrows-another-call",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "ON previous.session_id = current.session_id",
+    "replace": "ON 1 = 1",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "refuses a spoken yes on another call even when the proposed memory is in context"
+  },
+  {
+    "name": "confirmation-reads-a-future-reply",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "AND sent.sequence < current_user.sequence",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not use a reply sent after the current owner utterance as confirmation evidence"
+  },
+  {
+    "name": "confirmation-lends-voice-to-telegram",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "AND current.channel = 'voice'",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not lend voice confirmation references to a Telegram turn with the same session label"
+  },
+  {
+    "name": "metadata-allows-telegram-envelope",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "history.channelCode !== 1 ||",
+    "replace": "false ||",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "metadata-allows-empty-ids",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "memoryItemIds.length === 0 ||",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "metadata-allows-too-many-ids",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "memoryItemIds.length > 8",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "metadata-allows-invalid-ids",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "memoryItemIds.some(id => typeof id !== \"string\" || !ULID.test(id))",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "metadata-allows-duplicate-ids",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "new Set(memoryItemIds).size !== memoryItemIds.length",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "metadata-allows-nonarray-ids",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "!Array.isArray(memoryItemIds) ||",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "rejects invalid reference metadata in a settled voice reply"
+  },
+  {
+    "name": "confirmation-rejects-paragraph-delimiter",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "/[.!?\\n]\\s*$/u.test(before)",
+    "replace": "/[.!?]\\s*$/u.test(before)",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "confirms a staged model memory from a spoken yes on the same call with the real target finder"
+  },
+  {
+    "name": "prompt-invents-a-previous-reply",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (text === null) return \"\";",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "offers tools that deep-equal Telegram and tells the model it is speaking on a call"
+  },
+  {
+    "name": "rewrite-drops-profile-and-medium",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const rewritePrompt = `${systemPrompt}",
+    "replace": "const rewritePrompt = `${OWNER_AGENT_SYSTEM_PROMPT}",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "keeps the call instructions and pinned profile when rewriting an unsupported action claim"
+  },
+  {
+    "name": "recall-rejects-voice",
+    "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+    "find": "(input.channel !== \"telegram\" && input.channel !== \"voice\")",
+    "replace": "input.channel !== \"telegram\"",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "retrieves the same canonical memory and owner history on either channel"
+  },
+  {
+    "name": "resolver-accepts-unregistered-pipeline",
+    "file": "apps/cloud-gateway/src/agent/owner-pipelines.ts",
+    "find": "Object.hasOwn(pipelines, call.name)",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "refuses a tool that no channel-neutral catalogue gives a call, instead of running it"
+  },
+  {
+    "name": "voice-uses-different-provider-policy",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "const body = JSON.stringify(this.#telegramThinking !== null",
+    "replace": "const body = JSON.stringify(this.#telegramThinking !== null && input.channel === \"telegram\"",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "expect": "uses the same configured thinking policy for an owner pipeline on voice"
+  },
+  {
+    "name": "shared-planner-drops-profile-store",
+    "file": "apps/cloud-gateway/src/agent/owner-pipelines.ts",
+    "find": "    database: env.DB, // Without this, a pinned daily capacity never reaches the planner.\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "wires the school planner to the production core-profile database"
+  },
+  {
+    "name": "pipeline-bypasses-tier3-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    const gated = await this.gateTool(input, port, call);\n    if (gated !== null) return gated;\n    return this.runPipeline",
+    "replace": "    return this.runPipeline",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts",
+    "expect": "requires a tap before dispatching the tier-3 tool school_update on voice"
+  },
+  {
+    "name": "memory-bypasses-tier3-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool",
+    "replace": "      return this.memoryTool",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts",
+    "expect": "requires a tap before dispatching the tier-3 tool memory_pin on voice"
+  },
+  {
+    "name": "schema-owner-guard-school_course_cards_require_owner_turn_insert",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_course_cards_require_owner_turn_insert\nBEFORE INSERT ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_course_cards_require_owner_turn_insert\nBEFORE INSERT ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_course_cards_require_owner_turn_insert"
+  },
+  {
+    "name": "schema-owner-guard-school_course_cards_require_owner_turn_update",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_course_cards_require_owner_turn_update\nBEFORE UPDATE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_course_cards_require_owner_turn_update\nBEFORE UPDATE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_course_cards_require_owner_turn_update"
+  },
+  {
+    "name": "schema-owner-guard-school_course_facts_require_owner_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_course_facts_require_owner_turn\nBEFORE INSERT ON school_course_facts\nWHEN NEW.evidence_source = 'owner_reported'\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_course_facts_require_owner_turn\nBEFORE INSERT ON school_course_facts\nWHEN NEW.evidence_source = 'owner_reported'\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_course_facts_require_owner_turn"
+  },
+  {
+    "name": "schema-owner-guard-school_catchup_actions_require_plan_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_catchup_actions_require_plan_turn\nBEFORE INSERT ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_plan_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.plan_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_catchup_actions_require_plan_turn\nBEFORE INSERT ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_plan_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.plan_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_catchup_actions_require_plan_turn"
+  },
+  {
+    "name": "schema-owner-guard-school_catchup_turn_receipts_require_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_catchup_turn_receipts_require_turn\nBEFORE INSERT ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_catchup_turn_receipts_require_turn\nBEFORE INSERT ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_catchup_turn_receipts_require_turn"
+  },
+  {
+    "name": "schema-owner-guard-university_programs_require_owner_turn_insert",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_programs_require_owner_turn_insert\nBEFORE INSERT ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_programs_require_owner_turn_insert\nBEFORE INSERT ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_programs_require_owner_turn_insert"
+  },
+  {
+    "name": "schema-owner-guard-university_programs_require_owner_turn_update",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_programs_require_owner_turn_update\nBEFORE UPDATE ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_programs_require_owner_turn_update\nBEFORE UPDATE ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_programs_require_owner_turn_update"
+  },
+  {
+    "name": "schema-owner-guard-university_program_items_require_owner_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_program_items_require_owner_turn\nBEFORE INSERT ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_program_items_require_owner_turn\nBEFORE INSERT ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_program_items_require_owner_turn"
+  },
+  {
+    "name": "schema-owner-guard-university_tracker_turn_receipts_require_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_tracker_turn_receipts_require_turn\nBEFORE INSERT ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_tracker_turn_receipts_require_turn\nBEFORE INSERT ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_tracker_turn_receipts_require_turn"
+  },
+  {
+    "name": "schema-owner-guard-school_study_preferences_require_owner_turn_insert",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_study_preferences_require_owner_turn_insert\nBEFORE INSERT ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND principal_id = NEW.principal_id AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_study_preferences_require_owner_turn_insert\nBEFORE INSERT ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND 1 = 1 AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_study_preferences_require_owner_turn_insert"
+  },
+  {
+    "name": "schema-owner-guard-school_study_preferences_require_owner_turn_update",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_study_preferences_require_owner_turn_update\nBEFORE UPDATE ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND principal_id = NEW.principal_id AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_study_preferences_require_owner_turn_update\nBEFORE UPDATE ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND 1 = 1 AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_study_preferences_require_owner_turn_update"
+  },
+  {
+    "name": "schema-owner-guard-school_practice_items_source_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_practice_items_source_guard\nBEFORE INSERT ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_source_invalid') WHERE\n    NOT ((NEW.mode = 'quiz' AND NEW.status = 'open')\n      OR (NEW.mode = 'flashcard' AND NEW.status = 'shown'))\n    OR (NEW.source_kind = 'owner_topic' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel IN ('telegram', 'voice')\n    ))\n    OR (NEW.source_kind = 'course_fact' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n    ));\nEND;",
+    "replace": "CREATE TRIGGER school_practice_items_source_guard\nBEFORE INSERT ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_source_invalid') WHERE\n    NOT ((NEW.mode = 'quiz' AND NEW.status = 'open')\n      OR (NEW.mode = 'flashcard' AND NEW.status = 'shown'))\n    OR (NEW.source_kind = 'owner_topic' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND 1 = 1\n        AND channel IN ('telegram', 'voice')\n    ))\n    OR (NEW.source_kind = 'course_fact' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n    ));\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_practice_items_source_guard"
+  },
+  {
+    "name": "schema-owner-guard-school_practice_items_status_transition",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_practice_items_status_transition\nBEFORE UPDATE ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_status_invalid') WHERE NOT (\n    (NEW.status = OLD.status\n      AND NEW.owner_answer IS OLD.owner_answer\n      AND NEW.result IS OLD.result\n      AND NEW.result_turn_id IS OLD.result_turn_id\n      AND NEW.answered_at IS OLD.answered_at)\n    OR (OLD.status = 'open' AND NEW.status = 'dismissed')\n    OR (OLD.status = 'open' AND NEW.status = 'answered' AND EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.result_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel IN ('telegram', 'voice')\n    ))\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_practice_items_status_transition\nBEFORE UPDATE ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_status_invalid') WHERE NOT (\n    (NEW.status = OLD.status\n      AND NEW.owner_answer IS OLD.owner_answer\n      AND NEW.result IS OLD.result\n      AND NEW.result_turn_id IS OLD.result_turn_id\n      AND NEW.answered_at IS OLD.answered_at)\n    OR (OLD.status = 'open' AND NEW.status = 'dismissed')\n    OR (OLD.status = 'open' AND NEW.status = 'answered' AND EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.result_turn_id\n        AND 1 = 1\n        AND channel IN ('telegram', 'voice')\n    ))\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_practice_items_status_transition"
+  },
+  {
+    "name": "schema-owner-guard-school_study_evidence_source_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_study_evidence_source_guard\nBEFORE INSERT ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_source_invalid') WHERE\n    NEW.status != 'active'\n    OR (NEW.evidence_kind = 'owner_statement' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel IN ('telegram', 'voice')\n    ))\n    OR (NEW.evidence_kind = 'course_context' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n        AND status = 'active'\n    ))\n    OR (NEW.evidence_kind = 'practice_result' AND NOT EXISTS (\n      SELECT 1 FROM school_practice_items\n      WHERE principal_id = NEW.principal_id\n        AND item_id = NEW.source_practice_item_id\n        AND course_id = NEW.course_id\n        AND status = 'answered'\n        AND result_turn_id = NEW.source_turn_id\n    ));\nEND;",
+    "replace": "CREATE TRIGGER school_study_evidence_source_guard\nBEFORE INSERT ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_source_invalid') WHERE\n    NEW.status != 'active'\n    OR (NEW.evidence_kind = 'owner_statement' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND 1 = 1\n        AND channel IN ('telegram', 'voice')\n    ))\n    OR (NEW.evidence_kind = 'course_context' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n        AND status = 'active'\n    ))\n    OR (NEW.evidence_kind = 'practice_result' AND NOT EXISTS (\n      SELECT 1 FROM school_practice_items\n      WHERE principal_id = NEW.principal_id\n        AND item_id = NEW.source_practice_item_id\n        AND course_id = NEW.course_id\n        AND status = 'answered'\n        AND result_turn_id = NEW.source_turn_id\n    ));\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_study_evidence_source_guard"
+  },
+  {
+    "name": "schema-owner-guard-school_study_evidence_status_transition",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_study_evidence_status_transition\nBEFORE UPDATE ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_status_invalid') WHERE NOT (\n    (OLD.status = 'active' AND NEW.status = 'active'\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND (\n        NEW.last_prompted_on IS OLD.last_prompted_on\n        OR (NEW.last_prompted_on IS NOT NULL\n          AND NEW.last_prompted_on >= NEW.practice_due_on\n          AND (OLD.last_prompted_on IS NULL OR NEW.last_prompted_on > OLD.last_prompted_on))\n      ))\n    OR (OLD.status = 'active' AND NEW.status IN ('corrected', 'forgotten')\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND EXISTS (\n        SELECT 1 FROM conversation_turns\n        WHERE turn_id = NEW.control_turn_id\n          AND principal_id = NEW.principal_id\n          AND channel IN ('telegram', 'voice')\n      ))\n    OR (OLD.status = 'active' AND NEW.status = 'superseded'\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND NEW.control_turn_id IS NULL\n      AND NEW.controlled_at IS NULL\n      AND NEW.evidence_kind != 'course_context')\n    OR (OLD.status IN ('corrected', 'forgotten', 'superseded')\n      AND NEW.status = OLD.status\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND NEW.updated_at IS OLD.updated_at)\n  );\nEND;",
+    "replace": "CREATE TRIGGER school_study_evidence_status_transition\nBEFORE UPDATE ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_status_invalid') WHERE NOT (\n    (OLD.status = 'active' AND NEW.status = 'active'\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND (\n        NEW.last_prompted_on IS OLD.last_prompted_on\n        OR (NEW.last_prompted_on IS NOT NULL\n          AND NEW.last_prompted_on >= NEW.practice_due_on\n          AND (OLD.last_prompted_on IS NULL OR NEW.last_prompted_on > OLD.last_prompted_on))\n      ))\n    OR (OLD.status = 'active' AND NEW.status IN ('corrected', 'forgotten')\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND EXISTS (\n        SELECT 1 FROM conversation_turns\n        WHERE turn_id = NEW.control_turn_id\n          AND 1 = 1\n          AND channel IN ('telegram', 'voice')\n      ))\n    OR (OLD.status = 'active' AND NEW.status = 'superseded'\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND NEW.control_turn_id IS NULL\n      AND NEW.controlled_at IS NULL\n      AND NEW.evidence_kind != 'course_context')\n    OR (OLD.status IN ('corrected', 'forgotten', 'superseded')\n      AND NEW.status = OLD.status\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND NEW.updated_at IS OLD.updated_at)\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_study_evidence_status_transition"
+  },
+  {
+    "name": "schema-owner-guard-university_application_items_require_owner_turn_insert",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_application_items_require_owner_turn_insert\nBEFORE INSERT ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_application_items_require_owner_turn_insert\nBEFORE INSERT ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_application_items_require_owner_turn_insert"
+  },
+  {
+    "name": "schema-owner-guard-university_application_items_require_owner_turn_update",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_application_items_require_owner_turn_update\nBEFORE UPDATE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_application_items_require_owner_turn_update\nBEFORE UPDATE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_application_items_require_owner_turn_update"
+  },
+  {
+    "name": "schema-owner-guard-university_workflow_revisions_require_owner_turn",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER university_workflow_revisions_require_owner_turn\nBEFORE INSERT ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "replace": "CREATE TRIGGER university_workflow_revisions_require_owner_turn\nBEFORE INSERT ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND 1 = 1\n      AND channel IN ('telegram', 'voice')\n  );\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in university_workflow_revisions_require_owner_turn"
+  },
+  {
+    "name": "schema-owner-guard-school_study_signal_controls_insert_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0044_owner_channel_parity.sql",
+    "find": "CREATE TRIGGER school_study_signal_controls_insert_guard\nBEFORE INSERT ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_insert_invalid') WHERE EXISTS (\n    SELECT 1 FROM school_study_signal_controls\n    WHERE principal_id = NEW.principal_id AND source_key = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.control_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  ) OR NOT EXISTS (\n    SELECT 1 FROM school_study_check_in_claims claim, json_each(claim.source_keys_json) source\n    WHERE claim.principal_id = NEW.principal_id\n      AND claim.claim_id = NEW.check_in_id\n      AND source.type = 'text'\n      AND source.value = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns turn\n    JOIN school_study_check_in_claims claim\n      ON claim.principal_id = NEW.principal_id AND claim.claim_id = NEW.check_in_id\n    WHERE turn.turn_id = NEW.control_turn_id\n      AND turn.principal_id = NEW.principal_id\n      AND turn.created_at >= claim.claimed_at\n  ) OR NEW.source_key != (NEW.source_kind || ':' || NEW.source_record_id)\n    OR (NEW.source_kind = 'grade' AND NOT EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id AND observation_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'missing_work' AND NOT EXISTS (\n      SELECT 1 FROM school_missing_work_transitions\n      WHERE principal_id = NEW.principal_id AND transition_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'deadline' AND NOT EXISTS (\n      SELECT 1 FROM deadlines WHERE deadline_id = NEW.source_record_id\n    ));\nEND;",
+    "replace": "CREATE TRIGGER school_study_signal_controls_insert_guard\nBEFORE INSERT ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_insert_invalid') WHERE EXISTS (\n    SELECT 1 FROM school_study_signal_controls\n    WHERE 1 = 1 AND source_key = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.control_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  ) OR NOT EXISTS (\n    SELECT 1 FROM school_study_check_in_claims claim, json_each(claim.source_keys_json) source\n    WHERE claim.principal_id = NEW.principal_id\n      AND claim.claim_id = NEW.check_in_id\n      AND source.type = 'text'\n      AND source.value = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns turn\n    JOIN school_study_check_in_claims claim\n      ON claim.principal_id = NEW.principal_id AND claim.claim_id = NEW.check_in_id\n    WHERE turn.turn_id = NEW.control_turn_id\n      AND turn.principal_id = NEW.principal_id\n      AND turn.created_at >= claim.claimed_at\n  ) OR NEW.source_key != (NEW.source_kind || ':' || NEW.source_record_id)\n    OR (NEW.source_kind = 'grade' AND NOT EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id AND observation_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'missing_work' AND NOT EXISTS (\n      SELECT 1 FROM school_missing_work_transitions\n      WHERE principal_id = NEW.principal_id AND transition_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'deadline' AND NOT EXISTS (\n      SELECT 1 FROM deadlines WHERE deadline_id = NEW.source_record_id\n    ));\nEND;",
+    "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
+    "expect": "preserves every source and owner check while admitting voice in school_study_signal_controls_insert_guard"
+  }
+]
