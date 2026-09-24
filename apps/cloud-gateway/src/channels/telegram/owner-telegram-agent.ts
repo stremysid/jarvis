@@ -23,6 +23,8 @@ import {
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
+import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../school/guided-assignment-tools.js";
+import type { TelegramProvider } from "../../providers/provider-types.js";
 import { SCHOOL_COLLECTOR_TOOLS } from "../../school/collector-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
@@ -52,6 +54,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
+  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",
@@ -71,6 +74,7 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
 ]);
 
 export interface OwnerTelegramAgentDependencies {
+  readonly guidedAssignmentTelegram?: TelegramProvider;
   readonly provider: ModelAgentProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;
