@@ -3,6 +3,95 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.
+
+Base and branch confirmed read-only: HEAD and `origin/main` were
+`f5ba9a84ff32c94292b93aee4dad91adf808c4a6`, on `codex/tool-gate-binding`, with a
+clean worktree before editing. Both findings still existed in those source files.
+Read CLAUDE/AGENTS, architecture, state carriers, BUILDING, CODE-VS-JUDGMENT and
+the requested T3/B1–B4 findings. These changes enforce confirmation proof; they
+add no model judgment rule.
+
+| Item | Result in this worktree |
+|---|---|
+| T3/B1 | Deny if the real second outcome differs from the first, including a change to `permitted`. The receipt states both outcomes, carries the second evaluation's audit reference and says the tap was spent. `confirmedBy` is null. An unchanged `requires_confirmation` with a consumed tap still permits. |
+| B2 | Issuance and lookup both use a JSON tuple of tool name, capability and canonical argument hash. Required `toolName` is carried through the store contract. The former same-tool/different-arguments test is replaced with pin/unpin using the same capability and identical arguments; changed-argument coverage remains separate. |
+| Legacy pending taps | Old `capability:argumentsHash` references never match the new gate, including when their buttons are answered after deployment. No fallback/backfill. Owner asks again and taps the new confirmation. Documented in KNOWN_ISSUES and the PR body. |
+| #159 consumption | The atomic claim SQL, expiry, newest-approval rule and migration 0039 are unchanged by inspection. Tests cover one permit/one claim, concurrent winners, cross-channel use, failure without refund, agent issuance and backup restore using the new references. Runtime verification is pending. |
+| Scope | No migration or T1/T2/B4 trigger edits. No Git writes, push, merge, deploy, migration application, secret access or live call. Commit and PR text are written to `.codex-commit-msg.txt` and `.codex-pr-body.md`; nothing is staged, committed or published. |
+
+**New/replacement test names:**
+
+- `denies a confirmed call when a registry change makes the second outcome $outcome` — cases `permitted`, `withheld_shadow`, `denied_unknown_capability`. Uses real registry UPDATE/DELETE between real service reads, not a stubbed outcome; asserts denial, honest receipt, both stored audits and retained consumption.
+- `does not share a confirmation between two tools with the same capability and identical arguments` — distinct references, wrong tool cannot consume, right tool gets one permit and one claim.
+- `does not let a confirmation authorize changed arguments for the same tool`.
+- `keeps tool and capability boundaries distinct when a name contains a delimiter`.
+- `requires a fresh tap for a legacy confirmation that was %s at deployment` — `pending` and `answered`, then a fresh approval permits once while the old one remains unconsumed.
+- `binds a confirmation raised by the agent to its tool and consumes the owner's answer once` — real agent issuance/delivery, recorded answer, one synthetic pipeline execution, then replay refusal.
+- Renamed schema-only coverage: `preserves answer rows across the additive migration and fails closed on tier 3 without its schema`. Its SELECT uses the new reference; it no longer implies that the legacy gateway can generate that reference. The existing Telegram dispatch test now checks the complete issued reference too.
+
+**Verification observed:** source `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway`
+passes. Test `tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` exits 1 with
+143 diagnostics. An isolated temporary copy with the changed sources restored
+from read-only `git show origin/main:path` also reports 143; file/code/message
+multisets match exactly, ignoring shifted line numbers. No added diagnostics,
+none in autonomy tests; four existing backup-test diagnostics are outside the
+edits. `node scripts/check-state.mjs` passes with one existing D2L-background-access
+FACTS warning. `git diff --check` passes.
+
+**Harness must run, focused first:**
+
+```powershell
+pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/autonomy apps/cloud-gateway/test/persistence/tool-confirmation-rollout.test.ts apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts apps/cloud-gateway/test/school/collector-wiring.test.ts apps/cloud-gateway/test/backup/memory-backup-restore.test.ts
+pnpm test:cloud
+pnpm --filter @jarvis/cloud-gateway typecheck
+pnpm --filter @jarvis/cloud-gateway typecheck:tests
+pnpm check:state
+```
+
+Then plant and restore faults: remove the changed-outcome guard (all three new
+registry-change cases must fail); use `verdictFor(confirmed)` (valid confirmed
+calls must fail); omit toolName from the tuple (shared-capability test must fail);
+restore the legacy encoder (both legacy tests must fail); replace the atomic
+claim with a read (sequential and concurrent single-use tests must fail).
+
+**Initial handoff limits:** Vitest runtime results, mutation kills, full-suite results or
+live rollout. The owner's harness explicitly prohibits this builder from running
+Vitest or pnpm; no passing runtime or exactly-once execution claim is made.
+The guarantee remains at-most-once authorization, not external side-effect
+completion. Independent review is still required.
+
+**Next:** when the harness receives this worktree, run the checks and return any
+failures; after they pass, the independent reviewer checks the receipt, old-tap
+cutover and issuance/consumption agreement. At owner-authorized deployment after
+review, obtain fresh confirmations and follow #159's existing migration rollout.
+
+**Harness round 2 (2026-09-24).** Owner-reported first run: 23 files, 456 passed,
+16 failed, all in `tier3-tap.test.ts`; source tsc 0 and check-state passed. The
+cause was my fixture cleanup omission, not a reference mismatch or a stubbed
+second outcome. The first registry-change case left tier 1, the next read that
+tier then left tier 2, and the third read tier 2 then deleted the row. Later
+tests correctly denied the now-unregistered capability before looking up a tap.
+The tap helper already passes `request.toolName`; the legacy fixtures deliberately
+use the old format and must still request a fresh confirmation.
+
+Both new registry-mutating tests now restore their original state in `finally`:
+the three changed-outcome cases upsert the complete original row, and pin/unpin
+restores its original shared tier. Added starting-tier, first-evaluation and
+restoration assertions. All existing expected outcomes, receipts and consumption
+assertions are retained; no test expectation was wrong under the new binding.
+No production code or security property changed in this round. Source tsc and
+check-state pass locally; test tsc remains at 143 diagnostics with none in
+autonomy tests. Runtime rerun and mutation kills remain unverified here.
+
+**Next:** when the harness receives round 2, run `tier3-tap.test.ts` alone, then
+repeat its full focused set (autonomy, channels, backup, confirmation rollout,
+collector wiring and voice-agent). Commands are in `.codex-pr-body.md`. After
+that passes, run the recorded mutation checks and proceed to independent review.
+No new test names; the named regressions above now own their cleanup.
+
 ## 2026-09-24 — PR #177 round 2: requested wording and snippet fixes
 
 Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
@@ -892,6 +981,16 @@ marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
 live check. No live API, secret, paid action, production operation, real
 migration, deploy, merge into main or PC-setting mutation was performed.
 
+## 2026-09-24 — Telegram body timeout and provider audit
+
+Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
+
+- **T4 result:** `TelegramRestProvider.sendMessage` and `sendChatAction` now keep their abort timers armed through `response.json()`. An aborted body read returns a transient `timeout`; each path clears its timer in `finally`. The original hung-request comment now covers the body read.
+- **Other providers result:** inspected every file under `apps/cloud-gateway/src/providers/` for fetch/body deadline ordering. Twilio and capacity readers retain deadlines through their body reads. `DeepSeekModelAdapter.stream` clears its overall timer before `response.text()` on an HTTP error; recorded the stalled-error-body follow-up in `KNOWN_ISSUES.md`. Did not edit `deepseek-provider.ts`, which #174 owns. No other headers-then-unguarded-body case found.
+- **New test names in `telegram-body-timeout.test.ts`:** `times out when sendMessage receives headers but its body stalls`; `times out when sendChatAction receives headers but its body stalls`. Both use fake timers and an abort-aware injected fetch, and assert the transient timeout, body abort, and zero pending timers. The existing Telegram test file is unchanged.
+- **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
+- **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
+
 ## 2026-09-24 — Codex builder: PR #174 round 5 (integration)
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/channel-parity.
@@ -925,6 +1024,9 @@ Harness: run these focused groups locally before the normal full GitHub Actions 
 - `tests/acceptance/fake/`, especially the owner-passphrase, guest-access and production socket/worker voice cases.
 
 Available checks: source `tsc --noEmit -p apps/cloud-gateway` passes; the non-gating test typecheck reports 144 diagnostics, none in the new/changed test blocks. `git diff --check` and `node scripts/check-state.mjs` pass; the latter retains one existing FACTS re-verification warning. Existing test-name inventories from both conflicted test parents are retained apart from the two explicitly combined titles above. Vitest, focused/full runtime suites and mutation runs cannot be executed in this sandbox; no new pass count or mutant kill is claimed. The harness should fault the owner catalogue gate, authority refusal and each argument hook when checking the new assertions. Live calls, provider streaming and production state remain unverified and untouched.
+
+**Main merge (#181, #182).** Resolved three conflicts against `68675ba`: combined the voice `recordDecision` comment's tool/capability/argument binding across channels with its Telegram keyboard and `/decisions` explanation; kept main's T3/B1/B2 queue row and STATE "4 Control" wording alongside this branch's rows and migration reservations. No behavior changed. Audited every `confirmationReference(` and `consumeStandingDecision(` call in gateway source/tests: three arguments and `toolName` are present; no matching fixture needed conversion, and deliberate legacy-reference refusals remain. Source `tsc --noEmit -p apps/cloud-gateway` exits 0. Test `tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` exits 1 with **144 diagnostics, +1 versus 143**; 25 are in branch-touched files (`memory-backup-restore.test.ts`: 4, `automatic-distillation.test.ts`: 2, `call-session-do.test.ts`: 19), none on changed lines against the merge base. `check-state` passes with one existing FACTS warning; `git diff --check` passes and the conflict-marker search is empty. Vitest remains unavailable; the harness must run the focused suites before committing. Git stayed read-only. Signed: Codex GPT-6 Astra.
+Harness follow-up: 45 focused files reported 1,262 passed and one failed before this correction. The failure was in the auto-merged `tier3-agent-dispatch.test.ts` harness: its pipeline's `expect(await claims()).toBe(1)` queried the unanswered seeded decision, while #182's new case confirmed a separate agent-issued decision. After the gate consumed that valid tap, the fixture assertion threw through `collectPipelineOutcome`/`runPipeline`; `OwnerAgentCore.executeCalls` caught it and emitted "I could not safely apply that tool call, so nothing changed." The harness now tracks the confirmed decision id and retains the exact-id consumption assertion before the body; every test expectation remains unchanged. No runtime or tap-binding change was needed. Added unused throwing pipeline adapters to `voice-argument-fixture.ts` for its required school/university/study dependencies; its deadline path is unchanged. Both tsc commands were rerun: source exits 0; tests exit 1 with **143 diagnostics**, removing only that fixture's TS2739 and adding none. Neither edited test file has diagnostics. The prior 144 count also existed at `0e458a6`, per the harness. Post-fix Vitest remains for the harness: rerun the focused set and `test/deadlines/deadline-voice.test.ts` before committing. Signed: Codex GPT-6 Astra.
 
 ## 2026-09-24 — Codex builder: PR #174 round 4
 
@@ -1570,6 +1672,7 @@ All three reported examples reproduced at that base. Both ordinary and post-tool
 
 **Next, when the PR opens:** automated and independent adversarial review; this
 builder has not merged or deployed. — Codex (builder)
+
 ## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
 
 Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
@@ -2265,6 +2368,7 @@ branch fails now.
   at access-check time". The first half is factually wrong (`OW` is OWNER RIGHTS;
   `CO` is CREATOR OWNER) and is corrected. The second half was never measured on
   this machine, and the comment now says so rather than repeating the claim.
+
 ## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
 
 Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
@@ -2510,6 +2614,7 @@ Observed final gates: full cloud package once **5192 passed / 0 failed / 0 skipp
 Remaining gaps are explicit in [KNOWN_ISSUES](../KNOWN_ISSUES.md#school-collector-retention-and-public-pairing-remain-bounded-only-in-part): unpruned pending keys/nonces, public exhaustion of Sid's own pairing budget, course retirement and duplicate-tap wording. No production, real DB, live provider, secret, permissions, services, tasks, registry or local-agent operation occurred; the incident file was absent. The ledger and gate logs remain outside the repository at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
 
 Next, **when this fix head is pushed**: automated and independent adversarial re-review. **After independent clearance and authorized rollout**: owner acceptance on both devices, as already listed in OWNER-ACTIONS. Remove only this clean worktree after publication, retaining the ledger.
+
 ## 2026-09-23 — Codex builder: PR #158 round 3 includes newly merged #159
 
 **Signed: Codex, documentation builder for Sid.** A second fresh fetch found
@@ -2669,6 +2774,7 @@ configuration and iPhone acceptance only after separately authorized deployment.
 The builder will remove its worktree after publication and retain the ledger.
 
 — Codex, builder
+
 ## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
 
 Normal merges retain the original PR history: `0c0d0fa` integrated main at
@@ -2781,6 +2887,7 @@ production/database migration, PC permission change or local-agent test occurred
 The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
 
 Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) round 1 keeps shared school-store errors visible
 
 Signed: Codex GPT-6, builder. Read the full independent review [5805656319](https://github.com/stremysid/jarvis/pull/167#issuecomment-5805656319). Its blocking finding is confirmed: `ingestD2lEmailGrade` writes to `SchoolObservationRepository`, while the read catch used the retired Classroom scan-health name. The original mixed-source test asserted that incorrect omission; the prior entry's blanket shared-repository claim is corrected below.
@@ -2896,6 +3003,7 @@ No owner-only action arose. No merge of this PR into main or deployment is
 authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
 the worktree is removed after the updated PR is published. Next: assigned automated
 and independent reviewers assess #155 when its new head is pushed.
+
 ## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
 
 Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
@@ -2940,6 +3048,7 @@ retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
 the final merge commit runs the full gateway suite. No force
 push, merge into main, deployment, real database operation, real provider call
 or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#169](https://github.com/stremysid/jarvis/pull/169) D2L school collector receiver
 
 Branch `codex/d2l-ingest-run`, refreshed from `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. School remains the priority. Built the separately scoped Ed25519 collector registry in assigned **0040**, owner Telegram pairing, terminal tier-3 revocation, signed bounded per-course observation ingestion, immutable raw evidence, labelled deadline projection and owner `school_d2l_status` tools. Failed/incomplete/stale reads become digest gaps. Undated work remains evidence; no code decides missed work. The P2 login-and-scrape reader is parked. See the [final design](plan/2026-09-23-d2l-collector-design.md) and [named verification evidence](reviews/2026-09-23-d2l-collector.md).
@@ -3174,6 +3283,7 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+
 ## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
 
 Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
@@ -3813,6 +3923,7 @@ this entry does not present one.
 Signed: **DeepSeek, reasoning effort not determinable from inside this session.** I am the model
 this session ran as and the brief names DeepSeek, but I cannot read my own effort setting with
 certainty, so I am saying so rather than naming a number.
+
 ## 2026-09-21 — DeepSeek builder: PR #141 rebased onto a moved main, its carrier conflicts resolved, and the Windows pipe-server brief written
 
 Branch `b/141-rebase` (rebases `codex/pc-controls-p1`, PR #141) on `d0ec419`. Cherry-picked
@@ -4446,6 +4557,7 @@ caught behaviourally, so the behaviour pinning is real and partial rather than a
 remains unpinned is one comparison — an item whose `creation_event_sequence` falls inside a
 suppression's sequence window. Worth a fixture; not worth overstating, which is what an earlier
 draft of this note did.
+
 ## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
 
 Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
@@ -9504,6 +9616,7 @@ wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=pr
 — Codex
 
 ---
+
 ## 2026-09-17 05:13 UTC — Codex, PR #80 round 5 ready for Claude max re-review
 
 Draft PR: https://github.com/ksid1229-ops/jarvis/pull/80

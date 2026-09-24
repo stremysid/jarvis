@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
+import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { TelegramRateLimiter } from "../../src/channels/telegram/telegram-rate-limit.js";
 import {
@@ -3044,9 +3045,8 @@ describe("the capability tier gate in tool dispatch", () => {
       `SELECT origin, origin_reference FROM decision_items WHERE origin = 'autonomy-tier3-tool'`,
     ).all<{ origin: string; origin_reference: string }>();
     expect(results).toHaveLength(1);
-    // The question is bound to the capability and a fingerprint of the exact
-    // arguments, so the tap authorizes this action and not a later one.
-    expect(results[0]?.origin_reference).toContain("school.track:");
+    expect(results[0]?.origin_reference)
+      .toBe(confirmationReference("school_update", "school.track", await argumentsFingerprint("{}")));
   });
 
   it("records the refusal in the audit ledger with the outcome that caused it", async () => {

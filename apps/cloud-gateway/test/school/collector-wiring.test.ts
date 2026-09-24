@@ -55,7 +55,7 @@ it.each([
   const f = await collectorFixture();
   await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = ?").bind(capability).run();
   const decision = await f.decisions.raise({ principalId: f.owner, origin: TIER3_TOOL_ORIGIN,
-    originReference: confirmationReference(capability, await argumentsFingerprint(JSON.stringify(args))), urgency: "normal",
+    originReference: confirmationReference(name, capability, await argumentsFingerprint(JSON.stringify(args))), urgency: "normal",
     question: "Confirm the synthetic call?", choices: [{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }] });
   await f.decisions.markDelivered(decision.decisionId);
   await f.decisions.answer({ decisionId: decision.decisionId, answeredByIdentityId: f.identity, optionKey: TIER3_CONFIRM_OPTION });

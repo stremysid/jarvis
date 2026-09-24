@@ -51,7 +51,7 @@ async function harness(toolName = "school_update", approved = true) {
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
   const raised = await decisions.raise({
     principalId, origin: TIER3_TOOL_ORIGIN,
-    originReference: confirmationReference(capability, await argumentsFingerprint(args)),
+    originReference: confirmationReference(toolName, capability, await argumentsFingerprint(args)),
     urgency: "normal", question: "Run this fixture action?",
     choices: [{ key: "confirm", label: "Confirm" }],
   });
@@ -62,6 +62,7 @@ async function harness(toolName = "school_update", approved = true) {
     })).toMatchObject({ outcome: "recorded" });
   }
   let executions = 0;
+  let expectedDecisionId = raised.decisionId;
 
   async function run(options: {
     channel?: "telegram" | "voice";
@@ -97,7 +98,7 @@ async function harness(toolName = "school_update", approved = true) {
         for await (const token of this.streamOwnerTool()) yield token;
       },
       async *streamOwnerTool() {
-        expect(await claims()).toBe(1);
+        expect(await claims(expectedDecisionId)).toBe(1);
         executions++;
         if (options.failBody) throw new Error("fixture_tool_failure");
         yield { index: 0, text: "Saved the fixture action.", toolOutcome: "saved" as const };
@@ -150,9 +151,24 @@ async function harness(toolName = "school_update", approved = true) {
     return toolResult;
   }
 
-  async function claims() {
+  async function confirmIssued() {
+    const items = await env.DB.prepare(`SELECT decision_id, origin_reference FROM decision_items
+      WHERE principal_id = ? AND origin = ? AND decision_id != ?`)
+      .bind(principalId, TIER3_TOOL_ORIGIN, raised.decisionId)
+      .all<{ decision_id: string; origin_reference: string }>();
+    expect(items.results).toHaveLength(1);
+    const item = items.results[0]!;
+    expect(item.origin_reference).toBe(confirmationReference(toolName, capability, await argumentsFingerprint(args)));
+    expect(await decisions.answer({
+      decisionId: item.decision_id, answeredByIdentityId: identityId, optionKey: "confirm",
+    })).toMatchObject({ outcome: "recorded" });
+    // The body must check the agent-issued tap, not the unanswered seed.
+    expectedDecisionId = item.decision_id;
+    return item.decision_id;
+  }
+  async function claims(decisionId = raised.decisionId) {
     const row = await env.DB.prepare("SELECT count(*) AS count FROM tool_confirmation_consumptions WHERE decision_id = ?")
-      .bind(raised.decisionId).first<{ count: number }>();
+      .bind(decisionId).first<{ count: number }>();
     return row?.count;
   }
   async function authorizedAudits() {
@@ -160,7 +176,7 @@ async function harness(toolName = "school_update", approved = true) {
       .bind(raised.decisionId).first<{ count: number }>();
     return row?.count;
   }
-  return { run, claims, authorizedAudits, executions: () => executions };
+  return { run, confirmIssued, claims, authorizedAudits, executions: () => executions };
 }
 
 describe("tap consumption at agent dispatch", () => {
@@ -172,6 +188,18 @@ describe("tap consumption at agent dispatch", () => {
     expect(await h.claims()).toBe(0);
     expect(await h.authorizedAudits()).toBe(0);
     expect(h.executions()).toBe(0);
+  });
+
+  it("binds a confirmation raised by the agent to its tool and consumes the owner's answer once", async () => {
+    const h = await harness("school_update", false);
+    expect(await h.run()).toMatchObject({ status: "pending_confirmation" });
+    const issued = await h.confirmIssued();
+    expect(await h.run()).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
+    expect(await h.claims(issued)).toBe(1);
+    expect(h.executions()).toBe(1);
+    expect(await h.run()).toMatchObject({ status: "pending_confirmation" });
+    expect(await h.claims(issued)).toBe(1);
+    expect(h.executions()).toBe(1);
   });
 
   it.each([

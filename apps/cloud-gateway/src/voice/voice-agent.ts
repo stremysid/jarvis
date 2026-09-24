@@ -134,10 +134,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       recordReferences: recordPendingTelegramMemoryReferences,
       /**
        * The decision is raised durably in the core and that is the whole
-       * authorization: `consumeStandingDecision` claims a tap by capability and
-       * argument fingerprint with no channel in the query, so a tap Sid gives
-       * in Telegram authorizes the same call. A call cannot display Telegram's
-       * confirmation keyboard, so the spoken refusal points to /decisions.
+       * authorization: `consumeStandingDecision` claims a tap by tool name,
+       * capability and argument fingerprint with no channel in the query, so a
+       * tap Sid gives in Telegram authorizes the same call. A call cannot display
+       * Telegram's confirmation keyboard, so the spoken refusal points to /decisions.
        */
       recordDecision: (): void => undefined,
       inferredMemoryConfirmationRefusal:
