@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { readdirSync, existsSync } from "node:fs";
 import vm from "node:vm";
 import { controller } from "../controller.js";
+import { collectHost } from "../collector.js";
 import { format } from "../popup.js";
 import { GATEWAY } from "../protocol.js";
 import { database } from "../database.js";
-import { source, root, fakeApi, memory, versions, page, json, clock, D2L } from "./fixtures.js";
+import { source, root, fakeApi, memory, versions, page, json, clock, D2L, fixture, good } from "./fixtures.js";
 
 test("It grants only the two literal D2L hosts, the pinned gateway, alarms, and storage.", () => {
-  assert.match(GATEWAY, /^https:\/\/[^/]+$/);
+  assert.equal(GATEWAY, "https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev");
   const manifest = JSON.parse(source("manifest.json"));
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
@@ -86,6 +87,13 @@ test("It serializes sync runs and persists only course names and fixed status fi
   assert.match(format(f.state.status), /Synthetic course 1/);
   assert.equal((await store.get("queue")).length, 2);
   assert.equal(f.state.status.delivery.error, "pairing-required");
+  // A queue compatibility error masks later summary fields. Exercise successful
+  // delivery too, or copying a body string into the popup error can go undetected.
+  const collected = fixture();
+  const summary = await collectHost({ ...collected, request: async (host, route, args) =>
+    route === "grades" ? good({ collectorFailure: "PRIVATE BODY", Grade: "PRIVATE GRADE" }) : collected.request(host, route, args) });
+  assert.doesNotMatch(JSON.stringify(summary), /PRIVATE|body|Grade/);
+  assert.deepEqual(Object.keys(summary.courses[0]).sort(), ["error", "name", "normalEvidence", "read", "refused"]);
 });
 test("It preserves the last good timestamp when a later read expires and keeps raw failures out of the popup.", async () => {
   const f = fakeApi(); const store = memory({ [`lastGood:${D2L.HOSTS[0]}`]: clock(), [`courses:${D2L.HOSTS[0]}`]: [{ id: "1", name: "Synthetic course" }] });

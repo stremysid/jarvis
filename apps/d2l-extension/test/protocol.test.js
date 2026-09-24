@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, verify, KeyObject } from "node:crypto";
-import { canonical, courseBody, createKey, publicKeyBase64, sign, post, AUDIENCE, GATEWAY, PATHS } from "../protocol.js";
+import { canonical, courseBody, createKey, publicKeyBase64, sign, post, uploadBlock, AUDIENCE, GATEWAY, PATHS } from "../protocol.js";
 import { delivery } from "../delivery.js";
 import { clock, batch, memory, json } from "./fixtures.js";
 
@@ -42,7 +42,7 @@ test("It sends only pinned gateway POSTs without ambient credentials or redirect
   const transport = async (...args) => { calls.push(args); return json({ status: "pending" }); };
   await post("/school/pairing/start", "{}", undefined, transport);
   await post("/school/pairing/status", "{}", { synthetic: true }, transport);
-  assert.equal(calls[0][0], `${GATEWAY}/school/pairing/start`);
+  assert.equal(calls[0][0], "https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev/school/pairing/start");
   assert.equal(calls[0][1].method, "POST"); assert.equal(calls[0][1].credentials, "omit");
   assert.equal(calls[0][1].redirect, "manual"); assert.equal(calls[0][1].cache, "no-store");
   assert.equal(calls[0][1].headers["x-jarvis-signed-request"], undefined);
@@ -60,7 +60,7 @@ test("It replaces oversized course bodies with explicit failure evidence under s
     const b = batch();
     if (kind === "bytes") b.routes[0].body = { Text: "é".repeat(65536) };
     if (kind === "structure") b.routes[0].body = Array(4100).fill(null);
-    if (kind === "routes") b.routes = Array(257).fill(b.routes[0]);
+    if (kind === "routes") b.routes = [...b.routes, ...Array.from({ length: 253 }, (_, id) => ({ ...b.routes[0], route: `/d2l/api/le/1.82/1/dropbox/folders/${id}/submissions/mysubmissions/` }))];
     const result = courseBody(b); assert.equal(result.error, "batch-exceeds-wire-limits");
     assert.ok(Buffer.byteLength(result.body) < 65536);
     assert.ok(JSON.parse(result.body).routes.every((route) => route.status === 0 && !route.complete && route.body.collectorFailure === "batch-exceeds-wire-limits"));
@@ -131,7 +131,11 @@ test("It continues delivering other courses when one queued batch is refused.", 
     return { batchId: "synthetic", outcome: "good" };
   } });
   await client.enqueue(batch());
-  await client.enqueue({ ...batch(), course: { id: "2", name: "Synthetic second" }, courseIds: ["2"] });
+  const second = batch();
+  second.course = { id: "2", name: "Synthetic second" }; second.courseIds = ["2"];
+  second.routes = second.routes.map((route) => ({ ...route,
+    route: route.route.replace("/1/", "/2/").replace("orgUnitIdsCSV=1", "orgUnitIdsCSV=2") }));
+  await client.enqueue(second);
   assert.equal((await client.flush()).queued, 1); assert.deepEqual(calls, ["1", "2"]);
   assert.equal((await store.get("queue"))[0].courseId, "1");
 });
@@ -162,4 +166,23 @@ test("It preserves an approved key through temporary receiver failures and later
   unavailable = true; time = "2026-09-24T20:00:00.000Z";
   await assert.rejects(client.status()); await assert.rejects(client.pair("Synthetic PC"));
   assert.equal(starts, 1); assert.equal(await publicKeyBase64(await store.get("keys")), original);
+});
+test("It retains incompatible board and tool evidence without sending an invalid receiver batch.", async () => {
+  const store = memory({ pairing: { ...identity, status: "active" }, keys: await createKey() });
+  let sends = 0;
+  const client = delivery({ store, clock, send: async () => { sends += 1; return { batchId: "synthetic", outcome: "good" }; } });
+  const cases = [
+    { ...batch(), host: "durham.elearningontario.ca" },
+    ...["news/", "quizzes/", "../2/content/toc"].map((suffix) => ({ ...batch(), routes: [...batch().routes,
+      { ...batch().routes[0], route: `/d2l/api/le/1.82/1/${suffix}` }] })),
+    { ...batch(), routes: [{ ...batch().routes[0], route: "/d2l/api/le/1.82/2/content/toc" }] },
+  ];
+  for (const value of cases) {
+    const entry = await client.enqueue(value);
+    assert.equal(entry.error, value.host === "durham.elearningontario.ca" ? "receiver-contract-host-unsupported" : "receiver-contract-route-unsupported");
+    assert.deepEqual(JSON.parse(entry.body), value);
+  }
+  assert.equal((await client.flush()).error, "receiver-contract-incompatible"); assert.equal(sends, 0);
+  assert.equal((await store.get("queue")).length, cases.length);
+  assert.equal(uploadBlock(batch()), null);
 });

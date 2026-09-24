@@ -3,6 +3,43 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: #170 gateway pinned, receiver compatibility verified
+
+Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`.
+Sid authorised this unblock round and marking #170 ready after green local gates.
+The supplied literal gateway is pinned in source, manifest, CSP and independent
+tests. No builder live health request was made. Fresh main
+`0d69556394cc543bb55a5a66627c1b35aa6139d4` was merged normally, preserving both
+log histories and the single collector owner action; no force push or PR merge.
+
+Receiver #169 was inspected at the requested authority
+`dfc284e6780b243f1b010e5434fa7f8e450a6b26`. Complete JSON 403s now retain their
+body as normal refusal evidence; versions/enrollments still require 200 and
+refused folder lists never overwrite the cache. Non-JSON/redirects remain session
+failures. Test-only copies of its actual parser/mapper plus its shared verifier
+accept extension signatures and supported envelopes with mocked SQL.
+
+**Ready for code review, not complete owner rollout.** The receiver still rejects
+Durham/news/quizzes, observed myItems Objects envelopes and empty student
+submission arrays. It also needs decisions on host-qualified projection IDs,
+first-run host-only failures, normal optional-tool 404s and retrying notification
+after pairing proof consumption. Every incompatibility and its disposition is in
+[the findings](research/2026-09-23-d2l-collector-contract-gaps.md). Unsupported
+host/route batches stay unchanged in the queue with visible errors. All current
+full course batches contain news/quizzes and are held until that receiver gap is
+resolved; no dropped tools or relabeled hosts conceal it.
+
+Final extension suite: **42 pass / 0 fail / 0 skip**, 0 cancelled/todo. Mutations:
+**115 killed / 0 unconfirmed / 0 NOT APPLIED**, each with passing named baseline
+and restoration plus two named fault failures. Syntax: **10 pass / 0 fail**.
+Runbook: **2 PowerShell blocks, 0 parse errors, 0 executed**. State gate:
+**3 carriers and FACTS pass, 0 failures, 1 advisory** for unverified Opera/Durham
+behavior. Earlier failures and fixes are retained in
+[the evidence](research/2026-09-23-d2l-collector-test-evidence.md).
+No account/browser access, live pairing/push, production, migration, secret,
+permission, registry or service operation occurred. The independent reviewer
+must relay the receiver issues to #169; this builder did not modify its code.
+
 ## 2026-09-23 — Codex builder: two-host collector draft, receiver contract blocked
 
 Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`, based on

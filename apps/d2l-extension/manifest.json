@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "description": "Read-only LDSB and Durham course collection for Jarvis.",
   "permissions": ["alarms", "storage"],
-  "host_permissions": ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*"],
+  "host_permissions": ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*", "https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev/*"],
   "background": { "service_worker": "worker.js", "type": "module" },
   "action": { "default_popup": "popup.html" },
   "content_scripts": [{
@@ -15,6 +15,6 @@
     "world": "ISOLATED"
   }],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca https://durham.elearningontario.ca"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca https://durham.elearningontario.ca https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev"
   }
 }

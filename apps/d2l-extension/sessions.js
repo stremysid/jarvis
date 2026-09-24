@@ -59,8 +59,9 @@ export function sessions({ api, fetchImpl, hop = "", sleep = (ms) => new Promise
     contexts[host] = "federated-content";
     result = await inTab(host, route, args, validateHop(hop));
     const retry = await background(host, route, args);
+    if (retry.status === 403 && !retry.error) return retry;
     if (needsSession(retry) && needsSession(result)) return failed(retry.status, "durham-session-renewal-failed");
-    return retry.complete ? retry : result;
+    return retry.status === 200 && retry.complete ? retry : result;
   }
   return { request, contexts };
 }

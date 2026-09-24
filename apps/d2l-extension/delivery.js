@@ -1,4 +1,4 @@
-import { canonical, courseBody, createKey, publicKeyBase64, sign, post } from "./protocol.js";
+import { canonical, courseBody, createKey, publicKeyBase64, sign, post, uploadBlock } from "./protocol.js";
 
 export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
   async function signed(path, body, identity, pair) {
@@ -43,6 +43,7 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
   }
   async function enqueue(batch) {
     const entry = courseBody(batch);
+    entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;
     const queue = await store.get("queue") ?? [];
     await store.set("queue", [...queue, { ...entry, readId: batch.readId, host: batch.host, courseId: batch.course.id }]);
     return entry;
@@ -52,7 +53,9 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
     const queue = await store.get("queue") ?? [];
     if (!identity || identity.status !== "active") return { queued: queue.length, error: "pairing-required" };
     const keys = await store.get("keys");
+    let blocked = false;
     for (const entry of [...queue]) {
+      if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }
       try {
         // The body stays byte-identical on retry; the signature gets a new nonce.
         const receipt = await signed("/school/observations", entry.body, identity, keys);
@@ -61,7 +64,7 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
       queue.splice(queue.indexOf(entry), 1);
       await store.set("queue", queue);
     }
-    return { queued: queue.length, error: queue.length ? "push-refused-or-unavailable" : null };
+    return { queued: queue.length, error: blocked ? "receiver-contract-incompatible" : queue.length ? "push-refused-or-unavailable" : null };
   }
   return { pair, prove, status, enqueue, flush };
 }

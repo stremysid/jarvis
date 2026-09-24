@@ -33,7 +33,7 @@ test("It hard-codes credentialed GET and refuses login HTML, redirects, and inva
   }
   assert.equal((await D2L.read(D2L.HOSTS[0], "versions", {}, async () => { throw Error(); })).error, "network-or-timeout");
   const refusal = await D2L.read(D2L.HOSTS[0], "submissions", { course: 1, folder: 2 }, async () => json({ Errors: [] }, 403));
-  assert.equal(refusal.status, 403); assert.equal(refusal.complete, false); assert.deepEqual(refusal.body, { Errors: [] });
+  assert.equal(refusal.status, 403); assert.equal(refusal.complete, true); assert.deepEqual(refusal.body, { Errors: [] });
 });
 test("It accepts only active accessible course offerings and excludes the Durham orientation.", () => {
   assert.equal(offering(course()), true);
@@ -92,8 +92,8 @@ test("It preserves null dates and submission refusals while continuing through o
   const f = fixture();
   const result = await collectHost({ ...f, request: async (host, route, args) => {
     if (route === "folders") return good([{ Id: 11, DueDate: null }, { Id: 12, DueDate: "2026-09-25T20:00:00Z" }]);
-    if (route === "submissions") return args.folder === 11 ? { status: 403, complete: false, body: { Errors: [] } } : good([]);
-    if (route === "news") return { status: 404, complete: false, body: {} };
+    if (route === "submissions") return args.folder === 11 ? { status: 403, complete: true, body: { Errors: [] } } : good([]);
+    if (route === "news") return { status: 404, complete: true, body: {} };
     return f.request(host, route, args);
   } });
   assert.equal(f.batches[0].routes.length, 8);
@@ -106,9 +106,10 @@ test("It preserves null dates and submission refusals while continuing through o
 test("It keeps cached folder IDs without relabeling a failed listing as fresh evidence.", async () => {
   const f = fixture();
   await f.store.set(`folders:${f.host}:1`, [{ Id: 2, DueDate: null }]);
-  await collectHost({ ...f, request: async (host, route, args) => route === "folders" ? { status: 403, complete: false, body: {} } : f.request(host, route, args) });
+  await collectHost({ ...f, request: async (host, route, args) => route === "folders" ? { status: 403, complete: true, body: {} } : f.request(host, route, args) });
   assert.ok(f.calls.some((call) => call.route === "submissions" && call.args.folder === 2));
-  assert.equal(f.batches[0].routes.find((r) => r.route.endsWith("/folders/")).complete, false);
+  const refusal = f.batches[0].routes.find((r) => r.route.endsWith("/folders/"));
+  assert.equal(refusal.status, 403); assert.equal(refusal.complete, true); assert.deepEqual(refusal.body, {});
   assert.equal((await f.store.get(`folders:${f.host}:1`))[0].Id, 2);
 });
 test("It refuses malformed folder listings and retains valid folder evidence in the cache.", async () => {
@@ -189,4 +190,24 @@ test("It records failed tab creation and bounds retries when the content listene
   assert.equal(f.events.filter(([type]) => type === "remove").length, 1);
   f.api.tabs.create = async () => { throw Error("Synthetic tab unavailable"); };
   assert.equal((await make().request(D2L.HOSTS[0], "enrollments")).error, "in-tab-unavailable");
+});
+test("It records complete tool refusals normally while refusing enrollment and version failures.", async () => {
+  const f = fixture();
+  const result = await collectHost({ ...f, request: async (host, route, args) => ["folders", "grades", "toc"].includes(route)
+    ? { status: 403, complete: true, body: { Errors: [] } } : f.request(host, route, args) });
+  assert.equal(result.lastGoodRead, clock()); assert.equal(result.courses[0].refused, 3); assert.equal(result.courses[0].read, 3);
+  for (const refusedRoute of ["versions", "enrollments"]) {
+    const g = fixture();
+    const summary = await collectHost({ ...g, request: async (host, route, args) => route === refusedRoute
+      ? { status: 403, complete: true, body: route === "versions" ? versions : page() } : g.request(host, route, args) });
+    assert.equal(summary.error, `${refusedRoute}-refused`); assert.equal(summary.lastGoodRead, null);
+  }
+});
+test("It retains a complete Durham tool refusal after the single renewal attempt.", async () => {
+  const f = fakeApi();
+  f.api.tabs.sendMessage = async () => ({ status: 403, complete: true, body: { Errors: [] } });
+  const session = sessions({ ...f, hop: `${D2L.HOSTS[0]}/synthetic-hop`, sleep: async () => {},
+    fetchImpl: async (url) => url.startsWith(D2L.HOSTS[0]) ? json(page()) : json({ Errors: [] }, 403) });
+  const result = await session.request(D2L.HOSTS[1], "grades", { course: 1 });
+  assert.deepEqual(result, { status: 403, complete: true, body: { Errors: [] } });
 });

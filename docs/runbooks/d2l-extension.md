@@ -1,7 +1,9 @@
 # Jarvis D2L collector — Opera GX, Windows 11
 
-**Not ready to load until the literal gateway origin is pinned and the receiver
-contract findings are resolved.** See [the exact receiver findings](../research/2026-09-23-d2l-collector-contract-gaps.md).
+**Code review can proceed; complete school ingestion still needs receiver changes.**
+The gateway is pinned. Current full batches are retained locally because #169
+does not yet accept Durham or news/quizzes. Resolve [the receiver findings](../research/2026-09-23-d2l-collector-contract-gaps.md)
+before the owner rollout below. A green local suite is not live acceptance.
 This round replaces the shape probe with the collector. Sid approved the account
 reads and D2L terms risk on 2026-09-23. Builders never load it or access his account.
 
@@ -46,6 +48,8 @@ if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the 
    counts and queued batches. The popup shows course names and fixed status only;
    it never shows grades, assignment text or announcement text. A refused tool does
    not stop the remaining tools. Failure and zero assignments are different states.
+   `receiver-contract-incompatible` means queued evidence was withheld because the
+   receiver cannot accept it yet; it does not mean the school read was empty.
 6. Close every D2L tab without signing out, then select **Test background read**.
    This tests enrollments on both hosts with fallback disabled, so it cannot hide
    a failed background read behind a tab. Report its statuses to the reviewer.
@@ -72,14 +76,15 @@ folder's student `submissions/mysubmissions/`, myGradeValues, news and quizzes.
 Empty due/overdue routes are not used. API requests are spaced about one second
 apart. Each API body is evidence, not an academic judgment.
 
-Null DueDate is **no date known**. A submission 403 is **refused**, never
-unsubmitted. Any redirect or non-JSON response, including a 200 login page, is a
+Null DueDate is **no date known**. A JSON submission 403 is **refused**, never
+unsubmitted; its body is retained with `complete:true`. That flag means the response
+was fully received, not that permission was granted. Any redirect or non-JSON response, including a 200 login page, is a
 session failure. A successful empty JSON list stays an empty list. Another tool
 page is marked incomplete instead of silently claiming completeness.
 
-The draft manifest has alarms and storage and the two D2L origins. Its missing
-gateway pin is an explicit readiness failure; the final manifest must add only
-that exact origin. The D2L transport hard-codes GET with manual redirects. The gateway
+The manifest has only alarms and storage plus the two D2L origins and
+`https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev`. The D2L transport
+hard-codes GET with manual redirects. The gateway
 transport hard-codes POST with ambient credentials omitted. There is one fetch
 call site for either D2L origin and one for the gateway, including all popup assets
 in the static check. No cookies, password stores or page DOM are read. No remote

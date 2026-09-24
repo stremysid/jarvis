@@ -1,6 +1,57 @@
 # D2L collector local evidence — 2026-09-23
 
-**Blocked draft, not load-ready.** The full suite has one known failure because
+## Unblock round — gateway supplied, receiver head dfc284e
+
+The gateway readiness failure is cleared. #170 is ready for code review after
+the green local gates below; [receiver findings](2026-09-23-d2l-collector-contract-gaps.md)
+still block complete two-board rollout. Full batches with news/quizzes or Durham
+are visibly held in the queue. No working live ingestion is claimed.
+
+| Gate | Observed result |
+|---|---|
+| Final full extension suite | **42 pass / 0 fail / 0 skip**, 0 cancelled, 0 todo |
+| Final full mutation sweep | **115 killed / 0 unconfirmed / 0 NOT APPLIED** |
+| Each mutation | Named baseline **1/0/0**, two named fault failures **0/1/0**, byte-exact restoration **1/0/0** |
+| `node scripts/check-state.mjs` | **3 carriers and FACTS pass / 0 failures / 1 advisory**, Opera background/Durham federation remain unverified |
+| Runtime `node --check` | **10 pass / 0 fail** |
+| Runbook PowerShell parsing | **2 blocks / 0 parse errors / 0 executed** |
+
+Tests execute #169's actual `parseSchoolBatch`, `mapSchoolCourse` and
+`verifyCollectorRequest` against extension bytes and synthetic Ed25519 signatures.
+The receiver source snapshots are pinned to
+`dfc284e6780b243f1b010e5434fa7f8e450a6b26`; shared helpers are identical except
+three exports in the signing helper. SQL and browser/network APIs are mocked.
+These tests establish complete-403 acceptance and reproduce the receiver's host,
+route, observed myItems/submission-shape and empty-manifest rejections. They do
+not exercise HTTP dispatch, real D1, Telegram, Opera GX or actual gateway ingest.
+
+Observed iterations, including failures:
+
+- Related tests: **7/0/0**. The receiver test initially failed to load a helper
+  because its relative path escaped the repository (**0/1/0**); corrected path,
+  receiver file **2/0/0**.
+- Focused mutations: **15 killed / 0 unconfirmed / 0 NOT APPLIED**.
+- First full mutation run: **114 killed / 1 unconfirmed / 0 NOT APPLIED**, out of
+  115. The new queue compatibility error masked the popup-body mutation. A
+  successful-delivery assertion made that path reachable: focused rerun **1 killed**,
+  then the full sweep **115 killed**. The complete runner output records each
+  named baseline, two failures and restoration; every row matched source exactly.
+- First full suite: **41/1/0** out of 42. The second-course queue fixture still
+  contained first-course routes and was correctly blocked by the compatibility
+  gate. Corrected the fixture's routes; named test **1/0/0**; final full suite
+  **42/0/0**. Runtime source did not change after the passing mutation sweep.
+
+The mutation specification in `apps/d2l-extension/test/mutations.js` names all
+115 witnesses. New cases cover the literal gateway, manifest host and minimal
+permissions, version/enrollment HTTP success, refused-folder caching and shape,
+normal 403/Durham refusal evidence, receiver host/route checks, holding incompatible
+batches with visible errors, and acceptance by the real signature verifier.
+No failed gate is described as flaky or skipped. The original draft results below
+are historical and are retained rather than rewritten.
+
+## Original draft checkpoint — before the gateway was supplied
+
+**Historical blocked draft.** The full suite had one known failure because
 the gateway's literal origin has not been supplied. Receiver #169 also rejects
 required host/routes; see [contract findings](2026-09-23-d2l-collector-contract-gaps.md).
 

@@ -25,7 +25,7 @@ for (const [name, find, replace] of [
   ["JSON MIME", '!/^application\\/(?:[\\w.+-]+\\+)?json\\b/i.test(response.headers.get("content-type") ?? "")', 'false'],
   ["JSON parse failure", 'catch { return failed(response.status, "session-expired"); }', 'catch { return { status: 200, complete: true, body: [] }; }'],
   ["Unauthorized session", 'response.status === 401', 'false'],
-  ["Refusal stays incomplete", 'complete: response.status === 200', 'complete: true'],
+  ["JSON refusals stay complete", 'return { status: response.status, complete: true, body };', 'return { status: response.status, complete: response.status === 200, body };'],
   ["Network failure", 'catch { return failed(0, "network-or-timeout"); }', 'catch { return { status: 200, complete: true, body: [] }; }'],
 ]) collector(name, "probe.js", find, replace, read);
 const offerings = "It accepts only active accessible course offerings and excludes the Durham orientation.";
@@ -39,10 +39,10 @@ collector("Pagination completion", "collector.js", '!page.body.PagingInfo.HasMor
 collector("Pagination cycle and missing bookmark", "collector.js", 'typeof bookmark !== "string" || !bookmark || bookmarks.has(bookmark)', 'false', "It stops repeated or missing bookmarks without claiming complete enrollments.");
 collector("Course manifest bound", "collector.js", 'manifest.length > 128', 'false', "It bounds the enrollment manifest and labels Durham batches with their own host.");
 collector("Failure batch status", "collector.js", 'enrollmentComplete: !error', 'enrollmentComplete: true', "It requires both observed API versions and pushes version loss as failed course evidence.");
-collector("Folder-list shape", "collector.js", 'route === "folders" && result.complete && !Array.isArray(result.body)', 'false', "It refuses malformed folder listings and retains valid folder evidence in the cache.");
-collector("Invalid folder remains incomplete", "collector.js", 'catch { routes.find((entry) => entry.route === pathFor(host, "folders", { course: course.id })).complete = false; continue; }', 'catch { continue; }', "It refuses malformed folder listings and retains valid folder evidence in the cache.");
-collector("Last good read requires no refusals", "collector.js", 'summaries.every((course) => course.refused === 0 && !course.error)', 'true', "It preserves null dates and submission refusals while continuing through optional tools.");
-collector("Cached folders do not hide refusal", "collector.js", 'if (folders.complete) await store.set(key, folders.body);', 'await store.set(key, folders.body);', "It keeps cached folder IDs without relabeling a failed listing as fresh evidence.");
+collector("Folder-list shape", "collector.js", 'route === "folders" && result.status === 200 && result.complete && !Array.isArray(result.body)', 'false', "It refuses malformed folder listings and retains valid folder evidence in the cache.");
+collector("Invalid folder remains incomplete", "collector.js", 'catch { normalEvidence = false; routes.find((entry) => entry.route === pathFor(host, "folders", { course: course.id })).complete = false; continue; }', 'catch { continue; }', "It refuses malformed folder listings and retains valid folder evidence in the cache.");
+collector("Last good read requires normal evidence", "collector.js", 'summaries.every((course) => course.normalEvidence && !course.error)', 'true', "It preserves null dates and submission refusals while continuing through optional tools.");
+collector("Cached folders do not hide refusal", "collector.js", 'if (fresh) await store.set(key, folders.body);', 'await store.set(key, folders.body);', "It keeps cached folder IDs without relabeling a failed listing as fresh evidence.");
 collector("Request throttle", "sessions.js", '1000 - (now() - lastRequest)', '0', "It spaces actual requests by one second and leaves the background test free of fallback tabs.");
 collector("Background test never falls back", "sessions.js", ' || backgroundOnly', '', "It spaces actual requests by one second and leaves the background test free of fallback tabs.");
 collector("Refusals trigger fallback", "probe.js", ' || result.status === 403', '', "It falls back to an isolated LDSB tab and closes only tabs it created.");
@@ -112,11 +112,29 @@ wiring("Trusted status storage", "worker.js", '"TRUSTED_CONTEXTS"', '"TRUSTED_AN
 wiring("Sync serialization", "controller.js", 'if (busy) return;\n    busy = true;\n    let status', 'busy = true;\n    let status', "It serializes sync runs and persists only course names and fixed status fields for the popup.");
 wiring("Popup body isolation", "collector.js", 'routeErrors.find(Boolean)', 'routes.find((entry) => entry.body?.collectorFailure)?.body.collectorFailure', "It serializes sync runs and persists only course names and fixed status fields for the popup.");
 wiring("Transaction commit before success", "database.js", 'transaction.oncomplete = () => resolve(request.result);', 'resolve(request.result); transaction.oncomplete = () => {};', "It waits for IndexedDB transaction completion and rejects rollback instead of claiming durable storage.");
-collector("Tool pages stay incomplete", "collector.js", 'result.complete && (result.body?.Next != null || result.body?.PagingInfo?.HasMoreItems === true)', 'false', "It marks an unfinished tool page incomplete instead of claiming the first page is everything.");
+collector("Tool pages stay incomplete", "collector.js", 'result.status === 200 && result.complete && (result.body?.Next != null || result.body?.PagingInfo?.HasMoreItems === true)', 'false', "It marks an unfinished tool page incomplete instead of claiming the first page is everything.");
 protocol("Proof response may be lost", "delivery.js", 'await prove().catch(() => {});', 'await prove();', "It retains an ambiguous proof for retry and stops pushing after a refused status check.");
 protocol("Proof is idempotent locally", "delivery.js", '!identity || identity.proved', '!identity', "It retains an ambiguous proof for retry and stops pushing after a refused status check.");
 protocol("Status refusal blocks push", "delivery.js", 'await store.set("pairing", { ...identity, status: "unavailable-or-refused" });', '', "It retains an ambiguous proof for retry and stops pushing after a refused status check.");
 protocol("Preserve previously approved keys", "delivery.js", 'existing.approved || ', '', "It preserves an approved key through temporary receiver failures and later setup retries.");
 collector("Fallback listener retry bound", "sessions.js", 'attempt < 15', 'attempt < 1', "It records failed tab creation and bounds retries when the content listener never arrives.");
 collector("Tab failure becomes evidence", "sessions.js", 'return failed(0, "in-tab-unavailable");', 'throw new Error("fault: lost failure evidence");', "It records failed tab creation and bounds retries when the content listener never arrives.");
+const manifest = "It grants only the two literal D2L hosts, the pinned gateway, alarms, and storage.";
+wiring("Literal gateway pin", "protocol.js", 'export const GATEWAY = "https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev";', 'export const GATEWAY = "https://other.invalid";', manifest);
+wiring("Gateway manifest host", "manifest.json", '"https://jarvis-cloud-gateway.twilight-tree-70b1.workers.dev/*"', '"https://*.workers.dev/*"', manifest);
+wiring("Minimal collector permissions", "manifest.json", '"permissions": ["alarms", "storage"]', '"permissions": ["alarms", "storage", "cookies"]', manifest);
+const refusals = "It records complete tool refusals normally while refusing enrollment and version failures.";
+collector("Version HTTP status", "collector.js", 'versions.status !== 200 || ', '', refusals);
+collector("Enrollment HTTP status", "collector.js", 'page.status !== 200 || ', '', refusals);
+collector("Folder success before caching", "collector.js", 'const fresh = folders.status === 200 && folders.complete;', 'const fresh = folders.complete;', "It keeps cached folder IDs without relabeling a failed listing as fresh evidence.");
+collector("Refusals are normal evidence", "collector.js", '[200, 403].includes(result.status)', '[200].includes(result.status)', refusals);
+collector("Folder refusal is not a shape failure", "collector.js", 'route === "folders" && result.status === 200 && result.complete', 'route === "folders" && result.complete', refusals);
+collector("Durham refusal remains evidence", "sessions.js", 'if (retry.status === 403 && !retry.error) return retry;', '', "It retains a complete Durham tool refusal after the single renewal attempt.");
+const incompatible = "It retains incompatible board and tool evidence without sending an invalid receiver batch.";
+protocol("Receiver host allowlist", "protocol.js", 'batch.host !== "ldsb.elearningontario.ca"', 'false', incompatible);
+protocol("Receiver route allowlist", "protocol.js", 'route.startsWith(prefix)', 'true', incompatible);
+protocol("Receiver gate before sending", "delivery.js", 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }', '', incompatible);
+protocol("Receiver mismatch is visible", "delivery.js", 'entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;', '', incompatible);
+protocol("Actual receiver signature witness", "protocol.js", '["POST", path, envelope.deviceId', '["POST", "/wrong", envelope.deviceId', "It passes extension bytes and signatures through the pinned receiver verifier and batch parser.");
+rows.at(-1).testFile = "receiver-contract.test.js";
 export default rows;

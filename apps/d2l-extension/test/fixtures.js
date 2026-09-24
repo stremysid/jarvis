@@ -26,7 +26,7 @@ export function fixture() {
 export function batch() {
   return { schemaVersion: "1.0", host: "ldsb.elearningontario.ca", readId: "synthetic-read", startedAt: clock(), courseIds: ["1"],
     enrollmentComplete: true, course: { id: "1", name: "Synthetic course" },
-    routes: ["items", "toc", "folders", "grades", "news", "quizzes"].map((route) => ({
+    routes: ["items", "toc", "folders", "grades"].map((route) => ({
       route: D2L.routeUrl(D2L.HOSTS[0], route, { course: 1 }).slice(D2L.HOSTS[0].length), status: 200, fetchedAt: clock(), complete: true, body: [],
     })) };
 }

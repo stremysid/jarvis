@@ -19,11 +19,11 @@ export async function collectHost({ host, request, store, emit, clock, readId })
   let error;
   let bookmark;
   const versions = await request(host, "versions");
-  if (!versions.complete) error = versions.error ?? "versions-refused";
+  if (versions.status !== 200 || !versions.complete) error = versions.error ?? "versions-refused";
   else if (!supported(versions.body)) error = "required-api-version-unavailable";
   while (!error) {
     const page = await request(host, "enrollments", { bookmark });
-    if (!page.complete) { error = page.error ?? "enrollments-refused"; break; }
+    if (page.status !== 200 || !page.complete) { error = page.error ?? "enrollments-refused"; break; }
     if (!Array.isArray(page.body?.Items) || typeof page.body.PagingInfo?.HasMoreItems !== "boolean") {
       error = "enrollments-shape-unexpected"; break;
     }
@@ -47,13 +47,15 @@ export async function collectHost({ host, request, store, emit, clock, readId })
   for (const course of manifest) {
     const routes = [];
     const routeErrors = [];
+    let normalEvidence = true;
     const readRoute = async (route, args = { course: course.id }) => {
       let result = error ? failed(0, error) : await request(host, route, args);
-      if (result.complete && (result.body?.Next != null || result.body?.PagingInfo?.HasMoreItems === true)) {
+      if (result.status === 200 && result.complete && (result.body?.Next != null || result.body?.PagingInfo?.HasMoreItems === true)) {
         result = { ...result, complete: false, error: "tool-pagination-incomplete" };
       }
       // Cache folder IDs for retrying submissions; a failed current listing stays a failure.
-      if (route === "folders" && result.complete && !Array.isArray(result.body)) result = failed(result.status, "folders-shape-unexpected");
+      if (route === "folders" && result.status === 200 && result.complete && !Array.isArray(result.body)) result = failed(result.status, "folders-shape-unexpected");
+      normalEvidence &&= result.complete && [200, 403].includes(result.status);
       routeErrors.push(result.error);
       routes.push({ route: pathFor(host, route, args), status: result.status,
         fetchedAt: clock(), complete: result.complete, body: result.body });
@@ -66,22 +68,23 @@ export async function collectHost({ host, request, store, emit, clock, readId })
     }
     if (!error) {
       const key = `folders:${host}:${course.id}`;
-      if (folders.complete) await store.set(key, folders.body);
-      const list = folders.complete ? folders.body : await store.get(key) ?? [];
+      const fresh = folders.status === 200 && folders.complete;
+      if (fresh) await store.set(key, folders.body);
+      const list = fresh ? folders.body : await store.get(key) ?? [];
       for (const folder of list) {
         try { identifier(folder.Id); }
-        catch { routes.find((entry) => entry.route === pathFor(host, "folders", { course: course.id })).complete = false; continue; }
+        catch { normalEvidence = false; routes.find((entry) => entry.route === pathFor(host, "folders", { course: course.id })).complete = false; continue; }
         await readRoute("submissions", { course: course.id, folder: folder.Id });
       }
     }
     const batch = { schemaVersion: "1.0", host: new URL(host).hostname, readId, startedAt,
       courseIds: manifest.map((entry) => entry.id), enrollmentComplete: !error, course, routes };
     const queued = await emit(batch);
-    summaries.push({ name: course.name, refused: routes.filter((entry) => !entry.complete).length,
-      read: routes.filter((entry) => entry.complete).length,
+    summaries.push({ name: course.name, normalEvidence, refused: routes.filter((entry) => entry.status !== 200 || !entry.complete).length,
+      read: routes.filter((entry) => entry.status === 200 && entry.complete).length,
       error: queued.error ?? error ?? routeErrors.find(Boolean) ?? null });
   }
   return { host, error: error ?? null, courses: summaries,
-    lastGoodRead: !error && summaries.every((course) => course.refused === 0 && !course.error) ? clock() : null };
+    lastGoodRead: !error && summaries.every((course) => course.normalEvidence && !course.error) ? clock() : null };
 }
 export { HOSTS, ROUTES };

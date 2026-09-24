@@ -46,7 +46,9 @@
     try { body = await response.json(); }
     catch { return failed(response.status, "session-expired"); }
     if (response.status === 401) return failed(401, "session-expired");
-    return { status: response.status, complete: response.status === 200, body };
+    // Completeness describes receipt/paging, not permission. A JSON 403 is a
+    // fully observed refusal under the receiver contract, never an empty success.
+    return { status: response.status, complete: true, body };
   }
   const needsSession = (result) => result.error === "session-expired" || result.status === 403;
   globalThis.D2L = Object.freeze({ HOSTS, LABELS, identifier, routeUrl, read, failed, needsSession });
