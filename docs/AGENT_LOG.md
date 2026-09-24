@@ -3,6 +3,83 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #162 round 3 requires complete worked clauses
+
+**Signed: Codex, builder for Sid.** Read reviewer comment 5807216716 in full
+before design. This supersedes the two earlier exemption designs and their
+round-two head `40812b5`. The guard now requires a worked verb object and a
+completely parsed prefix and tail. Unknown words, destinations, semicolons and
+second actions remain claims, including verbs missing from the old denylist.
+
+- Removed `program` from told/asked. Helpers need `function`/`method` or call
+  syntax. Numeric substitution ends its variable at a clause boundary. Anchored
+  continuations include isolate/simplify/check/cancel/get. Applied-for-you
+  masking checks the same complete sentence, including actions before it.
+- Closed the review's passive lab-report upload/submission gap. Strengthened a
+  historical test's expectation while retaining its recorded main outcome.
+  The two old program/helper tutoring fixtures now explicitly name a function;
+  separate refusal tests cover the ambiguous forms.
+- The shared prompt remains this PR's one-line owner-agent-core edit. Both
+  ordinary Telegram and voice delivery preserve the worked reply and all eight
+  guided questions. The question and save receipt copied from PR #172 at
+  `6c09a86` survive the guard. No unmerged assignment tools or live model were run.
+- Main now owns row 10 for school observations and row 11 for this guard; the
+  earlier rows-1-through-9 premise is stale. Preserved both register findings and
+  every AGENT_LOG entry through normal merges of `44a3058` and `29fbfcd`.
+
+**Pre-implementation corpus:** commit `9b641014` froze 72 false claims and 36
+tutoring sentences. One accidental prior fixture, “The form is in.”, is retained
+as a control and excluded from the new-corpus denominator. All 71 other false
+claims and all 36 tutoring sentences differ from the prior tracked test fixtures;
+the frozen file's SHA-256 is unchanged. Main `44a3058`: **64/71 caught, 0/36
+tutoring retained**. Rejected `40812b5`: **45/71, 27/36**. Revision: **71/71,
+36/36**, with **zero** main-caught cases lost. Main `29fbfcd` has the identical
+guard blob. Raw revision false-claim result including the control: **72/72**.
+
+**Observed gates at `7d0f881ebf4a822f72b2903de2cc704d8212989f`:**
+
+| Check | Passed / failed / skipped, or explicit result |
+|---|---|
+| Exact reviewer blockers | Round three **25/25**, prior round **35/35** caught |
+| Code/essay regressions | **11/11** retained |
+| Guided questions through real adapters with scripted providers | Telegram **8/8**, voice **8/8** retained |
+| Restored related tests | **1590/0/0**, 11 files |
+| Mutation sweep | **57/57 distinct faults killed**, each named failure confirmed twice; **0** wrong-test, unconfirmed, survived, not-applied or invalid; **2** source files restored byte-identically |
+| Full cloud-gateway suite, exactly one run | **5862/2/0**, 205 files (203 passed, 2 failed); **not green** |
+| Each failing file rerun alone, unchanged deadlines | meaning-search **70/0/0**; hermes-token-adapter **71/0/0** |
+| Production typecheck | Exit **0** |
+| Non-gating test typecheck | Exit **1**, **143** diagnostics in **31** files; **0** in PR-changed files |
+| State check | Exit **0**, **3** carriers plus FACTS, **0** warnings |
+
+Full-run failures were the 100-input bge-m3 byte-ceiling/mutation-cap test
+(30-second timeout) and the exact-cap delimiter-free bytewise SSE test
+(15-second timeout). Their complete files passed separately. The cause remains
+unverified; isolated reruns do not replace the red full-suite result.
+
+A bounded diagnostic also caught excessive regex backtracking during development.
+Removed the overlapping qualifier parses; all 12 diagnostic inputs, including
+100 repeated clauses followed by an invalid tail, then rejected within 5 ms.
+An earlier mutation sweep was interrupted after 17 confirmed checks, restored
+byte-exactly, and replaced by the complete 57-fault sweep above. The interrupted
+run is not counted as a completed gate.
+
+The [evidence and every named mutation result](research/2026-09-24-tutoring-guard-evidence.md)
+record intermediate failures and fixes as well. The complete reviewer 69/34
+artifact was not supplied: five of the six quoted tutoring sentences survive;
+the possessive-destination hook example is conservatively refused and documented
+in KNOWN_ISSUES. This remains a partial language heuristic, not a proof of all
+natural-language honesty claims.
+
+No migration created or applied, deployment, production/secret operation,
+permission change, local-agent test, or parallel-builder-owned file edit. The
+requested incident file was absent; the PC restrictions remained in force. No
+new owner-only action. The external Markdown ledger is retained.
+
+**Next, after this revision is pushed:** automated and independent adversarial
+review of its exact remote head. This builder does not wait for or claim those
+verdicts, merge the PR, or deploy.
+
+
 ## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
 
 **Supersedes both earlier tutoring exemption designs.** Read review

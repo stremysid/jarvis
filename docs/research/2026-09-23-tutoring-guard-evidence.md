@@ -1,5 +1,7 @@
 # Tutoring guard round-two evidence
 
+Historical round-two evidence. [Round three](2026-09-24-tutoring-guard-evidence.md) supersedes its design and current gate results. The 59-mutation spec cited here is preserved at [40812b5](https://github.com/stremysid/jarvis/blob/40812b5fc03efbb2f10839a57f2db46750eee918/reviewer-tools/mutation-specs-tutoring.json).
+
 Signed: Codex (builder), 2026-09-23. PR [#162](https://github.com/stremysid/jarvis/pull/162).
 
 ## Provenance and design
