@@ -1,0 +1,290 @@
+[
+  {
+    "name": "token-comparison",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "if (!crypto.subtle.timingSafeEqual(actualHash!, expectedHash!))",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "minimum-token-length",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "Array.from(expected).length < 32",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "unicode-token-length",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "Array.from(expected).length < 32",
+    "replace": "expected.length < 32",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "unset-token",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "expected === undefined || ",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "get-only",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "request.method !== \"GET\" || ",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns private 404 responses for malformed"
+  },
+  {
+    "name": "calendar-path-shape",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "match === null || ",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns private 404 responses for malformed"
+  },
+  {
+    "name": "malformed-url-404",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "} catch {\n    return failure(404, \"Not found\");",
+    "replace": "} catch {\n    return failure(200, \"Not found\");",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns private 404 responses for malformed"
+  },
+  {
+    "name": "opaque-404-status",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "return new Response(body, { status, headers: privateHeaders });",
+    "replace": "return new Response(body, { status: status === 404 ? 200 : status, headers: privateHeaders });",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "rate-admission",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "if (!await dependencies.rateLimiter.allow())",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "fails closed before reading D1"
+  },
+  {
+    "name": "owner-binding",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "if (!principalId)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "fails closed before reading D1"
+  },
+  {
+    "name": "database-error-status",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "return failure(503, \"Unavailable\");\n  }\n}",
+    "replace": "return failure(200, \"Unavailable\");\n  }\n}",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "admits a 32-character credential"
+  },
+  {
+    "name": "worker-calendar-routing",
+    "file": "apps/cloud-gateway/src/index.ts",
+    "find": "if (/^\\/calendar(?:\\/|$)/u.test(pathname))",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "private-cache",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "const privateHeaders = { \"cache-control\": \"private, no-store\" };",
+    "replace": "const privateHeaders = { \"cache-control\": \"public\" };",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "returns indistinguishable private 404 responses"
+  },
+  {
+    "name": "application-null-date",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "if (item.dueDate === null) continue;",
+    "replace": "if (false) continue;",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "omits undated university items"
+  },
+  {
+    "name": "workflow-null-date",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "if (due.instant === null && due.date === null) continue;",
+    "replace": "if (false) continue;",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "omits undated university items"
+  },
+  {
+    "name": "workflow-utc-instant",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "due.instant !== null ?",
+    "replace": "false ?",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "serializes saved dates and alarm lead times"
+  },
+  {
+    "name": "fold-75-octet-limit",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "if (octets + size > 75)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "folds at 75 UTF-8 octets"
+  },
+  {
+    "name": "fold-exact-boundary",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "if (octets + size > 75)",
+    "replace": "if (octets + size >= 75)",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "folds at 75 UTF-8 octets"
+  },
+  {
+    "name": "fold-continuation-space",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "octets = 1;",
+    "replace": "octets = 0;",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "folds at 75 UTF-8 octets"
+  },
+  {
+    "name": "escape-backslash",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "value.replace(/\\\\/gu, \"\\\\\\\\\")",
+    "replace": "value",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "escape-linebreak",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": ".replace(/\\r\\n|\\r|\\n/gu, \"\\\\n\")",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "strip-controls",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": ".replace(/\\p{C}/gu, \"\")",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "strips controls including bidi overrides"
+  },
+  {
+    "name": "escape-semicolon",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": ".replace(/;/gu, \"\\\\;\")",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "escape-comma",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": ".replace(/,/gu, \"\\\\,\")",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "catchup-owner",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "replace": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE ?1 IS NOT NULL AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "catchup-planned",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "replace": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "catchup-active-course",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "replace": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned'\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "catchup-join-owner",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "replace": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "catchup-join-course",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id AND c.course_id = a.course_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "replace": "  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {\n    const principalId = principal(principalIdValue);\n    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,\n        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status\n      FROM school_catchup_actions a\n      JOIN school_course_cards c\n        ON c.principal_id = a.principal_id\n      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1\n      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();\n    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));\n  }",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "application-limit-validation",
+    "file": "apps/cloud-gateway/src/university/university-tracker-repository.ts",
+    "find": "if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 10)) {\n      throw new RangeError(\"university_application_digest_limit_invalid\");",
+    "replace": "if (false) {\n      throw new RangeError(\"university_application_digest_limit_invalid\");",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "application-complete-feed",
+    "file": "apps/cloud-gateway/src/university/university-tracker-repository.ts",
+    "find": "LIMIT ?2`).bind(principalId, limit ?? -1).all<ApplicationDigestRow>();",
+    "replace": "LIMIT ?2`).bind(principalId, limit ?? 5).all<ApplicationDigestRow>();",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "workflow-limit-validation",
+    "file": "apps/cloud-gateway/src/university/university-tracker-repository.ts",
+    "find": "if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 10)) {\n      throw new RangeError(\"university_workflow_digest_limit_invalid\");",
+    "replace": "if (false) {\n      throw new RangeError(\"university_workflow_digest_limit_invalid\");",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "workflow-complete-feed",
+    "file": "apps/cloud-gateway/src/university/university-tracker-repository.ts",
+    "find": "LIMIT ?2`).bind(principalId, limit ?? -1).all<WorkflowDigestRow>();",
+    "replace": "LIMIT ?2`).bind(principalId, limit ?? 5).all<WorkflowDigestRow>();",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "deadline-lower-window",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "now.getTime() - 14 * DAY_MS",
+    "replace": "now.getTime() - 13 * DAY_MS",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "deadline-upper-window",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "now.getTime() + 90 * DAY_MS",
+    "replace": "now.getTime() + 91 * DAY_MS",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "deadline-open-status",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "statuses: [\"open\"]",
+    "replace": "statuses: [\"open\", \"submitted\"]",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "reads all planned owner tasks and university dates"
+  }
+]

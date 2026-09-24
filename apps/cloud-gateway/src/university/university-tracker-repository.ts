@@ -509,12 +509,13 @@ export class UniversityTrackerRepository {
     });
   }
 
+  /** Null removes the digest display cap for a complete calendar subscription. */
   async listApplicationItemsByDueDate(
     principalIdValue: string,
-    limit = 5,
+    limit: number | null = 5,
   ): Promise<readonly UniversityApplicationDigestItem[]> {
     const principalId = principal(principalIdValue);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) {
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 10)) {
       throw new RangeError("university_application_digest_limit_invalid");
     }
     const result = await this.database.prepare(`SELECT i.principal_id, i.program_id, i.item_id,
@@ -528,7 +529,7 @@ export class UniversityTrackerRepository {
         AND i.item_status NOT IN ('submitted_by_sid', 'not_needed_by_sid')
         AND p.active = 1
       ORDER BY i.due_date IS NULL, i.due_date, i.item_id
-      LIMIT ?2`).bind(principalId, limit).all<ApplicationDigestRow>();
+        LIMIT ?2`).bind(principalId, limit ?? -1).all<ApplicationDigestRow>();
     return Object.freeze(rows(result).map((row) => Object.freeze({
       ...applicationItemFromRow(row, principalId),
       university: inline(row.university_name, "university_application_digest_row_invalid", 160),
@@ -536,12 +537,13 @@ export class UniversityTrackerRepository {
     })));
   }
 
+  /** Null removes the digest display cap for a complete calendar subscription. */
   async listWorkflowItemsByDueDate(
     principalIdValue: string,
-    limit = 5,
+    limit: number | null = 5,
   ): Promise<readonly UniversityWorkflowDigestItem[]> {
     const principalId = principal(principalIdValue);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) {
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1 || limit > 10)) {
       throw new RangeError("university_workflow_digest_limit_invalid");
     }
     const result = await this.database.prepare(`SELECT w.principal_id, w.program_id,
@@ -579,7 +581,7 @@ export class UniversityTrackerRepository {
             AND newer.revision_number > r.revision_number
         )
       ORDER BY r.due_date IS NULL AND r.due_at IS NULL, COALESCE(r.due_at, r.due_date), w.workflow_id
-      LIMIT ?2`).bind(principalId, limit).all<WorkflowDigestRow>();
+        LIMIT ?2`).bind(principalId, limit ?? -1).all<WorkflowDigestRow>();
     return Object.freeze(rows(result).map((row) => Object.freeze({
       ...workflowItemFromRow(row, principalId),
       university: inline(row.university_name, "university_workflow_digest_row_invalid", 160),
