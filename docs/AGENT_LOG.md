@@ -3,6 +3,41 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — DeepSeek builder: #161 review correction round
+
+Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. Corrections only;
+no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
+
+**Corrections applied** (all 12):
+1. §"Why this exists": the claim that **#160** assumes HTML parsing is deleted. #160's design is API-first (`9092950:docs/plan/2026-09-23-d2l-access-design.md`, Recommendation and "What changes for P2": "prefer … APIs to DOM"); only the P2 brief assumed HTML, and it is PARKED.
+2/6. §3.1 retitled "It supports #160's API-first design" and rewritten so the observations **support** #160 instead of overturning it. §3.2 verdict is now "**Survives, as designed (API first)**", and the deadlines row reads "assignment `DueDate` when present; module or availability dates as fallback".
+3. §2.6 rewritten around the **student** route `…/submissions/mysubmissions/`. The all-users route `…/submissions/` is named and rejected ("never call the all-users submissions route", #160's "Own submissions" row). §5's reproduction list and §4 row 1 now use `mysubmissions/`. The "empty `{}` means unsubmitted" reading is **deleted** — it was drawn from the wrong route.
+4. Every `200 {}` is gone. §2.5's table row is now "`200 []` = permitted, empty list". §5's grades shape is `[]`.
+5. §2.3 retitled "assignment `DueDate` is often null"; "every assignment's `DueDate` was `null`" replaced by the 13-of-42 figure with module `EndDateTime` and folder `Availability` named as fallbacks, and the silent-empty warning kept.
+7/8/9/10. §4 row 2 is now "Why do most folders lack a `DueDate`?"; §1 and §2.5 cross-references point at §2.8 (the 403 control); the P2 `1.30`/`1.51` sentence is deleted and the `1.74-`/`1.82+` cutover is marked UNVERIFIED; §4's last row and §3.1 point at merged **#163** and the probe run, not "#160's own unrun experiments".
+11. `docs/FACTS.md`: "Five URLs" → **nine** (the six routes in §5 plus three §2.9 discovery endpoints), and the `myGradeValues` claim is corrected to `200 []`, permitted-but-empty, with the student `mysubmissions/` route added.
+12. `docs/OWNER-ACTIONS.md`: the Pulse `client_id` row is **deleted**. It sat outside any table (broken rendering) and asked Sid to intercept iPhone TLS for a route §3.3 drops. §3.3 now carries one line saying no owner action is requested.
+
+**What I could not do, and why — this is the important part.** Items 4 and 5 told me to cite `docs/research/2026-09-23-d2l-probe-test-evidence.md` on `main` for the live shapes. **That file contains no live results.** It records mocked local tests only: line 34 "No Opera GX or real D2L test was run", line 108 live access "await[s] the owner action", and `OWNER-ACTIONS.md` on main still lists the probe run as **awaiting-owner**. `git grep` over `main` finds no `13 of 42` and no `200 []`; `git log --all -S"13 of 42"` proves the string has never existed in any ref in this repository. I also searched `origin/codex/d2l-collector`, `origin/codex/d2l-ingest-run`, `origin/codex/d2l-probe-run` and `origin/goal/brief-p2-d2l`. **So every live figure in this document is now marked UNVERIFIED against any repository file**, in a new §6 bullet that says exactly where it came from (Sid's report of the run) and what would settle it (committing the probe summary). The figures are stated, attributed to Sid's report, and labelled — never presented as reads this document can evidence. **The durable fix is to commit the probe summary; #161 cannot do that for #170's owner.**
+
+**One committed copy does exist, and it is not on main.** `docs/research/2026-09-23-d2l-collector-contract-gaps.md` on `origin/codex/d2l-collector` (open PR **#170**) records the probe run's shapes: "The real probe observed `200 []`" for the student submissions route (line 26), the myItems `{Objects:[...],Next:null}` envelope (line 25), and "Sparse folder DueDate … Null means no date known, not not-due; refusal means refused, not unsubmitted" (lines 74–77). §6 of the research doc cites it by PR URL and says it is not on `main` yet.
+
+**Gates.** Merge was normal — `git merge origin/main`, no rebase, no force-push. `origin/main` `29fbfcd` merged into `63ae51d` cleanly with **no conflicts** (`git merge-tree` gave tree `ec53ab3`, exit 0). `node scripts/check-state.mjs` on the corrected tree:
+
+```
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 0 warning(s).
+```
+exit 0.
+
+**Mutations: none, and that is not an omission.** This diff adds no product guard and no code, so there is nothing to neuter. The only executable thing it touches is the FACTS register, and `check-state.mjs` re-passed on the edited row. The reviewer's own M1/M2 mutations (blank Observed cell, blank source cell) both killed that row and are unchanged by my edit; M3/M4 (link resolution inside a FACTS row, future dates) still survive — **gaps in the checker, not in this PR** — and I did not fix them here.
+
+**Out of scope, named rather than fixed** (all on `main`, none touched):
+- `apps/cloud-gateway/src/school/collector-mapping.ts` **line 111** still comments "An unfamiliar successful container cannot stand in for the observed empty object", and **line 110** falls back to the all-users `dropbox/folders/<folderId>/submissions/` route. Both trace to this document's withdrawn `{}`-on-the-wrong-route reading. Line 107 already reads `DueDate` first with availability as fallback, which matches correction 6.
+- `docs/OWNER-ACTIONS.md` on `main` (line 36) still lists the probe run as **awaiting-owner**, while the collector work records the run as done and shape-only results supplied. One of the two carriers is stale; I did not have authority to decide which, so §6 says both.
+- The probe evidence document on `main` is titled as evidence and is cited as ground truth elsewhere, but records no live result. It is the reason four of the corrections above had to be marked UNVERIFIED rather than cited.
+
+No merge, deploy, migration, secret, credential, browser, live D2L or production operation occurred. Worktree `C:\w\d2l` removed after push.
+
 ## 2026-09-23 — Codex GPT-6 builder: #169 publication refresh after #164, #165 and #167
 
 Signed: Codex GPT-6, receiver builder. GitHub reported a conflict after the first normal push. Fresh fetch proved main had advanced to `0d69556394cc543bb55a5a66627c1b35aa6139d4`. Merged it normally in `d3ab0827869251cd09907c74a783b8056de3a141`; no rebase or force-push. Kept all upstream runtime changes and every conflicting log/fact/queue entry. The two digest test conflicts now retain main's retired-source behavior and the collector's separate coverage gap. No upload route, signing, pairing payload or batch format changed.

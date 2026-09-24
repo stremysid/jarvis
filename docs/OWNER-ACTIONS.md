@@ -48,7 +48,6 @@ Last regenerated: 2026-09-23. Order within a section is the order to do them in.
 **Not on this list, deliberately:** giving a phone call tools and one brain. That is
 builder work and it is in [QUEUE.md](QUEUE.md).
 
-| **Only if you want the OAuth-token question answered: capture Pulse's `client_id` and `redirect_uri`** | They exist only inside the Brightspace Pulse app's traffic, so reading them means intercepting the iPhone (proxy + trusted certificate) and signing in. No builder may do that: it needs your phone, and it means handling your school credential. **This is optional and probably not worth it** — the student-session API is already proven readable, and `users/whoami` returning 403 to your own valid session shows a borrowed token could still be refused on the routes that matter. See `docs/research/2026-09-23-ldsb-brightspace-api-findings.md` | **not started** |
 ## Rule
 
 A session that needs something from Sid adds a row here **in the same commit** as the
