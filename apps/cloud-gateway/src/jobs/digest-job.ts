@@ -42,6 +42,21 @@ const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 /** A complete grades/submissions walk may span several hourly checkpoint slices. */
 const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
 /**
+ * Owner-retired health sources: docs/FACTS.md's 2026-09-17/18 Classroom
+ * access rows and 2026-09-21 D2L notification-email row close these routes.
+ * These are fixed gap names, never stored labels. Retire reporting only:
+ * historical deadlines/grades remain visible, and other Brightspace routes
+ * keep reporting failures even though they share the email source's kind.
+ * Store-read failures stay visible because D2L grades share the store; the
+ * neither-configured "not set up" gap is retired because FACTS' LDSB row
+ * (row 41) also rules out an iCal feed.
+ */
+const RETIRED_DIGEST_HEALTH_SOURCES: ReadonlySet<string> = new Set([
+  "D2L notification email",
+  "Google Classroom",
+  "Google Classroom grades/submissions",
+]);
+/**
  * How long a push source may be silent before the digest says so.
  *
  * D2L notification mail has no heartbeat: it either arrives or it does not,
@@ -236,7 +251,7 @@ async function readSchoolObservationsOr(
     // Code may be deployed before additive candidate migration 0027. Until
     // the tables exist, the older digest remains the live product.
     if (missingSchoolObservationTable(error)) return { available: false, snapshot: null };
-    gaps.push({ source: "Google Classroom grades/submissions", detail: describe(error) });
+    gaps.push({ source: "School grades/submissions store", detail: describe(error) });
     return { available: true, snapshot: null };
   }
 }
@@ -520,7 +535,7 @@ export async function assembleDigest(
       question: item.question,
       urgency: item.urgency,
     })),
-    gaps,
+    gaps: gaps.filter((gap) => !RETIRED_DIGEST_HEALTH_SOURCES.has(gap.source)),
     studyCheckIn: studyCheckIn === null ? null : {
       course: studyCheckIn.courseName,
       topic: studyCheckIn.topic,

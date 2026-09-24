@@ -68,6 +68,9 @@ describe("proof of a deadline due phrase", () => {
   it("refuses an unknown IANA zone before parsing the date", () => {
     expect(() => proof("Friday at 3pm", "2026-09-25T19:00:00.000Z", { ownerZone: "Not/AZone" })).toThrow("deadline_zone_mismatch");
   });
+  it("returns a missing date reason when the due phrase only names a zone", () => {
+    expect(() => proof("America/Toronto", "2026-09-25")).toThrow("deadline_missing_date");
+  });
   it("refuses an offsetless resolved instant even when its wall clock matches", () => {
     expect(() => proof("Friday at 3pm", "2026-09-25T15:00:00")).toThrow("deadline_invalid_time");
   });
