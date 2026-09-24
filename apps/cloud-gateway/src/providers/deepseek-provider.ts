@@ -286,7 +286,10 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 const AGENT_RESPONSE_BYTES = 262_144;
 const AGENT_MAX_OUTPUT_TOKENS = 8_192;
-const AGENT_MAX_TOOLS = 16;
+// The shared owner catalogue has 17 tools after guided assignment. The former
+// bound rejected every owner request before fetch; keep a bounded catalogue
+// with room to add hands, while the serialized request byte limit still applies.
+const AGENT_MAX_TOOLS = 32;
 const AGENT_MAX_TOOL_CALLS = 16;
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
 const AGENT_CALL_ID = /^[A-Za-z0-9_-]{1,192}$/u;

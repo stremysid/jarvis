@@ -358,5 +358,21 @@
     "replace": "toolDefinitions: OWNER_TOOL_DEFINITIONS.filter(tool => tool.name !== \"guided_assignment_save\"),",
     "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
     "expect": "offers tools that deep-equal Telegram and tells the model it is speaking on a call"
+  },
+  {
+    "name": "provider-catalogue-bound-regresses-to-sixteen",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "const AGENT_MAX_TOOLS = 32;",
+    "replace": "const AGENT_MAX_TOOLS = 16;",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "expect": "gives the production voice agent the same complete tool definitions as Telegram"
+  },
+  {
+    "name": "provider-catalogue-size-guard-is-neutered",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": " || input.tools.length > AGENT_MAX_TOOLS",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "expect": "accepts a bounded catalogue of thirty-two tools and refuses thirty-three before fetching"
   }
 ]
