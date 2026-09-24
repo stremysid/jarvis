@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonicalize, sha256Hex } from "../src/canonical-json.mjs";
-import { runVerifierProcess, selectArchive } from "../src/generate-sbom.mjs";
+import { resolveTrustedPowerShellHost, runVerifierProcess, selectArchive } from "../src/generate-sbom.mjs";
 import * as manifestValidation from "../src/validate-manifests.mjs";
 
 const runtimeRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -225,7 +225,7 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
 
   it("closes PowerShell module discovery inside the real locked-source verifier child", async () => {
     const copy = await copyRuntimeTree();
-    const closedHostDirectory = String.raw`C:\Program Files\PowerShell\7`;
+    const closedHostDirectory = dirname(await resolveTrustedPowerShellHost());
     const closedHostEntriesBefore = (await readdir(closedHostDirectory)).sort(ordinalCompare);
     const sourceLock = await loadJson("hermes-source-lock.json", copy);
     const release = join(copy, "releases", sourceLock.sourceCommit);

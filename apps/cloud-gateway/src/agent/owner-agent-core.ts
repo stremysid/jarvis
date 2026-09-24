@@ -29,6 +29,8 @@
  */
 
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
+import { SchoolCollectorPairing } from "../school/collector-pairing.js";
 import type { ArchiveBucket } from "../archive/archival-service.js";
 import {
   argumentsFingerprint,
@@ -978,12 +980,9 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
     if (!port.canActOn(call)) return refusedTool(call, port.authorityRefusal);
-    // Every tool call is evaluated against its capability tier before it acts.
-    // This runs after the authority checks (so only a genuine owner turn is
-    // audited) and before any tool body, so nothing below can execute on a
-    // capability that is tier 3, withheld by shadow mode, or unclassified.
-    const gated = await this.gateTool(input, port, call);
-    if (gated !== null) return gated;
+    // The gate can consume a tap. Finish channel refusals first so a call that
+    // cannot dispatch does not spend approval or record an authorized action.
+    // Once dispatch starts, audit or tool failures do not refund that tap.
     if (call.name.startsWith("memory_")) {
       if (!this.dependencies.directOwnerText) {
         return refusedTool(call, port.memoryAuthorityRefusal);
@@ -991,13 +990,34 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (!await port.replyTargetsLatestAssistant(input)) {
         return refusedTool(call, port.replyTargetRefusal);
       }
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
       return this.memoryTool(input, port, call);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
     }
+    if (call.name === "school_d2l_status") {
+      const args = schoolStatusOptions(parseArguments(call, ["cursor", "limit", "staleAfterMs"]));
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      const evidence = await new SchoolCollectorRepository(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
+        .status(args);
+      return unactionedTool(call, JSON.stringify(evidence), []);
+    }
+    if (call.name === "school_collector_revoke") {
+      const args = parseArguments(call, ["collectorId"]);
+      const collectorId = safeUlid(args.collectorId);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      const changed = await new SchoolCollectorPairing(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
+        .revoke(collectorId);
+      return successfulTool(call, changed ? "School collector revoked." : "School collector was already revoked or was not found.");
+    }
     const pipeline = port.pipelineModel(call);
     if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);
+    const gated = await this.gateTool(input, port, call);
+    if (gated !== null) return gated;
     return this.runPipeline(input, port, call, pipeline);
   }
 

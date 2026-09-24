@@ -121,7 +121,7 @@ The two answers worth recording, because each was an argument above:
 2. **A tier-3 capability on a call is raised and spoken, not tapped.** The
    question is raised durably in the existing decision queue and the reply says
    the tap has to be given in Telegram, because a call has no keyboard. This is
-   not a new gate: `D1ToolConfirmationStore.findStandingDecision` looks a tap up
+   not a new gate: `D1ToolConfirmationStore.consumeStandingDecision` claims a tap
    by capability and argument fingerprint with no channel in the query, so one
    tap authorizes the same call on either door. The `pin_verify(pin)` question
    above — mid-turn multi-round step-up over a relay — is still open and was not
