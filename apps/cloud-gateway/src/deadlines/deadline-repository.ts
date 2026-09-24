@@ -195,6 +195,8 @@ export interface DeadlineUpsertInput {
   readonly dueAt: string;
   readonly effort: DeadlineEffort;
   readonly leadMinutes: number;
+  /** Explicit owner metadata replaces the previous status and effort together. */
+  readonly status?: DeadlineStatus;
   readonly now: Date;
 }
 
@@ -385,6 +387,7 @@ export class DeadlineRepository {
     const dueAt = requireInstant(input.dueAt, "deadline_due_at");
     const effort = requireEffort(input.effort);
     const leadMinutes = requireLeadMinutes(input.leadMinutes);
+    const status = input.status === undefined ? null : requireStatus(input.status);
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
@@ -393,10 +396,11 @@ export class DeadlineRepository {
     // school feed before the caller even computed disappearances.
     const unchanged = await this.#database.prepare(
       `UPDATE deadlines
-       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
+       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
+           status = coalesce(?, status), effort = CASE WHEN ? IS NULL THEN effort ELSE ? END
        WHERE source_id = ? AND external_id = ? AND content_hash = ?
        RETURNING *`,
-    ).bind(observedAt, observedAt, sourceId, externalId, contentHash).first<DeadlineRow>();
+    ).bind(observedAt, observedAt, status, status, effort, sourceId, externalId, contentHash).first<DeadlineRow>();
     if (unchanged !== null) {
       return Object.freeze({
         outcome: "unchanged" as const,
@@ -417,11 +421,11 @@ export class DeadlineRepository {
             `INSERT INTO deadlines (
                deadline_id, source_id, external_id, course, title, due_at, effort, lead_minutes,
                status, content_hash, first_seen_at, last_seen_at, reminded_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, coalesce(?, 'open'), ?, ?, ?, NULL)
              ON CONFLICT (source_id, external_id) DO NOTHING`,
           ).bind(
             deadlineId, sourceId, externalId, course, title, dueAt, effort, leadMinutes,
-            contentHash, observedAt, observedAt,
+            status, contentHash, observedAt, observedAt,
           ),
           // Guarded on the insert above having landed. Without the guard a lost
           // race would leave this pointing at a deadline_id that does not
@@ -461,11 +465,11 @@ export class DeadlineRepository {
         // incoming one.
         this.#database.prepare(
           `UPDATE deadlines
-           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, content_hash = ?, last_seen_at = ?,
+           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, content_hash = ?, last_seen_at = ?, status = coalesce(?, status),
                reminded_at = CASE WHEN due_at = ? THEN reminded_at ELSE NULL END
            WHERE deadline_id = ? AND content_hash = ?`,
         ).bind(
-          course, title, dueAt, effort, leadMinutes, contentHash, observedAt,
+          course, title, dueAt, effort, leadMinutes, contentHash, observedAt, status,
           dueAt, existing.deadline_id, existing.content_hash,
         ),
         // Guarded on the new hash being what the row now holds, so a concurrent

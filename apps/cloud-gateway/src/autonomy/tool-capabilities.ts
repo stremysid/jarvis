@@ -65,6 +65,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_pin: "memory.write",
   memory_unpin: "memory.write",
   school_update: "school.track",
+  deadline_record: "school.track",
   university_update: "university.track",
   study_coach: "study.coach",
 });
