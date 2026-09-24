@@ -27,18 +27,55 @@ Agent regressions use real adapters, conversation service and local D1, with
 synthetic providers. They cover all four refusal checks, voice refusal then
 one later execution, both branch gates, and no refund after tool failure.
 The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
-consumeStandingDecision. Focused suites: 238 passed, 0 failed, 0 skipped.
+consumeStandingDecision. Before the main merge, focused suites: 238 passed,
+0 failed, 0 skipped.
 Mutations: 10 killed twice, none survived or invalid; restored suites total
-102 passed, 0 failed, 0 skipped. Source types pass; test types retain exactly
-144 prior diagnostics in 32 files. State checks: 3 passed. The initial fixture
+102 passed, 0 failed, 0 skipped. Source types pass; after main's callback-test
+fix, test types retain 143 prior diagnostics in 31 files with none added.
+State checks: 3 passed. The initial fixture
 failures and named mutations are in [the review document](reviews/2026-09-23-tier3-tap.md).
 For full-suite counts on the final published head, see [PR #159](https://github.com/stremysid/jarvis/pull/159)
-and `C:\Users\Sid\codex-ledgers\tier3-round1-full-gateway.json` beside the ledger.
+and `C:\Users\Sid\codex-ledgers\tier3-round1-merged-full-gateway.json` beside the ledger.
 
-Normal merge of freshly fetched origin/main reported already up to date at
-a666097. No force push, merge into main, deployment, real database operation,
-real provider call or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+Normal merges initially reported already up to date at a666097. Main advanced
+before push to a6a0efd (#154), which was merged normally with both sides of
+the AGENT_LOG and OWNER-ACTIONS conflicts retained. Its fix covers the existing
+archived-memory test that failed in the pre-merge full run (5,132/1/0) and first
+isolated rerun (71/1/0). A main control and matched PR rerun both passed 72/0/0;
+the original occurrence's cause was not established. All earlier evidence is
+retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
+the final merge commit runs the full gateway suite. No force
+push, merge into main, deployment, real database operation, real provider call
+or local-agent test. Owner rollout remains in OWNER-ACTIONS.
 
+## 2026-09-23 — Codex GPT-6 builder: [#154](https://github.com/stremysid/jarvis/pull/154) round 1 restores the critical-path guard
+
+**The callback fix is unchanged from reviewed head `28c9463`.** This round corrects the missing archived-memory latency guard, normally merges `a666097` (#153), and updates the stale state carriers. It supersedes the preceding entry's paused-clock test design; that earlier design let a candidate-before-history serialization mutation survive.
+
+- **Review premise reproduced before editing:** `mutate.ps1` on unchanged `28c9463` had a green memory-file baseline, **0 killed / 1 survived**, and restored the source byte-identically. The reviewer was right that trip/concurrency counts alone did not protect this critical path.
+- **A limit of the proposed recipe, measured:** virtual 25 ms D1 trips yield **225 ms** with parallel candidates/history (125/225 ms stages), versus **350 ms** when history waits for candidates (125+225). Thus <=500 alone still lets serialization survive without host overhead. The replacement retains <=500 and adds `elapsed < candidatesMs + historyMs` to require overlap, rather than picking an arbitrary tighter latency ceiling. The test counts real D1 I/O only after simulated delays, wraps R2 `get` and body `arrayBuffer`, yields through a captured real timer, then advances the next fake timer only when real I/O is idle. Evidence, concurrency, <=61 trips, <=86 statements and zero pending timers remain asserted. Production deadlines are unchanged.
+- **Mutation evidence on clean merged code/test head `fcc4c91c8902d921d21a3f6c2066cc6e6358a451`:** all **5 killed**, every kill confirmed twice; **0 survived / 0 not applied / 0 invalid / 0 unconfirmed / 0 wrong-test kills**. Both source files restored byte-identically. The original callback metadata/structural mutations still kill their named callback tests, and unbatching still kills the archived-work and production-shaped trip-bound tests. The review's exact serialization fault kills `retrieves archived-source memories and archived history with bounded parallel D1 reads`; an independent 501 ms delay after completed retrieval kills that same test's <=500 assertion. Extra selected assertion probes pinpoint **350 < 350** and **726 <= 500** respectively (each **0 passed / 1 failed / 71 skipped**), followed by source restoration.
+- **20/20 complete memory-file iterations passed**, each **72 passed / 0 failed / 0 skipped**; aggregate **1,440 passed / 0 failed / 0 skipped**. Early iterations ran concurrently with the full gateway suite. Sources were restored before these runs.
+- **Full touched-package gate observed:** gateway **190 files, 5,114 passed / 0 failed / 0 skipped**, exit 0. No unrelated failure required a retry. Gateway lint/source typecheck exit 0. The non-gating test typecheck remains **red: 143 errors, none in changed files**. The first revised complete memory-file check was **72/0/0**. `node scripts/check-state.mjs` exit 0, all 3 carriers pass; `git diff --check` passes.
+- **Normal merge:** `fcc4c91` has parents `9b3682d` and `a666097`; only QUEUE conflicted. Main's #96/#122 rows and Hermes #24/check-state work-item details are retained; stale open rows are removed. Fresh GitHub inspection found #155–#160 also open, so the requested three-PR list had already drifted. #154 moves from changes-requested to awaiting-review with this push. STATE now names only Hermes `artifact-security-review3` as the remaining timing flake among the previously listed trio; its queue/test source were checked, not its suite rerun. Hermes' separate Store PowerShell defect remains tracked.
+- **Optional hardening deferred explicitly:** grammar-valid callback option keys such as synthetic `483920` and `pin1234` are preserved along with the ULID. The parser and structural redaction source confirm this. The review scopes this to a forged authenticated-owner tap. Content-redacting the option segment changes the existing callback contract; the proven callback fix is frozen this round, and the limitation is in the PR body.
+- **Boundary and handoff:** no production/real-provider acceptance or production latency/concurrency claim; no migration or sync-recovery-owned changes. No PR merge/deploy, secret/production operation, permissions/registry/services/scheduled-task change, spend or personal contact; the forbidden scratch path was not touched. Untouched Hermes/watchdog/local-agent and full-workspace suites were not rerun this round. OWNER-ACTIONS already contains deployment after independent clearance/merge. Exact specs, JSON counts and raw logs remain alongside `C:\Users\Sid\codex-ledgers\flake-telegram.md` (`flake-r1-*`). The worktree is removed after the PR update; the ledger remains.
+
+— Codex GPT-6, builder; independent review follows the updated PR head.
+
+
+## 2026-09-23 — Codex GPT-6 builder: Telegram flakes traced and fixed in [#154](https://github.com/stremysid/jarvis/pull/154)
+
+**A production bug, plus a test deadline defect.** Callback ingress redacted isolated six-digit runs inside random decision ULIDs. Memory authorization compares the stored callback bytes with the decision and correctly refused the corrupted value. A repeat tap kept the same affected decision ID, so this could persist in production. The fix selects existing structural redaction only after the complete decision callback grammar parses; malformed data still gets free-text redaction. No authorization check is weakened.
+
+- **CI verified:** `gh run view --log-failed` for 35808137393 and 35532739198, and `--attempt 1` for 35917649227 (attempt 2 is green). Each reported owner-agent failure logs `memory_refused`. The main-run failure leaves an item active; it is not a swapped-order assertion. Exact red/green heads for 35532739198/35532044202 differ only by 11 AGENT_LOG lines. QUEUE's claim that `testTimeout` establishes an ordering defect is withdrawn.
+- **Before/after:** five unchanged complete file-pair runs gave 171 passed / 1 failed once and 172 passed / 0 failed four times (0 skipped throughout). The archived case failed 1/5; owner-agent failed 0/5. Three forced six-digit-ID regressions then failed 5/5 runs each before the fix and passed 5/5 each after (each run: before 0/3/113, after 3/0/113 pass/fail/skip). Five final complete file-pair runs each passed **174/0/0**.
+- **Archived-memory mechanism:** a controlled 600 ms delay before each real D1 operation made the old test fail 5/5 (0/1/71 each). Candidate/history work measured 644/646 ms against 450 ms deadlines, independently of its 60 s Vitest timeout. The test now verifies all evidence, concurrency and <=61 trips / <=86 statements with deadline timers paused, then restores real timers. The same delay experiment passed 5/5 (1/0/71 each). Temporary instrumentation was removed. Production timeouts and the separate real-deadline tests are unchanged; this test no longer claims a production 500 ms SLA.
+- **Mutation proof:** `reviewer-tools/mutate.ps1`, clean code/test commit `d1ca006655cde5e9db1d99f951bfa848d268afb5`. Always-metadata redaction kills the valid-callback test; always-structural kills the malformed bare-ULID test; individual candidate reads kill the new archived work-bound test and the existing production-shaped trip-bound test. All three kills confirmed twice. **3 killed, 0 survived, 0 not applied, 0 invalid, 0 unconfirmed, 0 wrong-test kills; 2 source files restored byte-identically.** Restored focused run: **203 passed / 0 failed / 0 skipped**; earlier webhook pair: **29/0/0**.
+- **Final gates observed:** `pnpm test` **209 files, 5,467 passed / 0 failed / 0 skipped**, including all **190 gateway files, 5,114/0/0**. Gateway lint and source typecheck exit 0. `node scripts/check-state.mjs` exit 0 (3 carriers). `git diff --check` passes. Non-gating test typecheck remains red with **143 existing errors, none in changed files**; changing the touched fixture's invalid `revoked` state to `blocked` removed one of the observed baseline 144.
+- **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
+
+— Codex GPT-6, builder; independent review follows the PR.
 ## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
 
 Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`

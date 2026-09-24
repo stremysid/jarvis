@@ -91,16 +91,16 @@ Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
 | Gate | State |
 |---|---|
 | CI | **Alive, and green on `main` at `cdfdd4b`** — `gh run list --repo stremysid/jarvis --branch main` shows `success` for that commit. **Do not write "the last five runs pass":** it is false, and it was false in this row before. The real shape on 2026-09-21/22 was one `failure` at `688fe02`, two runs `cancelled` by newer pushes (#137, #138), then green. A newer push cancels an older run on the same branch (one concurrency group per branch) and **a cancelled run is not a failure** — reading one as a red main is a recurring error here. Re-run a flaky test before attributing a failure to it; those rows are in [QUEUE.md](QUEUE.md) |
-| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. Three tests flake: `owner-telegram-agent.test.ts`, `telegram-memory.test.ts`'s 500 ms budget, and `hermes-runtime`'s `artifact-security-review3`. See [QUEUE.md](QUEUE.md) |
+| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, but those measurements do not make a timeout proof of an ordering defect. Of the three previously listed flakes, [#154](https://github.com/stremysid/jarvis/pull/154) fixes both Telegram cases: callback-ID corruption and the archived-memory test's host-dependent clock. Its replacement retains a virtual <=500 ms guard and requires candidate/history overlap. The remaining listed timing flake is `hermes-runtime`'s `artifact-security-review3`, whose cause remains open in [QUEUE.md](QUEUE.md). Hermes' Store PowerShell defect (#24) is separate; this PR does not claim it fixed |
 | `pnpm typecheck` | Clean |
-| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **143 errors**, measured in #154 round 1; none in the changed files. Still red and gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**A timeout is now a signal.** With `testTimeout` set, a red run
-means something — except in the three flaky tests above, each of which
-should be re-run before a failure there is attributed. Merge on CI, not on a local
-run alone.
+**A runner timeout is separate from an operation deadline.** Setting `testTimeout`
+does not prevent a 450 ms retrieval deadline from firing under load. The two Telegram
+causes and their measured fixes are in [QUEUE.md](QUEUE.md); an assertion failure by
+itself proves neither ordering nor a timeout. Merge on CI, not on a local run alone.
 
 ## Live defects
 

@@ -27,6 +27,7 @@
 
 import { isIssuedRedaction, type RedactionResult } from "../../../../../packages/contracts/src/calls.js";
 import { telegramPrincipalBinding } from "./telegram-principal-binding.js";
+import { parseDecisionCallbackData } from "../../decisions/telegram-keyboard.js";
 import {
   createEnvelope,
   newUlid,
@@ -276,10 +277,14 @@ export async function handleTelegramWebhook(
         updateId: tap.updateId,
         chatId: token(dependencies, tap.chatId),
         messageId: tap.messageId,
-        // Bounded, structural, and produced by a keyboard this Worker built.
-        // It goes through the redactor anyway: the envelope refuses every raw
-        // string, and the value of that rule is that it has no exceptions.
-        data: token(dependencies, tap.data) as unknown as Record<string, unknown>,
+        // Memory authorization compares these bytes with the stored decision.
+        // Free-text redaction can erase six-digit runs inside its random ULID;
+        // only the exact decision grammar earns structural-identifier handling.
+        data: dependencies.redactor.redact({
+          text: tap.data,
+          channel: "telegram",
+          field: parseDecisionCallbackData(tap.data) === null ? "metadata" : "decision_callback_id",
+        }) as unknown as Record<string, unknown>,
       },
       requestHash,
       now,
