@@ -11,7 +11,7 @@ Use Node 24.19.0 or later in the Node 24 line, the pinned pnpm dependencies,
 and PowerShell 7.3 or later (`pwsh`). From the repository root:
 
 ```powershell
-pnpm install --frozen-lockfile
+pnpm.cmd install --frozen-lockfile
 node --test scripts/test/deploy.test.mjs
 pwsh -NoProfile -File scripts/deploy.ps1
 pwsh -NoProfile -File scripts/deploy-watchdog.ps1
@@ -187,8 +187,8 @@ migrations.
    ```
 
    Stop on a nonzero exit. Earlier successful migrations remain applied
-   if a later migration fails. List again and confirm none of the six
-   remains pending; never deploy after an unresolved migration failure.
+   if a later migration fails. List again and confirm the list reports no pending
+   migrations; never deploy after an unresolved migration failure.
 4. Verify the capability settings above, including the watchdog's separate
    bot. Publish each Worker with its own confirmation:
 

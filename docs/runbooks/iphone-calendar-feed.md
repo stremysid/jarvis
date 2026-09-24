@@ -10,11 +10,14 @@ collect new data from Brightspace or make an unavailable school source work.
    create a random URL-safe secret of at least 32 characters in your password
    manager. Use letters, digits, `-` and `_`. Do not reuse another credential.
 2. Set the optional Worker secret `CALENDAR_FEED_TOKEN` through the Cloudflare
-   dashboard, or from the approved clean deploy checkout in PowerShell:
+   dashboard, or from the approved clean deploy checkout in PowerShell 7.3+:
 
    ```powershell
-   cd C:\javis\apps\cloud-gateway
-   pnpm exec wrangler secret put CALENDAR_FEED_TOKEN
+   cd C:\javis
+   $PSNativeCommandArgumentPassing = 'Standard'
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+   $gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
+   & node $wrangler secret put CALENDAR_FEED_TOKEN --config $gateway --env ''
    ```
 
    Enter the value only at the interactive private prompt, **never piped**. Do not include it in a command,

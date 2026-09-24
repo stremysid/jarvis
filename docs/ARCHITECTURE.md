@@ -84,7 +84,7 @@ sync routes, voice) and a `scheduled` handler (four cron expressions).
 |---|---|
 | `channels/telegram/` | Ingress. Classification, rate limiting, command parsing, the rejection payload that structurally cannot leak media metadata. |
 | `conversation/` | One turn: commit the user event, claim the turn, stream the model, stage and dispatch the reply. |
-| `persistence/` | D1 access and **the 13 migrations**. Start here to understand the data model. |
+| `persistence/` | D1 access and [the migrations](../apps/cloud-gateway/src/persistence/migrations/). Start here to understand the data model. |
 | `sync/` | Signed device requests, snapshot pagination, distillation. |
 | `archive/` | R2 tiering for events aged out of D1. |
 | `autonomy/` | Capability tiers and shadow mode. |
@@ -154,9 +154,10 @@ deployments.
 
 ## `apps/hermes-runtime` — a separate track
 
-A hardened local model runtime. Tasks 0–9 are on `main`. It does **not** feed
-the 0.1.0 release: nothing in its remaining tasks touches Telegram, memory or
-deployment.
+A hardened local model runtime. Pinning code and the TypeScript adapter and
+selector are on `main`; the Python Brain Bridge has contracts but lacks the
+planned HTTP boundary. See the [H1 task status](superpowers/plans/2026-08-31-jarvis-hermes-h1-implementation.md).
+This is not evidence of a completed live pilot.
 
 ---
 

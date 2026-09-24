@@ -3,97 +3,46 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-24 — Codex builder: call-session relay fixes, harness execution pending
+## 2026-09-24 — PR #177 round 2: requested wording and snippet fixes
 
-Signed: Codex GPT-6 Astra, headless cloud builder, codex/call-session-fixes
+Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
 
-Built from a clean checkout with HEAD and `origin/main` both at `f5ba9a8`.
-The three salvage findings were rechecked against that source before editing.
-Confirmation is by reading, not a runtime reproduction; no falsifier was
-established. The code contains no prompt queue. Provider event scheduling,
-transcript arrival latency and audible playback remain unmeasured.
+Addressed the owner's relay of [Claude's review of `8a36583`](https://github.com/stremysid/jarvis/pull/177#issuecomment-5820079627).
+`origin/main` is now `b16e9be3` (#176); it was not merged into this branch.
+The harness owns integration. Results in the requested order:
 
-| Item | Result |
-|---|---|
-| Overlapping final prompt | Confirmed: the core threw a generic `turn_in_progress` and the DO catch closed with 1011. The core now throws an internal typed condition with the same message, preserving the existing core tests. The DO catches only that type and drops the overlapping prompt with no queue or second model call. Unexpected errors still close, including an unrelated error with the same message. |
-| Third bad guest candidate | Confirmed: the terminating decision only transitioned to `rejected`; speech and closure waited for nothing that could deliver them. Both this path and authentication-budget exhaustion now send a fixed neutral final text frame and close with 1008. The close runs even if sending fails. No candidate enters speech or logs. |
-| Owner speech just after verification | Confirmed: `guard` returned null without inspecting the text. It now applies `ownerPassphraseFragmentWordCount`, allowing ordinary speech such as `Stop` while keeping passphrase-shaped text suppressed. Every null result from this guard sends a neutral reply. Later fragment/repeat rules stay in place. The judgment register records the partial correction and leaves model-prompt disclosure open. |
+1. `docs/runbooks/migration-scratch-proof.md`: step 5 parses unique filenames
+   from `$ListText` in displayed order, rejects an empty result, checks each
+   repository file and prints the counted set for the apply confirmation.
+2. The preamble retains the parsed production inventory. After candidate
+   receipts, step 5 requires every production-pending filename in both the
+   candidate set and scratch receipts. A passing run meets the OWNER-ACTIONS
+   scratch rehearsal requirement; the synthetic-seed limit remains explicit.
+   Step 10 links the rollout rows, requires their production preconditions and
+   calls for a fresh run and fresh review if the approved pending set changes.
+3. Post-apply listing now rejects remaining filenames even on exit zero.
+   Step 2 initializes native argument mode and the gateway path. Step 6 names
+   its same-session dependency and refuses an absent or empty candidate set.
+4. `docs/runbooks/deploy.md`: step 3 requires a list reporting no pending
+   migrations, not merely absence of the previously reviewed files.
+5. `reviewer-tools/REVIEWER-MANUAL.md`: restored the auto-merge prohibition,
+   replaced the two watcher instructions with re-listing PR heads and CI,
+   clarified the HANDOFF status and required a fresh detached posting worktree.
+6. This log corrects the prior artifact rows to say supplied to the harness,
+   not committed. `.codex-commit-msg.txt` and `.codex-pr-body.md` are supplied
+   again for this round, with the revised rehearsal description.
 
-All new tests live in
-`apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts`. The harness
-imports the existing migration and voice-access helpers, uses real authentication
-and conversation services with a fake model, and drives `webSocketMessage` through
-the real socket relay adapter. New test names (ten cases across seven declarations):
+Validation: `node scripts/check-state.mjs` passed with the existing FACTS
+line 62 warning about unverified Opera GX/Durham behavior.
+`node --test scripts/test/prepare-d1-scratch-baseline.test.mjs` passed, exit 0.
+`git diff --check` passed. PowerShell snippets were reviewed statically; no
+Wrangler or production command ran. Only the four named documentation files
+and two harness artifacts changed. No carriers, code, tests or SQL changed,
+and no Git write command ran.
 
-- `drops an overlapping prompt without closing the relay or starting another model turn`
-- `closes the relay for an unexpected error even when its message is %s`
-  (`unexpected_capacity_failure`, `turn_in_progress`)
-- `sends a final rejection frame and closes after the third bad guest candidate`
-- `closes a rejected guest relay even when sending the rejection fails`
-- `passes ordinary owner speech %s to the model within the guard window`
-  (`Stop`, `What comes next?`)
-- `keeps a passphrase repeat out of the model within the guard window and speaks a neutral reply`
-- `speaks a neutral reply for each suppressed passphrase fragment at %i milliseconds`
-  (1000, 2500)
-
-One existing acceptance input in
-`tests/acceptance/fake/voice-owner-passphrase-security.test.ts` explicitly demanded
-that ordinary speech inside the guard be lost. Changed that input to its existing
-synthetic passphrase, retaining its no-model/no-transcript security assertions.
-No new test was added there. The four files reserved for #174 are untouched.
-
-Verification here: source `tsc --noEmit -p apps/cloud-gateway` passed. Test
-typechecking reports 143 existing diagnostics, none in the new file or changed
-runtime source. `git diff --check` passed. `node scripts/check-state.mjs` passed
-with one pre-existing FACTS re-verification warning about background collector
-access. No Vitest, pnpm or mutation execution was attempted under the harness
-rules, so there is no runtime pass count and no mutation claim.
-
-Next actions, with timing:
-
-1. **When the harness takes this worktree:** run
-   `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-guest-access.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts`.
-2. **After the focused run passes:** perform the isolated mutations listed in
-   `.codex-pr-body.md` (typed overlap handling, same-message fault handling, guest
-   speech/close and budget rejection, unconditional guard, passphrase leakage,
-   neutral suppression reply), restoring and rerunning focused tests afterwards.
-3. **When the harness opens the PR:** run the full suite in GitHub Actions and
-   record results. Claude reviews this calling change at max effort on its exact
-   head after those results, per BUILDING. Live playback and event timing are
-   still unverified, not implied by synthetic frame assertions.
-
-`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness. Git was
-read-only throughout. No push, merge, deploy, migration application, secret
-access, live call or Linux runbook step; no migration added.
-
-**Harness round 2.** Owner-reported round-1 results: 25 files, **606 passed,
-1 failed**, source tsc 0 and check-state passed. The overlap test failed before
-its first prompt: `beforeEach` stopped at 0018, but owner verification reads
-`owner_call_step_up_disabled_rejections`, created by 0021. Its `afterEach` cleanup
-installs 0021 through `clearVoiceAccessFixture` → `clearOwnerCallStepUpDataForTest`,
-explaining the other nine passes. Setup now imports and awaits the existing
-`applyVoiceOwnerDeliveryMigration`; the overlap assertions and runtime fix are
-unchanged. No new migration or schema workaround.
-
-The old acceptance input stays changed because finding 3 and Sid's explicit
-brief require ordinary speech within two seconds to reach the conversation.
-Its original no-model assertion for `This final arrives inside the repeat guard.`
-required the exact speech-loss defect being fixed. The acceptance test retains
-its no-model/no-transcript assertions for the synthetic passphrase. Added
-`passes the ordinary utterance formerly dropped by the guard to the conversation`
-using that exact ordinary sentence at +1000 ms, and
-`suppresses a passphrase split after word %i across two finals inside the guard window`
-for splits after word 1 and word 2, at +500/+1500 ms. Each split final must reach
-neither conversation nor model and must receive a neutral reply. All three new
-cases are in `call-session-relay-fixes.test.ts` (now thirteen cases total).
-
-Round-2 local checks: source tsc 0; test tsc still 143 existing diagnostics,
-none in the new test or runtime file; check-state passed with the same FACTS
-warning; diff check clean. Runtime and mutation reruns remain unavailable here.
-**When the harness resumes:** run the new file alone in a fresh worker first,
-then the same voice and fake acceptance directories, using the commands in
-`.codex-pr-body.md`; retain the mutation and independent-review steps above.
-Handoff files updated. Nothing staged and no Git writes.
+Next: when the harness collects this round, use the supplied artifacts and
+handle the main update; when the revised head is ready, return it for independent
+review of these six dispositions.
 
 ## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
 
@@ -520,6 +469,131 @@ Observed gates on final code `425b24d`: new deadline tests 25 passed plus reposi
 Mutation evidence: **14 unique faults killed on their named tests and confirmed on a second run**, with byte-identical restoration. Covers input format, named zone, date/clock zone matching, date/clock excerpt matching, course/title/status evidence, explicit-open refusal, current-message grounding, direct-owner and durable-turn checks, and the unchanged-row status race. Two initial probes were `KILLED/OTHER`; their corrected probes were independently confirmed, not counted as initial expected kills. Evidence and specs: `C:\Users\Sid\codex-ledgers\deadline-*.log` / `deadline-*mutations*.json`; continuity: `deadlines-reminders-run.md` in that folder.
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
+
+## 2026-09-24 — Documentation staleness pass at `c66c3870`
+
+Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
+
+Docs only. Verified against the checked-out code, migration SQL and available
+`git log origin/main`. No Git write command, production request, migration,
+deployment, secret operation, code edit or test edit was performed. The harness
+reserves all state carriers for a separate run; none was edited.
+
+**Evidence and corrections.** #175 merged as `c66c38709a9774e32546bfd7cbd7766995278a71`
+on 2026-09-24; its receiver review, collector protocol/mapping/repository/pairing
+and `0045_school_collector_hosts.sql` support the closed-gap annotations. The
+extension's `protocol.js` still holds Durham/news/quizzes batches and
+`collector.js` still excludes 404 from normal evidence. #157 merged as `d4e54167`,
+but OWNER-ACTIONS still requires manual store access acceptance before the boot
+task can be enabled. The six configuration names and boot/log paths were checked
+against `config.py`, `node.py` and `ops/jarvis-boot.ps1`.
+
+The brief's `apps/cloud-gateway/migrations/` path does not exist. Wrangler points
+to `apps/cloud-gateway/src/persistence/migrations/`, containing 40 SQL files at
+this revision. The scratch helper genuinely stops at `0015`; that fixed fixture
+was retained and separated from production's last recorded `0038`. Actual pending
+inventories come from each target's migrations list. A fresh replay is not a
+production-baseline upgrade proof. Correction to this session's progress note:
+`0038` drops **and recreates** the same trigger; no missing final trigger name was
+established. The existing CREATE-name extraction was retained, with dynamic input
+files and an explicit future DROP review caveat.
+
+**Every changed file, and why:**
+
+| File | Reason |
+|---|---|
+| `docs/ARCHITECTURE.md` | Replace the migration count with the real folder link and qualify the incomplete Hermes HTTP boundary. |
+| `docs/runbooks/migration-scratch-proof.md` | Use observed pending sets, distinguish the helper fixture from production, remove stale candidate ranges and repair the deploy anchor. |
+| `docs/runbooks/deploy.md` | Remove the fixed pending count and use the PowerShell pnpm shim. |
+| `docs/runbooks/pc-boot-chain.md` | Add the #157 acceptance hold, correct configured store paths and list all six required environment names. |
+| `docs/runbooks/d2l-extension.md` | Record #175's receiver changes while retaining extension, rollout and owner acceptance limits. |
+| `docs/runbooks/fact-projection.md` | Replace the old repository/PR-branch pointers with current repository and state links. |
+| `docs/runbooks/brightspace-calendar-feed.md` | Replace the deleted expansion-plan pointer and point to the current collector runbook and root known-issues file. |
+| `docs/runbooks/device-key-replacement.md` | Replace the unmerged-branch instruction with verified presence on main. |
+| `docs/runbooks/iphone-calendar-feed.md` | Use direct Node Wrangler with the gateway config and explicit empty environment. |
+| `docs/runbooks/memory-backup-restore.md` | Give scratch creation the same explicit config/environment argument form. |
+| `docs/runbooks/owner-passphrase.md` | Give its scratch commands the explicit Wrangler target and native empty-argument setup. |
+| `docs/runbooks/voice-smoke.md` | Normalize Wrangler commands and pnpm shims for PowerShell 7.3+. |
+| `docs/research/2026-09-23-d2l-collector-contract-gaps.md` | Add the dated #175 merge banner and per-gap receiver dispositions without rewriting the historical findings. |
+| `docs/research/2026-09-14-jarvis-memory-research.md` | Banner the later memory implementation and settled model choice. |
+| `docs/research/2026-09-14-jarvis-memory-research-factcheck.md` | Mark the V4 Pro default as historical, without refreshing or inventing prices. |
+| `docs/research/2026-09-14-obsidian-memory-research.md` | Banner the corrected attribution and D1-authoritative direction. |
+| `docs/superpowers/specs/2026-08-29-jarvis-foundation-design.md` | Repair roadmap/state/queue links and remove the contradicted retention wording. |
+| `docs/superpowers/specs/2026-08-30-jarvis-obsidian-memory-design.md` | Qualify the unconfirmed premise behind the historical approval wording. |
+| `docs/superpowers/plans/2026-08-29-jarvis-telegram-memory-release.md` | Repair the superseded banner's relative links and retention claim. |
+| `docs/superpowers/plans/2026-08-30-jarvis-obsidian-memory-implementation.md` | Repair banner links and cite the corrected memory decision. |
+| `docs/superpowers/plans/2026-08-30-jarvis-owner-guest-voice-access.md` | Make the passphrase supersession a concise banner linked to the spec and merged change. |
+| `docs/superpowers/plans/2026-08-31-jarvis-hermes-h1-implementation.md` | Repair banner links, qualify Tasks 4/8/9 from the tree and supersede the no-direct-DeepSeek premise. |
+| `docs/reviews/2026-09-18-jarvis-deep-scan.md` | Replace the deleted HANDOFF pointer with STATE. |
+| `reviewer-tools/REVIEWER-MANUAL.md` | Correct repository, CI and carrier pointers, limit merge authority to the OWNER-ACTIONS delegation and replace obsolete shell examples. |
+| `reviewer-tools/GATE-TOOLS.md` | Replace the unsubstantiated example placeholder with “not written yet”, locate the scripts on main and normalize command shims. |
+| `docs/AGENT_LOG.md` | Record this evidence, limitations and carrier handoff at the top. |
+| `.codex-commit-msg.txt` | Supplied to the harness, not committed: commit message. |
+| `.codex-pr-body.md` | Supplied to the harness, not committed: PR description. |
+
+**Skipped or deliberately bounded:** no requested item was silently dropped.
+The gate worked example was not fabricated: no attributable output was found in
+the repository search, so the requested fallback is used. This checkout is shallow
+(available history ends at `70b1c023`); the original fact-projection/device-key
+merge commits cannot be established here, but their files and both device-key
+operation files are present in the `c66c3870` main tree. No original merge date is
+asserted. The H1 Task 4 scaffold is partial; Tasks 8/9 have implementation and test
+files, but full acceptance and a live pilot are not established by this docs pass.
+The existing historical Linux procedures in fact-projection were not expanded or
+turned into Windows instructions; their do-not-execute banner remains. Historical
+research/plan bodies were retained beneath supersession banners. No production
+pending set, PowerShell execution, remote rehearsal or live acceptance was claimed.
+
+**Carrier run — found but forbidden to edit:**
+
+- `docs/FACTS.md:86-87`: “a call can talk, cannot act” and “voice cannot name a
+  specific memory” conflict with #147's `OwnerVoiceAgentAdapter` and
+  `D1MemoryControlTargetFinder` composition. The separate retrieval-store gap
+  remains; do not erase that distinction. The no-tools-field type observation
+  at line 77 is still true and is not itself the defect.
+- `docs/FACTS.md:91`: the no-Windows-launcher claim is superseded by #145's
+  `jarvis serve`, present in `cli.py`/`node.py` and the boot script.
+- `DECISIONS.md:382`: the historical “St. Remy is no longer off limits” line
+  contradicts current AGENTS/BUILDING scope. Correct or explicitly supersede it.
+- `docs/STATE.md`: the code-level nine-memory-tools-only voice descriptions
+  predate the guided-assignment and collector catalogues now included by
+  `voice-agent.ts:130` (#169/#172). Keep deployed state separate: no production
+  observation was refreshed. Its in-flight #151 row is also superseded by
+  `12a64b21` in main's history; no live open-PR count was queried.
+- `docs/QUEUE.md`: rows still awaiting review for #154–#159, #167 and #171, and
+  the receiver follow-up “no pull request yet” row, conflict with their merges
+  in the available main log. The #145 merge paragraph says `jarvis node` no
+  longer refuses Windows; `_serve` still refuses it and directs Windows to
+  `jarvis serve`. The Hermes #24 row predates merged #156.
+- `docs/OWNER-ACTIONS.md`: duplicate #167 deploy rows still say awaiting review
+  and merge, as do the guided-assignment rollout prerequisites despite #172's
+  merge. The collector row still calls #175's receiver gaps unresolved. The
+  old probe row points at a runbook now describing the collector; reconcile
+  the pending background check with that flow. These corrections do not mark
+  deployment or owner acceptance complete; #157's acceptance hold remains valid.
+- `AGENTS.md:126` says 144 test-typing errors while STATE records 143 from #154.
+  Reconcile their dated measurements; no typecheck was run in this docs pass.
+- The state check's `docs/FACTS.md:62` warning remains valid: Opera GX background
+  access and direct Durham session renewal are unverified owner checks, not
+  facts to mark verified because #175 merged. No additional verified stale
+  claim was identified for correction in `KNOWN_ISSUES.md` or `CLAUDE.md`.
+
+**Validation:** `node scripts/check-state.mjs` passed with the one existing
+FACTS warning above. `git diff --check` passed. Added local Markdown targets
+and anchors were checked separately; all resolved. The diff contains only
+Markdown plus the two requested root handoff artifacts; all eight protected
+files are unchanged. The cloud container has Node `v22.22.2`, which ran the
+state checker; it is not the required Node 24 build environment. PowerShell
+is unavailable, so the runbook snippets received static review only. An initial
+link-check wrapper hit sandbox `spawnSync git EPERM`; reading the permitted
+Git diff through stdin completed the check without a child Git process. No
+product tests or mutations were run for this documentation-only change.
+
+**Next:** when the harness collects this tree, use the supplied commit/PR text;
+when independent review starts, inspect the scratch-baseline boundary and
+PowerShell argument changes; when the separate carrier run starts, reconcile
+the items above using the same main revision and dated production evidence.
+
 ## 2026-09-24 — Codex builder: PR #175 review round 2 closes linked-tool and unreadable-folder gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.
@@ -817,6 +891,98 @@ No full local package/workspace run in round 2. Live DeepSeek tool streaming,
 marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
 live check. No live API, secret, paid action, production operation, real
 migration, deploy, merge into main or PC-setting mutation was performed.
+
+## 2026-09-24 — Codex builder: call-session relay fixes, harness execution pending
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/call-session-fixes
+
+Built from a clean checkout with HEAD and `origin/main` both at `f5ba9a8`.
+The three salvage findings were rechecked against that source before editing.
+Confirmation is by reading, not a runtime reproduction; no falsifier was
+established. The code contains no prompt queue. Provider event scheduling,
+transcript arrival latency and audible playback remain unmeasured.
+
+| Item | Result |
+|---|---|
+| Overlapping final prompt | Confirmed: the core threw a generic `turn_in_progress` and the DO catch closed with 1011. The core now throws an internal typed condition with the same message, preserving the existing core tests. The DO catches only that type and drops the overlapping prompt with no queue or second model call. Unexpected errors still close, including an unrelated error with the same message. |
+| Third bad guest candidate | Confirmed: the terminating decision only transitioned to `rejected`; speech and closure waited for nothing that could deliver them. Both this path and authentication-budget exhaustion now send a fixed neutral final text frame and close with 1008. The close runs even if sending fails. No candidate enters speech or logs. |
+| Owner speech just after verification | Confirmed: `guard` returned null without inspecting the text. It now applies `ownerPassphraseFragmentWordCount`, allowing ordinary speech such as `Stop` while keeping passphrase-shaped text suppressed. Every null result from this guard sends a neutral reply. Later fragment/repeat rules stay in place. The judgment register records the partial correction and leaves model-prompt disclosure open. |
+
+All new tests live in
+`apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts`. The harness
+imports the existing migration and voice-access helpers, uses real authentication
+and conversation services with a fake model, and drives `webSocketMessage` through
+the real socket relay adapter. New test names (ten cases across seven declarations):
+
+- `drops an overlapping prompt without closing the relay or starting another model turn`
+- `closes the relay for an unexpected error even when its message is %s`
+  (`unexpected_capacity_failure`, `turn_in_progress`)
+- `sends a final rejection frame and closes after the third bad guest candidate`
+- `closes a rejected guest relay even when sending the rejection fails`
+- `passes ordinary owner speech %s to the model within the guard window`
+  (`Stop`, `What comes next?`)
+- `keeps a passphrase repeat out of the model within the guard window and speaks a neutral reply`
+- `speaks a neutral reply for each suppressed passphrase fragment at %i milliseconds`
+  (1000, 2500)
+
+One existing acceptance input in
+`tests/acceptance/fake/voice-owner-passphrase-security.test.ts` explicitly demanded
+that ordinary speech inside the guard be lost. Changed that input to its existing
+synthetic passphrase, retaining its no-model/no-transcript security assertions.
+No new test was added there. The four files reserved for #174 are untouched.
+
+Verification here: source `tsc --noEmit -p apps/cloud-gateway` passed. Test
+typechecking reports 143 existing diagnostics, none in the new file or changed
+runtime source. `git diff --check` passed. `node scripts/check-state.mjs` passed
+with one pre-existing FACTS re-verification warning about background collector
+access. No Vitest, pnpm or mutation execution was attempted under the harness
+rules, so there is no runtime pass count and no mutation claim.
+
+Next actions, with timing:
+
+1. **When the harness takes this worktree:** run
+   `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-guest-access.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts`.
+2. **After the focused run passes:** perform the isolated mutations listed in
+   `.codex-pr-body.md` (typed overlap handling, same-message fault handling, guest
+   speech/close and budget rejection, unconditional guard, passphrase leakage,
+   neutral suppression reply), restoring and rerunning focused tests afterwards.
+3. **When the harness opens the PR:** run the full suite in GitHub Actions and
+   record results. Claude reviews this calling change at max effort on its exact
+   head after those results, per BUILDING. Live playback and event timing are
+   still unverified, not implied by synthetic frame assertions.
+
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness. Git was
+read-only throughout. No push, merge, deploy, migration application, secret
+access, live call or Linux runbook step; no migration added.
+
+**Harness round 2.** Owner-reported round-1 results: 25 files, **606 passed,
+1 failed**, source tsc 0 and check-state passed. The overlap test failed before
+its first prompt: `beforeEach` stopped at 0018, but owner verification reads
+`owner_call_step_up_disabled_rejections`, created by 0021. Its `afterEach` cleanup
+installs 0021 through `clearVoiceAccessFixture` → `clearOwnerCallStepUpDataForTest`,
+explaining the other nine passes. Setup now imports and awaits the existing
+`applyVoiceOwnerDeliveryMigration`; the overlap assertions and runtime fix are
+unchanged. No new migration or schema workaround.
+
+The old acceptance input stays changed because finding 3 and Sid's explicit
+brief require ordinary speech within two seconds to reach the conversation.
+Its original no-model assertion for `This final arrives inside the repeat guard.`
+required the exact speech-loss defect being fixed. The acceptance test retains
+its no-model/no-transcript assertions for the synthetic passphrase. Added
+`passes the ordinary utterance formerly dropped by the guard to the conversation`
+using that exact ordinary sentence at +1000 ms, and
+`suppresses a passphrase split after word %i across two finals inside the guard window`
+for splits after word 1 and word 2, at +500/+1500 ms. Each split final must reach
+neither conversation nor model and must receive a neutral reply. All three new
+cases are in `call-session-relay-fixes.test.ts` (now thirteen cases total).
+
+Round-2 local checks: source tsc 0; test tsc still 143 existing diagnostics,
+none in the new test or runtime file; check-state passed with the same FACTS
+warning; diff check clean. Runtime and mutation reruns remain unavailable here.
+**When the harness resumes:** run the new file alone in a fresh worker first,
+then the same voice and fake acceptance directories, using the commands in
+`.codex-pr-body.md`; retain the mutation and independent-review steps above.
+Handoff files updated. Nothing staged and no Git writes.
 
 ## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
 

@@ -1,5 +1,7 @@
 # Obsidian as Jarvis's memory: research and recommendation (2026-09-14)
 
+> **Superseded in part by [the corrected memory decision](../../DECISIONS.md#r2-cloud-memory-direction-and-corrected-attribution-2026-09-14-delegated-design-decision) and merged [#125](https://github.com/stremysid/jarvis/pull/125):** D1 is authoritative; the editable-notes premise was never confirmed with Sid, and an optional one-way Obsidian export remains later work.
+
 Read-only research by Claude Opus 5, commissioned by the reviewer. Nothing in the
 repository, Cloudflare, GitHub or any provider was changed, queried with write
 access, or deployed. Repository basis: `origin/main` at `8150e36`. The earlier
