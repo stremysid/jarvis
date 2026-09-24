@@ -21,7 +21,11 @@ repository is the only thing every session reads.**
    fixed, in the same change.** A new fact that leaves the old claim standing makes the
    repository disagree with itself, which is worse than not recording it.
 3. **Every row carries a source and a date.** No bare assertions. `scripts/check-state.mjs`
-   enforces this, and lists rows whose "still true?" is unset or older than 30 days.
+   requires four cells, a nonempty fact, a non-placeholder source and a real `YYYY-MM-DD`
+   observation date no more than one UTC day ahead. A row after a blank gap in the register
+   fails too. Observations older than 30 UTC calendar days, or a "Still true?" cell that
+   does not start with `yes`, warn. Each file gets one GitHub `::warning` with the count
+   and first affected line; every row's detail stays in the plain log. Warnings do not fail CI.
 
 ## What belongs here, and what does not
 
@@ -72,7 +76,7 @@ repository is the only thing every session reads.**
 | **Auto-login is already configured on the home PC**, and has been since before 2026-09-21. `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon` holds `AutoAdminLogon=1`, `DefaultUserName=Sid`, `DefaultDomainName=SID` and a `DefaultPassword` value. **The password is therefore plaintext in the registry today**, not as a consequence of any change in this repository. `docs/briefs-pc-controls.md` describes the mechanism but records it as a plan, and no document recorded that it is **already set** until now. Sid accepted the exposure when he asked for the boot chain (2026-09-21) | `Get-ItemProperty` on that key, read unelevated; reported by `ops/jarvis-autologon.ps1 -Status` without printing the value | 2026-09-21 | yes |
 | **`Sid` is a local account on a machine whose computer name is `SID`.** There is no domain, so every place Task Scheduler or Winlogon wants a domain, the answer is the computer name | `whoami` → `sid\sid`; the pre-existing `DefaultDomainName` | 2026-09-21 | yes |
 | **The local agent's control channel is fully implemented for Windows and has no Windows launcher.** `transport/pipe_server.py` is a tested `NamedPipeServer` over a SID-restricted pipe, and `node.py` — the only thing that binds it — refuses any platform that is not Linux. So `jarvis status` on Windows has nothing to talk to, and the P1 boot chain necessarily ends at "elevated, no agent" | Read `node.py`'s `NodeSettings.from_config` platform check and the `pipe_server` call graph; there is no other caller | 2026-09-21 | yes |
-| **The home PC's PowerShell is 7.6.6**, installed from the Store, so `Get-Command pwsh` resolves to an App Execution Alias under `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\`. A scheduled-task action pointing at that alias launches normally | `$PSVersionTable.PSVersion`; `(Get-Command pwsh).Source` | 2026-09-21 | yes |
+| **The home PC's PowerShell is Store version 7.6.6.** The MSI host `C:\Program Files\PowerShell\7\pwsh.exe` is absent. `Get-Command pwsh` resolves to the real executable under `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\`; the separate App Execution Alias is `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`. Appx reports family `Microsoft.PowerShell_8wekyb3d8bbwe`, Microsoft publisher, `SignatureKind=Store`, and `IsDevelopmentMode=false` | Builder for issue #24 re-ran `$PSVersionTable`, `Get-Command`, `Test-Path`, and the absolute OS-hosted `Get-AppxPackage` query on the home PC | 2026-09-23 | yes |
 | **Sid wants every reply from a session to end with a list or table of what happens next**, and each step to carry its own timing — a date, or a named trigger such as "when X merges". A bare "do this next" with no time attached is not what he asked for. He also wants sessions to assume he is skimming | Sid, 2026-09-22, stated as a standing preference for how sessions report to him | 2026-09-22 | yes |
 
 ## Adding a row

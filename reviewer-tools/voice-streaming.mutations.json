@@ -391,5 +391,29 @@
     "replace": "void callerSignal;",
     "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
     "expect": "does not speak a receipt when cancellation arrives during the tool itself"
+  },
+  {
+    "name": "T01-voice-refusal-preserves-tap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "replace": "    await this.gateTool(input, port, call);\n    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "expect": "preserves a Telegram tap after voice refuses an unsupported pipeline",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "T02-streaming-memory-needs-tap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool(input, port, call);",
+    "replace": "      return this.memoryTool(input, port, call);",
+    "expect": "requires a tap before streaming voice dispatches a tier-3 memory tool",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "T03-streaming-claim-before-body",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool(input, port, call);",
+    "replace": "      const executed = await this.memoryTool(input, port, call);\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return executed;",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts",
+    "expect": "claims a memory tap before the streaming voice tool body refuses malformed arguments and never refunds it"
   }
 ]
