@@ -692,14 +692,14 @@ class RecoveringGateway:
     """The gateway's acknowledgement rule, as the agent depends on it.
 
     This is the *other* half of the fix in `SyncService.acknowledgeDurableReceipt`
-    (cloud-gateway, as of `12a64b2`): an acknowledgement for a range the
+    (cloud-gateway, as of `38bab94b`): an acknowledgement for a range the
     consumer cursor already covers is accepted as a replay and reports the
     cursor, rather than refused as `cursor_compare_failed`. Modelling it here
     rather than serving pre-baked pages is the point of the test -- the agent is
     the client, and what it needs is a cloud that stops refusing.
 
     `cap_at_cursor` adds the *other* gateway half, `SyncService.pageUpperBound`
-    (as of `c0c2366`): a page whose requested range contains the consumer cursor
+    (as of `6f7ebcd6`): a page whose requested range contains the consumer cursor
     ends at the cursor, so what the device stores and acknowledges is a range
     ending exactly where the cloud cursor stands -- which the replay branch above
     then accepts. Without it the gateway can hand back a page that straddles the

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from jarvis_local.archive import store_permissions
-from jarvis_local.archive.store_permissions import StoreDaclRefusedError
+from jarvis_local.archive.store_permissions import StoreDaclRefusedError, UnsafeStorePathError
 from jarvis_local.cli import main
 from jarvis_local.config import JarvisLocalConfig
 
@@ -67,7 +67,34 @@ def test_a_usable_configuration_reports_ready(
     _apply(monkeypatch, _usable_environment(tmp_path))
 
     assert main(["config"]) == 0
-    assert capsys.readouterr().out.strip() == "configuration ready"
+    # The store-roots line above it is asserted in its own test; here the point
+    # is only that a usable configuration reports ready at all and that ready is
+    # the line the boot script's grep sees last.
+    assert capsys.readouterr().out.splitlines()[-1] == "configuration ready"
+
+
+def test_a_usable_configuration_prints_the_store_roots_before_the_ready_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The roots have to reach `boot.log`, and only the success path writes it.
+
+    `jarvis-boot.ps1` copies this command's output into `boot.log` line by line,
+    so the summary has to be printed *by the command that succeeds* -- the run
+    that fails is the one whose output goes nowhere, and a warning about an
+    Administrators-owned root is exactly the thing a reader needs to have on the
+    run that worked. Printed before `configuration ready` so the last line stays
+    the sentinel the boot script greps for.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    _apply(monkeypatch, _usable_environment(tmp_path))
+
+    assert main(["config"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == "configuration ready", lines
+    assert lines[0].startswith("store roots: "), lines
+    assert os.fspath(tmp_path) in lines[0], lines
 
 
 def test_a_missing_name_reports_its_name_and_the_dependency_exit_code(
@@ -142,3 +169,35 @@ class _RefusingSettings:
     @classmethod
     def from_config(cls, _config: JarvisLocalConfig) -> None:
         raise StoreDaclRefusedError("cannot set the permissions of the store")
+
+
+def test_a_path_the_guard_refuses_gets_the_same_exit_code_and_sentence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`UnsafeStorePathError` is mapped here, not folded into the generic refusal.
+
+    It is a `RuntimeError`, so without its own arm it leaves the `NodeSettings`
+    branch and reaches the caller as an unhandled traceback -- and its sentence,
+    which names the path the guard refused, is the only part of it a reader can
+    act on. Reported with 6 for the same reason a refused DACL is: the repair is
+    "move the store", not "fix your configuration".
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    _apply(monkeypatch, _usable_environment(tmp_path))
+
+    from jarvis_local import cli
+
+    monkeypatch.setattr(cli, "NodeSettings", _RefusingPathSettings)
+
+    assert main(["config"]) == 6
+    assert "refusing a system or account root" in capsys.readouterr().out
+
+
+class _RefusingPathSettings:
+    """`NodeSettings.from_config` that raises the guard's own refusal."""
+
+    @classmethod
+    def from_config(cls, _config: JarvisLocalConfig) -> None:
+        raise UnsafeStorePathError("refusing a system or account root: /profile")

@@ -236,8 +236,9 @@ class HttpCloudClient:
             # a range its cursor already covers as a replay, and answers with
             # that cursor rather than with our page boundary -- which is the
             # only answer that lets a rebuilt archive catch up to a cursor left
-            # behind by the archive it replaced (sync-service.ts, as of
-            # `12a64b2`). A cursor behind our durable position would be the
+            # behind by the archive it replaced
+            # (`SyncService.acknowledgeDurableReceipt` in `sync-service.ts`, as
+            # of `38bab94b`). A cursor behind our durable position would be the
             # unsafe direction, and the gateway cannot produce one.
             or response["currentSequence"] < pending.through_sequence
             or not isinstance(response.get("replayed"), bool)

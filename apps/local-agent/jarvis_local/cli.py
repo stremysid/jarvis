@@ -27,8 +27,10 @@ from jarvis_local.archive.store_permissions import (
     StoreDaclRefusedError,
     StoreOwnerUnknownError,
     StoreRootUnresolvedError,
+    UnsafeStorePathError,
     configured_store_roots,
     permit_store_roots,
+    store_root_summary,
 )
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
@@ -171,6 +173,13 @@ def _config(config: JarvisLocalConfig) -> int:
     account's profile once already, and the sentence naming the one-time fix has
     to reach the caller before the service starts rather than only in the
     service's own output after it fails.
+
+    On success it prints the resolved store roots and their ownership before
+    `configuration ready`. `jarvis-boot.ps1` copies this command's output into
+    `boot.log` line by line, which is the only durable record of which boundary
+    the service was operating under -- and the ownership warning has to reach
+    that file on the run that succeeds, because the run that fails is the one
+    whose output goes nowhere.
     """
     missing = config.missing_names()
     if missing:
@@ -184,18 +193,27 @@ def _config(config: JarvisLocalConfig) -> int:
     except NodeConfigurationError as error:
         print(str(error))
         return EXIT_REFUSED
-    except (StoreDaclRefusedError, StoreOwnerUnknownError, StoreRootUnresolvedError) as error:
+    except (
+        StoreDaclRefusedError,
+        StoreOwnerUnknownError,
+        StoreRootUnresolvedError,
+        UnsafeStorePathError,
+    ) as error:
+        # `UnsafeStorePathError` is raised by the guard on the first path it
+        # refuses, so it can surface from `from_config` as well as from the
+        # allowlist below. Both are the same repair -- move the store, or grant
+        # the service the access it is missing -- so both report exit 6 rather
+        # than being folded into the generic refusal by the catch-all above.
         print(str(error))
         return EXIT_STORE_PERMISSIONS
     try:
         # The same allowlist `serve` applies, asked here so `jarvis config`
-        # answers the question it exists to answer: would `serve` start? Only
-        # `permit_store_roots` is needed -- its return value is the roots
-        # resolved, which nothing here prints.
+        # answers the question it exists to answer: would `serve` start?
         permit_store_roots(configured_store_roots())
-    except StoreRootUnresolvedError as error:
+    except (StoreRootUnresolvedError, UnsafeStorePathError) as error:
         print(str(error))
         return EXIT_STORE_PERMISSIONS
+    print(f"store roots: {store_root_summary()}")
     print("configuration ready")
     return 0
 

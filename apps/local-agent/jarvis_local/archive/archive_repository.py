@@ -55,7 +55,7 @@ class ArchiveRepository:
 
     @classmethod
     def open(
-        cls, path: Path, *, now: str | None = None, store_root: Path | None = None, repair_permissions: bool = True
+        cls, path: Path, *, now: str | None = None, store_root: Path | None = None, repair_permissions: bool = False
     ) -> ArchiveRepository:
         return cls(
             ArchiveDatabase.open(

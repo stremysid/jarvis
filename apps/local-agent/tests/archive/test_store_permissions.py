@@ -10,6 +10,7 @@ one real integration test lives in `tests/integration` and runs only inside
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
 import subprocess
@@ -204,6 +205,32 @@ def stub(monkeypatch: pytest.MonkeyPatch) -> StubWin32:
     return stub
 
 
+#: The Win32 error text for the two codes these tests make the module raise, so
+#: the fake `ctypes.WinError` below produces a message a real one would.
+_WIN32_MESSAGES = {5: "Access is denied", 87: "The parameter is incorrect"}
+
+
+@pytest.fixture
+def windows_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply `ctypes.WinError` on a host that has no such attribute.
+
+    `ctypes.WinError` is Windows-only. On POSIX `ctypes` has no `WinError` at
+    all, so every error path in `store_permissions` raised `AttributeError`
+    instead of the `OSError` it means to raise -- and six tests in this file
+    failed on the Ubuntu job for a reason unrelated to what they assert.
+
+    `raising=False` is required, and is the whole point: on POSIX the attribute
+    does not exist to be replaced, and a plain `setattr` refuses to add it. On a
+    Windows job the same line replaces the real one, so the fake has to produce
+    a message good enough to match -- hence the table above rather than a code
+    echoed back.
+    """
+    def win_error(code: int) -> OSError:
+        return OSError(0, _WIN32_MESSAGES.get(code, f"error {code}"), None, code)
+
+    monkeypatch.setattr(ctypes, "WinError", win_error, raising=False)
+
+
 # --- the descriptor itself ---------------------------------------------------
 
 
@@ -286,7 +313,9 @@ def test_the_owner_call_is_skipped_when_the_owner_already_matches(tmp_path: Path
     assert stub.security_information == [_DACL | _PROTECTED_DACL], "a matching owner must not be rewritten"
 
 
-def test_an_owner_failure_after_a_successful_dacl_write_raises(tmp_path: Path, stub: StubWin32) -> None:
+def test_an_owner_failure_after_a_successful_dacl_write_raises(
+    tmp_path: Path, stub: StubWin32, windows_error: None,
+) -> None:
     """Unexpected, so it raises rather than degrading.
 
     The DACL has already been applied at that point, so the store stays
@@ -304,7 +333,7 @@ def test_an_owner_failure_after_a_successful_dacl_write_raises(tmp_path: Path, s
 
 
 def test_a_refused_dacl_write_names_the_one_time_fix_and_changes_nothing(
-    tmp_path: Path, stub: StubWin32,
+    tmp_path: Path, stub: StubWin32, windows_error: None,
 ) -> None:
     """The case that actually happens: an Administrators-owned store, non-elevated.
 
@@ -327,7 +356,7 @@ def test_a_refused_dacl_write_names_the_one_time_fix_and_changes_nothing(
 
 
 def test_a_failed_call_never_leaves_a_folder_without_an_entry_for_the_user(
-    tmp_path: Path, stub: StubWin32,
+    tmp_path: Path, stub: StubWin32, windows_error: None,
 ) -> None:
     """The `ownertest` folder was left with no ACE for Sid at all.
 
@@ -367,9 +396,7 @@ def test_a_failed_set_reports_the_result_code_not_the_last_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: StubWin32,
 ) -> None:
     """`SetNamedSecurityInfoW` returns the error; it does not set last-error."""
-    import ctypes
-
-    monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(f"code={code}"))
+    monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(f"code={code}"), raising=False)
     stub.set_results = [87]  # the DACL call is the first one, and it fails
     root = tmp_path / "store"
     data = root / "data"
@@ -502,6 +529,85 @@ def test_repair_logs_a_directory_it_could_not_repair(
     assert any("Access is denied" in record.getMessage() for record in caplog.records)
 
 
+def test_an_unreadable_directory_does_not_abandon_the_siblings_that_could_be_repaired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A walk error is one unlucky subtree, not a wrong boundary.
+
+    `record` used to set `aborted`, which stopped the whole walk at the first
+    `os.walk` error -- so a single directory the process could not list abandoned
+    every sibling that could still have been repaired, on the tree that needs
+    repairing most. Only a *guard* refusal aborts: that one means the boundary or
+    the caller is wrong, and every directory below would be refused identically.
+
+    The generator yields the first sibling, calls `onerror` for it, then yields
+    the second -- exactly the order `os.walk` uses, so a walk that aborted stays
+    visible as the second sibling never being written.
+    """
+    root = tmp_path / "Jarvis" / "data"
+    root.mkdir(parents=True)
+    for name in ("a", "b"):
+        (root / name).mkdir()
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path / "Jarvis")
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(root / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(root / "memory.sqlite3"))
+
+    written: list[Path] = []
+
+    def record(path: Path, user_sid: str, *, store_root: Path) -> None:
+        written.append(Path(path).resolve())
+
+    def walk(_top: str, *, followlinks: bool, onerror: Any) -> Any:
+        yield str(root), ["a", "b"], []
+        onerror(OSError(13, "Permission denied", str(root / "a")))
+        yield str(root / "b"), [], []
+
+    monkeypatch.setattr(store_permissions, "apply_owner_only_dacl", record)
+    monkeypatch.setattr(os, "walk", walk)
+    with caplog.at_level(logging.WARNING):
+        failures = repair_store_tree(root, SID, store_root=root)
+
+    assert failures == (root / "a",), failures
+    assert (root / "b").resolve() in written, "the sibling after the unreadable directory was abandoned"
+    assert any("Permission denied" in record.getMessage() for record in caplog.records)
+    assert (root).resolve() in written, "the root itself was abandoned"
+
+
+def test_a_refused_dacl_write_does_not_abort_the_walk_either(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Administrators-owned folder is recoverable, so it is not an abort.
+
+    `StoreDaclRefusedError` is a `RuntimeError`, not an `OSError`, so it is
+    caught explicitly -- without that arm it propagates out of `repair_store_tree`
+    and the whole repair ends in a traceback on the one folder an elevated run
+    can still fix. `UnsafeStorePathError` is the *only* abort.
+    """
+    root = tmp_path / "Jarvis" / "data"
+    root.mkdir(parents=True)
+    for name in ("a", "b"):
+        (root / name).mkdir()
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path / "Jarvis")
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(root / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(root / "memory.sqlite3"))
+
+    written: list[Path] = []
+
+    def refuse_a(path: Path, user_sid: str, *, store_root: Path) -> None:
+        resolved = Path(path).resolve()
+        if resolved == (root / "a").resolve():
+            raise store_permissions.StoreDaclRefusedError("cannot set the permissions of the store")
+        written.append(resolved)
+
+    monkeypatch.setattr(store_permissions, "apply_owner_only_dacl", refuse_a)
+    with caplog.at_level(logging.WARNING):
+        failures = repair_store_tree(root, SID, store_root=root)
+
+    assert (root / "a") in failures, failures
+    assert (root / "b").resolve() in written, "the sibling after the refused DACL write was abandoned"
+    assert any("cannot set the permissions" in record.getMessage() for record in caplog.records)
+
+
 # --- where the boundary comes from ------------------------------------------
 
 
@@ -586,12 +692,23 @@ def test_creating_a_store_directory_uses_the_configured_boundary(
 
     store = tmp_path / "outer" / "inner"
     monkeypatch.setattr(store_permissions, "ensure_private_directory", record)
+    # `_make_directory_private` evaluates `current_user_sid()` as an argument,
+    # before it calls whatever `ensure_private_directory` is -- so replacing the
+    # function does not stop the real one from being reached, and on Linux that
+    # is `ctypes.WinDLL`, which does not exist. Stubbed here rather than faking
+    # `ctypes.WinDLL`: `pipe_server._win32` also does `from ctypes import
+    # wintypes`, which raises on a host with no Win32 types whatever `WinDLL` is
+    # bound to, so a fake DLL name would only move the failure.
+    monkeypatch.setattr("jarvis_local.transport.pipe_server.current_user_sid", lambda: SID)
     # The directory now exists, so the helper takes the repair branch. Stubbed
     # too: this test is about which boundary is *passed*, and without it a real
     # DACL would be written onto a pytest temp directory.
     monkeypatch.setattr(archive_database, "repair_store_permissions", lambda _path, **_kw: ())
     monkeypatch.setattr(archive_database, "_is_posix", lambda: False)
-    archive_database._ensure_sqlite_directory(store)
+    # `repair_permissions=True` is the creating open. The default is now the
+    # read-only opener, which refuses a store that is not there -- so a test
+    # about *creating* the components has to ask for the creating behaviour.
+    archive_database._ensure_sqlite_directory(store, repair_permissions=True)
 
     # Both missing components are created, each bounded by the *configured*
     # root rather than by the directory being created -- which is the property
@@ -758,12 +875,20 @@ def test_the_startup_summary_names_the_default_when_nothing_is_configured(
 
     `store_root_summary` now also reports ownership, so it reads the owner of any
     root that exists -- which is why this needs the Win32 seam stubbed too.
+
+    `current_user_sid` is stubbed as well, because it is a *different* seam from
+    `_windows_apis`: it lives in the pipe server and reaches real Win32 on a
+    Windows runner, so the runner's true SID was being compared against the
+    stub's owner and the summary came back with a warning appended. The stub
+    owner and the stub user have to be the same SID for "all is well" to be the
+    case under test.
     """
     monkeypatch.delenv("JARVIS_ARCHIVE_PATH", raising=False)
     monkeypatch.delenv("JARVIS_MEMORY_PATH", raising=False)
     jarvis_dir = tmp_path / "Jarvis"
     jarvis_dir.mkdir(parents=True)
     monkeypatch.setattr(store_permissions, "_default_store_root", lambda: jarvis_dir)
+    monkeypatch.setattr(store_permissions, "current_user_sid", lambda: SID)
     stub.owner_sid = SID
 
     assert store_root_summary() == f"{jarvis_dir} (default; no store path configured)"
@@ -781,61 +906,69 @@ def test_the_startup_summary_reports_an_unresolvable_configuration(monkeypatch: 
 def test_tree_owner_sddl_reports_the_returned_code(monkeypatch: pytest.MonkeyPatch) -> None:
     """`GetNamedSecurityInfoW` returns the error rather than setting last-error,
     so the old `WinError(get_last_error())` named an unrelated earlier failure."""
-    import ctypes
-
-    monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(f"code={code}"))
+    monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(f"code={code}"), raising=False)
     monkeypatch.setattr(store_permissions, "_windows_apis", StubWin32(get_result=5))
     with pytest.raises(OSError, match="code=5"):
         tree_owner_sddl(Path(r"C:\store"))
 
 
 @pytest.mark.skipif(os.name != "nt", reason="these are the machine's own Windows paths")
-@pytest.mark.parametrize("variable", ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"])
+@pytest.mark.parametrize(
+    ("variable", "pattern"),
+    [
+        ("LOCALAPPDATA", r"refusing LOCALAPPDATA"),
+        ("APPDATA", r"refusing APPDATA"),
+        ("TEMP", r"refusing TEMP"),
+    ],
+)
 def test_each_named_environment_root_is_refused_on_its_own(
-    monkeypatch: pytest.MonkeyPatch, variable: str,
+    monkeypatch: pytest.MonkeyPatch, variable: str, pattern: str,
 ) -> None:
     r"""Each refusal has to be reachable on its own, or it is decoration.
 
     The shape is what makes this a test of the *named* arm rather than of
-    whichever check fires first: `store_root` is the refused path's **parent**,
-    which satisfies containment, and the refused path is inside the configured
-    root, which satisfies the configured-roots check. What is asserted is the
-    invariant that matters -- it is refused, and **nothing reaches Windows**.
+    whichever check fires first: `_refuse_unsafe_path` is handed the root **as
+    its own store root**, so containment passes trivially, and the
+    configured-roots check is answered by pointing `configured_store_roots` at
+    the same path. `_refuse_broad_root` is neutered for the same reason and only
+    here: otherwise it answers first (`LOCALAPPDATA is not a store root`) and the
+    test skips, which is how the previous version of this test could not tell
+    this arm from decoration.
 
-    The message is deliberately not matched. Several arms legitimately overlap
-    (`Program Files` is also a Windows-owned name, a drive root is also a path
-    with no name), and asserting which one fires makes a test that breaks when the
-    overlap changes without any behaviour changing.
+    **The message is matched, unlike before.** With every other arm satisfied or
+    disabled, the sentence that comes back can only have come from this one, and
+    asserting it is what makes a *different* arm answering show up as a failure
+    rather than as a pass.
     """
-    refused = Path(os.environ[variable]).resolve(strict=False)
-    if refused.parent == refused:
-        pytest.skip(f"{refused} has no parent to use as a boundary")
-    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(refused / "archive.sqlite3"))
-    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(refused / "memory.sqlite3"))
-    try:
-        configured = store_permissions.configured_store_roots()
-    except store_permissions.StoreRootUnresolvedError as refused_by_broad_root:
-        pytest.skip(f"the broad-root arm refuses this one first: {refused_by_broad_root}")
-    assert any(refused == root or root in refused.parents for root in configured), configured
+    root = Path(os.environ[variable]).resolve(strict=False)
+    if root.parent == root:
+        pytest.skip(f"{root} has no parent to use as a boundary")
+    monkeypatch.setattr(store_permissions, "configured_store_roots", lambda: (root,))
+    monkeypatch.setattr(store_permissions, "_refuse_broad_root", lambda _root: None)
 
-    stub = StubWin32()
-    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
-    with pytest.raises(UnsafeStorePathError):
-        _REAL_APPLY(refused / "store", SID, store_root=refused.parent)
-    assert stub.paths == [], "Win32 was reached for a refused path"
+    with pytest.raises(UnsafeStorePathError, match=pattern):
+        _refuse_unsafe_path(root, root)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="these are the machine's own Windows paths")
 def test_appdata_itself_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`AppData` sits above both roaming and local, and was missing from the list."""
-    app_data = Path(os.environ["USERPROFILE"]).resolve(strict=False) / "AppData"
+    r"""`AppData` sits above both roaming and local, and is named by neither.
+
+    It has no environment variable of its own, so the environment-root arm cannot
+    see it and it needs an arm derived from `USERPROFILE`. Called directly, with
+    the root as its own store root and the configured-roots check pointed at it,
+    so only this arm can answer -- `%USERPROFILE%` itself is a different refusal
+    one directory up, and matching `refusing USERPROFILE` alone would not tell
+    the two apart.
+    """
+    app_data = Path(os.environ["USERPROFILE"]) / "AppData"
     if not app_data.is_dir():
         pytest.skip(f"{app_data} does not exist on this machine")
-    stub = StubWin32()
-    monkeypatch.setattr(store_permissions, "_windows_apis", stub)
-    with pytest.raises(UnsafeStorePathError):
-        _REAL_APPLY(app_data / "store", SID, store_root=app_data.parent)
-    assert stub.paths == [], "Win32 was reached for a refused path"
+    monkeypatch.setattr(store_permissions, "configured_store_roots", lambda: (app_data.resolve(strict=False),))
+    monkeypatch.setattr(store_permissions, "_refuse_broad_root", lambda _root: None)
+
+    with pytest.raises(UnsafeStorePathError, match=r"refusing USERPROFILE\\AppData"):
+        _refuse_unsafe_path(app_data, app_data)
 
 
 def test_each_named_absolute_root_is_refused_by_that_arm() -> None:
@@ -967,6 +1100,33 @@ def test_a_relative_configured_store_path_is_refused(
         store_permissions.configured_store_roots()
 
 
+def test_a_default_open_writes_no_acl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: StubWin32) -> None:
+    """Writing nothing is the default, so a caller cannot opt in by omission.
+
+    A DACL write propagates to everything below the object it names, and the last
+    accidental one emptied this account's profile. That makes the default the
+    guard: `agent.open_stores` is the only production caller that passes
+    `repair_permissions=True`, and this pins the other side of it -- an open with
+    no arguments reaches Win32 zero times, on the branch that *does* write a DACL.
+
+    The Windows branch is forced because it is the one that writes a DACL; on
+    POSIX the same open only inspects modes, and the assertion would then be
+    about the host rather than about the default.
+    """
+    root = tmp_path / "Jarvis"
+    store = root / "data"
+    store.mkdir(parents=True)
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: root)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(root / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(root / "memory.sqlite3"))
+    monkeypatch.setattr(archive_database, "_is_posix", lambda: False)
+
+    connection = archive_database.connect(store / "archive.sqlite3")
+    connection.close()
+
+    assert stub.paths == [], f"a default open wrote a DACL to {stub.paths}"
+
+
 def test_the_walk_skips_a_reparse_point_instead_of_granting_it_access(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stub: StubWin32,
 ) -> None:
@@ -1027,6 +1187,39 @@ def test_the_walk_skips_a_reparse_point_instead_of_granting_it_access(
     )
     assert (store / "notes").resolve() in written, "a real directory under the store is still repaired"
     assert store.resolve() in written, "the store root itself must still be repaired"
+
+
+def test_a_directory_reported_as_a_reparse_point_is_not_written_to(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stub: StubWin32,
+) -> None:
+    """The reparse guard, pinned on a host that cannot make a junction.
+
+    The test above needs `mklink /J` and is therefore Windows-only, so on the
+    Ubuntu job the guard it covers was unpinned entirely -- deleting it there
+    changed nothing. This one reports a real subdirectory as a reparse point
+    instead, which is the same input `os.walk` would have handed the walk for a
+    junction, and asserts both halves: the reported directory is not written to,
+    and the directories beside it still are.
+
+    Painting the report rather than creating a real junction is the point. What
+    is under test is not whether `os.lstat` can see a reparse tag -- that is the
+    helper's own business and the test above covers it where the platform can --
+    it is that the walk *acts on* the answer.
+    """
+    root = tmp_path / "Jarvis" / "data"
+    (root / "door").mkdir(parents=True)
+    (root / "real").mkdir()
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path / "Jarvis")
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(root / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(root / "memory.sqlite3"))
+    monkeypatch.setattr(store_permissions, "is_reparse_point", lambda path: Path(path).name == "door")
+
+    _REAL_REPAIR(root, SID, store_root=root)
+
+    written = {Path(path).resolve() for path in stub.paths}
+    assert (root / "door").resolve() not in written, "the walk wrote to a directory it reported as a reparse point"
+    assert (root / "real").resolve() in written, "a real directory beside it was skipped as well"
+    assert root.resolve() in written, "the root itself must still be repaired"
 
 
 def test_the_walk_aborts_at_the_first_refused_directory_rather_than_walking_on(

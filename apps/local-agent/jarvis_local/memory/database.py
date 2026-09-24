@@ -45,8 +45,10 @@ class MemoryDatabase:
         self.connection = connection
 
     @classmethod
-    def open(cls, path: Path, *, now: str, store_root: Path | None = None) -> MemoryDatabase:
-        connection = connect(Path(path), store_root=store_root)
+    def open(
+        cls, path: Path, *, now: str, store_root: Path | None = None, repair_permissions: bool = False
+    ) -> MemoryDatabase:
+        connection = connect(Path(path), store_root=store_root, repair_permissions=repair_permissions)
         apply_migrations(connection, now, MIGRATIONS_DIRECTORY)
         assert_fact_guards(connection)
         return cls(connection)

@@ -13,6 +13,11 @@ It is deliberately hard to run by accident:
 * it asserts that the scratch root, the store directory and every path it is
   about to touch are that root or below it, before any call, and fails rather
   than proceeding if not;
+* it asserts that none of those three names is a junction, a symlink or
+  anything else that resolves somewhere other than itself, before any call, and
+  **fails** rather than skipping if one is -- a redirect would make the
+  read-back describe a different folder while looking like it described this
+  one;
 * it never names `C:\\jarvis-test-scratch` itself as a target, only `data`
   inside it, so the scratch root's own access control is not this test's to set;
 * it restores nothing on failure, on purpose -- a half-applied ACL is exactly
@@ -95,6 +100,44 @@ def assert_inside_scratch(*paths: Path) -> None:
         resolved = path.resolve(strict=False)
         if resolved != root and root not in resolved.parents:
             raise AssertionError(f"refusing to touch {resolved}: outside {root}")
+
+
+def assert_not_a_redirect(*paths: Path) -> None:
+    r"""Refuse to continue unless none of these is a way out of the scratch root.
+
+    A junction at one of these names is not itself dangerous -- the guard
+    resolves a path before checking it and `repair_store_tree` skips a reparse
+    point -- but every assertion in this file reads the descriptor **back** from
+    `path`, and a redirect would make that read describe some other folder while
+    looking for all the world like it described this one. That is the class of
+    failure this file exists to catch: the original defect was a DACL that looked
+    correct in the source and left the user locked out of his own folder.
+
+    **Fails rather than skips.** A skipped redirect check is indistinguishable
+    from a passed one, and this is the check that decides whether the rest of the
+    file is measuring what it says it is measuring.
+
+    A path that does not exist yet is not checked: it cannot be redirected, and
+    two of the three are created by the helpers below.
+    """
+    for path in paths:
+        if not path.exists():
+            continue
+        assert not path.is_symlink(), f"{path} is a symbolic link"
+        assert not store_permissions.is_reparse_point(path), f"{path} is a junction or other reparse point"
+        resolved = path.resolve(strict=True)
+        assert resolved == path, f"{path} resolves to {resolved}, so a write here is not a write there"
+
+
+@pytest.fixture(autouse=True)
+def the_scratch_roots_are_not_redirects() -> None:
+    """Before any write in this module, none of the three names may be a link.
+
+    Autouse so it cannot be forgotten by a test added later, and called again
+    from the two helpers that create `SCRATCH_STORE` and `ADMIN_OWNED`, which do
+    not exist when this fixture runs.
+    """
+    assert_not_a_redirect(SCRATCH_ROOT, SCRATCH_STORE, ADMIN_OWNED)
 
 
 @windows_only
@@ -205,6 +248,7 @@ def admin_owned_folder() -> Path:
     """
     if not ADMIN_OWNED.is_dir():
         pytest.skip(f"{ADMIN_OWNED} does not exist; create it from an elevated shell")
+    assert_not_a_redirect(ADMIN_OWNED)
     return ADMIN_OWNED
 
 
@@ -302,6 +346,10 @@ def scratch_store() -> Path:
         raise AssertionError("the scratch root itself must never be a target")
     SCRATCH_STORE.mkdir(parents=True, exist_ok=True)
     assert_inside_scratch(SCRATCH_STORE)
+    # It did not exist when the autouse fixture ran, so the redirect check is
+    # repeated here -- this is one of the three names a write is about to land
+    # on, and a junction at it would make every read-back describe elsewhere.
+    assert_not_a_redirect(SCRATCH_STORE)
     return SCRATCH_STORE
 
 

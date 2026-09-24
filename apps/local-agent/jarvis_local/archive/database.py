@@ -116,7 +116,7 @@ def _make_directory_private(directory: Path, *, store_root: Path) -> None:
 
 
 def repair_store_permissions(
-    path: Path, *, store_root: Path | None = None, repair_permissions: bool = True
+    path: Path, *, store_root: Path | None = None, repair_permissions: bool = False
 ) -> tuple[Path, ...]:
     """Re-apply the private DACL to the store directory and everything under it.
 
@@ -140,9 +140,10 @@ def repair_store_permissions(
     `repair_permissions=False` answers for permission changes what "read-only"
     answers for data: nothing is written. `jarvis vault` opens the archive as a
     reader and must not be able to rewrite an ACL as a side effect, so it passes
-    False rather than being trusted not to need repair. The default is True
-    because the service repairs its own store on every start, which is the only
-    way the live tree gets fixed without an elevated shell.
+    False -- and so does every other opener unless it says otherwise. The default
+    is False because a permission write propagates to everything below the object
+    it names, so the one caller that may perform it has to be the one that asks:
+    `agent.open_stores`, which is the path `jarvis serve` runs.
     """
     if not repair_permissions:
         return ()
@@ -154,7 +155,7 @@ def repair_store_permissions(
     return repair_store_tree(path, current_user_sid(), store_root=store_root)
 
 
-def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repair_permissions: bool = True) -> None:
+def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repair_permissions: bool = False) -> None:
     """Make `path` a private directory, creating each missing component.
 
     `path` is a **directory**. Passing the `.sqlite3` file is a mistake this
@@ -169,11 +170,12 @@ def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repa
     used, which is the same boundary production uses and is not set by the code
     choosing a target.
 
-    `repair_permissions=False` is the read-only opener: it creates no directory,
-    writes no ACL, and refuses a store that is not already there. `jarvis vault`
-    uses it so that reading a note can never rewrite a permission.
+    `repair_permissions=False` is the default, and it is the read-only opener: it
+    creates no directory, writes no ACL, and refuses a store that is not already
+    there. Every opener is one of these unless it says otherwise; only
+    `agent.open_stores` -- the path `jarvis serve` runs -- asks for True.
     """
-    if _SQLITE_FILE_SUFFIXES and path.suffix in _SQLITE_FILE_SUFFIXES:
+    if path.suffix in _SQLITE_FILE_SUFFIXES:
         raise SQLiteDirectoryError(f"{path} is a file, not the store directory that contains it")
     boundary = _store_boundary(path, store_root)
     if not repair_permissions:
@@ -193,13 +195,15 @@ def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repa
     # and inspect each missing component so the node never makes a public
     # ancestor while creating a private store beneath it.
     #
-    # `missing` runs nearest-first, so the ancestors *above* the boundary are
-    # created last. They get a plain `mkdir` and never this module's DACL: an
-    # ancestor of the store root is a directory the store merely happens to live
-    # inside (`...\AppData\Local`, say), and writing the store's owner-only SDDL
-    # onto one is precisely the walk that emptied this account's profile. The
-    # process has to be able to create them or a first run could not start at
-    # all, so they are made with the permissions they would have had anyway.
+    # `missing` is built nearest-first, so `reversed(missing)` walks it back down
+    # and creates the topmost missing component *first* -- the ancestors, then
+    # the store. The components above the boundary are a different case from the
+    # store itself: an ancestor of the store root is a directory the store merely
+    # happens to live inside (`...\AppData\Local`, say), and writing the store's
+    # owner-only SDDL onto one is precisely the walk that emptied this account's
+    # profile. The process has to be able to create them or a first run could not
+    # start at all, so they are made with the permissions they would have had
+    # anyway.
     missing: list[Path] = []
     for directory in (path, *path.parents):
         if directory.exists():
@@ -208,11 +212,20 @@ def _ensure_sqlite_directory(path: Path, *, store_root: Path | None = None, repa
     for directory in reversed(missing):
         if directory == boundary or boundary in directory.parents:
             _make_directory_private(directory, store_root=boundary)
-            # A no-op on Windows, where the DACL above is the guard, and the
-            # inspection that refuses a world-readable store on POSIX.
-            _restrict_sqlite_directory(directory)
-        else:
+        elif _is_posix():
+            # A mode is the only thing that makes a directory private here, so it
+            # is passed -- and `parents=False` is safe because `reversed(missing)`
+            # has just created this directory's parent.
             directory.mkdir(mode=stat.S_IRWXU, parents=True, exist_ok=True)
+        else:
+            # **No mode on Windows.** `mkdir(mode=0o700)` is not a mode there: it
+            # applies the CVE-2024-4030 DACL, `OW`/`SY`/`BA` and nothing naming
+            # the user, so an ancestor made that way hands everything in it to an
+            # owner Windows chose. A plain `mkdir` inherits the parent's DACL,
+            # which is what this directory would have had if the store had never
+            # been created -- and above the boundary that is all it is entitled
+            # to.
+            directory.mkdir(parents=True, exist_ok=True)
     if not missing:
         if _is_posix():
             _restrict_sqlite_directory(path)
@@ -235,17 +248,16 @@ def _store_boundary(path: Path, store_root: Path | None) -> Path:
     The fallback exists because the vault and memory stores are opened from
     paths that are not the configured archive, and refusing to start them would
     turn a permissions guard into an outage. It never widens the boundary to the
-    path: `path.parent` is deliberately not a candidate.
+    path: `path.parent` is deliberately not a candidate. `configured_store_roots`
+    is never empty -- unset falls back to the default store root -- so there is no
+    "no boundary configured" case to answer here, and the one that used to exist
+    returned `path` itself and quietly removed the boundary.
     """
     from jarvis_local.archive.store_permissions import configured_store_roots
 
     if store_root is not None:
         return store_root
     configured = configured_store_roots()
-    if not configured:
-        # Nothing configured and nothing passed: only reachable from a test or a
-        # direct library use that already has the Win32 seam replaced.
-        return path
     resolved = path.resolve(strict=False)
     for allowed in configured:
         if resolved == allowed or allowed in resolved.parents:
@@ -257,15 +269,16 @@ def _store_boundary(path: Path, store_root: Path | None) -> Path:
     )
 
 
-def connect(path: Path, *, store_root: Path | None = None, repair_permissions: bool = True) -> sqlite3.Connection:
+def connect(path: Path, *, store_root: Path | None = None, repair_permissions: bool = False) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
     WAL keeps readers from blocking the replicator. `foreign_keys` is off by
     default in SQLite and must be enabled per connection, or content_seen's
     reference to content_blob would be decorative.
 
-    `repair_permissions=False` opens without creating directories or writing any
-    ACL; see `_ensure_sqlite_directory`.
+    `repair_permissions=False` is the default: opening a store writes no ACL and
+    creates no directory. `agent.open_stores` passes True, and that is the only
+    production caller that does; see `_ensure_sqlite_directory`.
     """
     _ensure_sqlite_directory(path.parent, store_root=store_root, repair_permissions=repair_permissions)
     _restrict_sqlite_file(path, create=True)
@@ -334,7 +347,7 @@ class ArchiveDatabase:
 
     @classmethod
     def open(
-        cls, path: Path, *, now: str, store_root: Path | None = None, repair_permissions: bool = True
+        cls, path: Path, *, now: str, store_root: Path | None = None, repair_permissions: bool = False
     ) -> ArchiveDatabase:
         connection = connect(Path(path), store_root=store_root, repair_permissions=repair_permissions)
         apply_migrations(connection, now)

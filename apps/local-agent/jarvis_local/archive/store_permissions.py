@@ -53,9 +53,12 @@ Three rules came out of that and are enforced here:
 2. **Only the store directory and what is inside it is ever touched.**
    `repair_store_tree` descends; it does not walk upward.
 3. **The guard is not a caller's promise.** `_refuse_unsafe_path` re-checks every
-   path immediately before it is written, refuses drive roots, the account and
-   profile folders and the AppData/Temp roots outright, and refuses anything
-   that is not at or below the store root passed in with the call.
+   path immediately before it is written, refuses drive roots, `C:\\Users`, the
+   profile itself, `%USERPROFILE%\\AppData` (which sits above both `%APPDATA%` and
+   `%LOCALAPPDATA%` and so is named by neither of them), the `%APPDATA%`,
+   `%LOCALAPPDATA%` and temp roots, and refuses anything that is not at or below
+   the store root passed in with the call. It is *not* recursive: the store
+   inside `%LOCALAPPDATA%` is the path this module exists to fix.
 
 Windows-only. `ctypes` is imported at module scope but no Win32 call happens at
 import, so the Ubuntu job imports this too; the callers guard.
@@ -95,7 +98,7 @@ _SE_FILE_OBJECT = 1
 #: name-based arm answered first and the literal arm was untestable through it.
 _WINDOWS_OWNED_DIRECTORY_NAMES = frozenset({"Windows", "Program Files", "Program Files (x86)"})
 
-#: Complete paths refused outright. Deliberately *not* recursive:
+#: Complete paths refused outright. Deliberately *not* recursive: `AppData`,
 #: `AppData\\Local` and `Temp` are refused as objects, while
 #: `...\\AppData\\Local\\Jarvis`, where the real store lives, is exactly what
 #: this module is for.
@@ -207,7 +210,7 @@ def configured_store_roots() -> tuple[Path, ...]:
 
     An earlier version of *this* function returned an empty tuple when the
     variables were unset, and the guard treated empty as "no boundary" -- so a
-    missing configuration removed the guard entirely. Two rules now:
+    missing configuration removed the guard entirely. Three rules now:
 
     * **Unset falls back to `%LOCALAPPDATA%\\Jarvis`**, the fixed location the
       live store is under, so there is always a real boundary.
@@ -622,10 +625,13 @@ def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = No
     Walking the rest of the tree to collect hundreds of copies of one error is
     what made the first version's failures unreadable.
 
-    A refused *DACL write* is deliberately not an abort. That one is the
-    Administrators-owned store, it is recoverable by an elevated run, and the
-    directories below it may well still be repairable -- aborting would abandon
-    a tree on the strength of one unreachable folder.
+    A refused *DACL write* is deliberately not an abort, and neither is an
+    unreadable directory. Both are one unlucky folder; the Administrators-owned
+    store is recoverable by an elevated run, and the directories beside it may
+    well still be repairable -- aborting would abandon a tree on the strength of
+    one folder. `StoreDaclRefusedError` and `StoreOwnerUnknownError` are caught
+    explicitly because they are `RuntimeError`s: left to the `OSError` arm they
+    would propagate out of this function, which is the opposite of not aborting.
 
     Returns the paths that could not be repaired; each one is also logged as it
     happens, because the caller that ignores this return value is how the first
@@ -636,10 +642,14 @@ def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = No
     aborted = False
 
     def record(error: OSError) -> None:
-        nonlocal aborted
+        # Logged and recorded, but deliberately **not** an abort. An unreadable
+        # directory is one unlucky subtree; aborting on it would abandon every
+        # sibling that could still be repaired, and this walk exists precisely
+        # for a tree the service has been locked out of. Only a guard refusal
+        # aborts, because that one means the boundary or the caller is wrong and
+        # every directory below would be refused identically.
         failed = Path(getattr(error, "filename", None) or root)
         failures.append(failed)
-        aborted = True
         logger.warning("could not read %s while repairing store permissions: %s", failed, error)
 
     if not root.exists():
@@ -660,7 +670,7 @@ def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = No
             failures.append(directory)
             aborted = True
             logger.warning("could not repair %s: %s", directory, error)
-        except OSError as error:
+        except (OSError, StoreDaclRefusedError, StoreOwnerUnknownError) as error:
             failures.append(directory)
             logger.warning("could not repair %s: %s", directory, error)
     return tuple(failures)
@@ -682,6 +692,12 @@ def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
     an object while the store inside it is not, even though the store path has
     `Users` in its ancestry; matching ancestors by name would refuse the very
     path this module exists to fix.
+
+    `AppData` itself is refused as well, and it needs its own arm: it is the
+    parent of both `%APPDATA%` and `%LOCALAPPDATA%`, so neither variable names
+    it, and a store at `%USERPROFILE%\\AppData\\store` would otherwise be accepted
+    above both roots the user actually configured. `%USERPROFILE%` itself is
+    refused by the environment-root arm, one directory up.
 
     Two boundaries, both required: `store_root` from the caller, and the
     configured data directories from `configured_store_roots()`. The parameter
@@ -710,6 +726,14 @@ def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
         value = os.environ.get(variable)
         if value and target == Path(value).resolve(strict=False):
             raise UnsafeStorePathError(f"refusing {variable} ({target}) as a store directory")
+    # The one account root with no environment variable of its own. `AppData` is
+    # the parent of both `%APPDATA%` and `%LOCALAPPDATA%`, so the loop above
+    # cannot name it and a store directly inside it would be accepted -- above
+    # both roots the user configured. Derived from `USERPROFILE` rather than
+    # listed, because the same `Path` is what the profile arm resolves.
+    profile = os.environ.get("USERPROFILE", "").strip()
+    if profile and target == (Path(profile) / "AppData").resolve(strict=False):
+        raise UnsafeStorePathError(f"refusing USERPROFILE\\AppData ({target}) as a store directory")
     # One containment test, in one direction. `root not in target.parents` is
     # false exactly when `target` is the root or lies below it, so every other
     # path fails -- above the root, beside it, or on another drive. An earlier

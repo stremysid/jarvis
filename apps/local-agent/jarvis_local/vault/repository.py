@@ -117,7 +117,7 @@ class VaultRepository:
         *,
         now: str | None = None,
         store_root: Path | None = None,
-        repair_permissions: bool = True,
+        repair_permissions: bool = False,
     ) -> VaultRepository:
         moment = now or utc_now_iso()
         return cls(

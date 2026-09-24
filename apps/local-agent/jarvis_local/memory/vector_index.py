@@ -143,8 +143,15 @@ class VectorIndex:
         self._provider = provider
 
     @classmethod
-    def open(cls, path: Path, provider: EmbeddingProvider, *, store_root: Path | None = None) -> VectorIndex:
-        connection = connect(Path(path), store_root=store_root)
+    def open(
+        cls,
+        path: Path,
+        provider: EmbeddingProvider,
+        *,
+        store_root: Path | None = None,
+        repair_permissions: bool = False,
+    ) -> VectorIndex:
+        connection = connect(Path(path), store_root=store_root, repair_permissions=repair_permissions)
         connection.executescript(_CREATE_TABLE)
         # Reject an index built by a different model rather than quietly
         # returning nothing for it: an empty result set reads like "no

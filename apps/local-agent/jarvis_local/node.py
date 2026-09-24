@@ -33,6 +33,7 @@ from jarvis_local.archive.store_permissions import (
     StoreDaclRefusedError,
     StoreOwnerUnknownError,
     StoreRootUnresolvedError,
+    UnsafeStorePathError,
     configured_store_roots,
     permit_store_roots,
     store_root_summary,
@@ -771,12 +772,16 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
     except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
-    except (StoreDaclRefusedError, StoreOwnerUnknownError, StoreRootUnresolvedError) as error:
-        # Before the catch-all below, which would otherwise fold all three into
-        # "the Jarvis node could not start" and exit 4 -- indistinguishable from
-        # a port already in use, and with the one-time fix printed by
+    except (StoreDaclRefusedError, StoreOwnerUnknownError, StoreRootUnresolvedError, UnsafeStorePathError) as error:
+        # Before the catch-all below, which would otherwise fold all of these
+        # into "the Jarvis node could not start" and exit 4 -- indistinguishable
+        # from a port already in use, and with the one-time fix printed by
         # `dacl_refused_message` thrown away. These are the failures whose whole
-        # value is the sentence naming the repair.
+        # value is the sentence naming the repair. `UnsafeStorePathError` belongs
+        # here for the same reason: it is raised by the guard immediately before
+        # a write, it names the path it refused, and "the node could not start"
+        # would discard the one thing a reader needs in order to fix the
+        # configuration.
         print(str(error))
         return EXIT_NODE_STORE_PERMISSIONS
     except UnixSocketInUseError:

@@ -27,7 +27,7 @@ from jarvis_local.agent import CycleResult, open_stores
 from jarvis_local.archive import store_permissions
 from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.archive.database import SQLiteDirectoryError
-from jarvis_local.archive.store_permissions import StoreDaclRefusedError
+from jarvis_local.archive.store_permissions import StoreDaclRefusedError, UnsafeStorePathError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.crypto.signed_request import signature_text
@@ -273,6 +273,36 @@ def test_a_second_store_open_failure_closes_the_first_store(tmp_path: Path, monk
     with pytest.raises(RuntimeError, match="memory open failed"):
         open_stores(tmp_path / "archive.sqlite3", tmp_path / "memory.sqlite3")
     assert archive.closed == 1
+
+
+def test_the_service_is_the_only_caller_that_asks_for_the_permission_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`open_stores` passes `repair_permissions=True`; nothing else does.
+
+    Every opener defaults to False so that opening a store cannot rewrite a
+    permission by accident -- a DACL write propagates to everything below the
+    object it names, and the last accidental one emptied this account's profile.
+    That makes this keyword the whole of the exception, so it is pinned in both
+    directions: dropped, the service stops repairing its own store at start;
+    defaulted back to True, every reader writes ACLs again.
+    """
+    asked: list[tuple[str, bool]] = []
+
+    def archive_open(_path: Path, **kwargs: object) -> object:
+        asked.append(("archive", bool(kwargs.get("repair_permissions"))))
+        return FakeClosable()
+
+    def memory_open(_path: Path, **kwargs: object) -> object:
+        asked.append(("memory", bool(kwargs.get("repair_permissions"))))
+        return FakeClosable()
+
+    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", archive_open)
+    monkeypatch.setattr("jarvis_local.agent.FactRepository.open", memory_open)
+
+    open_stores(tmp_path / "archive.sqlite3", tmp_path / "memory.sqlite3")
+
+    assert asked == [("archive", True), ("memory", True)]
 
 
 def test_signal_setup_failure_unwinds_the_control_thread_and_stores(
@@ -1323,6 +1353,32 @@ def test_serve_reports_a_refused_store_dacl_as_a_store_permission_failure(
     # The repair is printed, not swallowed: this exit code exists so the caller
     # sees which failure it is, and the sentence is what makes it actionable.
     assert "One-time fix" in capsys.readouterr().out
+
+
+def test_serve_reports_a_path_the_guard_refuses_as_a_store_permission_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`UnsafeStorePathError` is neither a configuration error nor a startup one.
+
+    Without its own arm it falls through to the catch-all and exits 4 with "the
+    Jarvis node could not start" -- indistinguishable from a busy pipe, and with
+    the sentence naming the path it refused thrown away. That sentence is the
+    whole value of the exception, so it gets exit 6 and is printed.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+
+    def refuse() -> str:
+        raise UnsafeStorePathError("refusing a system or account root: /profile")
+
+    monkeypatch.setattr("jarvis_local.node.store_root_summary", refuse)
+
+    from jarvis_local.node import EXIT_NODE_STORE_PERMISSIONS, _serve
+
+    assert _serve(JarvisLocalConfig.load(windows_environment()), command="serve") == EXIT_NODE_STORE_PERMISSIONS
+    assert "refusing a system or account root" in capsys.readouterr().out
 
 
 def test_serve_refuses_a_host_that_cannot_bind_the_pipe(
