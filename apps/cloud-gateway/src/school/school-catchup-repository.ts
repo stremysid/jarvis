@@ -336,6 +336,18 @@ export class SchoolCatchupRepository {
     return Object.freeze(rows.map((row) => actionRow(row, principalId)));
   }
 
+  async listPlannedActions(principalIdValue: string): Promise<readonly SchoolCatchupAction[]> {
+    const principalId = principal(principalIdValue);
+    const result = await this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id,
+        c.course_name, a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status
+      FROM school_catchup_actions a
+      JOIN school_course_cards c
+        ON c.principal_id = a.principal_id AND c.course_id = a.course_id
+      WHERE a.principal_id = ?1 AND a.status = 'planned' AND c.active = 1
+      ORDER BY a.local_date, a.sequence_rank, a.action_id`).bind(principalId).all<ActionRow>();
+    return Object.freeze(resultRows(result).map((row) => actionRow(row, principalId)));
+  }
+
   async applyOwnerPlan(
     input: ApplyOwnerCatchupPlanInput,
     onResult?: (result: ApplyOwnerCatchupPlanResult, receipt?: SchoolCatchupSaveReceipt) => void,
