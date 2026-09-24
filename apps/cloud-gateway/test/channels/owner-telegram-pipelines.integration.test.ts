@@ -223,7 +223,7 @@ describe("owner Telegram agent validated feature pipelines", () => {
       modelReplies: [structured],
     });
 
-    expect(result.reply).toContain("Saved your school plan. Today: Chemistry: Review titration calculations (25 min).");
+    expect(result.reply).toContain("Today: Chemistry: Review titration calculations (25 min).");
     expect(result.agent.requests).toHaveLength(2);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",

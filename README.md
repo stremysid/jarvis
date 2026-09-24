@@ -1,49 +1,51 @@
 # Jarvis
 
-Sid's private personal assistant: one AI that remembers everything he tells it,
-reachable by text and by phone, with tools to act for him — and asking first
-before anything that spends money, affects someone else, or cannot be undone.
+Sid's private personal assistant, under development. The goal is one assistant
+with durable memory, reachable by text and phone, with tools that act under the
+owner's authority. That goal is not a claim that every conversation is remembered
+or that every roadmap tool exists.
 
-**Start here if you are new to this repository:**
+Documentation checked on 2026-09-23 against fetched `origin/main` at
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`.
 
-1. [The roadmap](docs/plan/2026-09-19-jarvis-roadmap.md) — Sid's own plan, and
-   authoritative. Where anything else disagrees with it, the other document is
-   stale.
-2. [docs/STATE.md](docs/STATE.md) — what is actually true right now, observed
-   in production.
-3. [AGENTS.md](AGENTS.md) — the traps that have actually cost time here.
-4. [docs/QUEUE.md](docs/QUEUE.md) — what is in flight.
+## Start here
 
-## Shape
+1. [The roadmap](docs/plan/2026-09-19-jarvis-roadmap.md) and
+   [requirements](REQUIREMENTS.md) define intended behavior.
+2. [STATE](docs/STATE.md) records implementation and deployment observations;
+   read each observation's date and source revision.
+3. [AGENTS](AGENTS.md) and [BUILDING](docs/BUILDING.md) govern repository work.
+4. [QUEUE](docs/QUEUE.md) tracks work; [OWNER-ACTIONS](docs/OWNER-ACTIONS.md)
+   tracks actions only Sid can take.
 
-| Piece | Where | What it is |
-|---|---|---|
-| `apps/cloud-gateway` | Cloudflare Worker + D1 + R2 + Vectorize | Always on. Telegram, phone calls, memory, scheduled jobs |
-| `apps/watchdog` | A **second** Cloudflare Worker | Watches the gateway. Shares no code with it, on purpose |
-| `apps/local-agent` | Windows, Python | Needs the PC awake. Archive, vault, PC-side work |
-| `apps/hermes-runtime` | Windows | A separate local model runtime |
-| `apps/brain-bridge` | — | Stalled mid-build; runs nowhere |
+## What is in the tree
 
-The watchdog is separate because the failure that kills Jarvis must not also
-kill the thing whose job is to report it. It imports nothing from the gateway.
+| Piece | Implementation at the audited revision |
+|---|---|
+| [Cloud gateway](apps/cloud-gateway/src/index.ts) | Cloudflare Worker with Telegram ingress, voice routes, school email ingestion and scheduled jobs; D1, R2, Vectorize and Workers AI bindings are declared in its [configuration](apps/cloud-gateway/wrangler.toml). Configuration does not establish successful ingestion or recall. |
+| [Owner agent core](apps/cloud-gateway/src/agent/owner-agent-core.ts) | Shared tool loop for Telegram and voice. Telegram exposes nine memory tools plus school, university and study-coach pipelines; voice exposes the nine memory tools. The channels still have separate runtime composition and different context retrieval. |
+| [Watchdog](apps/watchdog/src/index.ts) | Separate Worker that receives heartbeats and assesses liveness. It imports no gateway code. An external monitor is a separate deployment action. |
+| [Local agent](apps/local-agent/jarvis_local/cli.py) | Python archive, memory, sync and vault code. `jarvis serve` binds the Windows control pipe; it requires the PC to be awake. This does not establish successful device sync. |
+| [Hermes runtime](apps/hermes-runtime/package.json) | Local runtime tooling with its own test command and Windows CI job. Deployment is not established by the presence of this package. |
+| [Brain bridge](apps/brain-bridge/pyproject.toml) | Python package with source and tests. No deployment for it is recorded in STATE. |
 
-The fleet is a Windows 11 home PC, a Windows 11 laptop and an iPhone. The home
-PC is off overnight, so anything that must keep working lives in the cloud.
+The recorded fleet is Windows PCs and an iPhone; see [FACTS](docs/FACTS.md).
+The home PC is off overnight. The roadmap assigns work that must survive that
+gap to the cloud; it does not require moving all work there.
 
-## The documents
+## Deployment boundary
 
-- [docs/STATE.md](docs/STATE.md) — what is true now. Regenerated, not appended.
-- [docs/QUEUE.md](docs/QUEUE.md) — what is in flight and who owns it.
-- [docs/OWNER-ACTIONS.md](docs/OWNER-ACTIONS.md) — what only Sid can do.
-- [docs/FACTS.md](docs/FACTS.md) — settled facts, each with its evidence.
-- [docs/BUILDING.md](docs/BUILDING.md) — who builds, who reviews, and when a
-  stuck session must stop.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — a map of the code.
-- [DECISIONS.md](DECISIONS.md) — dated decisions and their reasons.
+No production query was made for this documentation audit. [STATE](docs/STATE.md#production)
+records Sid's and the reviewer's deploy observation: **as of `a6a0efd`**, Worker
+`7e027a1f-065b-4f60-8229-f3edff0160dc`, deployed at 20:41 EDT on 2026-09-23
+(00:41 UTC on 2026-09-24); `/health` returned 200 one minute later.
+No migrations were applied; D1 stays at `0038`. Older memory, heartbeat and call
+observations remain dated 2026-09-21. #156's local-only Hermes change merged later.
 
-## Running it
+## Working on it
 
-[TESTING.md](TESTING.md) has every suite and how to run it. The local agent's
-commands are not the obvious ones — read that section before trying.
-[docs/runbooks/deploy.md](docs/runbooks/deploy.md) is how production is
-deployed; only Sid applies migrations.
+[TESTING](TESTING.md) maps commands to coverage.
+[KNOWN_ISSUES](KNOWN_ISSUES.md) contains remaining limits with code
+evidence. [ARCHITECTURE](docs/ARCHITECTURE.md) is the broader code map;
+[DECISIONS](DECISIONS.md) holds dated decisions. For deployment, use the
+[runbook](docs/runbooks/deploy.md) only with explicit owner authority.

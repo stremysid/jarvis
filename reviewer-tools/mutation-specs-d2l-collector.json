@@ -1,0 +1,849 @@
+[
+  {
+    "name": "school_object_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (value === null || typeof value !== \"object\" || Array.isArray(value)) throw new Error(\"school_object_invalid\");",
+    "replace": "if (false) throw new Error(\"school_object_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_fields_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (Object.keys(result).sort().join(\",\") !== [...fields].sort().join(\",\")) throw new Error(\"school_fields_invalid\");",
+    "replace": "if (false) throw new Error(\"school_fields_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_id_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (!/^[a-zA-Z0-9_-]+$/.test(result)) throw new Error(\"school_id_invalid\");",
+    "replace": "if (false) throw new Error(\"school_id_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_source_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (root.schemaVersion !== \"1.0\" || root.host !== SCHOOL_HOST) throw new Error(\"school_source_invalid\");",
+    "replace": "if (false) throw new Error(\"school_source_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_time_future",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (Date.parse(startedAt) > now.getTime()) throw new Error(\"school_time_future\");",
+    "replace": "if (false) throw new Error(\"school_time_future\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_manifest_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (!Array.isArray(root.courseIds) || root.courseIds.length === 0 || root.courseIds.length > 128\n    || root.courseIds.some((id) => identifier(id) !== id) || new Set(root.courseIds).size !== root.courseIds.length\n    || !root.courseIds.includes(courseId) || typeof root.enrollmentComplete !== \"boolean\") throw new Error(\"school_manifest_invalid\");",
+    "replace": "if (false) throw new Error(\"school_manifest_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_routes_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (!Array.isArray(root.routes) || root.routes.length > 256) throw new Error(\"school_routes_invalid\");",
+    "replace": "if (false) throw new Error(\"school_routes_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_route_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (typeof route.route !== \"string\" || !(route.route === myItemsRoute || route.route.startsWith(prefix)\n      && /^(dropbox\\/folders\\/|dropbox\\/folders\\/[a-zA-Z0-9_-]+\\/submissions\\/(mysubmissions\\/)?|content\\/toc|grades\\/values\\/myGradeValues\\/)$/.test(route.route.slice(prefix.length)))\n      || seen.has(route.route)) throw new Error(\"school_route_invalid\");",
+    "replace": "if (false) throw new Error(\"school_route_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_route_status_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (!Number.isInteger(route.status) || !(route.status === 0 || Number(route.status) >= 100 && Number(route.status) <= 599)\n      || typeof route.complete !== \"boolean\") throw new Error(\"school_route_status_invalid\");",
+    "replace": "if (false) throw new Error(\"school_route_status_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_time_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (at < startedAt || Date.parse(at) > now.getTime()) throw new Error(\"school_time_invalid\");",
+    "replace": "if (false) throw new Error(\"school_time_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "rejects malformed manifest, routes, source bindings and observation times"
+  },
+  {
+    "name": "school_authority_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (envelope.audience !== SCHOOL_AUDIENCE || envelope.principalId !== owner) throw new Error(\"school_authority_invalid\");",
+    "replace": "if (false) throw new Error(\"school_authority_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses altered audience, owner, target, signature, timestamp, hash and noncanonical bytes"
+  },
+  {
+    "name": "school_signature_expired",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (Math.abs(now.getTime() - Date.parse(envelope.issuedAt)) >= 300_000) throw new Error(\"school_signature_expired\");",
+    "replace": "if (false) throw new Error(\"school_signature_expired\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses altered audience, owner, target, signature, timestamp, hash and noncanonical bytes"
+  },
+  {
+    "name": "school_signature_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (!await crypto.subtle.verify(\"Ed25519\", publicKey, decodeCanonicalBase64(envelope.signatureBase64, 64), signatureText(envelope, \"POST\", path))) {\n    throw new Error(\"school_signature_invalid\");",
+    "replace": "if (false) {\n    throw new Error(\"school_signature_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses altered audience, owner, target, signature, timestamp, hash and noncanonical bytes"
+  },
+  {
+    "name": "school_body_hash_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (await sha256Hex(raw) !== envelope.bodyHash) throw new Error(\"school_body_hash_invalid\");",
+    "replace": "if (false) throw new Error(\"school_body_hash_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses altered audience, owner, target, signature, timestamp, hash and noncanonical bytes"
+  },
+  {
+    "name": "school_nonce_refused",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (inserted === null) throw new Error(\"school_nonce_refused\");",
+    "replace": "if (false) throw new Error(\"school_nonce_refused\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "accepts a canonical signed course batch and refuses the same nonce twice"
+  },
+  {
+    "name": "key-status",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses pending and revoked keys even with otherwise valid signatures",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+        "find": "AND k.status = ? AND p.status = 'active'",
+        "replace": "AND (? IS NOT NULL) AND p.status = 'active'"
+      },
+      {
+        "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+        "find": "WHERE collector_id = ? AND status = ?\n    ON CONFLICT",
+        "replace": "WHERE collector_id = ? AND ? IS NOT NULL\n    ON CONFLICT"
+      }
+    ]
+  },
+  {
+    "name": "pending-expiry",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "AND (k.status = 'active' OR k.expires_at > ?)",
+    "replace": "AND (? IS NOT NULL)",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "stops an expired pending key from polling or growing the nonce table"
+  },
+  {
+    "name": "school_device_label_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "if (/[\\p{C}]/u.test(label)) throw new Error(\"school_device_label_invalid\");",
+    "replace": "if (false) throw new Error(\"school_device_label_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "bounds public pairing and binds it to an active configured human owner"
+  },
+  {
+    "name": "school_challenge_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "if (input.challenge !== key.challenge || key.expires_at <= now.toISOString()) throw new Error(\"school_challenge_invalid\");",
+    "replace": "if (false) throw new Error(\"school_challenge_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses a wrong challenge, an expired pairing, a reused challenge, and a rejected tap"
+  },
+  {
+    "name": "school_challenge_consumed",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "if (claimed === null) throw new Error(\"school_challenge_consumed\");",
+    "replace": "if (false) throw new Error(\"school_challenge_consumed\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses a wrong challenge, an expired pairing, a reused challenge, and a rejected tap"
+  },
+  {
+    "name": "pairing-rate",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND (SELECT COUNT(*) FROM school_collector_keys WHERE principal_id = principals.principal_id AND created_at > ?) < 4",
+    "replace": "AND (? IS NOT NULL)",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "bounds public pairing and binds it to an active configured human owner"
+  },
+  {
+    "name": "pairing-owner",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "WHERE principal_id = ? AND status = 'active' AND principal_type = 'human'",
+    "replace": "WHERE ? IS NOT NULL AND status = 'active' AND principal_type = 'human'",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "bounds public pairing and binds it to an active configured human owner"
+  },
+  {
+    "name": "tap-identity",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND i.identity_id = ?5",
+    "replace": "AND ?5 IS NOT NULL",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "activates only the proved key after the owner confirms its exact decision"
+  },
+  {
+    "name": "tap-owner",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "activates only the proved key after the owner confirms its exact decision",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+        "find": "WHERE principal_id = ?2 AND status = 'pending'",
+        "replace": "WHERE ?2 IS NOT NULL AND status = 'pending'"
+      },
+      {
+        "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+        "find": "AND d.principal_id = ?2",
+        "replace": "AND ?2 IS NOT NULL"
+      },
+      {
+        "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+        "find": "AND i.principal_id = ?2",
+        "replace": "AND ?2 IS NOT NULL"
+      }
+    ]
+  },
+  {
+    "name": "school_batch_conflict",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (stored === null || stored.body_hash !== bodyHash) throw new Error(\"school_batch_conflict\");",
+    "replace": "if (false) throw new Error(\"school_batch_conflict\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses manifest changes and altered retries while identical retries retain one receipt"
+  },
+  {
+    "name": "school_status_options_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (typeof cursor !== \"string\" || cursor.length > 26 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100\n    || !Number.isSafeInteger(staleAfterMs) || staleAfterMs < 1) throw new Error(\"school_status_options_invalid\");",
+    "replace": "if (false) throw new Error(\"school_status_options_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "paginates every evidence row without crossing the owner boundary"
+  },
+  {
+    "name": "batch-manifest",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND started_at = ? AND course_ids_json = ? AND enrollment_complete = ?",
+    "replace": "AND ? IS NOT NULL AND ? IS NOT NULL AND ? IS NOT NULL",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses manifest changes and altered retries while identical retries retain one receipt"
+  },
+  {
+    "name": "failed-course",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (!batch.enrollmentComplete || mapped.failures.length > 0)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails the whole read if any course fails and keeps the previous good read time"
+  },
+  {
+    "name": "enrollment-completeness",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "row.enrollment_complete === 1 && row.good === (JSON.parse(row.course_ids_json) as string[]).length",
+    "replace": "row.good > 0",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "requires every declared course and completed enrollment before advertising a good read"
+  },
+  {
+    "name": "stale-state",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "this.now().getTime() - Date.parse(latest.started_at) >= staleAfterMs",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "marks stale and failed reads in the digest and never prints nothing due for either"
+  },
+  {
+    "name": "evidence-owner",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "WHERE r.principal_id = ? AND e.evidence_id > ?",
+    "replace": "WHERE ? IS NOT NULL AND e.evidence_id > ?",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "paginates every evidence row without crossing the owner boundary"
+  },
+  {
+    "name": "mapping-http-complete",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if ((row.status !== 200 && row.status !== 403) || !row.complete)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "retains raw malformed or refused route evidence without projecting a short successful list"
+  },
+  {
+    "name": "mapping-required-route",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (result === undefined) failures.push",
+    "replace": "if (false) failures.push",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "retains raw malformed or refused route evidence without projecting a short successful list"
+  },
+  {
+    "name": "resource_title_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (typeof value !== \"string\" || value.trim().length === 0) throw new Error(\"resource_title_invalid\");",
+    "replace": "if (false) throw new Error(\"resource_title_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "resource_date_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (typeof value !== \"string\" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$/.test(value)\n    || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 19) !== value.slice(0, 19)) throw new Error(\"resource_date_invalid\");",
+    "replace": "if (false) throw new Error(\"resource_date_invalid\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "resource_list_invalid",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (!Array.isArray(value)) throw new Error(\"resource_list_invalid\");",
+    "replace": "if (!Array.isArray(value)) return [];",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "grade_shape_unverified",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (Object.keys(record(grades.body)).length !== 0) throw new Error(\"grade_shape_unverified\");",
+    "replace": "if (false) throw new Error(\"grade_shape_unverified\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "ambiguous_content_date",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (topicDates.has(key) && topicDates.get(key)?.at !== candidate.at) throw new Error(\"ambiguous_content_date\");",
+    "replace": "if (false) throw new Error(\"ambiguous_content_date\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "duplicate_resource",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (seen.has(key)) throw new Error(\"duplicate_resource\");",
+    "replace": "if (false) throw new Error(\"duplicate_resource\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "resource-identity",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "throw new Error(\"resource_id_invalid\");",
+    "replace": "return \"invalid\";",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses invalid resource identities, dates, ambiguous links and unfamiliar myItems shapes"
+  },
+  {
+    "name": "date-priority",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const dueAt = personal ?? assignment ?? availability;",
+    "replace": "const dueAt = availability ?? assignment ?? personal;",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "prefers myItems dates then assignment DueDate then availability end and labels each source"
+  },
+  {
+    "name": "positive-submission",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "&& submission.body.Status === 1",
+    "replace": "&& submission.body.Status !== undefined",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "keeps empty submissions and denied folder counts as evidence and only labels a positive own status submitted"
+  },
+  {
+    "name": "undated-retention",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "items.push({ id: `folder-${key}`",
+    "replace": "if (dueAt !== null) items.push({ id: `folder-${key}`",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "maps the observed null DueDate through its linked module and retains undated work"
+  },
+  {
+    "name": "http-body-cap",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "if (length > SCHOOL_BODY_LIMIT)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses oversized streaming bodies without trusting Content-Length"
+  },
+  {
+    "name": "http-target",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "if (request.method !== \"POST\" || !isSchoolPath(url.pathname) || url.search !== \"\")",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses wrong methods, unknown paths, query strings, missing owner and malformed envelopes"
+  },
+  {
+    "name": "http-configured",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "if (!owner) return reply",
+    "replace": "if (false) return reply",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "does not advertise activation when delivery fails"
+  },
+  {
+    "name": "pair-delivery",
+    "file": "apps/cloud-gateway/src/http/school-routes.ts",
+    "find": "await pairing.markDelivered(decision.decisionId);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "delivers the proved pairing decision and activates it through the real Telegram tap handler"
+  },
+  {
+    "name": "tap-routing",
+    "file": "apps/cloud-gateway/src/index.ts",
+    "find": "if (schoolPair && env.OWNER_PRINCIPAL_ID === tap.principalId)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "delivers the proved pairing decision and activates it through the real Telegram tap handler"
+  },
+  {
+    "name": "tool-dispatch",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (call.name === \"school_d2l_status\")",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "hands the model D2L evidence through the real tool dispatcher without an action receipt"
+  },
+  {
+    "name": "digest-stale",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.state !== \"current\") gaps.push",
+    "replace": "if (false) gaps.push",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "marks stale and failed reads in the digest and never prints nothing due for either"
+  },
+  {
+    "name": "digest-unavailable",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "gaps.push({ source: \"Brightspace API\", detail: \"collector status unavailable; cannot establish what is due\" });",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "keeps an unavailable collector status visible in the digest"
+  },
+  {
+    "name": "school_collector_insert_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_insert_guard\nBEFORE INSERT ON school_collector_keys\nWHEN NEW.status != 'pending' OR NEW.proved_at IS NOT NULL OR NEW.decision_id IS NOT NULL\n  OR NEW.activated_at IS NOT NULL OR NEW.revoked_at IS NOT NULL\n  OR EXISTS (SELECT 1 FROM school_collector_keys WHERE collector_id = NEW.collector_id OR public_key_base64 = NEW.public_key_base64)\n  OR EXISTS (SELECT 1 FROM device_keys WHERE device_id = NEW.collector_id OR public_key_base64 = NEW.public_key_base64)\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_insert_refused');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses directly inserted active keys and malformed public keys at the database boundary"
+  },
+  {
+    "name": "school_collector_key_immutable",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_key_immutable\nBEFORE UPDATE ON school_collector_keys\nWHEN NEW.collector_id != OLD.collector_id OR NEW.principal_id != OLD.principal_id\n  OR NEW.public_key_base64 != OLD.public_key_base64 OR NEW.challenge != OLD.challenge\n  OR NEW.pairing_code != OLD.pairing_code OR NEW.device_label != OLD.device_label\n  OR NEW.created_at != OLD.created_at OR NEW.expires_at != OLD.expires_at\n  OR (OLD.decision_id IS NOT NULL AND NEW.decision_id IS NOT OLD.decision_id)\n  OR (OLD.proved_at IS NOT NULL AND NEW.proved_at IS NOT OLD.proved_at)\n  OR (OLD.status = 'revoked' AND NEW.status != 'revoked')\n  OR (OLD.status = 'active' AND NEW.status = 'pending')\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_key_immutable');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "keeps collector key identity immutable and refuses key reuse in the device registry"
+  },
+  {
+    "name": "school_collector_activation_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_activation_guard\nBEFORE UPDATE OF status ON school_collector_keys\nWHEN NEW.status = 'active' AND OLD.status != 'active' AND NOT EXISTS (\n  SELECT 1 FROM decision_items d JOIN decision_responses r ON r.decision_id = d.decision_id\n  JOIN channel_identities i ON i.identity_id = r.answered_by_identity_id\n  WHERE d.decision_id = NEW.decision_id AND d.principal_id = NEW.principal_id\n    AND d.origin = 'school-collector-pair' AND d.origin_reference = NEW.collector_id\n    AND d.status = 'answered' AND r.option_key = 'confirm'\n    AND NEW.proved_at IS NOT NULL AND NEW.activated_at < NEW.expires_at\n    AND r.responded_at < NEW.expires_at AND i.principal_id = NEW.principal_id\n    AND i.channel = 'telegram' AND i.status = 'active' AND i.verified_at IS NOT NULL\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_tap_required');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "keeps collector key identity immutable and refuses key reuse in the device registry"
+  },
+  {
+    "name": "school_collector_device_insert_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_device_insert_guard\nBEFORE INSERT ON device_keys\nWHEN EXISTS (SELECT 1 FROM school_collector_keys WHERE collector_id = NEW.device_id OR public_key_base64 = NEW.public_key_base64)\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_scope_conflict');\nEND;",
+    "replace": "CREATE TRIGGER school_collector_device_insert_guard\nBEFORE INSERT ON device_keys\nWHEN EXISTS (SELECT 1 FROM school_collector_keys WHERE collector_id = NEW.device_id OR public_key_base64 = NEW.public_key_base64)\nBEGIN\n  SELECT 1;\nEND;",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "keeps collector key identity immutable and refuses key reuse in the device registry"
+  },
+  {
+    "name": "school_collector_device_update_guard",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_device_update_guard\nBEFORE UPDATE ON device_keys\nWHEN EXISTS (SELECT 1 FROM school_collector_keys WHERE collector_id = NEW.device_id OR public_key_base64 = NEW.public_key_base64)\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_scope_conflict');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses a collector key during ordinary device rotation and refuses an existing device key for pairing"
+  },
+  {
+    "name": "school_collector_read_immutable",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_read_immutable\nBEFORE UPDATE ON school_collector_reads\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_read_immutable');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses manifest changes and altered retries while identical retries retain one receipt"
+  },
+  {
+    "name": "school_collector_evidence_immutable",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_evidence_immutable\nBEFORE UPDATE ON school_collector_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_evidence_immutable');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "preserves later projected dates when an older device read arrives and keeps immutable evidence"
+  },
+  {
+    "name": "school_collector_evidence_retained",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_evidence_retained\nBEFORE DELETE ON school_collector_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_evidence_retained');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "preserves later projected dates when an older device read arrives and keeps immutable evidence"
+  },
+  {
+    "name": "school_collector_deadline_order",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "CREATE TRIGGER school_collector_deadline_order\nBEFORE UPDATE ON deadlines\nWHEN NEW.source_id LIKE 'd2l-api:%' AND NEW.last_seen_at < OLD.last_seen_at\nBEGIN\n  SELECT RAISE(ABORT, 'school_collector_older_deadline');\nEND;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "preserves later projected dates when an older device read arrives and keeps immutable evidence"
+  },
+  {
+    "name": "public-key-length",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": " CHECK (length(public_key_base64) = 44)",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses directly inserted active keys and malformed public keys at the database boundary"
+  },
+  {
+    "name": "batch-hash",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": " CHECK (length(body_hash) = 64 AND body_hash NOT GLOB '*[^0-9a-f]*')",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses a malformed body hash and an invented batch outcome at the database boundary"
+  },
+  {
+    "name": "batch-status",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": " CHECK (outcome IN ('pending', 'good', 'failed'))",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses a malformed body hash and an invented batch outcome at the database boundary"
+  },
+  {
+    "name": "school_key_inactive",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "if (key === null) throw new Error(\"school_key_inactive\");",
+    "replace": "if (false) throw new Error(\"school_key_inactive\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses pending and revoked keys even with otherwise valid signatures"
+  },
+  {
+    "name": "school_pairing_unavailable",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "if (result === null) throw new Error(\"school_pairing_unavailable\");",
+    "replace": "if (false) throw new Error(\"school_pairing_unavailable\");",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "bounds public pairing and binds it to an active configured human owner"
+  },
+  {
+    "name": "pairing-owner-active",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND status = 'active' AND principal_type = 'human'",
+    "replace": "AND principal_type = 'human'",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "bounds public pairing and binds it to an active configured human owner"
+  },
+  {
+    "name": "signing-owner-active",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "AND p.status = 'active'",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses an active collector whose owner has been disabled"
+  },
+  {
+    "name": "revoke-race",
+    "file": "apps/cloud-gateway/src/school/collector-protocol.ts",
+    "find": "WHERE collector_id = ? AND status = ?\n    ON CONFLICT",
+    "replace": "WHERE collector_id = ? AND ? IS NOT NULL\n    ON CONFLICT",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses a revocation racing verification before inserting the nonce"
+  },
+  {
+    "name": "revoke-owner",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "WHERE collector_id = ? AND principal_id = ? AND status != 'revoked'",
+    "replace": "WHERE collector_id = ? AND ? IS NOT NULL AND status != 'revoked'",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses pending and revoked keys even with otherwise valid signatures"
+  },
+  {
+    "name": "revoke-terminal",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND status != 'revoked' RETURNING",
+    "replace": "RETURNING",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses pending and revoked keys even with otherwise valid signatures"
+  },
+  {
+    "name": "key-status-check",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": " CHECK (status IN ('pending', 'active', 'revoked'))",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses directly inserted active keys and malformed public keys at the database boundary"
+  },
+  {
+    "name": "revoke-dispatch",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (call.name === \"school_collector_revoke\")",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "revokes through the owner tool only after its tier-three confirmation tap"
+  },
+  {
+    "name": "revoke-tier",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "('school.collector.revoke', 3,",
+    "replace": "('school.collector.revoke', 1,",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "revokes through the owner tool only after its tier-three confirmation tap"
+  },
+  {
+    "name": "voice-school-tools",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS]",
+    "replace": "toolDefinitions: MEMORY_TOOL_DEFINITIONS",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "expect": "gives an owner's call the memory and school tools through the voice agent adapter the production runtime composes"
+  },
+  {
+    "name": "projection-rejected",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (result.rejected.length > 0) return \"failed\";",
+    "replace": "if (false) return \"failed\";",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails the read when deadline ingestion rejects an item and preserves the raw evidence"
+  },
+  {
+    "name": "projection-thrown",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "} catch {\n      return \"failed\";\n    }",
+    "replace": "} catch {\n      return \"good\";\n    }",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails the read when deadline persistence throws and preserves the raw evidence"
+  },
+  {
+    "name": "projection-older",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (newer !== null) return \"good\";",
+    "replace": "if (false) return \"good\";",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "preserves later projected dates when an older device read arrives and keeps immutable evidence"
+  },
+  {
+    "name": "projection-retry",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "if (stored.outcome !== \"pending\")",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "refuses manifest changes and altered retries while identical retries retain one receipt"
+  },
+  {
+    "name": "worker-school-route",
+    "file": "apps/cloud-gateway/src/index.ts",
+    "find": "if (isSchoolPath(pathname)) return handleSchoolRequest(request, env);",
+    "replace": "if (false) return handleSchoolRequest(request, env);",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "receives a signed course batch through the production worker router"
+  },
+  {
+    "name": "pairing-activate-once",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "AND status = 'pending' AND expires_at > ?1",
+    "replace": "AND expires_at > ?1",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "activates only the proved key after the owner confirms its exact decision"
+  },
+  {
+    "name": "status-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const args = schoolStatusOptions(parseArguments(call, [\"cursor\", \"limit\", \"staleAfterMs\"]));\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;",
+    "replace": "const args = schoolStatusOptions(parseArguments(call, [\"cursor\", \"limit\", \"staleAfterMs\"]));",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "gates school status before reading evidence and records its refusal in the autonomy audit"
+  },
+  {
+    "name": "revoke-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const collectorId = safeUlid(args.collectorId);\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;",
+    "replace": "const collectorId = safeUlid(args.collectorId);",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "revokes through the owner tool only after its tier-three confirmation tap"
+  },
+  {
+    "name": "status-validate-before-claim",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const args = schoolStatusOptions(parseArguments(call, [\"cursor\", \"limit\", \"staleAfterMs\"]));\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;",
+    "replace": "const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      const args = schoolStatusOptions(parseArguments(call, [\"cursor\", \"limit\", \"staleAfterMs\"]));",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "validates school_d2l_status arguments before spending a matching confirmation tap"
+  },
+  {
+    "name": "revoke-validate-before-claim",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const collectorId = safeUlid(args.collectorId);\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;",
+    "replace": "const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      const collectorId = safeUlid(args.collectorId);",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts",
+    "expect": "validates school_collector_revoke arguments before spending a matching confirmation tap"
+  },
+  {
+    "name": "mapping-403-normal",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if ((row.status !== 200 && row.status !== 403) || !row.complete)",
+    "replace": "if (row.status !== 200 || !row.complete)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "records a grades 403 without failing the read or hiding available deadlines"
+  },
+  {
+    "name": "mapping-http-failed",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if ((row.status !== 200 && row.status !== 403) || !row.complete)",
+    "replace": "if (!row.complete)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "keeps required tool refusals empty while failing transport, authentication, incomplete and unfamiliar results"
+  },
+  {
+    "name": "mapping-incomplete-403",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if ((row.status !== 200 && row.status !== 403) || !row.complete)",
+    "replace": "if (row.status !== 200 && row.status !== 403)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "keeps required tool refusals empty while failing transport, authentication, incomplete and unfamiliar results"
+  },
+  {
+    "name": "pairing-principal-budget",
+    "file": "apps/cloud-gateway/src/school/collector-pairing.ts",
+    "find": "WHERE principal_id = principals.principal_id AND created_at > ?",
+    "replace": "WHERE created_at > ?",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "keeps pairing budgets separate for each configured principal"
+  },
+  {
+    "name": "activation-trigger-telegram",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0040_school_collector_keys.sql",
+    "find": "AND i.channel = 'telegram'",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-security.test.ts",
+    "expect": "refuses activation through a non-Telegram identity at the database boundary"
+  },
+  {
+    "name": "latest-read-limit",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "${readAggregate} ORDER BY r.started_at DESC, r.received_at DESC LIMIT 1",
+    "replace": "${readAggregate} ORDER BY r.started_at DESC, r.received_at DESC LIMIT -1",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "returns at most one row from each read aggregate while retaining the last complete good read"
+  },
+  {
+    "name": "good-read-limit",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "ORDER BY r.started_at DESC, r.received_at DESC LIMIT 1`).bind(this.owner)",
+    "replace": "ORDER BY r.started_at DESC, r.received_at DESC LIMIT -1`).bind(this.owner)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "returns at most one row from each read aggregate while retaining the last complete good read"
+  },
+  {
+    "name": "last-good-completeness",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "HAVING r.enrollment_complete = 1 AND good = json_array_length(r.course_ids_json)",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "requires every declared course and completed enrollment before advertising a good read"
+  },
+  {
+    "name": "refused-read-scope",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND r.collector_id = ? AND r.read_id = ? AND (e.status",
+    "replace": "AND ? IS NOT NULL AND ? IS NOT NULL AND (e.status",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "bounds refusals to the latest read and requested limit without losing the older good read time"
+  },
+  {
+    "name": "refused-sql-limit",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "ORDER BY e.evidence_id LIMIT ?`)\n      .bind(this.owner, latest?",
+    "replace": "ORDER BY e.evidence_id LIMIT ? + 1000`)\n      .bind(this.owner, latest?",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "bounds refusals to the latest read and requested limit without losing the older good read time"
+  },
+  {
+    "name": "refused-output-limit",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "refused: refused.results.slice(0, limit)",
+    "replace": "refused: refused.results",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "bounds refusals to the latest read and requested limit without losing the older good read time"
+  },
+  {
+    "name": "refused-truncation-visible",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "refusedTruncated: refused.results.length > limit",
+    "replace": "refusedTruncated: false",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "bounds refusals to the latest read and requested limit without losing the older good read time"
+  },
+  {
+    "name": "undated-good-read-scope",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "WHERE b.collector_id = ? AND b.read_id = ? AND json_extract",
+    "replace": "WHERE ? IS NOT NULL AND ? IS NOT NULL AND json_extract",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "undated-only",
+    "file": "apps/cloud-gateway/src/school/collector-repository.ts",
+    "find": "AND json_extract(item.value, '$.dueAt') IS NULL",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "digest-undated",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.state === \"current\" && d2l.lastGoodReadUndatedItems > 0)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "digest-undated-current",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.state === \"current\" && d2l.lastGoodReadUndatedItems > 0)",
+    "replace": "if (d2l.lastGoodReadUndatedItems > 0)",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "digest-undated-positive",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "if (d2l.state === \"current\" && d2l.lastGoodReadUndatedItems > 0)",
+    "replace": "if (d2l.state === \"current\")",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "submission-container",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (submission?.status === 200 && submission.complete) record(submission.body);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails unfamiliar successful submission containers while retaining complete submission refusals"
+  },
+  {
+    "name": "submission-refusal-shape",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "if (submission?.status === 200 && submission.complete) record(submission.body);",
+    "replace": "if (submission !== null && submission !== undefined) record(submission.body);",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "fails unfamiliar successful submission containers while retaining complete submission refusals"
+  }
+]

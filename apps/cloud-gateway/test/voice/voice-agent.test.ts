@@ -557,7 +557,7 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("offers the nine memory tools and tells the model it is speaking on a call", async () => {
+  it("offers the memory and school tools and tells the model it is speaking on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
     const provider = new FakeAgentProvider([stopped("Hello.")]);
@@ -570,6 +570,7 @@ describe("the voice agent adapter", () => {
     expect(request?.tools.map((definition) => definition.name)).toEqual([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
+      "school_d2l_status", "school_collector_revoke",
     ]);
   });
 
