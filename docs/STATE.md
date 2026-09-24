@@ -11,10 +11,9 @@ them down.
 If this file disagrees with a longer document, this file is right and the longer
 document is stale — say so in the pull request that fixes it.
 
-Last regenerated: 2026-09-22, against `main` = the revision printed by
-`git log --oneline origin/main -1`, and against production as `#143` last observed it at
-23:20 UTC on 2026-09-21 (that PR's figures, not re-queried here). Regenerate it; do not
-append to it.
+Last regenerated: 2026-09-23. Deploy updated from Sid's and the reviewer's report;
+older database observations remain dated 2026-09-21. No production query was made
+for this update. For the repository revision, run `git log --oneline origin/main -1`.
 
 ## In flight, and what each one would change here
 
@@ -33,7 +32,7 @@ The verdicts below predate `#145`: where one says the boot chain stops at exit 3
 | 1 The nervous system | **partial** | Infrastructure is there, and as of `goal/item4-5-voice` so is one brain for the agent loop: `OwnerAgentCore` holds the loop, the caps, the tier gate, the receipt guard and the nine memory tools once, and Telegram and voice each subclass it. **What is not collapsed** is the channel itself: a stateless Worker for Telegram and a separate `CallSession` DO for voice, with no DO holding conversation state for Telegram to share. No SMS path, no Queues |
 | 2 Memory | **code-complete; the two channels act on one store and recall from two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **A phone call now acts on `memory_items`, the same store Telegram writes** — before `goal/item4-5-voice` the voice path could not name a memory at all. Recall still differs: Telegram composes `TelegramMemoryRetriever`, voice composes `D1ContextRetriever` over `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes, and which is **empty in production** — so nothing said by text reaches a phone call's *context* |
 | 3 School | **built, and cannot receive anything useful** | The email route is configured, and **D2L's email carries no deadline.** Sid enabled every notification option; D2L sends an activity summary naming the course with a count (*"76 New Emails"*) and a link. No assignment, no date. So the handler, parser and authenticity checks are correct and **their input cannot contain what they need**; the dates are behind the D2L login. Classroom is impossible on this board (no Google Cloud Console access) and the Brightspace feed does not exist. **The only remaining route is the PC reading D2L while logged in** — see [QUEUE.md](QUEUE.md) |
-| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations bind `capability:argumentsHash`, not the tool name, and are never consumed. Unchanged by the voice work except that voice now reaches the same gate |
+| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations still bind `capability:argumentsHash` across channels. The [single-use tap change](reviews/2026-09-23-tier3-tap.md) claims each tap once with a ten-minute expiry; migration `0039` and the gateway rollout await owner action |
 | 5 Calling | **plumbing proven, brain present, release gate never run** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. **As of `goal/item4-5-voice` a call dispatches the nine memory tools**: `OwnerVoiceAgentAdapter` is a `ModelAdapter` that drives `ModelAgentProvider`, with the tier gate in front and the receipts spoken. Two memory tools remain unusable on a call — `memory_confirm` and the "previous memory" lookup both need the Telegram delivery chain — and the release gate has still never been run |
 | 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
 | 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
@@ -63,17 +62,21 @@ agent half of that landed and the memory-read half did not.
 
 ## Production
 
-**Observed directly at 23:20 UTC on 2026-09-21**, by querying production with `wrangler`:
+**Owner-observed deploy on 2026-09-23, reported by Sid and the reviewer to PR #158.**
+This builder did not query production. See the [review](https://github.com/stremysid/jarvis/pull/158#issuecomment-5805607554)
+and [FACTS](FACTS.md) for provenance.
 
-- **Code:** Worker `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, uploaded 2026-09-21T21:27:49Z from
-  `352991e` (#135), 18 s before #133 merged. **Not deployed:** #133's model default (moot —
-  production runs Flash, see [FACTS.md](FACTS.md)) and #137's voice change. Deploying is in
-  [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
-- **Active version:** `64a184ce-4408-4962-b973-9ec3b6f48c9c`. Sid made three secret changes
-  between 21:42 and 21:55 UTC after that deploy; a secret change creates a new version with the
-  same code. Which secrets changed is not visible — values are write-only.
+- Sid ran `scripts/deploy.ps1 -Publish` from `C:\javis` at source **`a6a0efd`**,
+  at **20:41 EDT on 2026-09-23 (00:41 UTC on 2026-09-24)**.
+- **Worker `jarvis-cloud-gateway`, version `7e027a1f-065b-4f60-8229-f3edff0160dc`.**
+  `/health` returned **200 at 20:42 EDT** (00:42 UTC on 2026-09-24).
+- **Deployed as of `a6a0efd`: #133, #137, #144, #146, #147, #149 and #154.**
+  #156 (`248c3de`, Hermes, local-only) merged afterwards; it is not a gateway deploy.
+- **No migrations applied; D1 stays at `0038`.** Pre-deploy restore bookmark:
+  `00000eb2-00000000-000050f0-5b731149bde16c2e83a28d379fa86a15` (owner/reviewer report).
+
+**Older observations from #143's production query at 23:20 UTC on 2026-09-21, not refreshed:**
 - Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`.
-- **D1 at migration `0038`.** Verified by querying `d1_migrations`.
 - **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway` at
   `2026-09-21T23:20:05Z`.
 - **Memory: 5 items, all `proposed`, 0 `active`**, and 0 rows in `memory_fact_projection_facts`.
@@ -84,7 +87,7 @@ agent half of that landed and the memory-read half did not.
 - **Calls:** 6 inbound owner calls, all 2026-09-17; no outbound call ever.
 - **School email:** `d2l_email_messages` is empty.
 
-Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
+The deployment and health check do not refresh these older database observations.
 
 ## The gates, and whether they can be trusted
 
@@ -110,14 +113,14 @@ Re-checked against `main` and production on 2026-09-21:
    a token on the line after `Authorization:`. Confirmed by executing
    `sanitizeRedaction`. The test that appears to cover it asserts against
    `guest.pin`, a field no production call site passes. [#149](https://github.com/stremysid/jarvis/pull/149)
-   fixes a four-digit PIN after a credential word, on every channel, and is not
-   deployed. A bare PIN with no credential word before it, and a spoken-word PIN,
+   fixes a four-digit PIN after a credential word, on every channel, and is
+   deployed as of `a6a0efd`. A bare PIN with no credential word before it, and a spoken-word PIN,
    stay open. PR #96 fixes the digit
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
 
-**Fixed on `main` by #144, not deployed:** `selectControlTargets` read `memory_item_fts` with no
+**Fixed by #144, deployed as of `a6a0efd`:** `selectControlTargets` read `memory_item_fts` with no
 suppression anti-join, so a memory whose originating event the ledger had suppressed
 was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
 arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
@@ -125,8 +128,8 @@ The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #1
 them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
 `creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
 
-Item 2 is in [QUEUE.md](QUEUE.md). `KNOWN_ISSUES.md` is **not** a reliable
-companion here: it is 1,145 lines and still describes shipped work as open.
+Item 2 is in [QUEUE.md](QUEUE.md). [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) was
+audited on 2026-09-23; its [disposition record](DOCS-VERIFY.md) names the source revision and fixes removed.
 
 ## Where things live
 

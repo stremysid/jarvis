@@ -14,6 +14,7 @@ const sha256 = /^[a-f0-9]{64}$/;
 const target = Object.freeze({ implementation_name: "cpython", implementation_version: "3.11.16", os_name: "nt", platform_machine: "AMD64", platform_python_implementation: "CPython", platform_system: "Windows", platform_release: "", python_full_version: "3.11.16", python_version: "3.11", sys_platform: "win32" });
 const sourceVerifier = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
 const trustedPowerShellHost = String.raw`C:\Program Files\PowerShell\7\pwsh.exe`;
+const trustedPackageQueryHost = String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`;
 const trustedGitHost = String.raw`C:\Program Files\Git\cmd\git.exe`;
 const trustedWindowsRoot = String.raw`C:\Windows`;
 const trustedTaskkillHost = String.raw`C:\Windows\System32\taskkill.exe`;
@@ -22,7 +23,7 @@ const sourceVerifierMaxOutputBytes = 64 * 1_024;
 const taskkillDeadlineMs = 10_000;
 
 async function validateTrustedFile(path, label) {
-  const [info, canonical] = await Promise.all([lstat(path), realpath(path)]).catch(() => { throw new Error(`${label} is unavailable`); });
+  const [info, canonical] = await Promise.all([lstat(path), realpath(path)]).catch((cause) => { throw new Error(`${label} is unavailable`, { cause }); });
   if (!info.isFile() || info.isSymbolicLink() || canonical.toLowerCase() !== path.toLowerCase()) throw new Error(`${label} is not the trusted absolute file`);
   return canonical;
 }
@@ -117,9 +118,101 @@ export function runVerifierProcess(child, { deadlineMs = sourceVerifierDeadlineM
   });
 }
 
+async function queryPowerShellPackages() {
+  // PowerShell 7 cannot bootstrap its own trust. Use the OS host and OS modules,
+  // never an App Execution Alias, a PATH command, or a user-installed Appx module.
+  const host = await validateTrustedExecutable(trustedPackageQueryHost, "PowerShell 7 package discovery host");
+  const taskkillHost = await validateTrustedExecutable(trustedTaskkillHost, "trusted taskkill host");
+  const hostDirectory = await validateTrustedDirectory(dirname(host), "PowerShell 7 package discovery directory");
+  const modules = await validateTrustedDirectory(join(hostDirectory, "Modules"), "PowerShell 7 package discovery modules");
+  const manifests = {};
+  for (const name of ["Appx", "Microsoft.PowerShell.Utility"]) {
+    const directory = await validateTrustedDirectory(join(modules, name), `PowerShell 7 package discovery ${name} directory`);
+    manifests[name] = await validateTrustedFile(join(directory, `${name}.psd1`), `PowerShell 7 package discovery ${name} manifest`);
+  }
+  const environment = {
+    APPDATA: hostDirectory,
+    ComSpec: join(trustedWindowsRoot, "System32", "cmd.exe"),
+    HOME: hostDirectory,
+    JARVIS_HERMES_APPX_MODULE: manifests.Appx,
+    JARVIS_HERMES_UTILITY_MODULE: manifests["Microsoft.PowerShell.Utility"],
+    LOCALAPPDATA: hostDirectory,
+    Path: join(trustedWindowsRoot, "System32"),
+    PATHEXT: ".COM;.EXE",
+    PSDisableModuleAnalysisCacheCleanup: "1",
+    PSModuleAnalysisCachePath: "NUL",
+    PSModulePath: modules,
+    SystemRoot: trustedWindowsRoot,
+    TEMP: hostDirectory,
+    TMP: hostDirectory,
+    USERPROFILE: hostDirectory,
+    WINDIR: trustedWindowsRoot,
+    XDG_CONFIG_HOME: hostDirectory,
+  };
+  const bootstrap = String.raw`$ErrorActionPreference = 'Stop'
+$env:PSModulePath = 'NUL'
+$PSModuleAutoLoadingPreference = 'None'
+Import-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force
+# Appx's localized manifest uses Utility's ConvertFrom-StringData. Autoloading
+# stays disabled, so that dependency must already be imported from the OS tree.
+Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$packages = @(Appx\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | ForEach-Object {
+  [pscustomobject]@{
+    PackageFamilyName = $_.PackageFamilyName
+    Publisher = $_.Publisher
+    SignatureKind = [string]$_.SignatureKind
+    IsDevelopmentMode = $_.IsDevelopmentMode
+    Status = [string]$_.Status
+    InstallLocation = $_.InstallLocation
+  }
+})
+Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $packages -Compress`;
+  try {
+    const child = spawn(host, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", bootstrap], { windowsHide: true, cwd: hostDirectory, env: environment });
+    const result = await runVerifierProcess(child, { taskkillHost });
+    if (result.code !== 0) throw new Error("Windows Appx query exited unsuccessfully");
+    return JSON.parse(result.stdout);
+  } catch (cause) {
+    throw new Error("PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence", { cause });
+  }
+}
+
+export async function resolveTrustedPowerShellHost() {
+  // Only lstat can establish that the MSI entry itself is absent. realpath's
+  // ENOENT can instead mean a dangling link, which must not unlock fallback.
+  try {
+    await lstat(trustedPowerShellHost);
+  } catch (cause) {
+    if (cause.code === "ENOENT") return resolveTrustedStorePowerShellHost();
+    throw new Error("trusted PowerShell 7 MSI host is unavailable", { cause });
+  }
+  return await validateTrustedExecutable(trustedPowerShellHost, "trusted PowerShell 7 MSI host");
+}
+
+async function resolveTrustedStorePowerShellHost() {
+  const packages = await queryPowerShellPackages();
+  if (!Array.isArray(packages) || packages.length !== 1) throw new Error("trusted PowerShell 7 host is unavailable: expected one registered Microsoft.PowerShell Store package after the MSI host was absent");
+  const installed = packages[0];
+  if (installed?.PackageFamilyName !== "Microsoft.PowerShell_8wekyb3d8bbwe") throw new Error("PowerShell 7 Store package family is not trusted");
+  if (installed.Publisher !== "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US") throw new Error("PowerShell 7 Store package publisher is not trusted");
+  // A manifest can copy Microsoft's identity in a developer registration. The
+  // OS-reported Store signature and non-development registration bind it to a
+  // deployed, protected package, rather than a user-controlled loose layout.
+  if (installed.SignatureKind !== "Store") throw new Error("PowerShell 7 package is not signed by the Windows Store");
+  if (installed.IsDevelopmentMode !== false) throw new Error("PowerShell 7 Store package is a development registration");
+  // A matching signed identity is insufficient when Windows reports that the
+  // installed package is damaged or otherwise not ready to run.
+  if (installed.Status !== "Ok") throw new Error("PowerShell 7 Store package status is not Ok");
+  const location = installed.InstallLocation;
+  if (typeof location !== "string" || !/^[A-Za-z]:\\/.test(location) || resolve(location) !== location) throw new Error("PowerShell 7 Store install location is not an exact drive-absolute directory");
+  const directory = await validateTrustedDirectory(location, "PowerShell 7 Store install location");
+  return validateTrustedExecutable(join(directory, "pwsh.exe"), "trusted PowerShell 7 Store host");
+}
+
 async function runLockedSourceVerifier(runtimeRoot) {
   const [powerShellHost, gitHost, taskkillHost] = await Promise.all([
-    validateTrustedExecutable(trustedPowerShellHost, "trusted PowerShell host"),
+    resolveTrustedPowerShellHost(),
     validateTrustedExecutable(trustedGitHost, "trusted Git host"),
     validateTrustedExecutable(trustedTaskkillHost, "trusted taskkill host"),
   ]);

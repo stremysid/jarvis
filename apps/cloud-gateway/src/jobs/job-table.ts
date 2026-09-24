@@ -22,6 +22,7 @@ import {
 } from "../deadlines/brightspace-ical-client.js";
 import { DeadlineIngestion, type DeadlineIngestionReport } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
+import { SchoolCollectorRepository } from "../school/collector-repository.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
@@ -883,6 +884,7 @@ async function digest(
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
       readDeadlineSources: async () => deadlines.listSources(),
+      readD2lStatus: () => new SchoolCollectorRepository(context.env.DB, principalId, () => context.clock.now()).status({ limit: 1 }),
       readSchoolObservations: async () => {
         const now = new Date(context.clock.now().getTime());
         return observations.readDigestSnapshot({
