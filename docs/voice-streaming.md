@@ -91,6 +91,15 @@ change to a prefix already released. A chunk ending on a period waits for the
 next character or EOF, including decimal and abbreviation splits. Original
 whitespace is preserved; no artificial sentence newline reaches a redactor.
 
+A further prefix probe found that the canonical quoted-credential regex fell
+back to an unquoted word when a chunk ended on a backslash. A full valid quoted
+reply redacted correctly, but that intermediate prefix exposed later words.
+The shared contract now consumes an unfinished escape for either quote style.
+**This deliberately strengthens Telegram redaction too**, including an
+unfinished quoted value at EOF or newline. A voice-only delay would leave that
+canonical EOF leak intact. Telegram's tool, judgment, JSON and rewrite behavior
+is unchanged. Contract tests and every-split voice tests cover this change.
+
 Code still speaks receipts before the follow-up and permits an exact receipt
 sentence to be repeated. Credential requests remain forbidden even with proof.
 The external, passive and Brightspace regex checks apply per sentence as an
@@ -124,8 +133,11 @@ Observed local results (pass / fail / skip; runs overlap and are not summed):
 | Old composition name filter (no evidence) / `r2-merged-pin` | 1 skipped | 0 / 0 / 130 |
 | Correct main composition name / `r2-merged-pin2` | 1 | 1 / 0 / 129 |
 | Restored source: reply, sentences, redactor, voice, guided / `r2-restored` | 5 | 189 / 0 / 0 |
+| Escape-boundary probe before fix / `r2-escape-probe` | 1 | 1 / 1 / 29 |
+| Escape fix: contracts and streaming redactor / `r2-escape-fixed` | 2 | 34 / 0 / 0 |
+| Final restored source including contracts / `r2-restored-final` | 6 | 193 / 0 / 0 |
 
-The final **37-case mutation spec has 37 named kills, each confirmed twice**.
+The final **39-case mutation spec has 39 named kills, each confirmed twice**.
 The first sweep observed 35 kills and 1 survivor; 0 wrong-test, unconfirmed,
 not-applied or invalid results, with 6 source files byte-restored. The survivor
 inserted sentence newlines inside the redactor, but its selected action-claim
@@ -134,11 +146,15 @@ not evidence of safety. A two-case supplement (2 confirmed kills, 0 other
 verdicts, 1 file byte-restored) separately reverses redaction/honesty ordering
 and tests that original newline fault on the no-claim caller fixture. The
 failures explicitly expose `bravo charlie` and `d4e5f6g7h8`; restored tests pass.
+An additional escape supplement removes each quote-style fix separately:
+2 named kills confirmed twice, 0 other verdicts, 1 file byte-restored. Its
+failures expose `bravo charlie` after the first word was incorrectly redacted.
 
-Source typecheck passes. The non-gating test typecheck initially reported 147
+Gateway and contracts source typechecks pass. The non-gating test typecheck initially reported 147
 diagnostics; fixing four new optional-field fixture errors restored 143. Final
 typecheck and state-carrier checks are recorded in the signed log entry.
-No unrelated test failed in the focused behavioral runs, and no flaky rerun
+The escape probe's expected pre-fix failure is recorded above. No unrelated
+test failed in the focused behavioral runs, and no flaky rerun
 was needed. Logs remain beside the external Markdown ledger.
 
 The mutation cases are in

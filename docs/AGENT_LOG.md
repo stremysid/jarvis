@@ -1,3 +1,24 @@
+## 2026-09-24 — Codex builder: #171 quoted-escape prefix follow-up
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+While waiting for CI, an additional H2 probe reproduced a leak at a chunk ending
+on a backslash inside a quoted credential: the canonical regex fell back to an
+unquoted word and exposed the remaining words. Probe: 1 passed / 1 failed /
+29 skipped. The contract now consumes unfinished escapes for either quote style,
+including EOF and newline. This is an argued Telegram behavior change too:
+stronger redaction, with its tool/JSON/claim/rewrite behavior unchanged. A
+voice-only buffer delay would leave the canonical EOF leak unfixed.
+
+Fixed contract and redactor files: 34/0/0. Two new named mutations each killed
+twice, 0 other verdicts, contract source byte-restored. Final round-2 spec has
+39 confirmed named kills (the earlier survivor remains disclosed below).
+Final restored six-file run: 193/0/0. Gateway and contracts source types exit 0;
+non-gating gateway test types remain 143 diagnostics, none in new or changed
+voice/security/guided/tap fixture code. Prior head `13e6199a` passed all 9 CI jobs
+in run `35958896973`; that is not evidence for this additional fix. The new head's
+CI outcome and full-suite counts belong in the authorized PR comment.
+
 ## 2026-09-24 — Codex builder: #171 round 2 claim markers, unsplit redaction and #172 integration
 
 Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
