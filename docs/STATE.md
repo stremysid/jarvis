@@ -11,10 +11,9 @@ them down.
 If this file disagrees with a longer document, this file is right and the longer
 document is stale — say so in the pull request that fixes it.
 
-Last regenerated: 2026-09-22, against `main` = the revision printed by
-`git log --oneline origin/main -1`, and against production as `#143` last observed it at
-23:20 UTC on 2026-09-21 (that PR's figures, not re-queried here). Regenerate it; do not
-append to it.
+Last regenerated: 2026-09-23. Deploy updated from Sid's and the reviewer's report;
+older database observations remain dated 2026-09-21. No production query was made
+for this update. For the repository revision, run `git log --oneline origin/main -1`.
 
 ## In flight, and what each one would change here
 
@@ -63,17 +62,21 @@ agent half of that landed and the memory-read half did not.
 
 ## Production
 
-**Observed directly at 23:20 UTC on 2026-09-21**, by querying production with `wrangler`:
+**Owner-observed deploy on 2026-09-23, reported by Sid and the reviewer to PR #158.**
+This builder did not query production. See the [review](https://github.com/stremysid/jarvis/pull/158#issuecomment-5805607554)
+and [FACTS](FACTS.md) for provenance.
 
-- **Code:** Worker `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, uploaded 2026-09-21T21:27:49Z from
-  `352991e` (#135), 18 s before #133 merged. **Not deployed:** #133's model default (moot —
-  production runs Flash, see [FACTS.md](FACTS.md)) and #137's voice change. Deploying is in
-  [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
-- **Active version:** `64a184ce-4408-4962-b973-9ec3b6f48c9c`. Sid made three secret changes
-  between 21:42 and 21:55 UTC after that deploy; a secret change creates a new version with the
-  same code. Which secrets changed is not visible — values are write-only.
+- Sid ran `scripts/deploy.ps1 -Publish` from `C:\javis` at source **`a6a0efd`**,
+  at **20:41 EDT on 2026-09-23 (00:41 UTC on 2026-09-24)**.
+- **Worker `jarvis-cloud-gateway`, version `7e027a1f-065b-4f60-8229-f3edff0160dc`.**
+  `/health` returned **200 at 20:42 EDT** (00:42 UTC on 2026-09-24).
+- **Deployed as of `a6a0efd`: #133, #137, #144, #146, #147, #149 and #154.**
+  #156 (`248c3de`, Hermes, local-only) merged afterwards; it is not a gateway deploy.
+- **No migrations applied; D1 stays at `0038`.** Pre-deploy restore bookmark:
+  `00000eb2-00000000-000050f0-5b731149bde16c2e83a28d379fa86a15` (owner/reviewer report).
+
+**Older observations from #143's production query at 23:20 UTC on 2026-09-21, not refreshed:**
 - Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`.
-- **D1 at migration `0038`.** Verified by querying `d1_migrations`.
 - **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway` at
   `2026-09-21T23:20:05Z`.
 - **Memory: 5 items, all `proposed`, 0 `active`**, and 0 rows in `memory_fact_projection_facts`.
@@ -84,23 +87,23 @@ agent half of that landed and the memory-read half did not.
 - **Calls:** 6 inbound owner calls, all 2026-09-17; no outbound call ever.
 - **School email:** `d2l_email_messages` is empty.
 
-Re-query rather than trusting these; they were true at 23:20 UTC on 2026-09-21.
+The deployment and health check do not refresh these older database observations.
 
 ## The gates, and whether they can be trusted
 
 | Gate | State |
 |---|---|
 | CI | **Alive, and green on `main` at `cdfdd4b`** — `gh run list --repo stremysid/jarvis --branch main` shows `success` for that commit. **Do not write "the last five runs pass":** it is false, and it was false in this row before. The real shape on 2026-09-21/22 was one `failure` at `688fe02`, two runs `cancelled` by newer pushes (#137, #138), then green. A newer push cancels an older run on the same branch (one concurrency group per branch) and **a cancelled run is not a failure** — reading one as a red main is a recurring error here. Re-run a flaky test before attributing a failure to it; those rows are in [QUEUE.md](QUEUE.md) |
-| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, so a timeout is now a signal rather than the machine's load. Three tests flake: `owner-telegram-agent.test.ts`, `telegram-memory.test.ts`'s 500 ms budget, and `hermes-runtime`'s `artifact-security-review3`. See [QUEUE.md](QUEUE.md) |
+| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, but those measurements do not make a timeout proof of an ordering defect. Of the three previously listed flakes, [#154](https://github.com/stremysid/jarvis/pull/154) fixes both Telegram cases: callback-ID corruption and the archived-memory test's host-dependent clock. Its replacement retains a virtual <=500 ms guard and requires candidate/history overlap. The remaining listed timing flake is `hermes-runtime`'s `artifact-security-review3`, whose cause remains open in [QUEUE.md](QUEUE.md). Hermes' Store PowerShell defect (#24) is separate; this PR does not claim it fixed |
 | `pnpm typecheck` | Clean |
-| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **144 errors in 32 files**, gated nowhere |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **143 errors**, measured in #154 round 1; none in the changed files. Still red and gated nowhere |
 | `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 
-**A timeout is now a signal.** With `testTimeout` set, a red run
-means something — except in the three flaky tests above, each of which
-should be re-run before a failure there is attributed. Merge on CI, not on a local
-run alone.
+**A runner timeout is separate from an operation deadline.** Setting `testTimeout`
+does not prevent a 450 ms retrieval deadline from firing under load. The two Telegram
+causes and their measured fixes are in [QUEUE.md](QUEUE.md); an assertion failure by
+itself proves neither ordering nor a timeout. Merge on CI, not on a local run alone.
 
 ## Live defects
 
@@ -110,14 +113,14 @@ Re-checked against `main` and production on 2026-09-21:
    a token on the line after `Authorization:`. Confirmed by executing
    `sanitizeRedaction`. The test that appears to cover it asserts against
    `guest.pin`, a field no production call site passes. [#149](https://github.com/stremysid/jarvis/pull/149)
-   fixes a four-digit PIN after a credential word, on every channel, and is not
-   deployed. A bare PIN with no credential word before it, and a spoken-word PIN,
+   fixes a four-digit PIN after a credential word, on every channel, and is
+   deployed as of `a6a0efd`. A bare PIN with no credential word before it, and a spoken-word PIN,
    stay open. PR #96 fixes the digit
    half only.
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
 
-**Fixed on `main` by #144, not deployed:** `selectControlTargets` read `memory_item_fts` with no
+**Fixed by #144, deployed as of `a6a0efd`:** `selectControlTargets` read `memory_item_fts` with no
 suppression anti-join, so a memory whose originating event the ledger had suppressed
 was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
 arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).

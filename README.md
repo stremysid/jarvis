@@ -35,17 +35,17 @@ gap to the cloud; it does not require moving all work there.
 
 ## Deployment boundary
 
-No production check was made for this documentation audit. **As of `352991e`**,
-[STATE's recorded observation](docs/STATE.md#production), taken at 23:20 UTC on
-2026-09-21, names Worker upload `78cb6e98-7814-4be7-82fb-a795a7e4d0a7` and active
-version `64a184ce-4408-4962-b973-9ec3b6f48c9c` after secret-only version changes.
-It records D1 through migration `0038`, a gateway heartbeat, six inbound owner
-calls and no outbound calls. Later merged code is not thereby deployed.
+No production query was made for this documentation audit. [STATE](docs/STATE.md#production)
+records Sid's and the reviewer's deploy observation: **as of `a6a0efd`**, Worker
+`7e027a1f-065b-4f60-8229-f3edff0160dc`, deployed at 20:41 EDT on 2026-09-23
+(00:41 UTC on 2026-09-24); `/health` returned 200 one minute later.
+No migrations were applied; D1 stays at `0038`. Older memory, heartbeat and call
+observations remain dated 2026-09-21. #156's local-only Hermes change merged later.
 
 ## Working on it
 
-[TESTING](TESTING.md) maps commands to coverage and states the PC safety
-restrictions. [KNOWN_ISSUES](KNOWN_ISSUES.md) contains remaining limits with code
+[TESTING](TESTING.md) maps commands to coverage.
+[KNOWN_ISSUES](KNOWN_ISSUES.md) contains remaining limits with code
 evidence. [ARCHITECTURE](docs/ARCHITECTURE.md) is the broader code map;
 [DECISIONS](DECISIONS.md) holds dated decisions. For deployment, use the
 [runbook](docs/runbooks/deploy.md) only with explicit owner authority.

@@ -138,6 +138,26 @@ describe("accepting a button tap", () => {
     expect(payload).toMatchObject({ updateId: 91, messageId: 12, data: DATA });
   });
 
+  it("preserves a decision callback whose ULID contains six consecutive digits", async () => {
+    const data = "d1:01m30abcde123456abcdefghjk:confirm";
+    await handleTelegramWebhook(requestFor(tapUpdate(91, data)), deps);
+
+    expect(taps[0]?.data).toBe(data);
+    expect(events.events[0]?.envelope.payload).toMatchObject({ data });
+  });
+
+  it.each([
+    "123456",
+    "01m30abcde123456abcdefghjk",
+    "d1:01m30abcde123456abcdefghjk:confirm!",
+  ])("still redacts digits in non-decision callback data: %s", async (data) => {
+    await handleTelegramWebhook(requestFor(tapUpdate(91, data)), deps);
+
+    const payload = events.events[0]?.envelope.payload as Record<string, unknown>;
+    expect(payload.data).toContain("[REDACTED_AUTH_DIGITS]");
+    expect(payload.data).not.toContain("123456");
+  });
+
   it("refuses to record a tap the redactor will not issue a token for", async () => {
     // The check above is only meaningful because this one holds: bypass the
     // redactor and the envelope rejects the payload, so nothing is stored at
@@ -157,7 +177,7 @@ describe("the gate a tap must pass", () => {
   it("refuses a tap from an identity that is not active", async () => {
     // Otherwise anyone who learned a decision id could answer the owner's
     // questions for them.
-    policy.result = { principalId: "principal-1", identityState: "revoked" };
+    policy.result = { principalId: "principal-1", identityState: "blocked" };
     const response = await handleTelegramWebhook(requestFor(tapUpdate()), deps);
 
     expect(response.status).toBe(200);

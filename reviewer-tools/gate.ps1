@@ -11,11 +11,12 @@
 
     Why this exists. `pnpm test:all` is `pnpm test && pnpm test:runtime &&
     pnpm test:watchdog`, so the first failing package stops the other two from
-    ever running. Four hermes-runtime security tests (sbom-integrity-round2 x2,
-    sbom-security-review3, source-lock) sat red on main for six days behind
-    exactly that chain. This script runs every package even when an earlier one
-    fails, then re-runs each failing test FILE alone, because the suite is
-    load-sensitive and a failure under load is not the same claim as a failure.
+    ever running. Hermes security failures were hidden for six days behind
+    exactly that chain. The Store-host fix retires the three SBOM exemptions;
+    only the source-lock exemption remains. This script runs every package even
+    when an earlier one fails, then re-runs each failing test FILE alone, because
+    the suite is load-sensitive and a failure under load is not the same claim
+    as a failure.
 
     Exit code 0 means: lint clean, typecheck clean, and every package passed
     apart from load flakes and the known pre-existing failures below.
@@ -41,11 +42,8 @@ if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
 # This list must SHRINK as the defects are fixed and never grow silently -
 # adding an entry is a review decision, not a convenience.
 $KnownPreExistingFailures = @(
-    # Every one of these is a hermes-runtime security test that was already red
-    # on main when this tool was written (seen again at b478d6d, 2026-09-18).
-    [pscustomobject]@{ File = 'sbom-integrity-round2.test.mjs'; Test = 'rejects a fabricated release-shaped source root through the real generator before reading lock inputs' }
-    [pscustomobject]@{ File = 'sbom-integrity-round2.test.mjs'; Test = 'closes PowerShell module discovery inside the real locked-source verifier child' }
-    [pscustomobject]@{ File = 'sbom-security-review3.test.mjs';  Test = 'does not execute or trust a zero-exit pwsh shadow from inherited PATH' }
+    # Keep the source-lock exemption from the original baseline (b478d6d,
+    # 2026-09-18). SBOM regressions must now fail the gate after the Store fix.
     [pscustomobject]@{ File = 'source-lock.test.mjs';            Test = 'rejects hostile tar members and zip members before runtime extraction' }
 )
 

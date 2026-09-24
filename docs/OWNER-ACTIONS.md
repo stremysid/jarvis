@@ -9,7 +9,7 @@ request. That failure has happened — Google Classroom consent was ruled out on
 2026-09-17 and walked through again on 2026-09-18, because the fact lived in an
 agent's memory and never in the repository.
 
-Last regenerated: 2026-09-21. Order within a section is the order to do them in.
+Last regenerated: 2026-09-23. Order within a section is the order to do them in.
 
 ## Done — kept so they are not asked for again
 
@@ -25,12 +25,13 @@ Last regenerated: 2026-09-21. Order within a section is the order to do them in.
 | Who reviews reviewer-authored PRs? | DeepSeek reviews; GPT-5.6 Sol builds. Sid, 2026-09-20 |
 | Set `JARVIS_ARCHIVE_PATH` and `JARVIS_MEMORY_PATH` at user scope | Set 2026-09-23 to `%LOCALAPPDATA%\Jarvis\data\archive.sqlite` and `memory.sqlite`. Sid ran `jarvis config` from `C:\javis` at `ec5ebb5` and it printed `configuration ready` |
 | Install the PC boot chain, elevated | Auto-login was already configured. Sid registered the `Jarvis boot chain` task on 2026-09-23 (`SID\Sid`, Interactive, RunLevel Highest, restart 3 × PT1M) and started it; `jarvis status` answered `status running`. A real reboot has not yet been observed |
+| Deploy [#154](https://github.com/stremysid/jarvis/pull/154) after independent clearance and merge | **Done:** included in Sid's deploy of `a6a0efd` on 2026-09-23 at 20:41 EDT as Worker `7e027a1f-065b-4f60-8229-f3edff0160dc`; `/health` returned 200 at 20:42 EDT. Owner/reviewer report, not a builder production query. A fresh Confirm tap after deploy remains unverified; see [STATE](STATE.md#production) |
+| **Deploy an explicitly approved main revision** | **Done:** Sid ran `scripts/deploy.ps1 -Publish` from `C:\javis` at `a6a0efd` on 2026-09-23. Includes #133, #137, #144, #146, #147, #149 and #154. **No migration** was applied; D1 stays at `0038`. Source: owner/reviewer report recorded in [STATE](STATE.md#production) |
 
 ## Waiting on Sid
 
 | Action | Why only you | State |
 |---|---|---|
-| **Deploy an explicitly approved main revision** | As of STATE's recorded deploy `352991e` (2026-09-21), #133, #137, #144, #146 and #147 are not deployed. **No migration**: no migration files changed between `352991e` and the audit base `a666097`. `f6bab5b` (#150) has since added the clean-tree/exact-origin-main guard to `scripts/deploy.ps1 -Publish`; the former claim that no guard exists is false. The deploy checkout was not inspected in this audit. Resolve its state and use the [deployment runbook](runbooks/deploy.md) only when you authorize a release | **not started** |
 | Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
 | Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |
 | Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |

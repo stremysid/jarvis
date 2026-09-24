@@ -3,6 +3,160 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: PR #158 round 2 merges main and records the owner deploy
+
+**Signed: Codex, documentation builder for Sid.** Merged freshly fetched main
+at `248c3de4b1145c22638eff5bc31999d18d00308a` (#156, following #154 at `a6a0efd`)
+into `codex/docs-verify` with a normal merge, preserving both histories.
+Both conflicting documents retain the other builders' entries/actions. The
+two completed deploy actions move to Done in their existing relative order;
+all other owner rows retain their order. Every prior `## ` heading from each
+parent is checked for preservation, and all entries remain below the intro.
+
+STATE and FACTS now record Sid's/reviewer's observation of the 2026-09-23
+20:41 EDT deploy from `a6a0efd`: Worker `7e027a1f-065b-4f60-8229-f3edff0160dc`,
+health 200 at 20:42 EDT, no migrations, D1 `0038`, and the supplied pre-deploy
+restore bookmark. #133/#137/#144/#146/#147/#149/#154 are deployed as of that
+source; #156 is local-only and merged afterwards. Updated the three affected
+issue rows and README's deploy boundary. Older data/call observations remain
+dated 2026-09-21. This builder made no production query or deploy.
+
+The previous round's `a666097` and test counts below are historical evidence,
+not this merged base's results. Documentation only relative to merged main;
+no runtime code, tests or guards authored, and no mutations attempted.
+Final state-carrier and merge-tree gate results are recorded in the PR and
+external ledger `C:\Users\Sid\codex-ledgers\docs-verify.md` after commit.
+
+## 2026-09-23 — Codex builder: issue #24, trusted PowerShell Store discovery
+
+Signed: Codex (GPT-6), builder on `codex/hermes-msix`, from freshly fetched
+`origin/main` at `f9472d18a3634f186b36675c8da5995292da9e1d`.
+
+Fix round 1 for [PR #156](https://github.com/stremysid/jarvis/pull/156): merged
+`origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` normally, retaining
+the reviewed `6c419d0` history. The review correctly identified that the old
+absence claim below was too broad: a dangling MSI link's `realpath` ENOENT
+also allowed Store fallback. Only the independent MSI `lstat` probe can now
+select Store; executable validation errors remain outside that catch.
+
+The query now carries Windows' package `Status` and requires `Ok`. An exact
+bootstrap assertion pins every projected field and the complete package list.
+Removed the three repaired SBOM exemptions from `gate.ps1`, retaining its
+source-lock exemption, and corrected the runbook's executable/alias mix-up.
+New regression tests reproduced **43 passed, 3 failed, 0 skipped** before the
+source fix (dangling link, unhealthy package, missing bootstrap status).
+The first fixed focused run passed **64 tests, 0 failed, 0 skipped**.
+The mutation spec now has 51 entries: six review-supplied query faults, the
+dangling-link fault, the health guard and a hardcoded health projection, plus
+the existing 42. The old cause-propagation mutation is replaced by an explicit
+MSI-absence fallback mutation because causes no longer select fallback.
+Revision evidence at `e12b349ac61cc6b5abceb6b3b37eb0d2521bae3b`:
+
+- **51/51 mutations killed**, each expected failure confirmed twice; **0**
+  survived, wrong-test, unconfirmed, not-applied or invalid. The source restore
+  was byte-identical. The subsequent focused run passed **64, failed 0,
+  skipped 0** (46 host, 14 integrity, 4 PATH-shadow/security tests).
+- Builder's local Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
+  37.32 seconds. At `5c8a470`, the [Hermes CI job](https://github.com/stremysid/jarvis/actions/runs/35930123889/job/107414429041)
+  ran the complete requested 16-file set: **158 passed, 0 failed, 0 skipped**,
+  including all seven unchanged attestation-contract tests. Independent review
+  also ran that 16-file set locally with **158/158 passing** (review result
+  relayed by Sid, 2026-09-23). Only source-lock and workflow-containment are
+  excluded from that set; no owner decision is needed.
+- Package lint and typecheck: exit 0 each, four configured syntax checks each.
+  Gate script parses; six isolated allowance checks pass (the three SBOM
+  failures are no longer excused, source-lock remains, a different source-lock
+  failure is rejected, and the allowance has exactly one entry).
+  `node scripts/check-state.mjs` passed all three carriers; no check failed.
+- Read-only Windows Appx recheck reports Store signing, non-development mode,
+  `Status = Ok`, the Microsoft family and the same 7.6.6 installation location.
+
+No flaky-file rerun was needed. Detailed red/green reports and mutation output
+are `C:\Users\Sid\codex-ledgers\hermes-msix-r1-*`. This revision leaves the
+permissions, registry, services, tasks and forbidden scratch path alone.
+
+Initial submission evidence follows; these counts predate fix round 1.
+
+The original SBOM pair reproduced **15 passed, 3 failed, 0 skipped** on this
+PC. Those three files are unchanged between `12a64b2` and this base. The MSI
+executable is absent; Windows Appx reports the genuine Microsoft PowerShell
+Store package at the versioned WindowsApps location in `FACTS.md`. Corrected
+that register's conflation of the real executable and the separate user alias.
+The prompt's CI premise needs narrowing: Hermes passed on both revisions, but
+the workspace job failed in runs `35808137393` and `35920809820`.
+
+The resolver keeps MSI first and falls back only on absence. Store evidence
+comes from the fixed Windows PowerShell OS host, with validated absolute Appx
+and Utility modules, no profiles or inherited environment, closed discovery,
+and the existing bounded process-tree runner. Family, publisher, Store signing,
+non-development registration, exact API-reported location and canonical file
+checks all precede PowerShell 7 execution. The module-discovery regression now
+uses this resolver rather than scanning an assumed MSI directory.
+
+Observed gates on the home Store installation:
+
+- Full `pnpm --filter @jarvis/hermes-runtime exec vitest run test`, with no
+  exclusions: **294 passed, 0 failed, 0 skipped in 18 files**, 882.92 seconds.
+  The extended source-lock file passed 77 tests; containment passed 61.
+- Final restored SBOM/host selection: **62 passed, 0 failed, 0 skipped** in
+  three files. The 44 host tests fake both installation layouts independently
+  of the machine; the original three regressions exercise the real Store host.
+- **42/42 distinct mutations killed**, every expected failure confirmed twice,
+  all restores byte-identical. There were 44 successful mutation executions
+  including two deliberate rechecks. The first sweep also had **1 NOT APPLIED**
+  (an environment anchor matched twice), corrected and then killed. **0**
+  survived, wrong-test, invalid or unconfirmed results. Reproduce with
+  `reviewer-tools/mutate.ps1 -Spec reviewer-tools/mutation-specs-hermes-msix.json
+  -GateDir <clean-worktree>`.
+- Package `typecheck` and `lint`: both exit 0, four configured JavaScript syntax
+  checks each. `node scripts/check-state.mjs`: passes all three carriers.
+
+Production source has not changed since full-gate revision `679ce48`. During
+and after that gate, only the host test's exact diagnostic assertion, fixture
+labels and safe reporting of inherited environment names were tightened; the
+affected mutations and final 62-test selection were then rerun. The real OS
+query was also probed with a nonexistent package name: it returned `[]` and
+the resolver issued its named PowerShell 7 missing-host refusal.
+
+MSI execution on this PC, an actual custom package volume, hostile package
+registration, live Hermes acquisition and the new PR's CI were not verified
+locally. MSI selection is covered by the isolated fixtures; the PR's Windows
+runner supplies the real MSI layout. Package identity/signature rationale and
+Microsoft documentation links are in the PR body. Full reports and the
+continuity ledger remain under `C:\Users\Sid\codex-ledgers\hermes-msix*`.
+
+No production, deploy-tree or parallel sync-builder files were touched. No
+owner action is required for this local fix. Independent review follows the PR.
+
+## 2026-09-23 — Codex GPT-6 builder: [#154](https://github.com/stremysid/jarvis/pull/154) round 1 restores the critical-path guard
+
+**The callback fix is unchanged from reviewed head `28c9463`.** This round corrects the missing archived-memory latency guard, normally merges `a666097` (#153), and updates the stale state carriers. It supersedes the preceding entry's paused-clock test design; that earlier design let a candidate-before-history serialization mutation survive.
+
+- **Review premise reproduced before editing:** `mutate.ps1` on unchanged `28c9463` had a green memory-file baseline, **0 killed / 1 survived**, and restored the source byte-identically. The reviewer was right that trip/concurrency counts alone did not protect this critical path.
+- **A limit of the proposed recipe, measured:** virtual 25 ms D1 trips yield **225 ms** with parallel candidates/history (125/225 ms stages), versus **350 ms** when history waits for candidates (125+225). Thus <=500 alone still lets serialization survive without host overhead. The replacement retains <=500 and adds `elapsed < candidatesMs + historyMs` to require overlap, rather than picking an arbitrary tighter latency ceiling. The test counts real D1 I/O only after simulated delays, wraps R2 `get` and body `arrayBuffer`, yields through a captured real timer, then advances the next fake timer only when real I/O is idle. Evidence, concurrency, <=61 trips, <=86 statements and zero pending timers remain asserted. Production deadlines are unchanged.
+- **Mutation evidence on clean merged code/test head `fcc4c91c8902d921d21a3f6c2066cc6e6358a451`:** all **5 killed**, every kill confirmed twice; **0 survived / 0 not applied / 0 invalid / 0 unconfirmed / 0 wrong-test kills**. Both source files restored byte-identically. The original callback metadata/structural mutations still kill their named callback tests, and unbatching still kills the archived-work and production-shaped trip-bound tests. The review's exact serialization fault kills `retrieves archived-source memories and archived history with bounded parallel D1 reads`; an independent 501 ms delay after completed retrieval kills that same test's <=500 assertion. Extra selected assertion probes pinpoint **350 < 350** and **726 <= 500** respectively (each **0 passed / 1 failed / 71 skipped**), followed by source restoration.
+- **20/20 complete memory-file iterations passed**, each **72 passed / 0 failed / 0 skipped**; aggregate **1,440 passed / 0 failed / 0 skipped**. Early iterations ran concurrently with the full gateway suite. Sources were restored before these runs.
+- **Full touched-package gate observed:** gateway **190 files, 5,114 passed / 0 failed / 0 skipped**, exit 0. No unrelated failure required a retry. Gateway lint/source typecheck exit 0. The non-gating test typecheck remains **red: 143 errors, none in changed files**. The first revised complete memory-file check was **72/0/0**. `node scripts/check-state.mjs` exit 0, all 3 carriers pass; `git diff --check` passes.
+- **Normal merge:** `fcc4c91` has parents `9b3682d` and `a666097`; only QUEUE conflicted. Main's #96/#122 rows and Hermes #24/check-state work-item details are retained; stale open rows are removed. Fresh GitHub inspection found #155–#160 also open, so the requested three-PR list had already drifted. #154 moves from changes-requested to awaiting-review with this push. STATE now names only Hermes `artifact-security-review3` as the remaining timing flake among the previously listed trio; its queue/test source were checked, not its suite rerun. Hermes' separate Store PowerShell defect remains tracked.
+- **Optional hardening deferred explicitly:** grammar-valid callback option keys such as synthetic `483920` and `pin1234` are preserved along with the ULID. The parser and structural redaction source confirm this. The review scopes this to a forged authenticated-owner tap. Content-redacting the option segment changes the existing callback contract; the proven callback fix is frozen this round, and the limitation is in the PR body.
+- **Boundary and handoff:** no production/real-provider acceptance or production latency/concurrency claim; no migration or sync-recovery-owned changes. No PR merge/deploy, secret/production operation, permissions/registry/services/scheduled-task change, spend or personal contact; the forbidden scratch path was not touched. Untouched Hermes/watchdog/local-agent and full-workspace suites were not rerun this round. OWNER-ACTIONS already contains deployment after independent clearance/merge. Exact specs, JSON counts and raw logs remain alongside `C:\Users\Sid\codex-ledgers\flake-telegram.md` (`flake-r1-*`). The worktree is removed after the PR update; the ledger remains.
+
+— Codex GPT-6, builder; independent review follows the updated PR head.
+
+
+## 2026-09-23 — Codex GPT-6 builder: Telegram flakes traced and fixed in [#154](https://github.com/stremysid/jarvis/pull/154)
+
+**A production bug, plus a test deadline defect.** Callback ingress redacted isolated six-digit runs inside random decision ULIDs. Memory authorization compares the stored callback bytes with the decision and correctly refused the corrupted value. A repeat tap kept the same affected decision ID, so this could persist in production. The fix selects existing structural redaction only after the complete decision callback grammar parses; malformed data still gets free-text redaction. No authorization check is weakened.
+
+- **CI verified:** `gh run view --log-failed` for 35808137393 and 35532739198, and `--attempt 1` for 35917649227 (attempt 2 is green). Each reported owner-agent failure logs `memory_refused`. The main-run failure leaves an item active; it is not a swapped-order assertion. Exact red/green heads for 35532739198/35532044202 differ only by 11 AGENT_LOG lines. QUEUE's claim that `testTimeout` establishes an ordering defect is withdrawn.
+- **Before/after:** five unchanged complete file-pair runs gave 171 passed / 1 failed once and 172 passed / 0 failed four times (0 skipped throughout). The archived case failed 1/5; owner-agent failed 0/5. Three forced six-digit-ID regressions then failed 5/5 runs each before the fix and passed 5/5 each after (each run: before 0/3/113, after 3/0/113 pass/fail/skip). Five final complete file-pair runs each passed **174/0/0**.
+- **Archived-memory mechanism:** a controlled 600 ms delay before each real D1 operation made the old test fail 5/5 (0/1/71 each). Candidate/history work measured 644/646 ms against 450 ms deadlines, independently of its 60 s Vitest timeout. The test now verifies all evidence, concurrency and <=61 trips / <=86 statements with deadline timers paused, then restores real timers. The same delay experiment passed 5/5 (1/0/71 each). Temporary instrumentation was removed. Production timeouts and the separate real-deadline tests are unchanged; this test no longer claims a production 500 ms SLA.
+- **Mutation proof:** `reviewer-tools/mutate.ps1`, clean code/test commit `d1ca006655cde5e9db1d99f951bfa848d268afb5`. Always-metadata redaction kills the valid-callback test; always-structural kills the malformed bare-ULID test; individual candidate reads kill the new archived work-bound test and the existing production-shaped trip-bound test. All three kills confirmed twice. **3 killed, 0 survived, 0 not applied, 0 invalid, 0 unconfirmed, 0 wrong-test kills; 2 source files restored byte-identically.** Restored focused run: **203 passed / 0 failed / 0 skipped**; earlier webhook pair: **29/0/0**.
+- **Final gates observed:** `pnpm test` **209 files, 5,467 passed / 0 failed / 0 skipped**, including all **190 gateway files, 5,114/0/0**. Gateway lint and source typecheck exit 0. `node scripts/check-state.mjs` exit 0 (3 carriers). `git diff --check` passes. Non-gating test typecheck remains red with **143 existing errors, none in changed files**; changing the touched fixture's invalid `revoked` state to `blocked` removed one of the observed baseline 144.
+- **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
+
+— Codex GPT-6, builder; independent review follows the PR.
+
 ## 2026-09-23 — Codex builder: PR #158 round 1 documentation corrections
 
 **Signed: Codex, documentation builder for Sid.** Addressed all six findings
