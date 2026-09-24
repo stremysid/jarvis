@@ -3,6 +3,10 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 integrates newly merged #165
+
+Signed: Codex, builder. The next mandatory fetch brought `0d695563` (#165 calendar feed). Normally merged as `504cbf5f`, preserving both log histories. Deadline proof and shared core remain unchanged. Calendar feed/routes, deadline folder, school repository and classification gate: **235 passed / 0 failed / 0 skipped, 14 files**. Source types passed, 0 diagnostics; state passed 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff passed. This local integration result supplements the 454-test #164 gate. The once-only full run remains explicitly before these upstream integrations, not an exact-final-tree claim. No new guard authored or production operation performed. #168 receives this A head before its final push.
+
 ## 2026-09-24 — Codex builder: #166 integrates newly merged #164
 
 Signed: Codex, builder. The mandatory final fetch while finishing #168 brought `0b63b916` (#164), after both once-only full runs had finished. Normally merged it into A as `bc70f023` to resolve the shared tool-description conflict. Retained #164's complete school, university and study descriptions and appended the deadline versus finished-work distinction. Both log histories and both CODE-VS-JUDGMENT sections remain. Deadline source and owner-agent core are unchanged from A's already reviewed integration source.
