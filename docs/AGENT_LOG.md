@@ -3,6 +3,44 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: tutoring replies keep their sentences
+
+**Branch:** `codex/tutoring-guard-run`, based on freshly fetched `a666097`.
+All three reported examples reproduced at that base. Both ordinary and post-tool
+`OwnerAgentCore.streamCaptured` paths call `guardReplyClaims`.
+
+- Neutral verbs and contextual inclusive "we" require an external target in the
+  same sentence; explicit sending, submission, payment and contact verbs still
+  catch pronoun-only objects. The `applied ... for you` fallback uses that target
+  rule too. Secret, draft, receipt and existing advice guards remain.
+- `owner-agent-core.ts` changes one prompt line: worked explanations are not
+  actions and need no receipt. No migration or parallel sync/store-permissions edits.
+- New `test/school/tutoring-reply-guard.test.ts`: 67 passed, 0 failed, 0 skipped
+  after restoration. The owner Telegram delivery test preserves the three reported
+  sentences and observes one model request. Existing guard assertions are unchanged.
+- Focused: 1,020 passed / 0 failed / 0 skipped in 5 files; after adding final tests,
+  the 2 changed test files passed 168 / 0 / 0. Full cloud-gateway suite, run once:
+  **5,176 passed / 0 failed / 0 skipped in 191 files**. No flaky-file rerun needed.
+- `reviewer-tools/mutate.ps1`: **17 named kills, each confirmed twice**, covering
+  all six neutral verbs, five inclusive-we verbs, the subject/target boundaries,
+  explicit sending, both applied-for-you branches and secret requests. Zero
+  wrong-test kills, unconfirmed, survived, not-applied or invalid. Source restored
+  byte-identical; every named test passed in the restored 67-test corpus.
+- Source typecheck passed. Test typecheck reports **144 errors in 32 unchanged
+  files**, matching documented debt; neither changed test file has a diagnostic.
+  `node scripts/check-state.mjs` passed (3 carriers); `git diff --check` passed.
+- Existing gap observed before this fix: "We asked about it, and your teacher
+  agreed." passes the asked-about exemption. This PR does not claim to fix that
+  gap or comprehensively classify natural language. The new caught case uses
+  "We asked for it, and your teacher agreed." Live model/Telegram/voice behavior
+  was not exercised. The partial heuristic is recorded in CODE-VS-JUDGMENT.
+- Evidence and mutation spec: `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md`
+  and its sibling logs/JSON. Incident runbook was missing at the supplied path;
+  no local-agent or PC permission/settings tests ran. No new owner-only action.
+
+**Next, when the PR opens:** automated and independent adversarial review; this
+builder has not merged or deployed. — Codex (builder)
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
