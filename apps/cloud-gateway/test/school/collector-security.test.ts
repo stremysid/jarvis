@@ -61,12 +61,12 @@ describe("school collector security", () => {
     await expect(new SchoolCollectorPairing(env.DB, "missing-owner", f.clock).start({ ...request, deviceLabel: "test" }))
       .rejects.toThrow("school_pairing_unavailable");
     // Different synthetic keys exercise the durable rate bound rather than the unique key constraint.
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
       const key = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey) as ArrayBuffer)));
-      await f.pairing.start({ publicKeyBase64: key, deviceLabel: "Synthetic" });
+      if (i < 3) await f.pairing.start({ publicKeyBase64: key, deviceLabel: "Synthetic" });
+      else await expect(f.pairing.start({ publicKeyBase64: key, deviceLabel: "Synthetic" })).rejects.toThrow("school_pairing_unavailable");
     }
-    await expect(f.pairing.start({ publicKeyBase64: f.publicKeyBase64, deviceLabel: "Synthetic" })).rejects.toThrow("school_pairing_unavailable");
   });
 
   it("accepts a canonical signed course batch and refuses the same nonce twice", async () => {
