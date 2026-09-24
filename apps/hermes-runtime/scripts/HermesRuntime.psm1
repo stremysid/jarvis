@@ -1999,10 +1999,32 @@ function Assert-SafeUvMembers {
   foreach ($member in $Members) { if (-not $seen.Add([string]$member.Name) -or (Test-UnsafeArchiveMember ([string]$member.Name)) -or ([string]$member.Name) -match '[\\/]' -or [bool]$member.Link) { throw 'uv archive has an unsafe member.' } }
 }
 
+function Get-HermesSystemTarPath {
+  $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot', [EnvironmentVariableTarget]::Machine)
+  if ([string]::IsNullOrEmpty($systemRoot)) { $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot', [EnvironmentVariableTarget]::Process) }
+  if ([string]::IsNullOrEmpty($systemRoot)) { $systemRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows) }
+  if ([string]::IsNullOrEmpty($systemRoot) -or -not [IO.Path]::IsPathFullyQualified($systemRoot)) { throw 'System tar host root is unavailable.' }
+  $full = [IO.Path]::GetFullPath((Join-Path $systemRoot 'System32\tar.exe'))
+  if (-not [IO.Path]::IsPathFullyQualified($full) -or [IO.Path]::GetExtension($full) -cne '.exe') { throw 'System tar host path is not the reviewed exact absolute executable.' }
+  $cursor = $full
+  $leaf = $true
+  while ($true) {
+    if (-not (Test-Path -LiteralPath $cursor)) { throw 'System tar host is unavailable.' }
+    $item = Get-Item -LiteralPath $cursor -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or ($leaf -and $item.PSIsContainer) -or (-not $leaf -and -not $item.PSIsContainer)) { throw 'System tar host traverses or names an unsafe filesystem object.' }
+    $parentInfo = [IO.Directory]::GetParent($cursor)
+    if ($null -eq $parentInfo) { break }
+    $cursor = $parentInfo.FullName
+    $leaf = $false
+  }
+  return $full
+}
+
 function Assert-SafeCpythonArchive {
   param([string]$Archive)
-  $names = @(& tar.exe -tf $Archive 2>&1); if ($LASTEXITCODE -ne 0) { throw 'CPython archive listing failed.' }
-  $verbose = @(& tar.exe -tvf $Archive 2>&1); if ($LASTEXITCODE -ne 0 -or $names.Count -ne $verbose.Count) { throw 'CPython archive metadata listing failed.' }
+  $tar = Get-HermesSystemTarPath
+  $names = @(& $tar -tf $Archive 2>&1); if ($LASTEXITCODE -ne 0) { throw 'CPython archive listing failed.' }
+  $verbose = @(& $tar -tvf $Archive 2>&1); if ($LASTEXITCODE -ne 0 -or $names.Count -ne $verbose.Count) { throw 'CPython archive metadata listing failed.' }
   $members = for ($index = 0; $index -lt $names.Count; $index++) { [pscustomobject]@{ Name = $names[$index].ToString(); Type = $verbose[$index].ToString()[0] } }
   Assert-SafeCpythonMembers $members
 }
@@ -2652,4 +2674,4 @@ function Promote-StagedDirectories {
   } finally { Exit-HermesContainmentScope $scope }
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-HermesExactRuntimeRoot, Assert-ChildPath, Assert-HermesTestFixtureRoot, Open-HermesSafeIdentity, Assert-HermesSafeTree, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Get-HermesTrustedGitExecutable, Invoke-GitChecked, Get-HermesGitTreePaths, Get-HermesGitBlobObjectIdFromBytes, Get-HermesGitBlobObjectId, Assert-HermesGitWorkTreeMatchesCommit, Export-HermesGitBlobsNoClobber, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Get-HermesCanonicalGitConfig, Assert-HermesGitConfig, Assert-HermesDetachedHead, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Expand-HermesCpythonArchiveIdentityStable, Expand-HermesUvArchiveIdentityStable, Promote-StagedDirectory, Get-HermesPublicationJournalPath, Get-HermesPublicationReadyPath, Get-HermesPublicationJournalRecord, Get-HermesWorkflowLockPath, Enter-HermesWorkflowLock, New-HermesWriteContainmentContext, Assert-HermesContainmentContext, Test-HermesOrdinalPathSetEqual, Assert-HermesExactDirectorySpelling, Add-HermesDirectoryLease, New-HermesLeasedDirectory, New-HermesContainedScratchDirectory, Clear-HermesContainedScratchResidue, Assert-NoHermesContainedScratchResidue, Add-HermesDirectoryTreeLeases, Release-HermesDirectoryLeaseSubtree, Enter-HermesGitWritableDirectoryTree, Exit-HermesGitWritableDirectoryTree, Exit-HermesWriteContainment, Open-HermesContainedFileCreateNew, Write-HermesContainedBytesCreateNew, Write-HermesContainedTextCreateNew, Copy-HermesContainedFileCreateNew, Move-HermesContainedFileNoReplace, Move-HermesLeasedDirectoryNoReplace, Remove-HermesContainedFileNoFollow, Remove-HermesContainedTreeNoFollow, Get-HermesDirectoryDigest, Sync-HermesPublicationPayload, Assert-HermesPublicationReady, Complete-StagedDirectories, Recover-StagedDirectories, Assert-NoHermesWorkflowResidue, Promote-StagedDirectories
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-HermesExactRuntimeRoot, Assert-ChildPath, Assert-HermesTestFixtureRoot, Open-HermesSafeIdentity, Assert-HermesSafeTree, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Get-HermesTrustedGitExecutable, Get-HermesSystemTarPath, Invoke-GitChecked, Get-HermesGitTreePaths, Get-HermesGitBlobObjectIdFromBytes, Get-HermesGitBlobObjectId, Assert-HermesGitWorkTreeMatchesCommit, Export-HermesGitBlobsNoClobber, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Get-HermesCanonicalGitConfig, Assert-HermesGitConfig, Assert-HermesDetachedHead, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Expand-HermesCpythonArchiveIdentityStable, Expand-HermesUvArchiveIdentityStable, Promote-StagedDirectory, Get-HermesPublicationJournalPath, Get-HermesPublicationReadyPath, Get-HermesPublicationJournalRecord, Get-HermesWorkflowLockPath, Enter-HermesWorkflowLock, New-HermesWriteContainmentContext, Assert-HermesContainmentContext, Test-HermesOrdinalPathSetEqual, Assert-HermesExactDirectorySpelling, Add-HermesDirectoryLease, New-HermesLeasedDirectory, New-HermesContainedScratchDirectory, Clear-HermesContainedScratchResidue, Assert-NoHermesContainedScratchResidue, Add-HermesDirectoryTreeLeases, Release-HermesDirectoryLeaseSubtree, Enter-HermesGitWritableDirectoryTree, Exit-HermesGitWritableDirectoryTree, Exit-HermesWriteContainment, Open-HermesContainedFileCreateNew, Write-HermesContainedBytesCreateNew, Write-HermesContainedTextCreateNew, Copy-HermesContainedFileCreateNew, Move-HermesContainedFileNoReplace, Move-HermesLeasedDirectoryNoReplace, Remove-HermesContainedFileNoFollow, Remove-HermesContainedTreeNoFollow, Get-HermesDirectoryDigest, Sync-HermesPublicationPayload, Assert-HermesPublicationReady, Complete-StagedDirectories, Recover-StagedDirectories, Assert-NoHermesWorkflowResidue, Promote-StagedDirectories
