@@ -371,7 +371,7 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("offers memory, shared argument and school collector tools and tells the model it is speaking on a call", async () => {
+  it("offers memory, shared argument, guided assignment and school collector tools and tells the model it is speaking on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
     const provider = new FakeAgentProvider([stopped("Hello.")]);
@@ -385,6 +385,7 @@ describe("the voice agent adapter", () => {
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
+      "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke",
     ]);
   });

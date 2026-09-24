@@ -64,6 +64,107 @@ Observed gates on final code `425b24d`: new deadline tests 25 passed plus reposi
 Mutation evidence: **14 unique faults killed on their named tests and confirmed on a second run**, with byte-identical restoration. Covers input format, named zone, date/clock zone matching, date/clock excerpt matching, course/title/status evidence, explicit-open refusal, current-message grounding, direct-owner and durable-turn checks, and the unchanged-row status race. Two initial probes were `KILLED/OTHER`; their corrected probes were independently confirmed, not counted as initial expected kills. Evidence and specs: `C:\Users\Sid\codex-ledgers\deadline-*.log` / `deadline-*mutations*.json`; continuity: `deadlines-reminders-run.md` in that folder.
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
+## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
+
+Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
+review at comment `5807157980`; reproduced the contradictory send claim on both
+Telegram and voice (**31/2/0**, both failures named for the channel draft claim).
+Current-turn executed receipts now carry proving tool names into the sentence
+guard. No linguistic send exemption, whole-reply workaround, or streaming code
+change. Focused tests **101/0/0**, then **153/0/0** after the main merge; source
+typecheck passes. Full gateway once: **5286/2/0**, 201 files (199 passed, 2
+failed), 759.03 seconds. Unchanged meaning-search bge-m3 cap and Hermes bytewise
+exact-cap frame tests timed out at 30 and 15 seconds respectively, both cases
+recorded earlier in this log. Isolated reruns passed **70/0/0** and **71/0/0**;
+no cause is inferred and no second full-suite run is claimed. All new guided,
+receipt-proof and syntax tests passed in the full run after mutation restoration.
+Final state check passed for **3 carriers and FACTS**, **0 warnings**; whitespace
+check passed and the merge-tree check against fresh main had no conflicts.
+
+All **18 new mutation faults** killed twice. Initial sweep: **17 killed, 1
+killed-wrong-test** because Vitest truncated the long mixed-receipt test name.
+Shortened the name, reran that exact fault: **1 killed, 0 other outcomes**.
+Post-merge offering/receipt rechecks: **3 killed, 0 other outcomes**. Every sweep
+verified byte-identical restoration. Test typecheck remains **143 diagnostics**,
+none in the new receipt, guided assignment or syntax tests.
+
+Added exact stored scribed-byte fidelity with fillers and whitespace, Telegram
+tool offering parity, and the three 0043 trigger names/shapes. Fresh main
+`0d695563` was already an ancestor. A later fetch found #169 merged at
+`29fbfcd6`; normal merge `f4dd9f24` preserves both catalogues, ordered migration
+inventories and both parents' log entries. Every open PR's migration paths were
+audited: main owns 0040, #168 owns 0041, only #172 owns 0043; 0042 stays reserved.
+#171 remains open; channel-parity has not merged. The named collector-reader
+follow-up is now ready; richer raw collector evidence is not yet wired into
+guided_assignment_read, though the collector's projected deadlines are readable.
+
+For #171: its plain-text stream removes `claimedActions`, so its exact-receipt
+policy does not support this reviewed paraphrase contract. The exported
+`receiptedToolClaims` proof seam and backward-compatible guard options work
+sentence by sentence, but streaming must retain a declaration binding to use it.
+[Coordination handoff](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216).
+[Round 1 design and evidence](reviews/2026-09-23-guided-assignment.md).
+
+Coordination correction: `gh pr comment --edit-last` selected a newer review
+posted by another builder under the shared GitHub account. Restored that
+comment from GitHub edit history and verified its exact original body by API;
+then updated this builder's handoff by explicit comment id. Use explicit ids
+for comment edits so concurrent builders cannot overwrite one another.
+
+## 2026-09-23 — Codex builder: PR #172 guided assignment tools and voice scribe
+
+Signed: Codex, builder on `codex/guided-assignment`. Sid's approved accommodation:
+Jarvis chooses the simple questions, examples, scribing and draft order. Code
+provides three owner-only tier-1 tools, storage, provenance and receipts. It
+does not break down assignments or strip fillers. [Design and limits](reviews/2026-09-23-guided-assignment.md).
+
+Read pulls main's facts, retained pasted source text, catch-up actions and deadlines.
+Save stores the exact owner-agent input as `raw`, model arguments as `scribed` and
+step notes, and an assignment snapshot for later resumption. Database guards stop
+updates, deletion and replacement; a turn replay returns its original answer.
+Draft joins only saved scribed answers in model-supplied order and resolves only
+the configured owner's verified Telegram identity. A lost send acknowledgement
+is unconfirmed, never a false success or a claim that nothing was sent.
+
+Both Telegram and voice compose the same tools and shared guidance. A catalogue
+of all ids/titles/courses reaches direct owner prompts because main does not
+retain tool results between turns; it supplies references, not assignment or
+next-question decisions. No streaming implementation, sync recovery, device
+repository, local-agent code or PC settings were changed.
+
+Verified premise corrections: `0039` is on main. At start, #147 was merged while
+#162, #164 and #169 were open. Refreshed onto #164 and then #165 (`0d695563`).
+#169 remains a named follow-up, `guided-assignment-d2l-evidence`, behind the
+`AssignmentEvidenceReader` seam. `0043_guided_assignment.sql` is registered in
+all migration lists, static syntax inventory and authoritative backup tables.
+Every open PR was inspected for migration paths: #169 has `0040`, #168 has
+`0041`; `0042` is preserved for the expected PIN rebuild.
+
+Observed evidence before publication:
+
+- Focused guided file: **28 passed, 0 failed, 0 skipped**.
+- Related five-file selection before later additions: **89/0/0**. After the
+  database guards, guided plus static remote-D1 syntax: **81/0/0**.
+- Production voice composition selection: **1 passed, 0 failed, 129 skipped**.
+- Mutations: **34 distinct faults killed**. Initial 24, then six checks (four
+  new and two refreshed), then six reference checks. Every expected named
+  failure repeated with the fault still applied, all files byte-restored;
+  **0 wrong-test, unconfirmed, survived, not-applied or invalid outcomes**.
+  Specs: `reviewer-tools/mutation-specs-guided-assignment.json` and
+  `reviewer-tools/mutation-specs-guided-references.json`.
+- Production typecheck passed. Non-gating test typecheck: **143 diagnostics**,
+  **0 in the new guided-assignment test**. Do not call the test typecheck green.
+- Full gateway suite ran **once**: **5,215 passed, 1 failed, 0 skipped** across
+  197 files (196 passed, 1 failed). The failure was the backup manifest test's
+  stale expected migration `0039`; actual schema version was correctly `0043`.
+  Corrected only that expected literal, then reran its file: **27/0/0**. This was
+  a missed test registration, not a timing flake. No second full run is claimed.
+- Final state-carrier check passed with **0 warnings**; diff whitespace check passed.
+
+No live model, Telegram, call, remote D1 rehearsal, migration application, secret
+operation or deployment was performed. The test called remote-D1 syntax is
+offline. OWNER-ACTIONS carries the separately authorized rehearsal and rollout;
+QUEUE carries review. Independent review follows publication, not builder merge.
 ## 2026-09-23 — Codex GPT-6 builder: #169 publication refresh after #164, #165 and #167
 
 Signed: Codex GPT-6, receiver builder. GitHub reported a conflict after the first normal push. Fresh fetch proved main had advanced to `0d69556394cc543bb55a5a66627c1b35aa6139d4`. Merged it normally in `d3ab0827869251cd09907c74a783b8056de3a141`; no rebase or force-push. Kept all upstream runtime changes and every conflicting log/fact/queue entry. The two digest test conflicts now retain main's retired-source behavior and the collector's separate coverage gap. No upload route, signing, pairing payload or batch format changed.

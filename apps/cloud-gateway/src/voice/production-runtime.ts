@@ -143,6 +143,7 @@ export function createProductionCallSessionCore(
   // and `DefaultConversationService.handleTurn` settles one request per turn, so
   // the multi-request loop lives behind the adapter rather than in the service.
   const agent = new OwnerVoiceAgentAdapter({
+    guidedAssignmentTelegram: new TelegramRestProvider({ botToken: configuration.telegramToken }),
     provider: new DeepSeekAgentProvider({
       apiKey: configuration.modelApiKey,
       model: configuration.model,

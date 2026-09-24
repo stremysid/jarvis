@@ -1,0 +1,146 @@
+[
+  {
+    "name": "Scribed whitespace is never normalized by code",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "input.userText, scribed, stepNotes,",
+    "replace": "input.userText, scribed.replace(/\\s+/gu, ' ').trim(), stepNotes,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing"
+  },
+  {
+    "name": "Scribed fillers are never stripped by code",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "input.userText, scribed, stepNotes,",
+    "replace": "input.userText, scribed.replace(/\\b(?:um|like)\\b/giu, ''), stepNotes,",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing"
+  },
+  {
+    "name": "Telegram really offers guided tools to the model",
+    "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
+    "find": "  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing"
+  },
+  {
+    "name": "Current execution proof reaches both channel guards",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "receiptedInternalSentences: receiptedToolClaims(honest, executed),",
+    "replace": "receiptedInternalSentences: [],",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
+    "expect": "draft claim proved by this turn's send receipt"
+  },
+  {
+    "name": "Only the draft send tool proves an external completion",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "claim.toolNames.includes(\"guided_assignment_draft\")",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "keeps the external action guard for a send without tool proof"
+  },
+  {
+    "name": "String only internal proof does not license draft delivery",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const draftSends = new Set(claims.flatMap((claim) => typeof claim !== \"string\"\n    && claim.toolNames.includes(\"guided_assignment_draft\") ? [claim.sentence] : []));",
+    "replace": "const draftSends = new Set(claims.map((claim) => typeof claim === 'string' ? claim : claim.sentence));",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "keeps the external action guard for a send without tool proof"
+  },
+  {
+    "name": "A substring cannot prove a whole sentence",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!draftSends.has(reply.slice(range.start, range.end).trim())",
+    "replace": "![...draftSends].some((claim) => reply.slice(range.start, range.end).includes(claim))",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "does not exempt a larger action sentence using proof for only its substring"
+  },
+  {
+    "name": "Receipt proof cannot leak to adjacent sentences",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "!draftSends.has(reply.slice(range.start, range.end).trim())",
+    "replace": "draftSends.size === 0",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "does not lend a proven sentence's receipt to an adjacent unreceipted send"
+  },
+  {
+    "name": "An empty receipt declaration has no proof",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "claim.receiptIds.length > 0 && claim.receiptIds.every((id) => toolsByReceipt.has(id))",
+    "replace": "claim.receiptIds.every((id) => toolsByReceipt.has(id))",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "no receipt"
+  },
+  {
+    "name": "Every declared receipt must belong to this turn",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "claim.receiptIds.every((id) => toolsByReceipt.has(id))",
+    "replace": "claim.receiptIds.some((id) => toolsByReceipt.has(id))",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "a current and an unknown receipt"
+  },
+  {
+    "name": "Unknown receipt ids cannot become sentence proof",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "claim.receiptIds.every((id) => toolsByReceipt.has(id))",
+    "replace": "true",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "a stale receipt"
+  },
+  {
+    "name": "An unreceipted execution cannot mint proof from its call id",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "entry.receiptId === null\n    ? [] : [[entry.receiptId, entry.providerResult.name] as const]",
+    "replace": "[[`receipt:${entry.providerResult.toolCallId}`, entry.providerResult.name] as const]",
+    "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
+    "expect": "does not mint sentence proof from a result without a receipt"
+  },
+  {
+    "name": "Migration 0043 insert trigger keeps its registered name",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "CREATE TRIGGER guided_assignment_answers_insert_conflict",
+    "replace": "CREATE TRIGGER guided_assignment_answers_insert_renamed",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "pins all three guided assignment trigger names in migration 0043"
+  },
+  {
+    "name": "Migration 0043 update trigger keeps its registered name",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "CREATE TRIGGER guided_assignment_answers_reject_update",
+    "replace": "CREATE TRIGGER guided_assignment_answers_update_renamed",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "pins all three guided assignment trigger names in migration 0043"
+  },
+  {
+    "name": "Migration 0043 delete trigger keeps its registered name",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "CREATE TRIGGER guided_assignment_answers_reject_delete",
+    "replace": "CREATE TRIGGER guided_assignment_answers_delete_renamed",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "pins all three guided assignment trigger names in migration 0043"
+  },
+  {
+    "name": "Migration 0043 insert trigger keeps its complete shape",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "BEFORE INSERT ON guided_assignment_answers",
+    "replace": "AFTER INSERT ON guided_assignment_answers",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "keeps guided_assignment_answers_insert_conflict in its complete remote D1 trigger form"
+  },
+  {
+    "name": "Migration 0043 update trigger keeps its complete shape",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "BEFORE UPDATE ON guided_assignment_answers",
+    "replace": "AFTER UPDATE ON guided_assignment_answers",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "keeps guided_assignment_answers_reject_update in its complete remote D1 trigger form"
+  },
+  {
+    "name": "Migration 0043 delete trigger keeps its complete shape",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+    "find": "BEFORE DELETE ON guided_assignment_answers",
+    "replace": "AFTER DELETE ON guided_assignment_answers",
+    "testPath": "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "expect": "keeps guided_assignment_answers_reject_delete in its complete remote D1 trigger form"
+  }
+]
