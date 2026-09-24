@@ -407,7 +407,7 @@ export async function assembleDigest(
       if (d2l.state === "current" && d2l.lastGoodReadUndatedItems > 0) gaps.push({ source: "Brightspace API", detail: `${d2l.lastGoodReadUndatedItems} Brightspace items have no known date; check school_d2l_status.` });
       for (const host of d2l.hosts ?? []) if (host.state !== "current") gaps.push({ source: `Brightspace API (${host.host})`,
         detail: host.sessionExpired ? "session expired; cannot establish what is due" : `read ${host.state}; cannot establish what is due` });
-      if (d2l.unmappedRoutes > 0) gaps.push({ source: "Brightspace API", detail: "Some stored evidence has an unknown projection; inspect school_d2l_status before judging what is due." });
+      if (d2l.unmappedRoutes > 0) gaps.push({ source: "Brightspace API", detail: "Some stored evidence has an unknown projection or date disagreement; inspect school_d2l_status before judging what is due." });
     } catch {
       gaps.push({ source: "Brightspace API", detail: "collector status unavailable; cannot establish what is due" });
     }

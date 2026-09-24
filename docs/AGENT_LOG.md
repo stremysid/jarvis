@@ -67,6 +67,122 @@ Vitest nor pnpm, so no behavioral, full-suite or mutation result is claimed. No
 live provider, database, migration, deployment, secret, PC or owner operation
 was performed.
 
+## 2026-09-24 — Codex builder: #176 low follow-ups identify affected D2L items
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-labels.
+The branch began clean at `origin/main` `b16e9be`. Git remained read-only; no
+merge, push, deployment, migration, secret or live school operation was attempted.
+
+Results:
+
+1. L1 now has separate malformed folder-availability cases for numeric
+   `EndDate` and the string `not-a-date`. Both retain the course read, label
+   `folder-17:folder_availability_shape_unknown`, keep that folder's `dueAt`
+   null and prove another folder still projects.
+2. L3's digest gap now says `unknown projection or date disagreement`. The
+   status-tool description now says Availability end dates from either folder
+   or content evidence are not confirmed due dates. Tests pin both phrases.
+3. L4's folder availability and assignment-disagreement labels include the
+   validated `folder-<id>`. `ambiguous_content_date` safely does the same with
+   its already-validated projected item id, which can name either a folder or a
+   topic. Date precedence is unchanged.
+4. `unmappedRoutes` still comes from `json_array_length(unmapped_json)`, while
+   each mapper result still deduplicates identical labels with a `Set`. Its
+   historical name already counted labels rather than routes. For these three
+   item-scoped labels, the meaning intentionally changes from one issue-type
+   label per route to one label per affected item; generic route-level
+   projection labels are unchanged. The returned status instructions now state
+   that explicitly. Two affected folders therefore report two labels at both
+   host and aggregate status levels. The digest still emits one gap whenever
+   the count is positive; it does not display the numeric count.
+
+New test names:
+
+- `labels a numeric folder Availability EndDate without dropping the rest of the course`
+- `labels a malformed folder Availability EndDate without dropping the rest of the course`
+- `names each item whose content dates disagree`
+- `counts each folder-specific projection label and keeps the digest gap visible`
+
+The existing unknown-Availability, unequal/equal assignment-date, unknown-
+projection digest and real-tool-dispatch tests now pin the new label or wording
+forms.
+
+Observed checks:
+
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` — exit 0, no diagnostics.
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` —
+  exit 1 with the documented 143 diagnostics and none in `collector-ingest`,
+  `collector-compatibility` or `collector-wiring`.
+- `node scripts/check-state.mjs` — exit 0 with its existing background-access
+  re-verification advisory.
+- `git diff --check` — exit 0 after the handoff files were written.
+
+The harness must run `collector-ingest.test.ts`,
+`collector-compatibility.test.ts` and `collector-wiring.test.ts` first; then all
+six gateway collector files (`collector-ingest`, `collector-compatibility`,
+`collector-security`, `collector-pages`, `collector-wiring` and
+`collector-migration`), `digest-job.test.ts`, and the full cloud-gateway suite.
+It must rerun #176's M2b and M3 mutations against the two new malformed-EndDate
+cases and mutate each new item-id segment to prove the multi-item assertions are
+load-bearing. This container has no Vitest or pnpm, so no runtime test, full
+suite or mutation result is claimed. No live D2L read, production behavior,
+database migration or deployment was verified.
+
+## 2026-09-24 — Codex builder: D2L receiver follow-up surfaces fallback and disagreement evidence
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-followup.
+The branch was clean at `origin/main` `c66c387` before this work. Git remained
+read-only; no merge, push, deployment, migration, secret or live school operation
+was attempted.
+
+Results:
+
+1. Confirmed that `mapSchoolCourse` read folder `DueDate` and content
+   module/topic ends but never read `folder.Availability`. It now accepts only the
+   documented nullable object with an `EndDate`, projects that field below
+   `DueDate` as `folder Availability EndDate`, and records
+   `folder_availability_shape_unknown` for an unfamiliar shape. An unreadable
+   higher fallback is not guessed away to a lower content date; the folder stays
+   undated while other folders in the course still project.
+2. Found **no recorded rationale** for putting `content/myItems` ahead of folder
+   `DueDate` in the #175 review, the #175 log entries or `CODE-VS-JUDGMENT.md`.
+   The existing projection order remains for compatibility, but differing values
+   now record `ambiguous_assignment_date`; equal values record no disagreement.
+   The design and judgment register say this explicitly.
+3. Submission arrays and per-folder 403s did not expose a runtime defect. A 200
+   `[]`, a one-entry array with the unobserved positive shape and a 403 all remain
+   `submission: "unknown"`; repository status records the 403 as `refused`.
+   Runtime submission code is unchanged.
+
+New tests:
+
+- `prefers assignment DueDate to the folder Availability end date`
+- `uses the folder Availability end date when assignment DueDate is null and labels its source`
+- `labels an unknown folder Availability shape without dropping the rest of the course`
+- `records differing myItems and folder DueDate values while retaining the existing projected date`
+- `does not record a disagreement when myItems and folder DueDate values are equal`
+- `records a refused student submission route without treating it as not submitted`
+- `keeps an unobserved populated student submission array unknown`
+
+The existing `accepts observed empty student submissions as unknown evidence with
+their original body` test retains the 200 `[]` case.
+
+Harness gate required: all six gateway collector files — `collector-ingest`,
+`collector-compatibility`, `collector-security`, `collector-pages`,
+`collector-wiring` and `collector-migration` — plus the extension
+`collector.test.js` and `receiver-contract.test.js`, then the full cloud-gateway
+suite. No acceptance file was touched. The harness should also rerun source typing,
+the non-gating test typecheck and `check:state`.
+
+Available checks: `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed
+with no diagnostics; the extension collector and pinned receiver Node tests passed
+2/0/0; the test typecheck remained red only outside the changed collector files;
+`node scripts/check-state.mjs` passed with its one existing background-access
+advisory; `git diff --check` passed. This container cannot run Vitest or pnpm, so
+none of the gateway collector runtime tests, the full suite or mutations was
+verified here. No live D2L read, positive submission shape, production behavior,
+database migration or deployment was verified.
+
 ## 2026-09-24 — Codex builder: #166 round 5 closes deadline proof gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
