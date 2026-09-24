@@ -73,6 +73,7 @@ import { isFailure, isNotMeasured } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, expectedPushSources, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
+import { OwnerReminderSender } from "../reminders/reminder-sender.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -997,9 +998,8 @@ export async function runMemoryConsolidationJob(context: JobEnvironment): Promis
  * cadences differ by an order of magnitude, and work that is already owed
  * should not wait an hour behind work that reaches the network.
  *
- * Today it only counts the open queue, which is a liveness signal and
- * nothing more: it proves D1 is reachable and the decision tables are
- * readable every five minutes. It does NOT yet expire lapsed items --
+ * It advances backups, drains notices and owner reminders, and reads the
+ * open queue. It does NOT yet expire lapsed decision items --
  * `listOpenQueue` filters them out of the queue, but nothing moves their
  * status to `expired`, so `answer` still refuses them on the delivered/open
  * check rather than on expiry. Sweeping them is the next thing this job
@@ -1015,6 +1015,7 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   // owner to do it for, and without one it has nothing to measure.
   if (principalId === undefined) return notMeasured("drain not set up (OWNER_PRINCIPAL_ID is not set)");
   try {
+    let reminderDetail = "owner reminders not run";
     const noticeDetail: GuestGrantNoticeDrainOutcome | "not_configured" = context.env.TELEGRAM_BOT_TOKEN === undefined
       ? "not_configured"
       : await new D1GuestGrantNoticeDrainer(
@@ -1024,6 +1025,12 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
           fetchImplementation: context.fetcher,
         })),
         context.clock,
+        async () => {
+          const sent = await new OwnerReminderSender(context.env.DB, new TelegramRestProvider({
+            botToken: context.env.TELEGRAM_BOT_TOKEN!, fetchImplementation: context.fetcher,
+          }), principalId, context.clock).run();
+          reminderDetail = `${sent} owner reminders sent`;
+        },
       ).run();
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),
@@ -1039,7 +1046,7 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
     if (backupContinuation.outcome === "failed") {
       return { ok: false, failure: backupContinuation.code };
     }
-    const detail = `${open.length} open; ${notices[noticeDetail]}; ${backupContinuation.detail}`;
+    const detail = `${open.length} open; ${notices[noticeDetail]}; ${reminderDetail}; ${backupContinuation.detail}`;
     // "guest notices not configured" used to be one clause of an `ok: true`
     // sentence, which made an unconfigured delivery path indistinguishable
     // from a working one on `/status`. The tick really did run -- D1 answered

@@ -67,6 +67,8 @@ export class D1GuestGrantNoticeDrainer {
     private readonly database: D1Database,
     private readonly notices: GuestGrantNoticeSink,
     private readonly clock: { now(): Date },
+    /** Owner reminders share this lease and retry tick, but retain their own dispatch fence. */
+    private readonly additionalDrain?: () => Promise<void>,
   ) {}
 
   async run(limit = GUEST_GRANT_NOTICE_DRAIN_LIMITS.noticesPerRun): Promise<GuestGrantNoticeDrainOutcome> {
@@ -136,6 +138,7 @@ export class D1GuestGrantNoticeDrainer {
         checkpointAt = advancedAt;
       }
 
+      await this.additionalDrain?.();
       const completedAt = monotonicIso(this.clock.now(), checkpointAt);
       const completed = await this.database.prepare(`UPDATE guest_grant_notice_drain_state
         SET status = ?, run_id = NULL, lease_expires_at = NULL, updated_at = ?, failure_code = ?

@@ -24,6 +24,7 @@ import {
 } from "../../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
 import { DEADLINE_TOOL_DEFINITION, recordDeadline } from "../../deadlines/deadline-tool.js";
+import { executeReminderTool, isReminderTool, REMINDER_TOOL_DEFINITIONS } from "../../reminders/reminder-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -53,6 +54,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
   DEADLINE_TOOL_DEFINITION,
+  ...REMINDER_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
     description: "Run the validated school catch-up pipeline for Sid's current message and conversation context.",
@@ -191,6 +193,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       },
       argumentTool: (call: ModelFunctionCall) => call.name === "deadline_record"
         ? () => recordDeadline(adapter.telegram.database, input, call, adapter.telegram.now?.() ?? new Date())
+        : isReminderTool(call.name) ? () => executeReminderTool(adapter.telegram.database, input, call)
         : null,
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>

@@ -15,7 +15,8 @@ import type { ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageI
 export const NOW = new Date("2026-09-23T14:00:00.000Z");
 let serial = 8_000_000;
 
-export async function argumentTurn(text: string, call: ModelFunctionCall, options: {
+export async function argumentTurn(text: string,
+  call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
   direct?: boolean; durableDirect?: boolean; pipeline?: boolean; gate?: ToolAutonomyGateContract;
 } = {}) {
   await applyMemoryIngressMigration();
@@ -47,7 +48,7 @@ export async function argumentTurn(text: string, call: ModelFunctionCall, option
     provider: { async completeAgent(input) {
       requests.push(input);
       return requests.length === 1
-        ? { content: null, toolCalls: [call], finishReason: "tool_calls" }
+        ? { content: null, toolCalls: [typeof call === "function" ? await call(input) : call], finishReason: "tool_calls" }
         : { content: JSON.stringify({ reply: "Understood.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };
     } },
   });

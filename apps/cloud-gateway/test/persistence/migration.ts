@@ -36,6 +36,7 @@ import d2lNotificationEmailSql from "../../src/persistence/migrations/0033_d2l_n
 import scheduledRunDetailSql from "../../src/persistence/migrations/0034_scheduled_run_detail.sql?raw";
 import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
 import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
+import ownerRemindersSql from "../../src/persistence/migrations/0041_owner_reminders.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -137,6 +138,7 @@ export async function applyMemoryIngressMigration(): Promise<void> {
       name: "0038_memory_lifetime_and_pins.sql",
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
+    { name: "0041_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -351,6 +353,7 @@ const allCloudGatewayMigrations = Object.freeze([
     name: "0038_memory_lifetime_and_pins.sql",
     queries: splitMigration(memoryLifetimeAndPinsSql),
   },
+  { name: "0041_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
 ]);
 
 /**

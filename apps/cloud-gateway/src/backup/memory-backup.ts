@@ -44,6 +44,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "voice_access_grant_events",
   "call_sessions",
   "conversation_turns",
+  "owner_reminders",
   "conversation_deliveries",
   "call_session_authorities",
   "capability_tiers",
