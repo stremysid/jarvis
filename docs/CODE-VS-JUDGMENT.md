@@ -131,6 +131,14 @@ per-course inserted/deduplicated counts while limiting examples to fit Telegram.
 Schedule repair notices describe the existing storage ceilings, not new planning policy.
 This is a partial register, not a completed audit of school or university code.
 
+### Fixed collector name judgment (PR #170 round 2)
+
+`apps/d2l-extension/collector.js:offering` previously excluded the exact name
+`DCE D2L BrightSpace Orientation`. That name-based relevance decision is deleted:
+every active accessible course offering is read and Jarvis judges its evidence.
+The collector's queue limits are explicitly owner-authorised storage bounds, with
+visible eviction counts. This remains a partial register, not a completed audit.
+
 ## How to use this list
 
 1. **Every entry is a work item, not a complaint.** The third column is the deliverable: the
