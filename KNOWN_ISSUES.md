@@ -1,5 +1,31 @@
 # Known issues
 
+## Tier-3 confirmations issued before tool binding (2026-09-24)
+
+`codex/tool-gate-binding` changes confirmation references from
+`capability:argumentsHash` to a JSON tuple of tool name, capability and argument
+hash. A previously issued confirmation cannot prove its tool name and deliberately
+does not match the new gateway, even if the owner answers its pending button after
+deployment. The old answer remains recorded but is not consumed or upgraded.
+The owner must ask for the action again and tap the newly issued confirmation.
+There is no compatibility fallback or migration in this change.
+
+A changed second autonomy outcome denies that attempt, even when the new outcome
+is `permitted`. Its receipt names the change and says the tap was spent. The
+claim is not refunded. Migration `0039` and its atomic single-use consumption
+remain required; [the existing rollout](docs/reviews/2026-09-23-tier3-tap.md)
+still applies. These regressions are written but await the harness's runtime and
+mutation checks; this builder did not run Vitest or verify a live deployment.
+
+## DeepSeek error response body can outlive its timeout (2026-09-24)
+
+`DeepSeekModelAdapter.stream` in
+[`deepseek-provider.ts`](apps/cloud-gateway/src/providers/deepseek-provider.ts)
+clears `overall` after receiving non-success response headers, then awaits
+`response.text()` for the error detail. A stalled error body therefore has no
+request deadline. PR #174 is changing this file; its builder should keep the
+deadline armed through that body read and pin the case with an injected fetch.
+
 ## Owner voice streaming acceptance (PR #171, 2026-09-24)
 
 Live DeepSeek tool-call streaming and phone latency remain unverified. The
