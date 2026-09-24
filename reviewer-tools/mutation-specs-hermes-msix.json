@@ -1,0 +1,410 @@
+[
+  {
+    "name": "msi-validation",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "return await validateTrustedExecutable(trustedPowerShellHost, \"trusted PowerShell 7 MSI host\");",
+    "replace": "return trustedPowerShellHost;",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses an MSI symbolic link"
+  },
+  {
+    "name": "msi-fallback-only-on-absence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (cause.code === \"ENOENT\") return resolveTrustedStorePowerShellHost();",
+    "replace": "if (true) return resolveTrustedStorePowerShellHost();",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses an MSI unreadable file"
+  },
+  {
+    "name": "msi-absence-fallback",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (cause.code === \"ENOENT\") return resolveTrustedStorePowerShellHost();",
+    "replace": "if (false) return resolveTrustedStorePowerShellHost();",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "uses the registered Store location"
+  },
+  {
+    "name": "query-host",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedExecutable(trustedPackageQueryHost, \"PowerShell 7 package discovery host\")",
+    "replace": "Promise.resolve(trustedPackageQueryHost)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery host before executing"
+  },
+  {
+    "name": "query-terminator",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedExecutable(trustedTaskkillHost, \"trusted taskkill host\");",
+    "replace": "Promise.resolve(trustedTaskkillHost);",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery process terminator before executing"
+  },
+  {
+    "name": "query-directory",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedDirectory(dirname(host), \"PowerShell 7 package discovery directory\")",
+    "replace": "Promise.resolve(dirname(host))",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery host directory before executing"
+  },
+  {
+    "name": "query-modules",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedDirectory(join(hostDirectory, \"Modules\"), \"PowerShell 7 package discovery modules\")",
+    "replace": "Promise.resolve(join(hostDirectory, \"Modules\"))",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery modules directory before executing"
+  },
+  {
+    "name": "query-module-directories",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedDirectory(join(modules, name), `PowerShell 7 package discovery ${name} directory`)",
+    "replace": "Promise.resolve(join(modules, name))",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery Appx directory before executing"
+  },
+  {
+    "name": "query-module-manifests",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedFile(join(directory, `${name}.psd1`), `PowerShell 7 package discovery ${name} manifest`)",
+    "replace": "Promise.resolve(join(directory, `${name}.psd1`))",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a redirected package discovery Appx manifest before executing"
+  },
+  {
+    "name": "query-exit",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (result.code !== 0) throw new Error(\"Windows Appx query exited unsuccessfully\");",
+    "replace": "if (false) throw new Error(\"Windows Appx query exited unsuccessfully\");",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "does not accept successful-looking output"
+  },
+  {
+    "name": "query-diagnostic",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence\", { cause });",
+    "replace": "throw cause;",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "explains a malformed Windows package query"
+  },
+  {
+    "name": "package-array",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "!Array.isArray(packages) || packages.length !== 1",
+    "replace": "packages.length !== 1",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "when Windows reports a non-array response"
+  },
+  {
+    "name": "package-count",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "!Array.isArray(packages) || packages.length !== 1",
+    "replace": "!Array.isArray(packages)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "when Windows reports ambiguous packages"
+  },
+  {
+    "name": "family",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed?.PackageFamilyName !== \"Microsoft.PowerShell_8wekyb3d8bbwe\")",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses the Store record when PackageFamilyName"
+  },
+  {
+    "name": "publisher",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed.Publisher !== \"CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US\")",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses the Store record when Publisher"
+  },
+  {
+    "name": "store-signature",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed.SignatureKind !== \"Store\")",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses the Store record when SignatureKind"
+  },
+  {
+    "name": "non-development",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed.IsDevelopmentMode !== false)",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses the Store record when IsDevelopmentMode"
+  },
+  {
+    "name": "location-type",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "typeof location !== \"string\" || ",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a non-string array Store install location"
+  },
+  {
+    "name": "location-drive-absolute",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "!/^[A-Za-z]:\\\\/.test(location) || ",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a UNC Store install location"
+  },
+  {
+    "name": "location-normalization",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": " || resolve(location) !== location",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a parent traversal Store install location"
+  },
+  {
+    "name": "location-directory",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "validateTrustedDirectory(location, \"PowerShell 7 Store install location\")",
+    "replace": "Promise.resolve(location)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store install directory that is a redirected path"
+  },
+  {
+    "name": "store-executable",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "return validateTrustedExecutable(join(directory, \"pwsh.exe\"), \"trusted PowerShell 7 Store host\");",
+    "replace": "return join(directory, \"pwsh.exe\");",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store executable that is a redirected path"
+  },
+  {
+    "name": "file-kind",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "!info.isFile() || ",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store executable that is a directory"
+  },
+  {
+    "name": "file-symlink",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (!info.isFile() || info.isSymbolicLink() || canonical.toLowerCase() !== path.toLowerCase())",
+    "replace": "if (!info.isFile() || canonical.toLowerCase() !== path.toLowerCase())",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store executable that is a symbolic link"
+  },
+  {
+    "name": "file-canonical",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (!info.isFile() || info.isSymbolicLink() || canonical.toLowerCase() !== path.toLowerCase())",
+    "replace": "if (!info.isFile() || info.isSymbolicLink())",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store executable that is a redirected path"
+  },
+  {
+    "name": "directory-kind",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "!info.isDirectory() || ",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store install directory that is a file"
+  },
+  {
+    "name": "directory-symlink",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (!info.isDirectory() || info.isSymbolicLink() || canonical.toLowerCase() !== path.toLowerCase())",
+    "replace": "if (!info.isDirectory() || canonical.toLowerCase() !== path.toLowerCase())",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store install directory that is a symbolic link"
+  },
+  {
+    "name": "directory-canonical",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (!info.isDirectory() || info.isSymbolicLink() || canonical.toLowerCase() !== path.toLowerCase())",
+    "replace": "if (!info.isDirectory() || info.isSymbolicLink())",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store install directory that is a redirected path"
+  },
+  {
+    "name": "query-environment",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "const environment = {\n    APPDATA: hostDirectory,",
+    "replace": "const environment = {\n    ...process.env,\n    APPDATA: hostDirectory,",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-cwd",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "cwd: hostDirectory, env: environment",
+    "replace": "cwd: process.cwd(), env: environment",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-path-resolution",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "spawn(host, [\"-NoLogo\", \"-NoProfile\", \"-NonInteractive\", \"-Command\", bootstrap]",
+    "replace": "spawn(\"powershell.exe\", [\"-NoLogo\", \"-NoProfile\", \"-NonInteractive\", \"-Command\", bootstrap]",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-profile",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "spawn(host, [\"-NoLogo\", \"-NoProfile\", \"-NonInteractive\", \"-Command\", bootstrap]",
+    "replace": "spawn(host, [\"-NoLogo\", \"-NonInteractive\", \"-Command\", bootstrap]",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-module-discovery",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "$env:PSModulePath = 'NUL'\n$PSModuleAutoLoadingPreference",
+    "replace": "$env:PSModulePath = 'synthetic-open-discovery'\n$PSModuleAutoLoadingPreference",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-autoload",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "$PSModuleAutoLoadingPreference = 'None'",
+    "replace": "$PSModuleAutoLoadingPreference = 'All'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-import-appx",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Import-Module -Name $env:JARVIS_HERMES_APPX_MODULE -Force",
+    "replace": "Import-Module -Name Appx -Force",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-import-utility",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "$PSModuleAutoLoadingPreference = 'None'\nImport-Module -Name $env:JARVIS_HERMES_UTILITY_MODULE -Force",
+    "replace": "$PSModuleAutoLoadingPreference = 'None'\nImport-Module -Name Microsoft.PowerShell.Utility -Force",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-errors",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "const bootstrap = String.raw`$ErrorActionPreference = 'Stop'\n$env:PSModulePath = 'NUL'\n$PSModuleAutoLoadingPreference",
+    "replace": "const bootstrap = String.raw`$ErrorActionPreference = 'Continue'\n$env:PSModulePath = 'NUL'\n$PSModuleAutoLoadingPreference",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-output-limit",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "const result = await runVerifierProcess(child, { taskkillHost });",
+    "replace": "const result = await runVerifierProcess(child, { taskkillHost, maxOutputBytes: 1_000_000 });",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "bounds package discovery output"
+  },
+  {
+    "name": "query-deadline",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "const result = await runVerifierProcess(child, { taskkillHost });",
+    "replace": "const result = await runVerifierProcess(child, { taskkillHost, deadlineMs: 130_000 });",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "bounds package discovery time"
+  },
+  {
+    "name": "resolver-wired-to-verifier",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "    resolveTrustedPowerShellHost(),",
+    "replace": "    validateTrustedExecutable(trustedPowerShellHost, \"trusted PowerShell 7 MSI host\"),",
+    "testPath": "apps/hermes-runtime/test/sbom-integrity-round2.test.mjs",
+    "expect": "rejects a fabricated release-shaped source root"
+  },
+  {
+    "name": "query-utf8-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)",
+    "replace": "",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-diagnostic-output",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence\", { cause });",
+    "replace": "throw new Error(\"PowerShell 7 package discovery failed: Windows Appx query did not return usable evidence: \" + cause.message, { cause });",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "explains a malformed Windows package query response without exposing its output"
+  },
+  {
+    "name": "query-package-family-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "PackageFamilyName = $_.PackageFamilyName",
+    "replace": "PackageFamilyName = 'Microsoft.PowerShell_8wekyb3d8bbwe'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-publisher-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Publisher = $_.Publisher",
+    "replace": "Publisher = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-store-signature-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "SignatureKind = [string]$_.SignatureKind",
+    "replace": "SignatureKind = 'Store'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-non-development-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "IsDevelopmentMode = $_.IsDevelopmentMode",
+    "replace": "IsDevelopmentMode = $false",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-install-location-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "InstallLocation = $_.InstallLocation",
+    "replace": "InstallLocation = 'C:\\Users\\fixture\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "query-all-package-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | ForEach-Object",
+    "replace": "Appx\\Get-AppxPackage -Name Microsoft.PowerShell -PackageTypeFilter Main | Select-Object -First 1 | ForEach-Object",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  },
+  {
+    "name": "msi-fallback-lstat-only",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "await lstat(trustedPowerShellHost);",
+    "replace": "await Promise.all([lstat(trustedPowerShellHost), realpath(trustedPowerShellHost)]);",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a dangling MSI symbolic link instead of treating its missing target as an absent host"
+  },
+  {
+    "name": "package-health",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "if (installed.Status !== \"Ok\")",
+    "replace": "if (false)",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "refuses a Store package that Windows reports as unhealthy before reading its installation"
+  },
+  {
+    "name": "query-package-health-evidence",
+    "file": "apps/hermes-runtime/src/generate-sbom.mjs",
+    "find": "Status = [string]$_.Status",
+    "replace": "Status = 'Ok'",
+    "testPath": "apps/hermes-runtime/test/powershell-host.test.mjs",
+    "expect": "queries only the OS host and modules with profiles and inherited environment closed"
+  }
+]
