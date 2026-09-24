@@ -21,6 +21,16 @@ proved migration-list conflicts. Normally merged
 before 0044. Backup schema remains 0044. This changed executable code, so the
 combined code needs a fresh full gate; the first run is preserved below.
 
+At the final allocation check, #174 had newly claimed
+`0044_owner_channel_parity.sql`. Renumbered this migration to **0045** and updated
+every registration and specification. The SQL body is unchanged (Git blob
+`96f93e3c32f9ce3c8655207107c41a0406616b03`). Main also advanced with the extension's
+#170 merge at `f56f279dd90ddce69d3885c63c4c9fbf2c19b850`; normally merged in
+`0edd8c5e`. That merge changed no gateway code or collector tests. The allocation
+rename gets fresh collector, upgrade, backup, parity and syntax checks plus all
+four migration mutation rechecks; the full suite is not repeated for an unchanged
+SQL body and filename-only registration updates.
+
 ## Extension handoff: every contract change
 
 Paths, SignedRequestV1, canonical UTF-8 body bytes, body SHA-256, audience,
@@ -74,7 +84,7 @@ This PR changes no extension-owned file and makes no live-ingest claim.
 ## Decisions and evidence semantics
 
 - Store each board's literal host and use `d2l-api:<host>:<course>` sources.
-  Migration 0044 preserves legacy deadline IDs, revisions, status and reminders;
+  Migration 0045 preserves legacy deadline IDs, revisions, status and reminders;
   old LDSB source rows remain inactive history. No guessing which board owned old
   rows: #169 accepted only LDSB.
 - Unknown JSON is evidence with unknown projection, not a failed receipt. Other
@@ -140,6 +150,10 @@ Iteration history, pass/fail/skip:
   backup, migration parity **5/0/0** and static remote-D1 syntax **60/0/0**.
   Refreshed source typing:
   **0 diagnostics**. Refreshed test typing: **143 outside / 0 collector**.
+- Full combined gateway run on `396ace56`: **5304/2/0**, 202 passed and 2 failed
+  files, 425.22 seconds. The same two unchanged tests timed out. On that head,
+  each file then passed alone: meaning-search **70/0/0**, 37.83 seconds; Hermes
+  **71/0/0**, 3.54 seconds. No whole-suite rerun to seek a green result.
 
 Mutation evidence: **63 distinct cases killed in 67 confirmed attempts** (62 initial,
 3 paging follow-ups, 2 owner-tool rechecks after #172). **0 survived,

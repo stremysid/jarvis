@@ -9,7 +9,7 @@ import { DeadlineIngestion } from "../../src/deadlines/deadline-ingestion.js";
 import { mapSchoolCourse } from "../../src/school/collector-mapping.js";
 import { SchoolCollectorRepository } from "../../src/school/collector-repository.js";
 
-const migrationName = "0044_school_collector_hosts.sql";
+const migrationName = "0045_school_collector_hosts.sql";
 beforeAll(async () => {
   await applyD1Migrations(env.DB, MEMORY_BACKUP_RESTORE_MIGRATIONS.filter((row) => row.name < migrationName)
     .map((row) => ({ name: row.name, queries: splitMigration(row.sql) })));

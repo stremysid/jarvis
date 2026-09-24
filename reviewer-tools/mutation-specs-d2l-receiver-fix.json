@@ -377,7 +377,7 @@
   },
   {
     "name": "S1 Historical read hosts remain LDSB",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0044_school_collector_hosts.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
     "find": "DEFAULT 'ldsb.elearningontario.ca'",
     "replace": "DEFAULT 'durham.elearningontario.ca'",
     "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
@@ -385,7 +385,7 @@
   },
   {
     "name": "S2 Existing deadlines move to the LDSB namespace",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0044_school_collector_hosts.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
     "find": "UPDATE deadlines SET source_id = 'd2l-api:ldsb.elearningontario.ca:' || substr(source_id, 9)",
     "replace": "UPDATE deadlines SET source_id = source_id",
     "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
@@ -393,7 +393,7 @@
   },
   {
     "name": "S3 Legacy source health is retired without deleting history",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0044_school_collector_hosts.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
     "find": "UPDATE deadline_sources SET active = 0",
     "replace": "UPDATE deadline_sources SET active = 1",
     "testPath": "apps/cloud-gateway/test/school/collector-migration.test.ts",
@@ -401,7 +401,7 @@
   },
   {
     "name": "S4 Retry decisions are unique at the database boundary",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0044_school_collector_hosts.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0045_school_collector_hosts.sql",
     "find": "CREATE UNIQUE INDEX school_collector_pair_decision",
     "replace": "CREATE INDEX school_collector_pair_decision",
     "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
