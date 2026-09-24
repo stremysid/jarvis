@@ -6,9 +6,9 @@ Live DeepSeek tool-call streaming and phone latency remain unverified. The
 round-2 model marker protocol checks this-turn receipt/tool provenance for one
 declared sentence, with regexes only as an omission backstop. An omitted novel
 claim or a semantically wrong description attached to a real receipt is still
-a model failure code cannot prove away. Combining this path with #172's real
-guided-assignment tools needs integration coverage after the branches join;
-the current proof-boundary fixtures use synthetic executed guided receipts.
+a model failure code cannot prove away. #172 is now merged into this branch;
+local integration covers its real guided-assignment service with a fake
+Telegram provider. Live model compliance and provider delivery remain untested.
 See [the design and evidence](docs/voice-streaming.md) and the first live check
 in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md). No live check or rollout is implied.
 

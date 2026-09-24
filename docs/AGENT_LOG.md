@@ -1,3 +1,54 @@
+## 2026-09-24 — Codex builder: #171 round 2 claim markers, unsplit redaction and #172 integration
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+H1 now uses the model's outside-prose action marker, with a proving tool name
+and this-turn receipt ids. Code strips metadata and binds proof to exactly one
+complete sentence; regexes only catch omitted markers. All 18 review paraphrases
+have marked and untagged cases. A novel declared paraphrase proves the marker,
+not the regex, controls this boundary. The earlier "accepted stopgap" attribution
+was unsupported and is removed from CODE-VS-JUDGMENT.
+
+H2 redacts original unsplit prose before sentence splitting or honesty
+replacement. No inserted sentence newlines reach the redactor. Every split and
+character-by-character fixtures protect quoted-password and Digest-header tails.
+L1 holds terminal periods for lookahead; L2 repeats an actual pin receipt in the
+follow-up and kills removal of receipt registration; L3 drops held premature
+refusals when a tool follows. Safe sentences still reach the caller before the
+provider finishes. No live latency claim is made.
+
+Main was normally merged through `7b805fa2` (#172), merge `53756626`, after
+the earlier `29fbfcd6` merge. Conflicts preserve main's assignment tools,
+references, prompt and Telegram proof, plus voice streaming. The guided fixture
+now streams markers through the actual guided service/core/redactor with fake
+Telegram delivery. Supported draft paraphrases are spoken, stale and save-only
+proofs refused. No catalogue or migration was independently added or changed;
+#159 gate placement and claim-before-body behavior are intact.
+
+Observed round-2 focused pass/fail/skip counts: 123/0/0 (3 unit files), 26/0/0
+(voice), 159/0/0 (4 composition/socket/tap files), expanded units 129/0/0 (3 files),
+merged guided/voice/tap 69/0/0 (3 files), and restored source 189/0/0 (5 files).
+The obsolete composition-name filter ran 0/0/130, not a pass; the corrected main
+name ran 1/0/129. Source typecheck exit 0. Non-gating test typecheck first 147
+diagnostics, four new fixture errors fixed, final 143 with none in the new
+voice/security files or updated guided/tap fixtures. State check: 3 carriers
+plus FACTS, 0 warnings. `git diff --check` passes.
+
+Mutation sweep: 35 confirmed named kills and 1 survivor, all other verdicts 0,
+6 files byte-restored. The survivor's claim guard masked the inserted-newline
+fault. A corrected ordering fault and that newline fault against the no-claim
+caller fixture both die twice: supplement 2 kills, all other verdicts 0, 1 file
+restored. Final spec: 37 confirmed named kills, each twice; restored focused
+tests green. The survival remains disclosed in [the evidence](voice-streaming.md).
+
+Sid's current load rule permits only focused files locally. Full gateway,
+contracts and acceptance suites must run in GitHub Actions after this push;
+the authorized PR comment will record that run and its actual outcome/counts.
+No full local package/workspace run in round 2. Live DeepSeek tool streaming,
+marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
+live check. No live API, secret, paid action, production operation, real
+migration, deploy, merge into main or PC-setting mutation was performed.
+
 ## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
 
 Signed: Codex (GPT-6), builder on `codex/voice-streaming`.

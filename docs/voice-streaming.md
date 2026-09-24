@@ -39,7 +39,7 @@ gate and all memory operations. A second tool round is refused even if a provide
 ignores `tool_choice: none`. There is no retry.
 
 After the interrupted builder run, `origin/main` at `c5310bee` was merged
-normally, then round 2 merged `29fbfcd6` and the later documentation update.
+normally, then round 2 merged `29fbfcd6` and `7b805fa2` (including #172 and #173).
 The #159 gate remains inside the memory and pipeline dispatch
 branches, after channel refusals and before the tool body. Streaming voice
 tests preserve pending taps, claim once before even a malformed tool body,
@@ -75,10 +75,12 @@ The compatible `receiptedInternalSentences: [{ sentence, toolNames }]` proof
 shape matches #172. A `guided_assignment_draft` receipt can prove its exact
 declared send sentence. A memory receipt cannot exempt an external send, and
 one send never exempts a following undeclared claim. #171 adds no assignment
-tools and changes no tool catalogues. The #172 remote implementation was
-inspected at `a0f3ff8594ed8e97a0e803cc882ccfe164f5ddab`; the combined runtime
-remains to be tested after integration. Unit fixtures prove the boundary's
-guided-draft behavior, not a real guided tool execution.
+tools and changes no tool catalogues relative to main. #172 merged while this
+work was in progress, so the normal main merge now includes its implementation.
+Its voice fixture streams fragmented markers through the real guided service,
+owner core, conversation redactor and fake Telegram provider. It proves a real
+local guided send's paraphrase is spoken, while stale and save-only proofs fail.
+This is offline integration, not a live provider or phone check.
 
 Before sentence splitting or honesty replacement, the whole marker-free prose
 is redacted without changing its whitespace. Annotation offsets are matched to
@@ -107,8 +109,37 @@ and round 2 removes it. See the partial
 
 Only focused local files are permitted by Sid's 2026-09-24 PC-load rule. Full
 gateway, contracts and acceptance evidence comes from GitHub Actions after the
-push, not a package or workspace test run on his PC. Round-2 results will be
-recorded here after the focused mutation sweep and in the PR comment with CI.
+push, not a package or workspace test run on his PC. CI run, conclusion and
+full-suite counts will be recorded in the PR comment after this head is pushed.
+
+Observed local results (pass / fail / skip; runs overlap and are not summed):
+
+| Run / external log suffix | Files | Pass / fail / skip |
+|---|---:|---:|
+| Initial unit files / `r2-unit1` | 3 | 123 / 0 / 0 |
+| Voice integration / `r2-agent1` | 1 | 26 / 0 / 0 |
+| Production composition, two socket files, tap dispatch / `r2-composition1` | 4 | 159 / 0 / 0 |
+| Expanded unit fixtures / `r2-unit2` | 3 | 129 / 0 / 0 |
+| After #172 merge: guided, voice, tap dispatch / `r2-merged-focused` | 3 | 69 / 0 / 0 |
+| Old composition name filter (no evidence) / `r2-merged-pin` | 1 skipped | 0 / 0 / 130 |
+| Correct main composition name / `r2-merged-pin2` | 1 | 1 / 0 / 129 |
+| Restored source: reply, sentences, redactor, voice, guided / `r2-restored` | 5 | 189 / 0 / 0 |
+
+The final **37-case mutation spec has 37 named kills, each confirmed twice**.
+The first sweep observed 35 kills and 1 survivor; 0 wrong-test, unconfirmed,
+not-applied or invalid results, with 6 source files byte-restored. The survivor
+inserted sentence newlines inside the redactor, but its selected action-claim
+fixture let the later claim guard mask the leak. That was a test-target mismatch,
+not evidence of safety. A two-case supplement (2 confirmed kills, 0 other
+verdicts, 1 file byte-restored) separately reverses redaction/honesty ordering
+and tests that original newline fault on the no-claim caller fixture. The
+failures explicitly expose `bravo charlie` and `d4e5f6g7h8`; restored tests pass.
+
+Source typecheck passes. The non-gating test typecheck initially reported 147
+diagnostics; fixing four new optional-field fixture errors restored 143. Final
+typecheck and state-carrier checks are recorded in the signed log entry.
+No unrelated test failed in the focused behavioral runs, and no flaky rerun
+was needed. Logs remain beside the external Markdown ledger.
 
 The mutation cases are in
 [`voice-streaming-round2.mutations.json`](../reviewer-tools/voice-streaming-round2.mutations.json).
@@ -125,7 +156,7 @@ The merged sweep killed 51 and proved five source files byte-identical after
 restoration; a supplemental three-case parser sweep proved one file restored.
 The earlier process-killed sweep stopped after 11 kills and is not counted as
 a completed gate. The reproducible cases are in
-[`reviewer-tools/voice-streaming.mutations.json`](../reviewer-tools/voice-streaming.mutations.json).
+[`reviewer-tools/voice-streaming.mutations.json` at the round-1 implementation](https://github.com/stremysid/jarvis/blob/54aa73a/reviewer-tools/voice-streaming.mutations.json).
 The builder used a local copy of `reviewer-tools/mutate.ps1` that targets the
 named test for mutant runs, retains full-file clean baselines, captures assertion
 output, and validates the temporary backup path before cleanup.
