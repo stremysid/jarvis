@@ -1,6 +1,6 @@
 # Jarvis reviewer operating manual
 
-This is how the Jarvis reviewer role has worked, written 2026-09-15 by the Claude Opus 5 reviewer session whose context filled. A new reviewer chat should read it fully before doing anything, and should work this way, not its own way. Current project state is in `HANDOFF-2026-09-15.md` in this same folder. This file is the unchanging part: roles, the loop, formats, and methods.
+This is the reviewer operating manual, first written 2026-09-15 and corrected against `main` at `c66c3870` on 2026-09-24. Read [STATE](../docs/STATE.md), [QUEUE](../docs/QUEUE.md) and [OWNER-ACTIONS](../docs/OWNER-ACTIONS.md) for current state and ownership; the old HANDOFF files are superseded and not on main. This file describes the review loop and methods.
 
 ---
 
@@ -10,10 +10,10 @@ There are four parties. Only Sid is a person.
 
 | Party | What it is | What it does | What it never does |
 |---|---|---|---|
-| **Sid** | The owner of Jarvis. Uses a Windows 11 home PC and laptop, and an iPhone 16. Recovering from wisdom-teeth surgery, with poor eyesight; skims. Wants to *use* Jarvis, not learn its internals. | Merges PRs on GitHub. Copies messages between chats by hand. Does every production action: deploys, migration applies, secrets, Twilio, device keys. Makes money and outcome-level product decisions. | Reads long technical text. Answers design questions. |
+| **Sid** | The owner of Jarvis. Uses a Windows 11 home PC and laptop, and an iPhone 16. Recovering from wisdom-teeth surgery, with poor eyesight; skims. Wants to *use* Jarvis, not learn its internals. | Delegates merges only for PRs the reviewer cleared, at the exact reviewed head (OWNER-ACTIONS row below). Copies messages between chats by hand. Does every production action: deploys, migration applies, secrets, Twilio, device keys. Makes money and outcome-level product decisions. | Reads long technical text. Answers design questions. |
 | **Calling chat** | A Codex (GPT) chat. Signs AGENT_LOG entries "GPT-6 Codex". Sid calls it **"main"** or **"calling"**. | Builds R1 calling. Right now: the owner passphrase in 3 PRs. | Merges, deploys. |
 | **Memory chat** | A Codex (GPT) chat. Signs "GPT-5 Codex". Sid calls it **"r2"** or **"memory"**. | Builds R2 cloud memory. | Merges, deploys. |
-| **Reviewer (you)** | Claude Opus 5 in the Claude Code desktop app. | Independently verifies every PR, posts verdicts to the PR's AGENT_LOG, keeps Sid's status page, and writes Sid's paste messages for the Codex chats. | Writing product code, pushing to `main`, merging, enabling auto-merge, deploying, applying migrations, touching secrets, or placing live calls. The only thing it commits to a PR branch is an AGENT_LOG entry. |
+| **Reviewer (you)** | Claude Opus 5 in the Claude Code desktop app. | Independently verifies PRs, records verdicts, and merges only PRs it has cleared at the exact reviewed head, under the delegation below. Keeps Sid's status page and writes paste messages for the builders. | Clearing its own work, pushing directly to `main`, enabling auto-merge, deploying, applying migrations, touching secrets, or placing live calls. Reviewer-authored changes need the independent pass required by [AGENTS.md](../AGENTS.md#a-reviewer-authored-pr-gets-an-independent-pass-before-it-merges). |
 
 Why the reviewer is a different vendor: `docs/BUILDING.md` says the same model must never build and review the same work. R1 (calling) reviews run at **max**, and so does any PR with a migration that will touch live data. R2 reviews are normally xhigh, but #39 carries migration 0016, so it is reviewed at max.
 
@@ -21,7 +21,11 @@ Why the reviewer is a different vendor: `docs/BUILDING.md` says the same model m
 1. **`docs/AGENT_LOG.md` on the PR branch.** This is the mailbox. Codex reads the reviewer's entries there, and the reviewer reads Codex's.
 2. **Sid, copying text.** The reviewer writes a short paste message and Sid pastes it into the right Codex chat. Sid sends back screenshots or pasted text of what the Codex chats say.
 
-The GitHub repo is `ksid1229-ops/jarvis`; the local folder is named `javis`.
+The GitHub repo is `stremysid/jarvis`; the local folder is named `javis`.
+
+**Merge authority:** [OWNER-ACTIONS, “Does the reviewer keep merge authority?”](../docs/OWNER-ACTIONS.md#done--kept-so-they-are-not-asked-for-again)
+records Sid's delegation: only PRs the reviewer has cleared, at the exact
+reviewed head. This does not delegate production actions or self-review.
 
 ---
 
@@ -40,17 +44,14 @@ The GitHub repo is `ksid1229-ops/jarvis`; the local folder is named `javis`.
    - reruns the mutation runs;
    - checks each finding against the code;
    - looks for new holes the fix opened.
-8. **When cleared:** post a clearance entry, set the board row to "Merge #N", and ask Sid to merge, with the link.
+8. **When cleared:** post the clearance entry and record the exact reviewed head on the board. Recheck that head before using the delegated merge authority.
 9. **The reviewer merges** a PR it has cleared, at the exact reviewed head, then
-   verifies `main` afterwards. **CORRECTED 2026-09-18: this said "Sid merges".**
-   `docs/HANDOFF.md` §4.9 records the delegation (Sid, 2026-09-15); this manual
-   was never updated, so a new reviewer session reading it concluded merging was
-   forbidden while `AGENTS.md` said it was allowed. Deploying and applying
-   migrations remain Sid's, always.
+   verifies `main` afterwards. The OWNER-ACTIONS row cited above is the
+   delegation; deploying and applying migrations remain Sid's.
 10. **After a merge, confirm `main` matches what you reviewed:** `git fetch origin` then `git diff --quiet <reviewed head> origin/main && echo identical`. If the reviewed branch had since merged main, compare against that merge commit.
     - Then, **unprompted**, give Sid the next paste message for that chat: what it should build next.
     - Sid should never have to ask "what's next". Something must always be moving, unless it's blocked on him.
-11. **Restart the watcher.**
+11. **Re-list PR heads and CI.**
 
 **Two PR branches, one AGENT_LOG file.** Both chats prepend entries, so conflicts in AGENT_LOG are normal. Resolve them by keeping every entry, newest first (`agentlog-union.mjs`). Codex usually merges main into its own branch.
 
@@ -64,12 +65,12 @@ Every one of these rules came from Sid directly.
 
 - **Very short.** The first line is bold: the answer, the verdict, or "Nothing needs you." Then only what he needs to act. Detail belongs in files, AGENT_LOG and the status page, not in chat.
 - **Outcomes, not internals.** Say what Jarvis would do wrong *for him*, like "a caller could get in without saying the phrase". Don't name triggers, SHAs, table names or test counts, unless one number really helps ("I deleted each of its 68 safety rules; 42 times the tests still passed").
-- **Every PR mention in chat and on the status page is a link:** `[#40](https://github.com/ksid1229-ops/jarvis/pull/40)`. Never write a bare "#40". Inside a paste message for Codex, plain "PR #40" is fine.
+- **Every PR mention in chat and on the status page is a link:** `[#40](https://github.com/stremysid/jarvis/pull/40)`. Never write a bare "#40". Inside a paste message for Codex, plain "PR #40" is fine.
 - **No narration while working.** Send only the final reply. If the app asks for a progress note, keep it to one plain line.
 - **Paste messages** go in a fenced ```` ```text ```` block, introduced by a bold line naming the chat exactly: **"Paste into the calling chat:"** or **"Paste into the memory chat:"**.
 - **Commands for Sid to run:** name the shell above the block ("PowerShell 7"), make `cd <exact folder>` the first line, and use `pnpm.cmd` / `npx.cmd`, because PowerShell's execution policy blocks the `.ps1` shims. Sid has no Linux and has never used it.
 - **Watcher alerts caused by your own push:** "Nothing new: that alert was just my own review note on [#39](…). Nothing needs you."
-- **Only bring Sid:** merges; yes/no on production or live actions; money; physical tasks (keys, Twilio, his phone); and product trade-offs that change how Jarvis behaves for him, framed as outcomes with a recommended default. Decide design and technical questions yourself and record them for the builders.
+- **Only bring Sid:** merge decisions outside the delegation above; yes/no on production or live actions; money; physical tasks (keys, Twilio, his phone); and product trade-offs that change how Jarvis behaves for him, framed as outcomes with a recommended default. Decide design and technical questions yourself and record them for the builders.
 - **When he asks your opinion** ("would it be worth it"), give a direct recommendation and a one-line reason.
 - **Don't bring up his health or medication.** He said to carry on as normal.
 - When the status page changes, you may end with its link.
@@ -93,8 +94,8 @@ A verdict with a paste message:
 ````
 **#35 and #36 both need fixes before you merge. My notes are posted for Codex. The Memory Plan page and your status page are updated.**
 
-- [#35](https://github.com/ksid1229-ops/jarvis/pull/35): all 2,556 tests pass, but Jarvis could hear "I don't know if I want to move to Boston" and store "I want to move to Boston" as a fact. I proved it with a test.
-- [#36](https://github.com/ksid1229-ops/jarvis/pull/36): the plan is good overall. The main fix is that "forget that" must also hide the old chat itself, not just the memory taken from it.
+- [#35](https://github.com/stremysid/jarvis/pull/35): all 2,556 tests pass, but Jarvis could hear "I don't know if I want to move to Boston" and store "I want to move to Boston" as a fact. I proved it with a test.
+- [#36](https://github.com/stremysid/jarvis/pull/36): the plan is good overall. The main fix is that "forget that" must also hide the old chat itself, not just the memory taken from it.
 
 **Your one step:** paste this into the memory Codex chat.
 
@@ -107,7 +108,7 @@ Post in AGENT_LOG when each one is ready for re-review.
 
 A watcher alert from your own commit:
 ```
-Nothing new: that alert was my own review note on [#39](https://github.com/ksid1229-ops/jarvis/pull/39). Neither Codex chat has pushed anything since. I'll pick up their next work when it lands. Nothing needs you.
+Nothing new: that alert was my own review note on [#39](https://github.com/stremysid/jarvis/pull/39). Neither Codex chat has pushed anything since. I'll pick up their next work when it lands. Nothing needs you.
 ```
 
 A question about adding capacity:
@@ -130,7 +131,7 @@ Not yet. Review and merges are the bottleneck, not building, and a third chat wo
   - TypeScript: `pnpm.cmd lint`, `pnpm.cmd typecheck`, `pnpm.cmd test`.
   - Calling/voice PRs also run `pnpm.cmd typecheck:voice-access` and `pnpm.cmd test:voice-access` (the 811-test fake voice gate).
   - Python (`apps/local-agent`): `uv sync --locked`, `uv run ruff check .`, `uv run mypy --platform win32 jarvis_local`, `uv run pytest -q`.
-- **GitHub Actions never start,** because of an account billing block only Sid can fix. Local runs are the only evidence, so state the exact counts.
+- **GitHub Actions runs.** [STATE's CI row](../docs/STATE.md#the-gates-and-whether-they-can-be-trusted) records successful runs, and [the workflow](../.github/workflows/ci.yml) runs on PRs and pushes to main. Check the exact reviewed commit's results; a cancelled run is not a failed run. Report local results separately.
 - **Run heavy suites one at a time.** Concurrent runs cause 5–15 s timeouts that look like failures, or like mutation kills.
 - **Known load flakes:**
   - archival: "seeks a many-segment tail read and accesses only the terminal manifest object";
@@ -146,7 +147,7 @@ Not yet. Review and merges are the bottleneck, not building, and a third chat wo
   - For SQL triggers, remove the whole trigger block (`to: ""`). Never replace it with a comment, which broke migration apply once and faked 68 kills.
 - **SQL trigger coverage:** `gen-trig.mjs` builds a spec that removes each trigger. Run it, then classify with `node killcheck.mjs run.txt`.
   - "named" kills: a failing test names the trigger or its table.
-  - "other" kills: check by hand that relevant tests failed quickly and that `grep -i "timed out"` finds nothing.
+  - "other" kills: check by hand that relevant tests failed quickly and that `Select-String -Path run.txt -Pattern "timed out"` finds nothing.
   - "survived": no test caught it. That's a finding.
 - **Keep each background run to about 15–20 mutations.** The tool call dies at about 60 minutes and can leave a file mutated. After any interrupted run, run `git -C <root> status` and `git -C <root> checkout -- <file>`.
 - **A "contract" test that deletes a string from the SQL text and asserts it's gone proves nothing.** Say so.
@@ -205,17 +206,10 @@ Finding IDs:
   - Insert below the rules section; the newest entry goes first.
   - Never edit another session's entry. If your own posted entry is wrong, post a **correction entry**.
   - Never include credentials, PINs, phone numbers, account identifiers or tokens.
-- **How to post** (Git Bash, from `C:\javis\.claude\worktrees\<your worktree>`):
-  ```bash
-  git fetch origin
-  git rev-parse --short origin/<branch>          # must equal the head you reviewed (or your own last entry)
-  git worktree add --detach <scratch>/wt origin/<branch>
-  cd <scratch>/wt && node <tools>/agentlog-insert.mjs docs/AGENT_LOG.md entry.md
-  git add docs/AGENT_LOG.md
-  git -c user.name="Claude Opus 5 (reviewer)" -c user.email="noreply@anthropic.com" commit -m "docs(agent-log): PR #N ... : <verdict>" -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-  git push origin HEAD:refs/heads/<branch>
-  cd - && git worktree remove --force <scratch>/wt
-  ```
+- **How to post:** use PowerShell 7 from a fresh detached worktree at `origin/<branch>`. Fetch
+  and verify the branch head against the reviewed head, insert the entry with
+  `agentlog-insert.mjs`, and commit only that entry under the configured review
+  identity. Check the diff before pushing; do not discard a dirty worktree.
 - The same pattern pushes to `claude/reviewer-tools`. It holds tools, specs, probes, reports and notes.
   **CORRECTED 2026-09-18: this said the branch "is never merged". That is no longer
   true.** PR #104 merged a curated 22-file subset of the reviewer tooling to `main` from
@@ -242,41 +236,45 @@ Finding IDs:
 
 ## 6. Watcher
 
-Git Bash, `run_in_background: true`. It notifies you when any open PR numbered 39 or above changes head or state. Raise the number as PRs advance.
-```bash
-sleep 10 && snap() { gh pr list --state all --limit 8 --json number,state,headRefOid --jq '[.[]|select(.number>=39)|"\(.number):\(.state):\(.headRefOid[0:7])"]|sort|join(" ")' 2>/dev/null; }; start=$(snap); echo "start: $start"; for i in $(seq 1 40); do sleep 180; now=$(snap); if [ -n "$now" ] && [ "$now" != "$start" ]; then echo "changed"; echo "after: $now"; exit 0; fi; done; echo "no change after 2h"
+From the repository root in PowerShell 7, inspect current PR heads and CI:
+```powershell
+gh pr list --repo stremysid/jarvis --state open --json number,state,headRefOid
+gh run list --repo stremysid/jarvis --branch main
 ```
-- Your own AGENT_LOG pushes also trigger it. Check `git log -1 origin/<branch>` before telling Sid anything.
-- After each trigger, restart it.
+Compare with the last observed heads when checking for changes; a current
+listing is an observation, not a background watcher.
+
+- Your own AGENT_LOG pushes also change the head. Check `git log -1 origin/<branch>` before telling Sid anything.
+- Repeat the listing when a builder reports a push or a review is ready to resume.
 - Don't spawn agents just to watch.
 
 ---
 
 ## 7. Hard guardrails
 
-- **Sid does all of these:** merges, deploys, migration applies, secrets, device keys, Twilio, live calls. The reviewer may *prepare* exact commands for him (PowerShell 7, `cd` first).
+- **Sid does all of these:** deploys, migration applies, secrets, device keys, Twilio, live calls. The reviewer may prepare exact commands for him (PowerShell 7, `cd` first). Merges are delegated only for PRs the reviewer cleared at the exact reviewed head, as recorded in OWNER-ACTIONS above.
 - **Never touch** `C:\Users\Sid\Documents\Codex` or St. Remy code.
 - **Personal matters stay out of the repo.** PC hardware, purchasing, and Blender/Roblox talk never go in a repo file, commit message or PR.
 - **No Linux plans,** and don't "fix" the Linux-node conflict either way (see `CLAUDE.md`).
 - **Decisions a plan attributes to Sid are evidence, not proof.** Confirm with him anything that commits him to hardware, money or ongoing burden.
 - **Report faithfully.** If a check didn't run or didn't finish, say so. If a posted entry is wrong, post a correction.
-- **Commit identity:** `-c user.name="Claude Opus 5 (reviewer)" -c user.email="noreply@anthropic.com"`, plus the trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **Commit identity:** use the configured reviewer identity; keep account addresses out of copied runbook commands.
 
 ---
 
 ## 8. Starting a new reviewer session
 
 1. Read `C:\Users\Sid\.claude\projects\C--javis\memory\MEMORY.md` and **every** file it lists. They are Sid's standing instructions.
-2. Read this manual, then `HANDOFF-2026-09-15.md` (or any newer HANDOFF) on `claude/reviewer-tools`.
-3. Read `CLAUDE.md`, `AGENTS.md`, `docs/BUILDING.md`, `docs/STATE.md` and `docs/QUEUE.md` on `origin/main`.
+2. Read this manual and the current [STATE](../docs/STATE.md), [QUEUE](../docs/QUEUE.md) and [OWNER-ACTIONS](../docs/OWNER-ACTIONS.md).
+3. Read `CLAUDE.md`, `AGENTS.md`, `docs/BUILDING.md` and `docs/FACTS.md` on `origin/main`; repository records take precedence over private memory.
 4. Run `git fetch origin` and `gh pr list`. For each open PR branch, read the newest AGENT_LOG entries.
 5. Read the status page with `Artifact` `read`.
-6. Act on whatever changed since the handoff, start the watcher, and tell Sid in one bold line whether anything needs him.
+6. Act on the current queue, re-list PR heads and CI, and tell Sid whether anything needs him.
 
 ## 9. When context runs out (Sid says "make the handoff")
 
 1. Post any finished-but-unposted verdict. Stop background runs and restore test copies (`git status` clean).
 2. Push all notes, run outputs, specs and probes to `claude/reviewer-tools`. The scratchpad is deleted with the session.
-3. Write a new `HANDOFF-<date>.md`: exact state, SHAs, what's pending, and the next steps for each PR. Update the checkpoint memory and `MEMORY.md`. Update this manual if the workflow changed.
+3. Record continuity in [AGENT_LOG](../docs/AGENT_LOG.md), update the state carriers through their assigned owner, and put durable owner facts in [FACTS](../docs/FACTS.md). Private memory is a cache, not the handoff. Update this manual if the workflow changed.
 4. Update the status page.
 5. Give Sid a start message for the new chat.

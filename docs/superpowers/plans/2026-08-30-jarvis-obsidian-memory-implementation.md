@@ -1,13 +1,15 @@
 > **Superseded - read this before using this document.** Its remaining work
-> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
-> section 6 records the disposition:
+> should not be executed as written. Use [the current roadmap](../../plan/2026-09-19-jarvis-roadmap.md).
+> Historical disposition:
 >
 > Historical implementation based on an unconfirmed editable-notes premise. Keep the code, but build no Obsidian path in R2. Only compatibility with a later one-way export remains current.
 >
-> Kept rather than deleted, as section 6 instructs. Current state is
-> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+> Current state is [docs/STATE.md](../../STATE.md); what is in flight is
+> [docs/QUEUE.md](../../QUEUE.md). The older roadmap was deleted by [#131](https://github.com/stremysid/jarvis/pull/131).
 
 # Jarvis Obsidian Memory Implementation Plan
+
+> **Superseded in part by [the corrected memory decision](../../../DECISIONS.md#r2-cloud-memory-direction-and-corrected-attribution-2026-09-14-delegated-design-decision) and merged [#125](https://github.com/stremysid/jarvis/pull/125):** the editable-notes premise was never confirmed with Sid; D1 is authoritative and an optional one-way export is later work.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
