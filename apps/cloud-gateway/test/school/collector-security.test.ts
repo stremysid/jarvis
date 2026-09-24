@@ -21,6 +21,7 @@ describe("school collector security", () => {
     await f.decisions.markDelivered(decision.decisionId);
     await f.decisions.answer({ decisionId: decision.decisionId, answeredByIdentityId: f.identity, optionKey: "confirm" });
     expect(await f.pairing.activateFromDecision(decision.decisionId, "wrong-identity")).toBe(false);
+    expect(await new SchoolCollectorPairing(env.DB, "different-owner", f.clock).activateFromDecision(decision.decisionId, f.identity)).toBe(false);
     expect(await f.pairing.activateFromDecision(decision.decisionId, f.identity)).toBe(true);
     expect(await f.pairing.activateFromDecision(decision.decisionId, f.identity)).toBe(false);
     expect((await readKey(f.key.collector_id)).status).toBe("active");
@@ -58,8 +59,14 @@ describe("school collector security", () => {
     const f = await collectorFixture(false);
     const request = { publicKeyBase64: f.publicKeyBase64, deviceLabel: "bad\nlabel" };
     await expect(f.pairing.start(request)).rejects.toThrow("school_device_label_invalid");
-    await expect(new SchoolCollectorPairing(env.DB, "missing-owner", f.clock).start({ ...request, deviceLabel: "test" }))
+    const unused = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
+    const fresh = { publicKeyBase64: btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", unused.publicKey) as ArrayBuffer))), deviceLabel: "test" };
+    await expect(new SchoolCollectorPairing(env.DB, "missing-owner", f.clock).start(fresh))
       .rejects.toThrow("school_pairing_unavailable");
+    await env.DB.prepare("UPDATE principals SET status = 'disabled' WHERE principal_id = ?").bind(f.owner).run();
+    await expect(f.pairing.start(fresh))
+      .rejects.toThrow("school_pairing_unavailable");
+    await env.DB.prepare("UPDATE principals SET status = 'active' WHERE principal_id = ?").bind(f.owner).run();
     // Different synthetic keys exercise the durable rate bound rather than the unique key constraint.
     for (let i = 0; i < 4; i += 1) {
       const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
@@ -82,10 +89,37 @@ describe("school collector security", () => {
     const f = await collectorFixture(false);
     const body = observedBatch(f);
     expect((await f.dispatch(await f.request("/school/observations", body))).status).toBe(400);
+    const raw = bytes(body);
+    await expect(verifyCollectorRequest(env.DB, f.owner, await f.sign("/school/observations", raw), "/school/observations", raw, f.clock(), "active"))
+      .rejects.toThrow("school_key_inactive");
     await f.activate();
+    expect(await new SchoolCollectorPairing(env.DB, "different-owner", f.clock).revoke(f.key.collector_id)).toBe(false);
     expect(await f.pairing.revoke(f.key.collector_id)).toBe(true);
     expect(await f.pairing.revoke(f.key.collector_id)).toBe(false);
     expect((await f.dispatch(await f.request("/school/observations", body))).status).toBe(400);
+  });
+
+  it("refuses an active collector whose owner has been disabled", async () => {
+    const f = await collectorFixture();
+    await env.DB.prepare("UPDATE principals SET status = 'disabled' WHERE principal_id = ?").bind(f.owner).run();
+    expect((await f.dispatch(await f.request("/school/observations", observedBatch(f)))).status).toBe(400);
+  });
+
+  it("refuses a revocation racing verification before inserting the nonce", async () => {
+    const f = await collectorFixture();
+    const raw = bytes(observedBatch(f));
+    const database = { prepare(sql: string) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.startsWith("INSERT INTO school_collector_nonces")) return statement;
+      return { bind(...args: unknown[]) { return { async first() {
+        await f.pairing.revoke(f.key.collector_id);
+        return statement.bind(...args).first();
+      } }; } };
+    } } as unknown as D1Database;
+    await expect(verifyCollectorRequest(database, f.owner, await f.sign("/school/observations", raw), "/school/observations", raw, f.clock(), "active"))
+      .rejects.toThrow("school_nonce_refused");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM school_collector_nonces WHERE collector_id = ?").bind(f.key.collector_id).first())
+      .toEqual({ n: 0 });
   });
 
   it("stops an expired pending key from polling or growing the nonce table", async () => {
@@ -172,7 +206,9 @@ describe("school collector security", () => {
       { ...batch, readId: "x/y" }, { ...batch, courseIds: [] }, { ...batch, courseIds: ["elsewhere"] },
       { ...batch, courseIds: [f.courseId, ...Array.from({ length: 128 }, (_, i) => `extra-${i}`)] },
       { ...batch, courseIds: [f.courseId, f.courseId] }, { ...batch, enrollmentComplete: "true" },
-      { ...batch, startedAt: new Date(f.clock().getTime() + 1).toISOString() },
+      { ...batch, startedAt: new Date(f.clock().getTime() + 1).toISOString(), routes: [] },
+      { ...batch, routes: [{ ...batch.routes[0], route: "/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=other" }] },
+      { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/content/myItems/` }] },
       { ...batch, routes: [{ ...batch.routes[0], route: "/d2l/api/le/1.82/other/dropbox/folders/" }] },
       { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/users/` }] },
       { ...batch, routes: [batch.routes[0], batch.routes[0]] },
@@ -185,6 +221,8 @@ describe("school collector security", () => {
     expect(() => exact([], [])).toThrow();
     expect(() => identifier("a\nb")).toThrow();
     expect(parseSchoolBatch(batch, f.clock())).toEqual(batch);
+    const myItems = { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}` }] };
+    expect(parseSchoolBatch(myItems, f.clock())).toEqual(myItems);
     expect(SCHOOL_AUDIENCE).toBe("jarvis-school-collector");
   });
 
@@ -197,6 +235,8 @@ describe("school collector security", () => {
     await expect(insert("active", "active", "A".repeat(43) + "=")).rejects.toThrow("school_collector_insert_refused");
     await expect(insert("short", "pending", "short")).rejects.toThrow("CHECK constraint failed");
     await expect(insert("status", "invented", "B".repeat(43) + "=")).rejects.toThrow();
+    await expect(env.DB.prepare("UPDATE school_collector_keys SET status = 'invented' WHERE collector_id = ?").bind(f.key.collector_id).run())
+      .rejects.toThrow("CHECK constraint failed");
   });
 
   it("refuses a collector key during ordinary device rotation and refuses an existing device key for pairing", async () => {

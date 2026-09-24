@@ -58,11 +58,12 @@ export function parseSchoolBatch(value: unknown, now: Date): SchoolBatch {
     || !root.courseIds.includes(courseId) || typeof root.enrollmentComplete !== "boolean") throw new Error("school_manifest_invalid");
   if (!Array.isArray(root.routes) || root.routes.length > 256) throw new Error("school_routes_invalid");
   const prefix = `/d2l/api/le/1.82/${courseId}/`;
+  const myItemsRoute = `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${courseId}`;
   const seen = new Set<string>();
   for (const value of root.routes) {
     const route = exact(value, ["route", "status", "fetchedAt", "complete", "body"]);
-    if (typeof route.route !== "string" || !route.route.startsWith(prefix)
-      || !/^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/(mysubmissions\/)?|content\/toc|content\/myItems\/|grades\/values\/myGradeValues\/)$/.test(route.route.slice(prefix.length))
+    if (typeof route.route !== "string" || !(route.route === myItemsRoute || route.route.startsWith(prefix)
+      && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/(mysubmissions\/)?|content\/toc|grades\/values\/myGradeValues\/)$/.test(route.route.slice(prefix.length)))
       || seen.has(route.route)) throw new Error("school_route_invalid");
     seen.add(route.route);
     if (!Number.isInteger(route.status) || !(route.status === 0 || Number(route.status) >= 100 && Number(route.status) <= 599)

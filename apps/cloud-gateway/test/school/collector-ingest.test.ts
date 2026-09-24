@@ -43,7 +43,7 @@ describe("school evidence and projection", () => {
     batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
     expect(mapSchoolCourse(batch).items[0]).toMatchObject({ dueAt: "2026-09-25T12:00:00.000Z", dateSource: "assignment DueDate" });
     // This is a proposed adapter fixture. PR 161 did not observe content/myItems.
-    batch.routes.push({ route: `/d2l/api/le/1.82/${f.courseId}/content/myItems/`, status: 200, fetchedAt: batch.startedAt,
+    batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, status: 200, fetchedAt: batch.startedAt,
       complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-26T12:00:00Z" }] });
     expect(mapSchoolCourse(batch).items[0]).toMatchObject({ dueAt: "2026-09-26T12:00:00.000Z", dateSource: "content/myItems" });
     batch.routes[0].body[0].DueDate = null;
@@ -204,7 +204,7 @@ describe("school evidence and projection", () => {
       (b: any) => { b.routes[2].body = { Errors: [{ Message: "Unexpected" }] }; },
       (b: any) => { b.routes[0].body.push(b.routes[0].body[0]); },
       (b: any) => { b.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Conflicting", ToolItemId: 17, EndDateTime: "2026-09-30T00:00:00Z" }); },
-      (b: any) => { b.routes.push({ ...b.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/content/myItems/`, body: { Surprise: [] } }); },
+      (b: any) => { b.routes.push({ ...b.routes[0], route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, body: { Surprise: [] } }); },
     ]) {
       const batch = structuredClone(observedBatch(f));
       alter(batch);

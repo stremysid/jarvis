@@ -51,19 +51,19 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
   const prefix = `/d2l/api/le/1.82/${batch.course.id}/`;
   const failures: string[] = [];
   const items: SchoolItem[] = [];
-  const routes = new Map(batch.routes.map((row) => [row.route.slice(prefix.length), row]));
+  const routes = new Map(batch.routes.map((row) => [row.route, row]));
   for (const row of batch.routes) {
     if (row.status !== 200 || !row.complete) failures.push(`${row.route}:${row.status}:${row.complete ? "http" : "incomplete"}`);
   }
   const required = (route: string): RouteEvidence | null => {
-    const result = routes.get(route);
+    const result = routes.get(prefix + route);
     if (result === undefined) failures.push(`${prefix}${route}:not_read`);
     return result?.status === 200 && result.complete ? result : null;
   };
   const folders = required("dropbox/folders/");
   const toc = required("content/toc");
   const grades = required("grades/values/myGradeValues/");
-  const myItems = routes.get("content/myItems/");
+  const myItems = routes.get(`/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${batch.course.id}`);
   const personalDates = new Map<string, string>();
   const topicDates = new Map<string, { at: string | null; title: string; topicId: string }>();
   try {
@@ -106,7 +106,7 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       const dueAt = personal ?? assignment ?? availability;
       const dateSource = personal !== null ? "content/myItems" : assignment !== null ? "assignment DueDate" : availability !== null ? "availability end" : null;
       const ownPath = `dropbox/folders/${key}/submissions/mysubmissions/`;
-      const submission = routes.get(ownPath) ?? required(`dropbox/folders/${key}/submissions/`);
+      const submission = routes.get(prefix + ownPath) ?? required(`dropbox/folders/${key}/submissions/`);
       const ownPositive = submission?.route === prefix + ownPath && submission.status === 200 && submission.complete
         && submission.body !== null && !Array.isArray(submission.body) && typeof submission.body === "object"
         && submission.body.Status === 1;

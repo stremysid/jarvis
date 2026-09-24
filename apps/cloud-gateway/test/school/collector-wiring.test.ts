@@ -12,6 +12,10 @@ import type { ModelAgentCompletionInput } from "../../src/providers/provider-typ
 import type { Env } from "../../src/env.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { assembleDigest } from "../../src/jobs/digest-job.js";
+import { D1ToolConfirmationStore, TIER3_TOOL_ORIGIN, TIER3_CONFIRM_OPTION } from "../../src/autonomy/tool-confirmations.js";
+import { ToolAutonomyGate } from "../../src/autonomy/tool-gate.js";
+import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
+import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 
 beforeAll(applyNewestRuntimeMigration);
 
@@ -83,4 +87,36 @@ it("keeps an unavailable collector status visible in the digest", async () => {
   } });
   expect(digest.text).toContain("collector status unavailable");
   expect(digest.text.toLowerCase()).not.toContain("nothing due");
+});
+
+it("revokes through the owner tool only after its tier-three confirmation tap", async () => {
+  const f = await collectorFixture();
+  const autonomy = new ToolAutonomyGate(new AutonomyService({ repository: new AutonomyRepository(env.DB), now: f.clock }), new D1ToolConfirmationStore(env.DB));
+  const run = async () => {
+    const requests: ModelAgentCompletionInput[] = [];
+    const adapter = new OwnerTelegramAgentAdapter({ database: env.DB, archive: env.ARCHIVE,
+      provider: { async completeAgent(input) {
+        requests.push(input);
+        return requests.length === 1
+          ? { content: null, toolCalls: [{ id: "revoke-school", name: "school_collector_revoke", arguments: JSON.stringify({ collectorId: f.key.collector_id }) }], finishReason: "tool_calls" }
+          : { content: JSON.stringify({ reply: "I checked the collector.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };
+      } }, ownerPrincipalId: f.owner, directOwnerText: true, directPipelineText: true, authorityText: "Revoke my school collector",
+      targets: { async findControlTargets() { return []; } }, decisions: f.decisions, autonomy,
+      schoolModel: { async *stream() {} }, universityModel: { async *stream() {} }, studyCoachModel: { async *stream() {} }, now: f.clock,
+    });
+    for await (const _token of adapter.stream({ correlationId: newUlid(), principalId: f.owner, channel: "telegram", userText: "Revoke my school collector", context: [],
+      reasoningEffort: "none", firstTokenTimeoutMs: 8_000, timeoutMs: 30_000, contextTokenBudget: 16_000, maxOutputCharacters: 8_000, signal: new AbortController().signal })) {}
+    return requests;
+  };
+  const pending = await run();
+  expect((await readKey(f.key.collector_id)).status).toBe("active");
+  expect(JSON.stringify(pending[1])).toContain("pending_confirmation");
+  const decision = await env.DB.prepare("SELECT decision_id FROM decision_items WHERE principal_id = ? AND origin = ?")
+    .bind(f.owner, TIER3_TOOL_ORIGIN).first<{ decision_id: string }>();
+  expect(decision).not.toBeNull();
+  await f.decisions.markDelivered(decision!.decision_id);
+  await f.decisions.answer({ decisionId: decision!.decision_id, answeredByIdentityId: f.identity, optionKey: TIER3_CONFIRM_OPTION });
+  const confirmed = await run();
+  expect(JSON.stringify(confirmed[1])).toContain("School collector revoked.");
+  expect((await readKey(f.key.collector_id)).status).toBe("revoked");
 });
