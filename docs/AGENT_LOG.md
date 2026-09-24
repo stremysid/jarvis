@@ -3,6 +3,72 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
+
+Normal merges retain the original PR history: `0c0d0fa` integrated main at
+`a6a0efd` (#154); the final merge integrates `248c3de` (#156). Both sides of
+the log conflicts and the earlier OWNER-ACTIONS conflict are preserved. No
+rebase, force-push, PR merge or deployment.
+
+`applyOwnerPlan` now supplies committed evidence through `onResult`, including
+inserted/deduplicated facts per course and the repaired stored actions.
+`schoolPlanReceipt` uses that evidence, reports dropped/clamped blocks, retains
+every course's counts and total, and limits previews with "and K more saved".
+The 60/60/60/240-minute proposal shows three stored 60-minute blocks, never 240;
+a single 240-minute block shows its stored 180 minutes. Re-pastes distinguish
+new from already saved facts. Cap failures name 16/course or 48/total and say
+nothing was saved. The school reply no longer leaves "Done." attached to a
+removed email claim. University refusal is pinned with zero model calls.
+
+The profile reference is bounded to 8,192 UTF-8 bytes and omitted if oversized
+or if it crowds out an otherwise saveable paste. Read-failure and omission
+notices are rules text, not profile JSON. Capacity/ranking remain prompt
+judgments. CODE-VS-JUDGMENT reconciles #160/#162 as rows 10/11, with university
+refusal at 12; #162's tutoring runtime change is not included. M18 uses a
+single-line find that does not depend on checkout line endings.
+
+**Observed gates:** new file/restored pass **22/0/0**; school + university
+folders **1,276/0/0**, 19 files; related Telegram integration + new file during
+iteration **26/0/0**, 2 files (pass/fail/skip). Full workspace Vitest, run once:
+**5,489 passed, 0 failed, 0 skipped**, 210 files, exit 0, 188.68 seconds.
+Breakdown: gateway **5,136/0/0**, 191 files; contracts **77/0/0**, 5 files;
+acceptance **276/0/0**, 14 files. No flaky-file rerun. Production typecheck
+passed. Test typecheck remains **143 diagnostics**, all outside changed files,
+matching #154's recorded baseline; the new fixture type error was corrected.
+State check passed all **3 carriers** before the final main integration.
+
+**Mutation evidence:** source `4be7ca7`, using `reviewer-tools/mutate.ps1` and
+`mutation-specs-school-paste.json`: **33 confirmed named kills**, 2
+`KILLED/OTHER` results because parameterized cap test names included quotes
+missing from the selectors. Commit `2d7e01b` corrected only those selectors;
+both reruns produced **2 confirmed named kills**, 0 wrong-test/unconfirmed/
+survived/not-applied/invalid. All **35 distinct mutations** now have expected
+failures confirmed twice. Both sweeps verified byte-exact restoration (6 then
+2 files). Restored tests and the full suite passed afterward. M22 specifically
+kills the previously surviving university-refusal bypass. M18 applied and died.
+
+The realistic 25-item paste (130-character statements), after
+`composeReceiptReply` with a 700-character agent reply, measures **1,482 UTF-16
+units / 1,490 UTF-8 bytes**, with both courses, total and complete reply visible.
+The 12-course/48-fact maximum-shape test also retains every count and the reply.
+This replaces the initial model-JSON size evidence. Receipts cap at 3,200 units;
+the unchanged outer composer can still prioritize an unusually long reply.
+
+The final main merge changes Hermes and documentation, not any source, tests,
+configuration or lockfile covered by the completed workspace run. No persistent
+edit to owner-agent-core, telegram-webhook, owner-telegram-agent.test.ts or the
+university code/corpus. New behavior tests stay in school-paste.test.ts; one
+existing Telegram integration assertion follows the new receipt wording.
+
+Tests use local D1 and synthetic model/profile data. Live model adherence,
+real D2L/Telegram delivery and production state were not tested. No migration,
+deploy, secret operation, PC permission/settings operation or local-agent test.
+Owner acceptance after reviewed deployment remains in OWNER-ACTIONS. Detailed
+logs/JSON and the continuity ledger are outside the repo under
+`C:\Users\Sid\codex-ledgers\school-paste-r1-*` and `school-paste-run.md`.
+
+Signed: **Codex (GPT-6), builder**, 2026-09-23. Independent review follows.
+
 ## 2026-09-23 — Codex builder: school assignment pastes, pinned capacity and saved-course receipts
 
 **Branch:** `codex/school-paste-run`, isolated from freshly fetched `origin/main`
@@ -49,6 +115,107 @@ production/database migration, PC permission change or local-agent test occurred
 The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
 
 Signed: **Codex, builder**, 2026-09-23.
+## 2026-09-23 — Codex builder: issue #24, trusted PowerShell Store discovery
+
+Signed: Codex (GPT-6), builder on `codex/hermes-msix`, from freshly fetched
+`origin/main` at `f9472d18a3634f186b36675c8da5995292da9e1d`.
+
+Fix round 1 for [PR #156](https://github.com/stremysid/jarvis/pull/156): merged
+`origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` normally, retaining
+the reviewed `6c419d0` history. The review correctly identified that the old
+absence claim below was too broad: a dangling MSI link's `realpath` ENOENT
+also allowed Store fallback. Only the independent MSI `lstat` probe can now
+select Store; executable validation errors remain outside that catch.
+
+The query now carries Windows' package `Status` and requires `Ok`. An exact
+bootstrap assertion pins every projected field and the complete package list.
+Removed the three repaired SBOM exemptions from `gate.ps1`, retaining its
+source-lock exemption, and corrected the runbook's executable/alias mix-up.
+New regression tests reproduced **43 passed, 3 failed, 0 skipped** before the
+source fix (dangling link, unhealthy package, missing bootstrap status).
+The first fixed focused run passed **64 tests, 0 failed, 0 skipped**.
+The mutation spec now has 51 entries: six review-supplied query faults, the
+dangling-link fault, the health guard and a hardcoded health projection, plus
+the existing 42. The old cause-propagation mutation is replaced by an explicit
+MSI-absence fallback mutation because causes no longer select fallback.
+Revision evidence at `e12b349ac61cc6b5abceb6b3b37eb0d2521bae3b`:
+
+- **51/51 mutations killed**, each expected failure confirmed twice; **0**
+  survived, wrong-test, unconfirmed, not-applied or invalid. The source restore
+  was byte-identical. The subsequent focused run passed **64, failed 0,
+  skipped 0** (46 host, 14 integrity, 4 PATH-shadow/security tests).
+- Builder's local Hermes run: **151 passed, 0 failed, 0 skipped**, 15 files,
+  37.32 seconds. At `5c8a470`, the [Hermes CI job](https://github.com/stremysid/jarvis/actions/runs/35930123889/job/107414429041)
+  ran the complete requested 16-file set: **158 passed, 0 failed, 0 skipped**,
+  including all seven unchanged attestation-contract tests. Independent review
+  also ran that 16-file set locally with **158/158 passing** (review result
+  relayed by Sid, 2026-09-23). Only source-lock and workflow-containment are
+  excluded from that set; no owner decision is needed.
+- Package lint and typecheck: exit 0 each, four configured syntax checks each.
+  Gate script parses; six isolated allowance checks pass (the three SBOM
+  failures are no longer excused, source-lock remains, a different source-lock
+  failure is rejected, and the allowance has exactly one entry).
+  `node scripts/check-state.mjs` passed all three carriers; no check failed.
+- Read-only Windows Appx recheck reports Store signing, non-development mode,
+  `Status = Ok`, the Microsoft family and the same 7.6.6 installation location.
+
+No flaky-file rerun was needed. Detailed red/green reports and mutation output
+are `C:\Users\Sid\codex-ledgers\hermes-msix-r1-*`. This revision leaves the
+permissions, registry, services, tasks and forbidden scratch path alone.
+
+Initial submission evidence follows; these counts predate fix round 1.
+
+The original SBOM pair reproduced **15 passed, 3 failed, 0 skipped** on this
+PC. Those three files are unchanged between `12a64b2` and this base. The MSI
+executable is absent; Windows Appx reports the genuine Microsoft PowerShell
+Store package at the versioned WindowsApps location in `FACTS.md`. Corrected
+that register's conflation of the real executable and the separate user alias.
+The prompt's CI premise needs narrowing: Hermes passed on both revisions, but
+the workspace job failed in runs `35808137393` and `35920809820`.
+
+The resolver keeps MSI first and falls back only on absence. Store evidence
+comes from the fixed Windows PowerShell OS host, with validated absolute Appx
+and Utility modules, no profiles or inherited environment, closed discovery,
+and the existing bounded process-tree runner. Family, publisher, Store signing,
+non-development registration, exact API-reported location and canonical file
+checks all precede PowerShell 7 execution. The module-discovery regression now
+uses this resolver rather than scanning an assumed MSI directory.
+
+Observed gates on the home Store installation:
+
+- Full `pnpm --filter @jarvis/hermes-runtime exec vitest run test`, with no
+  exclusions: **294 passed, 0 failed, 0 skipped in 18 files**, 882.92 seconds.
+  The extended source-lock file passed 77 tests; containment passed 61.
+- Final restored SBOM/host selection: **62 passed, 0 failed, 0 skipped** in
+  three files. The 44 host tests fake both installation layouts independently
+  of the machine; the original three regressions exercise the real Store host.
+- **42/42 distinct mutations killed**, every expected failure confirmed twice,
+  all restores byte-identical. There were 44 successful mutation executions
+  including two deliberate rechecks. The first sweep also had **1 NOT APPLIED**
+  (an environment anchor matched twice), corrected and then killed. **0**
+  survived, wrong-test, invalid or unconfirmed results. Reproduce with
+  `reviewer-tools/mutate.ps1 -Spec reviewer-tools/mutation-specs-hermes-msix.json
+  -GateDir <clean-worktree>`.
+- Package `typecheck` and `lint`: both exit 0, four configured JavaScript syntax
+  checks each. `node scripts/check-state.mjs`: passes all three carriers.
+
+Production source has not changed since full-gate revision `679ce48`. During
+and after that gate, only the host test's exact diagnostic assertion, fixture
+labels and safe reporting of inherited environment names were tightened; the
+affected mutations and final 62-test selection were then rerun. The real OS
+query was also probed with a nonexistent package name: it returned `[]` and
+the resolver issued its named PowerShell 7 missing-host refusal.
+
+MSI execution on this PC, an actual custom package volume, hostile package
+registration, live Hermes acquisition and the new PR's CI were not verified
+locally. MSI selection is covered by the isolated fixtures; the PR's Windows
+runner supplies the real MSI layout. Package identity/signature rationale and
+Microsoft documentation links are in the PR body. Full reports and the
+continuity ledger remain under `C:\Users\Sid\codex-ledgers\hermes-msix*`.
+
+No production, deploy-tree or parallel sync-builder files were touched. No
+owner action is required for this local fix. Independent review follows the PR.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#154](https://github.com/stremysid/jarvis/pull/154) round 1 restores the critical-path guard
 
 **The callback fix is unchanged from reviewed head `28c9463`.** This round corrects the missing archived-memory latency guard, normally merges `a666097` (#153), and updates the stale state carriers. It supersedes the preceding entry's paused-clock test design; that earlier design let a candidate-before-history serialization mutation survive.
