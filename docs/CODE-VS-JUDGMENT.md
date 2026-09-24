@@ -43,6 +43,21 @@ file, and the citations were corrected where the audit's had moved.
 
 ---
 
+## Owner deadline proof contract (#166 review round 1)
+
+| Symbol | Decision or bounded proof rule | Model-visible surface |
+|---|---|---|
+| `proveDeadlineDue` | Validates the model's proposed instant against one grounded date/clock phrase and the durable current-message timestamp, using `DIGEST_TIMEZONE ?? "America/Toronto"`. An override zone must be named in that phrase. | `deadline_record` describes the grammar and returns a specific refusal reason for one precise clarification. Course, title, effort, whether to act, and the proposed resolution remain model arguments. Receipts always use the owner zone. |
+| `resolveDate` | Accepted dates are ISO `YYYY-MM-DD`, English month/day or day/month with optional year/ordinal suffix (full month, three-letter abbreviation, `Sept`), weekday names/three-letter abbreviations, today, tomorrow, this/next weekday, next week optionally followed by a weekday, and ordinal days such as `25th`. Bare weekday, omitted year and ordinal use the nearest occurrence on or after the message's local date. This/next refers to Monday-Sunday calendar weeks. | These conventions are disclosed in the tool description; a proposed date that disagrees is refused. They are an explicit limited grammar, not general natural-language date understanding. Unsupported dates require clarification. |
+| `proveDeadlineDue` date-only branch | Clocks accepted are `3pm`, `3:30 p.m.`, and `HH:mm` in 24-hour form. Missing clocks, a single-digit hour without am/pm, and repeated/nonexistent DST hours become date-only at owner-zone end of day. Bare next week uses Sunday as an **unconfirmed upper bound**, never a claim that Sid named Sunday. | The model supplies the proven `YYYY-MM-DD`; the receipt explicitly says date-only/end-of-day, or unconfirmed end-of-week bound. Numeric ambiguous dates such as `03/04` cannot establish even a unique day and are refused with `deadline_ambiguous_date`. |
+| `statusOf` | `submitted`, `handed in`, `turned in` prove submitted; `missed` proves missed; `cancelled`, `canceled` prove cancelled. Omission preserves stored status. `finished` is not proof of submission. | Aligned with #164's school tool description: school_update handles missed classwork/finished work and catch-up planning, deadline_record handles dated deadlines and explicit deadline status. Words are named in the tool schema and description rather than silently inferred. |
+| `matchingDeadline` | Case/whitespace and the explicit Chem/Chemistry alias share a principal-scoped identity. Prefix/punctuation collisions ask which existing assignment is intended rather than creating a likely duplicate. | `deadline_record` describes normalised matching and returns candidate course/title receipts for clarification. Arbitrary course aliases and semantic similarity are not guessed. Platform sources still may duplicate owner-reported rows. |
+
+These proof limits and date-only conventions are recorded under Sid's explicit review request;
+they do not grant code permission to choose study priorities or reminder wording/timing.
+`DEFAULT_LEAD_MINUTES[effort]` supplies the existing ingestion lead-window contract, with effort
+chosen by the model, so owner-reported rows reach `listReminderDue` like collected rows.
+
 ## The list
 
 Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision

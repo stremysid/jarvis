@@ -195,17 +195,19 @@ export interface DeadlineUpsertInput {
   readonly dueAt: string;
   readonly effort: DeadlineEffort;
   readonly leadMinutes: number;
-  /** Explicit owner metadata replaces the previous status and effort together. */
+  /** Omission preserves the stored status, including a prior submission. */
   readonly status?: DeadlineStatus;
+  /** Owner tools may retag unchanged content; collector sweeps preserve a prior retag. */
+  readonly replaceEffortAndLead?: boolean;
   readonly now: Date;
 }
 
-export type DeadlineUpsertOutcome = "created" | "revised" | "unchanged";
+export type DeadlineUpsertOutcome = "created" | "revised" | "updated" | "unchanged";
 
 export interface DeadlineUpsertResult {
   readonly outcome: DeadlineUpsertOutcome;
   readonly deadline: Deadline;
-  /** The revision appended by this call, or null when nothing changed. */
+  /** Metadata changes do not append a content revision. */
   readonly revisionId: string | null;
   /** What the row said before, present only on `revised`. It is how a caller reports that a date moved. */
   readonly previous: Readonly<{ dueAt: string; title: string; course: string }> | null;
@@ -390,6 +392,7 @@ export class DeadlineRepository {
     const effort = requireEffort(input.effort);
     const leadMinutes = requireLeadMinutes(input.leadMinutes);
     const status = input.status === undefined ? null : requireStatus(input.status);
+    const replaceEffortAndLead = input.replaceEffortAndLead === true || status !== null;
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
@@ -400,10 +403,11 @@ export class DeadlineRepository {
       const unchanged = await this.#database.prepare(
         `UPDATE deadlines
          SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
-             status = coalesce(?, status), effort = CASE WHEN ? IS NULL THEN effort ELSE ? END
+             status = coalesce(?, status)
          WHERE source_id = ? AND external_id = ? AND content_hash = ?
+           AND (? IS NULL OR status = ?) AND (? = 0 OR (effort = ? AND lead_minutes = ?))
          RETURNING *`,
-      ).bind(observedAt, observedAt, status, status, effort, sourceId, externalId, contentHash).first<DeadlineRow>();
+      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status, replaceEffortAndLead ? 1 : 0, effort, leadMinutes).first<DeadlineRow>();
       if (unchanged !== null) {
         return Object.freeze({
           outcome: "unchanged" as const,
@@ -452,9 +456,17 @@ export class DeadlineRepository {
       }
 
       if (existing.content_hash === contentHash) {
-        // A writer won between our update and read. Retry the metadata write
-        // instead of receipting a submitted status that was never persisted.
-        continue;
+        // A metadata update must be receipted as an update without inventing a
+        // due-date revision. Compare the read row so a racing edit is retried.
+        const updated = await this.#database.prepare(`UPDATE deadlines
+          SET status = coalesce(?, status),
+              effort = CASE WHEN ? THEN ? ELSE effort END,
+              lead_minutes = CASE WHEN ? THEN ? ELSE lead_minutes END, last_seen_at = max(last_seen_at, ?)
+          WHERE deadline_id = ? AND content_hash = ?
+          RETURNING *`).bind(status, replaceEffortAndLead ? 1 : 0, effort, replaceEffortAndLead ? 1 : 0, leadMinutes, observedAt, existing.deadline_id,
+          contentHash).first<DeadlineRow>();
+        if (updated === null) continue;
+        return Object.freeze({ outcome: "updated" as const, deadline: toDeadline(updated), revisionId: null, previous: null });
       }
 
       const revisionId = newUlid();

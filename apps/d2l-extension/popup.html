@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>D2L shape probe</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>D2L shape probe</h1>
+  <p>First close every D2L tab and run. Then open D2L, refresh the tab and run again. Both reports stay here until the browser closes.</p>
+  <button id="run" type="button">Run probe</button>
+  <button id="copy" type="button">Copy summary</button>
+  <p id="status" role="status"></p>
+  <textarea id="summary" aria-label="Shape-only summary" readonly></textarea>
+  <script src="probe.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

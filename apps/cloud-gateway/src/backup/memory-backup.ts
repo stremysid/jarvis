@@ -53,6 +53,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "decision_items",
   "decision_options",
   "decision_responses",
+  "tool_confirmation_consumptions",
   "tracked_projects",
   "project_observations",
   "project_documents",

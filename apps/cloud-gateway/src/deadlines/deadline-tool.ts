@@ -1,74 +1,112 @@
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
-import { groundedExcerpt, parseArguments, successfulTool, wordBoundaryOccurrence, type ExecutedTool } from "../agent/owner-agent-core.js";
+import { groundedExcerpt, parseArguments, refusedTool, successfulTool, wordBoundaryOccurrence, type ExecutedTool } from "../agent/owner-agent-core.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import { DeadlineRepository } from "./deadline-repository.js";
-import { requireEffort, requireStatus, requireText } from "./deadline-types.js";
+import { DeadlineProofError, proveDeadlineDue } from "./deadline-date-proof.js";
+import { DEFAULT_LEAD_MINUTES } from "./effort-classifier.js";
+import { requireEffort, requireText, type DeadlineStatus } from "./deadline-types.js";
 
 export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
   name: "deadline_record",
-  description: "Record a dated deadline Sid states in his CURRENT message. Copy course, title and evidenceExcerpt verbatim. dueAt is RFC3339 with an explicit offset, timeZone is its IANA zone. Evidence must include the full calendar date (year included) and clock time: ISO date, or English month/day/year, and 24-hour HH:mm or h:mm am/pm. Ask Sid to clarify relative dates, missing years or missing times; never invent a date or end-of-day time. effort is your classification. Optional status is submitted, missed or cancelled and must be stated in the evidence. Omitted status means open. The same exact course/title updates the owner-reported row; platform sources may duplicate it.",
+  description: "Record a deadline from Sid's CURRENT message. Copy evidenceExcerpt and a short dueExcerpt containing ONE date and its clock together, after the title in the same sentence. Course/title must occur in evidence (Chem also means Chemistry). Resolve dueAt against the message timestamp in the configured owner zone. timeZone defaults to that zone; another IANA zone must be named in dueExcerpt. Supported dates: ISO, English month/day or day/month with optional year, weekdays, today, tomorrow, next/this weekday, next week optionally with weekday, and ordinal day (25th). Bare weekday/month-day/ordinal means its nearest occurrence on or after the message's local date; next/this uses Monday-Sunday calendar weeks. Clocks: 3pm, 3:30 p.m., or 24-hour HH:mm. Missing/ambiguous clock means date-only: supply YYYY-MM-DD, stored at owner-zone end of day. Bare next week is an explicitly unconfirmed date-only end-of-week bound. Never combine separate assignments. effort is your classification. Optional status: submitted (also handed in/turned in), missed, cancelled (also canceled), grounded in evidence. Omission preserves status. Finished work is school_update, not proof of submission; missed here is a missed deadline, school_update handles missed classwork. Normalised course/title updates an existing owner-reported row; uncertain matches ask for clarification. Platform sources may duplicate it.",
   parameters: {
     type: "object", additionalProperties: false,
-    required: ["course", "title", "dueAt", "timeZone", "effort", "evidenceExcerpt"],
+    required: ["course", "title", "dueAt", "effort", "evidenceExcerpt", "dueExcerpt"],
     properties: {
       course: { type: "string" }, title: { type: "string" }, dueAt: { type: "string" },
-      timeZone: { type: "string" }, evidenceExcerpt: { type: "string" },
+      timeZone: { type: "string" }, evidenceExcerpt: { type: "string" }, dueExcerpt: { type: "string", maxLength: 160 },
       effort: { type: "string", enum: ["quiz", "test", "exam", "essay", "project", "other"] },
-      status: { type: "string", enum: ["submitted", "missed", "cancelled"] },
+      status: { type: "string", enum: ["submitted", "handed in", "turned in", "missed", "cancelled", "canceled"] },
     },
   },
 });
 
-/** Compare the model's instant with the stated wall date and time; no date is chosen here. */
-export function proveDeadlineTime(dueAt: string, timeZone: string, excerpt: string): string {
-  if (!/^[A-Za-z]/u.test(timeZone)) throw new TypeError("deadline_zone_invalid");
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00(?:\.000)?(Z|[+-]\d{2}:\d{2})$/u.exec(dueAt);
-  if (match === null) throw new TypeError("deadline_time_invalid");
-  const instant = new Date(dueAt);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(instant).map((part) => [part.type, part.value]));
-  const date = `${parts.year}-${parts.month}-${parts.day}`;
-  const clock = `${parts.hour}:${parts.minute}`;
-  if (date !== match[1] || clock !== match[2]) throw new TypeError("deadline_zone_or_date_invalid");
-  const longMonth = new Intl.DateTimeFormat("en-CA", { timeZone, month: "long" }).format(instant);
-  const day = Number(parts.day);
-  const hour = Number(parts.hour);
-  const dates = [date, `${longMonth} ${day}, ${parts.year}`, `${longMonth} ${day} ${parts.year}`, `${day} ${longMonth} ${parts.year}`];
-  const clocks = [clock, `${hour % 12 || 12}:${parts.minute} ${hour < 12 ? "am" : "pm"}`,
-    `${hour % 12 || 12}:${parts.minute}${hour < 12 ? "am" : "pm"}`];
-  const evidence = excerpt.toLocaleLowerCase("en-CA");
-  if (!dates.some((value) => wordBoundaryOccurrence(evidence, value.toLowerCase()) >= 0)
-    || !clocks.some((value) => wordBoundaryOccurrence(evidence, value) >= 0)) {
-    throw new TypeError("deadline_date_not_in_evidence");
+const STATUS_WORDS = { submitted: ["submitted", "handed in", "turned in"], missed: ["missed"], cancelled: ["cancelled", "canceled"] } as const;
+const normalize = (value: string): string => value.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ").trim();
+const courseKey = (value: string): string => normalize(value) === "chem" ? "chemistry" : normalize(value);
+const identity = (principal: string, course: string, title: string): Promise<string> => sha256Hex(canonicalJson({ principal, course, title }));
+
+function statusOf(value: unknown, excerpt: string): DeadlineStatus | undefined {
+  if (value === undefined) return undefined;
+  const requested = normalize(requireText(value, "deadline_status", 32));
+  for (const [status, words] of Object.entries(STATUS_WORDS)) {
+    if (words.some((word) => word === requested) && words.some((word) => wordBoundaryOccurrence(normalize(excerpt), word) >= 0)) {
+      return status as DeadlineStatus;
+    }
   }
-  return instant.toISOString();
+  throw new DeadlineProofError("deadline_status_not_proved", "Copy a stated submission, missed-deadline or cancellation word. Finished alone belongs to school_update.");
+}
+
+interface ExistingDeadline { external_id: string; course: string; title: string }
+async function matchingDeadline(database: D1Database, principal: string, course: string, title: string): Promise<ExistingDeadline | null> {
+  const rows = await database.prepare("SELECT external_id, course, title FROM deadlines WHERE source_id = 'owner-reported'").all<ExistingDeadline>();
+  const owned: ExistingDeadline[] = [];
+  for (const row of rows.results) {
+    // Older rows hashed literal spelling. Both generations must retain their
+    // principal boundary without requiring a migration of shared source rows.
+    if (row.external_id === await identity(principal, row.course, row.title)
+      || row.external_id === await identity(principal, courseKey(row.course), normalize(row.title))) owned.push(row);
+  }
+  const exact = owned.filter((row) => courseKey(row.course) === courseKey(course) && normalize(row.title) === normalize(title));
+  if (exact.length === 1) return exact[0]!;
+  const uncertain = exact.length > 1 ? exact : owned.filter((row) => {
+    const a = courseKey(row.course), b = courseKey(course), x = normalize(row.title), y = normalize(title);
+    return x === y && (a.startsWith(b) || b.startsWith(a))
+      || a === b && (x.startsWith(y) || y.startsWith(x) || x.replace(/\W/gu, "") === y.replace(/\W/gu, ""));
+  });
+  if (uncertain.length > 0) throw new DeadlineProofError("deadline_ambiguous_match",
+    `Ask which existing assignment is intended: ${uncertain.map((row) => `${JSON.stringify(row.course)} / ${JSON.stringify(row.title)}`).join(", ")}. No duplicate was created.`);
+  return null;
 }
 
 export async function recordDeadline(database: D1Database, input: Readonly<ModelAdapterStreamInput>,
-  call: ModelFunctionCall, now: Date): Promise<ExecutedTool> {
-  const fields = ["course", "title", "dueAt", "timeZone", "effort", "evidenceExcerpt"];
-  let args: Record<string, unknown>;
-  try { args = parseArguments(call, fields); }
-  catch { args = parseArguments(call, [...fields, "status"]); }
-  const excerpt = groundedExcerpt(input, args.evidenceExcerpt);
-  const course = requireText(args.course, "deadline_course", 512);
-  const title = requireText(args.title, "deadline_title", 512);
-  const status = requireStatus(args.status ?? "open");
-  const effort = requireEffort(args.effort);
-  if (wordBoundaryOccurrence(excerpt, course) < 0 || wordBoundaryOccurrence(excerpt, title) < 0
-    || (args.status !== undefined && (status === "open" || wordBoundaryOccurrence(excerpt, status) < 0))) {
-    throw new TypeError("deadline_fields_not_in_evidence");
+  call: ModelFunctionCall, now: Date, context: { ownerZone: string; messageAt: string }): Promise<ExecutedTool> {
+  try {
+    const decoded = JSON.parse(call.arguments) as Record<string, unknown>;
+    const fields = ["course", "title", "dueAt", "effort", "evidenceExcerpt", "dueExcerpt"];
+    const args = parseArguments(call, [...fields, ...["timeZone", "status"].filter((key) => Object.hasOwn(decoded, key))]);
+    const excerpt = groundedExcerpt(input, args.evidenceExcerpt);
+    if (args.dueExcerpt === "") throw new DeadlineProofError("deadline_missing_date", "Ask for the due date; no date was supplied.");
+    const dueExcerpt = groundedExcerpt({ ...input, userText: excerpt }, args.dueExcerpt);
+    requireText(dueExcerpt, "deadline_due_excerpt", 160);
+    const course = requireText(args.course, "deadline_course", 512);
+    const title = requireText(args.title, "deadline_title", 512);
+    if (normalize(course).length === 0 || normalize(title).length === 0) {
+      throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy a nonblank course and title from the current message.");
+    }
+    const evidence = normalize(excerpt);
+    const courses = courseKey(course) === "chemistry" ? ["chem", "chemistry"] : [normalize(course)];
+    const titleStart = wordBoundaryOccurrence(evidence, normalize(title));
+    if (!courses.some((name) => wordBoundaryOccurrence(evidence, name) >= 0) || titleStart < 0) {
+      throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy the course and title from the grounded evidence.");
+    }
+    const dueStart = wordBoundaryOccurrence(evidence, normalize(dueExcerpt));
+    if (dueStart < titleStart + normalize(title).length || /[.!?;]/u.test(evidence.slice(titleStart + normalize(title).length, dueStart))) {
+      throw new DeadlineProofError("deadline_ambiguous_date", "The due phrase must follow this title in the same sentence. Do not borrow another assignment's time.");
+    }
+    const status = statusOf(args.status, excerpt);
+    const effort = requireEffort(args.effort);
+    const proof = proveDeadlineDue({ dueAt: requireText(args.dueAt, "deadline_due_at", 64),
+      ...(args.timeZone === undefined ? {} : { timeZone: requireText(args.timeZone, "deadline_zone", 128) }),
+      ...context, dueExcerpt });
+    const match = await matchingDeadline(database, input.principalId, course, title);
+    const repository = new DeadlineRepository(database);
+    await repository.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
+    const externalId = match?.external_id ?? await identity(input.principalId, courseKey(course), normalize(title));
+    const result = await repository.upsert({ sourceId: "owner-reported", externalId,
+      course: match?.course ?? course, title: match?.title ?? title, dueAt: proof.dueAt,
+      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes: DEFAULT_LEAD_MINUTES[effort], now });
+    const local = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: context.ownerZone, dateStyle: "full", timeStyle: "short" }).format(new Date(at));
+    const action = result.outcome === "created" ? "Created" : result.outcome === "unchanged" ? "Unchanged" : "Updated";
+    const previous = result.previous !== null && result.previous.dueAt !== result.deadline.dueAt
+      ? ` Previous due time: ${local(result.previous.dueAt)} (${context.ownerZone}).` : "";
+    const qualification = proof.dateOnly ? ` ${proof.note}; stored at end of day in ${context.ownerZone}, not a stated clock time.` : "";
+    return successfulTool(call, `${action} ${JSON.stringify(result.deadline.course)}: ${JSON.stringify(result.deadline.title)}, due ${local(result.deadline.dueAt)} (${context.ownerZone}); ${result.deadline.status}.${qualification}${previous} Source: owner-reported.`);
+  } catch (error) {
+    if (error instanceof DeadlineProofError) return refusedTool(call, `${error.reason}: ${error.detail} Nothing changed.`);
+    if (error instanceof TypeError || error instanceof SyntaxError) return refusedTool(call,
+      `${error.message === "owner_agent_memory_grounding_invalid" ? "deadline_evidence_not_in_message" : "deadline_input_invalid"}: Copy evidence from the current message and use the documented fields and formats. Nothing changed.`);
+    throw error;
   }
-  const timeZone = requireText(args.timeZone, "deadline_zone", 128);
-  const dueAt = proveDeadlineTime(requireText(args.dueAt, "deadline_due_at", 64), timeZone, excerpt);
-  const repository = new DeadlineRepository(database);
-  await repository.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
-  const externalId = await sha256Hex(canonicalJson({ principal: input.principalId, course, title }));
-  await repository.upsert({ sourceId: "owner-reported", externalId, course, title, dueAt,
-    effort, status, leadMinutes: 0, now });
-  const local = new Intl.DateTimeFormat("en-CA", { timeZone, dateStyle: "full", timeStyle: "short" }).format(new Date(dueAt));
-  return successfulTool(call, `Recorded ${JSON.stringify(course)}: ${JSON.stringify(title)}, due ${local} (${timeZone}); ${status}. Source: owner-reported.`);
 }

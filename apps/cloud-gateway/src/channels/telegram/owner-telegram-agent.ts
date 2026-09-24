@@ -57,7 +57,7 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   ...REMINDER_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
-    description: "Run the validated school catch-up pipeline for Sid's current message and conversation context.",
+    description: "Run the validated school catch-up pipeline for Sid's current message and conversation context, including missed classwork and finished work. Use deadline_record for a dated deadline, a missed deadline or an explicit submission; finished alone does not mean submitted.",
     parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
@@ -81,6 +81,7 @@ export interface OwnerTelegramAgentDependencies {
   /** Main's broader school/study authority: direct text in a private non-bot chat. */
   readonly directPipelineText?: boolean;
   readonly authorityText: string;
+  readonly timeZone?: string;
   /** Telegram's durable pointer when Sid swipes on one of Jarvis's messages. */
   readonly replyToBotMessageId?: number | null;
   readonly targets: TelegramMemoryTargetFinder;
@@ -145,7 +146,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: "",
+      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
       toolDefinitions: OWNER_TELEGRAM_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -192,7 +193,11 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         return null;
       },
       argumentTool: (call: ModelFunctionCall) => call.name === "deadline_record"
-        ? () => recordDeadline(adapter.telegram.database, input, call, adapter.telegram.now?.() ?? new Date())
+        ? async () => {
+          const turn = await readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null });
+          return recordDeadline(adapter.telegram.database, input, call, adapter.telegram.now?.() ?? new Date(),
+            { ownerZone: adapter.telegram.timeZone ?? "America/Toronto", messageAt: turn.occurredAt });
+        }
         : isReminderTool(call.name) ? () => executeReminderTool(adapter.telegram.database, input, call)
         : null,
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",

@@ -32,6 +32,7 @@ import type {
 import { capabilityForTool, isToolClassified } from "./tool-capabilities.js";
 import {
   argumentsFingerprint,
+  CONFIRMATION_TTL_MS,
   type ToolConfirmationStoreContract,
 } from "./tool-confirmations.js";
 
@@ -108,7 +109,7 @@ export function gateReceipt(
       return confirmedBy === null
         ? `Nothing has happened yet: ${toolName} is ${
           describeTier(evaluation.tier)
-        } and needs your tap before it runs. ${audit}`
+        } and needs your tap before it runs. Confirm again if the previous tap was already used or expired; each tap is valid once for ${CONFIRMATION_TTL_MS / 60_000} minutes. ${audit}`
         // The tap is why this ran, and the owner can see which one. Without the
         // decision id here a confirmed action looks identical to an unconfirmed
         // one in the only place he reads.
@@ -178,11 +179,10 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     }
 
     const argumentsHash = await argumentsFingerprint(request.arguments);
-    const decisionId = await this.#confirmations.findStandingDecision({
+    const decisionId = await this.#confirmations.consumeStandingDecision({
       principalId: request.principalId,
       capability,
       argumentsHash,
-      now: new Date(first.evaluatedAt),
     });
     if (decisionId === null) {
       return Object.freeze({

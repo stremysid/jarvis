@@ -34,6 +34,7 @@ import migration0033 from "../persistence/migrations/0033_d2l_notification_email
 import migration0034 from "../persistence/migrations/0034_scheduled_run_detail.sql";
 import migration0035 from "../persistence/migrations/0035_autonomy_tool_capabilities.sql";
 import migration0038 from "../persistence/migrations/0038_memory_lifetime_and_pins.sql";
+import migration0039 from "../persistence/migrations/0039_tool_confirmation_consumptions.sql";
 import migration0041 from "../persistence/migrations/0041_owner_reminders.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
@@ -74,5 +75,6 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0034_scheduled_run_detail.sql", sql: migration0034 }),
   Object.freeze({ name: "0035_autonomy_tool_capabilities.sql", sql: migration0035 }),
   Object.freeze({ name: "0038_memory_lifetime_and_pins.sql", sql: migration0038 }),
+  Object.freeze({ name: "0039_tool_confirmation_consumptions.sql", sql: migration0039 }),
   Object.freeze({ name: "0041_owner_reminders.sql", sql: migration0041 }),
 ]);
