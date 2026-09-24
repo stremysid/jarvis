@@ -3,7 +3,7 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-23 — Codex GPT-6 builder: retire closed school sources from digest health
+## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) retires closed school sources from digest health
 
 Branch `codex/digest-retire`, freshly based on `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Signed: Codex GPT-6, builder.
 
