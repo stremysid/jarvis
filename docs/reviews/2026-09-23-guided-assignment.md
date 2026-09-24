@@ -44,14 +44,14 @@ date is deliberately not represented as a deadline. Unknown due dates say
 column, so its reader is reached only after configured-owner authorization.
 
 `AssignmentEvidenceReader` is the collector seam. **Follow-up:
-guided-assignment-d2l-evidence**, when #169 merges: add its typed, scoped evidence
+guided-assignment-d2l-evidence**, ready after #169 merged during round 1: add its typed, scoped evidence
 to the reader with source ids and provenance intact. Do not infer missing rubric
 content or scrape D2L from a guided tool.
 
 Migration `0043_guided_assignment.sql` adds one table. It is registered in all
 three fixture migration lists, the restore-operator list, the syntax inventory,
 and authoritative backup tables. `0039` is already on main despite the old
-abandoned-branch note in the task. Open PRs #169 and #168 own `0040` and `0041`.
+abandoned-branch note in the task. Merged #169 owns `0040`; open #168 owns `0041`.
 `0042` remains reserved for the expected PIN rebuild. No real migration was run.
 
 ## Choices and limits
@@ -108,7 +108,12 @@ requests a sentence-local declaration/receipt binding, not a blanket exemption
 after sending. No streaming code was changed, and this branch's end-to-end
 voice tests exercise main's current protocol, not unmerged #171.
 
-Fresh main `0d695563` was already included, so the normal merge was a no-op.
+The first fresh main `0d695563` was already included, so the normal merge was a
+no-op. A later fetch found #169 merged at `29fbfcd698f4ac7de947f076e43d0098e6bcc296`.
+Normal merge `f4dd9f24` retains both tool catalogues, migrations 0040 and 0043,
+both parents' log entries, and 0043 as the highest backup schema. The collector
+was open at the start of both build and revision; the named evidence-reader
+follow-up above is now ready, not implemented by this four-finding revision.
 The channel-parity builder has not merged; Telegram's actual first request is
 now pinned against the shared guided definition constant, matching voice.
 The scribed fixture includes `um`, `like`, doubled spaces, boundary whitespace
@@ -116,10 +121,36 @@ and a newline, with a UTF-8 byte equality assertion against the stored row.
 The offline remote-D1 syntax file pins all three 0043 trigger names and complete
 definitions, including the insert collision condition and plain `SELECT RAISE`.
 
-Observed so far: reproduction **31/2/0** (both channel send-claim tests), then
-focused restored behavior **101/0/0**, source typecheck pass. Round 1 mutations
-and the requested single full gateway run are pending. The reproducible added
-faults live in `reviewer-tools/mutation-specs-guided-round1.json`.
+Observed: reproduction **31/2/0** (both channel send-claim tests), then focused
+behavior **101/0/0**, and after merging main **153/0/0** across seven files.
+All **18 new faults** were killed twice. The first sweep reported **17 killed,
+1 killed-wrong-test** because Vitest truncated the expected mixed-receipt name;
+shortening that test name and rerunning the same fault gave **1 killed, 0 other
+outcomes**. This was an observed matcher failure, not a surviving fault. After
+the main merge, **3 composition checks** (voice offering, Telegram offering and
+receipt proof dispatch) each killed twice. Every sweep restored files byte for
+byte. Specs remain runnable after the merge, including the refreshed voice-list
+literal in the original spec. Added faults live in
+`reviewer-tools/mutation-specs-guided-round1.json`.
+
+Source typecheck passes. Non-gating test typecheck reports **143 diagnostics**,
+none in the new receipt, guided assignment or syntax tests. The requested single
+full gateway run observed **5286 passed / 2 failed / 0 skipped**, 201 files
+(199 passed, 2 failed), 759.03 seconds. Both failures were timeouts in unchanged
+tests: the 30-second bge-m3 cap test in `meaning-search.test.ts`, and the
+15-second bytewise exact-cap frame test in `hermes-token-adapter.test.ts`.
+Both timeout cases have earlier AGENT_LOG evidence. Isolated file reruns passed:
+meaning-search **70/0/0** (50.55 seconds), Hermes **71/0/0** (3.01 seconds).
+No cause is inferred and no second full run is claimed. All named guided,
+receipt and migration tests passed after restoration. The full result remains
+5286/2/0, not a green full-suite claim.
+The final state check passed for three carriers and FACTS with **0 warnings**;
+whitespace and merge-tree checks against fresh main passed. No rollout ran.
+
+A read-only merge-tree simulation against unmerged #171 `eb2263c6` additionally
+found textual conflicts in `owner-agent-core.ts`, `voice-agent.ts`,
+`call-session-do.test.ts`, `OWNER-ACTIONS.md` and `QUEUE.md`. These require merge
+coordination alongside the protocol decision; they are not conflicts with main.
 
 ### Original builder evidence
 

@@ -3,20 +3,39 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-23 — Codex builder: PR #172 round 1 receipt proof and missing pins
+## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
 
 Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
 review at comment `5807157980`; reproduced the contradictory send claim on both
 Telegram and voice (**31/2/0**, both failures named for the channel draft claim).
 Current-turn executed receipts now carry proving tool names into the sentence
 guard. No linguistic send exemption, whole-reply workaround, or streaming code
-change. Focused tests **101/0/0** and source typecheck pass; mutation verification
-and the full gateway gate are pending at this checkpoint.
+change. Focused tests **101/0/0**, then **153/0/0** after the main merge; source
+typecheck passes. Full gateway once: **5286/2/0**, 201 files (199 passed, 2
+failed), 759.03 seconds. Unchanged meaning-search bge-m3 cap and Hermes bytewise
+exact-cap frame tests timed out at 30 and 15 seconds respectively, both cases
+recorded earlier in this log. Isolated reruns passed **70/0/0** and **71/0/0**;
+no cause is inferred and no second full-suite run is claimed. All new guided,
+receipt-proof and syntax tests passed in the full run after mutation restoration.
+Final state check passed for **3 carriers and FACTS**, **0 warnings**; whitespace
+check passed and the merge-tree check against fresh main had no conflicts.
+
+All **18 new mutation faults** killed twice. Initial sweep: **17 killed, 1
+killed-wrong-test** because Vitest truncated the long mixed-receipt test name.
+Shortened the name, reran that exact fault: **1 killed, 0 other outcomes**.
+Post-merge offering/receipt rechecks: **3 killed, 0 other outcomes**. Every sweep
+verified byte-identical restoration. Test typecheck remains **143 diagnostics**,
+none in the new receipt, guided assignment or syntax tests.
 
 Added exact stored scribed-byte fidelity with fillers and whitespace, Telegram
 tool offering parity, and the three 0043 trigger names/shapes. Fresh main
-`0d695563` was already an ancestor: normal merge reported already up to date.
-#169 and #171 remain open; channel-parity has not merged.
+`0d695563` was already an ancestor. A later fetch found #169 merged at
+`29fbfcd6`; normal merge `f4dd9f24` preserves both catalogues, ordered migration
+inventories and both parents' log entries. Every open PR's migration paths were
+audited: main owns 0040, #168 owns 0041, only #172 owns 0043; 0042 stays reserved.
+#171 remains open; channel-parity has not merged. The named collector-reader
+follow-up is now ready; richer raw collector evidence is not yet wired into
+guided_assignment_read, though the collector's projected deadlines are readable.
 
 For #171: its plain-text stream removes `claimedActions`, so its exact-receipt
 policy does not support this reviewed paraphrase contract. The exported
@@ -24,6 +43,12 @@ policy does not support this reviewed paraphrase contract. The exported
 sentence by sentence, but streaming must retain a declaration binding to use it.
 [Coordination handoff](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216).
 [Round 1 design and evidence](reviews/2026-09-23-guided-assignment.md).
+
+Coordination correction: `gh pr comment --edit-last` selected a newer review
+posted by another builder under the shared GitHub account. Restored that
+comment from GitHub edit history and verified its exact original body by API;
+then updated this builder's handoff by explicit comment id. Use explicit ids
+for comment edits so concurrent builders cannot overwrite one another.
 
 ## 2026-09-23 — Codex builder: PR #172 guided assignment tools and voice scribe
 
