@@ -18,8 +18,9 @@ Main advanced again with #172 during the full gate. A read-only merge simulation
 proved migration-list conflicts. Normally merged
 `7b805fa2eb79ba97cd7a8eebbc289dfbd3313957` in
 `396ace56c9d23a4682f1fa1288d7362e35e9fa0c`, retaining guided assignments and 0043
-before 0044. Backup schema remains 0044. This changed executable code, so the
-combined code needs a fresh full gate; the first run is preserved below.
+before the then-numbered 0044, also the backup schema at that checkpoint. This
+changed executable code, so the combined code received a fresh full gate; the
+first run is preserved below.
 
 At the final allocation check, #174 had newly claimed
 `0044_owner_channel_parity.sql`. Renumbered this migration to **0045** and updated
@@ -27,7 +28,7 @@ every registration and specification. The SQL body is unchanged (Git blob
 `96f93e3c32f9ce3c8655207107c41a0406616b03`). Main also advanced with the extension's
 #170 merge at `f56f279dd90ddce69d3885c63c4c9fbf2c19b850`; normally merged in
 `0edd8c5e`. That merge changed no gateway code or collector tests. The allocation
-rename gets fresh collector, upgrade, backup, parity and syntax checks plus all
+rename received fresh collector, upgrade, backup, parity and syntax checks plus all
 four migration mutation rechecks; the full suite is not repeated for an unchanged
 SQL body and filename-only registration updates.
 
@@ -112,9 +113,22 @@ This PR changes no extension-owned file and makes no live-ingest claim.
 
 ## Observed verification
 
-Verification is in progress. Exact final gate and mutation totals will replace
-this paragraph before publication. Logs and the continuity ledger are retained
-outside the repo at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+Counts below are observed, with pass/fail/skip throughout. Logs and the continuity
+ledger are retained outside the repo at
+`C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`. Neither red full run is described
+as green; the named timeout files passed separately. Final filename-only allocation
+changes received focused checks rather than a third whole-suite run.
+
+| Final check | Observed result |
+|---|---|
+| Collector, backup, upgrade, parity and syntax after allocation | **161/0/0**, 9 files, 103.79 seconds |
+| Collector subset | **69/0/0**, 6 files |
+| Static remote-D1 syntax / migration parity | **60/0/0** / **5/0/0**; local only |
+| Full gateway before allocation-only rename | **5304/2/0**, 202 passed / 2 failed files |
+| Timed-out files rerun separately on that head | Meaning-search **70/0/0**; Hermes **71/0/0** |
+| Source / test typing after allocation | **0 diagnostics** / **143 outside collector, 0 collector** |
+| State carriers | **3 carriers + FACTS passed, 1 warning**: #170's explicitly unverified background/Durham-session fact still requires owner acceptance |
+| Whitespace | **0 errors** |
 
 Iteration history, pass/fail/skip:
 
@@ -155,18 +169,22 @@ Iteration history, pass/fail/skip:
   each file then passed alone: meaning-search **70/0/0**, 37.83 seconds; Hermes
   **71/0/0**, 3.54 seconds. No whole-suite rerun to seek a green result.
 
-Mutation evidence: **63 distinct cases killed in 67 confirmed attempts** (62 initial,
-3 paging follow-ups, 2 owner-tool rechecks after #172). **0 survived,
+Mutation evidence: **63 distinct cases killed in 71 confirmed attempts** (62 initial,
+3 paging follow-ups, 2 owner-tool rechecks after #172, 4 allocation rechecks).
+**0 survived,
 0 wrong-test kills, 0 unconfirmed,
 0 NOT APPLIED, 0 invalid**. Each named fault failed twice, then the named restored
 test passed. Initial sweep restored **8 files** byte-identically; follow-up restored
-**1 file**, and the main recheck restored **1 file**. Initial baselines were
+**1 file**, the main recheck restored **1 file**, and allocation restored **1 file**.
+Initial baselines were
 **15/0/0**, **21/0/0**, **1/0/0** and **9/0/0**; paging follow-up baselines were
-**15/0/0** and **1/0/0**; main recheck baseline was **9/0/0**.
+**15/0/0** and **1/0/0**; main recheck baseline was **9/0/0**; allocation baselines
+were **1/0/0** and **15/0/0**.
 Every named run selected one
 test: red **0/1** twice and restored **1/0**, with **14**, **20**, **8** or **0** other
 tests skipped depending on the selected file. Logs: `d2l-receiver-fix-mutations.txt`,
-`d2l-receiver-fix-page-mutations.txt` and `d2l-receiver-fix-main-mutations.txt`
+`d2l-receiver-fix-page-mutations.txt`, `d2l-receiver-fix-main-mutations.txt` and
+`d2l-receiver-fix-allocation-mutations.txt`
 beside the external ledger. All other mutation target files and collector tests
 are unchanged by #172; their confirmed proof was not rerun.
 

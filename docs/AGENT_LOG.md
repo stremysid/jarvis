@@ -3,6 +3,54 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex GPT-6 builder: D2L receiver compatibility after #169 and #170
+
+Signed: Codex GPT-6, cloud receiver builder for Sid. Read the full #170 description
+and gap report at `5420836`, verified #169 merged, and created
+`codex/d2l-receiver-fix` from fresh main. Normally merged #173, #172 and then #170;
+no rebase or force-push. The push-time scan caught #174 taking 0044, so this PR's
+migration is **0045**, with the SQL body unchanged and all registrations updated.
+The tested #172 integration keeps 0043 before the collector upgrade. All previous
+log entries are retained below.
+
+The receiver now accepts actual Durham/LDSB hosts, announcements, dated quizzes,
+paged myItems Objects envelopes, unknown student arrays and complete missing-tool
+404s. Raw unfamiliar JSON stays evidence, with unknown projection labels. Host
+namespaces prevent equal course IDs colliding; existing LDSB deadline identities,
+status, revisions and reminders survive the migration. Host session failures stay
+visible even when the other board succeeds. Pair proof/delivery retries reuse the
+decision after notification failure. Evidence reads spend no action tap under
+Sid's newer rule; revocation and activation keep confirmation.
+
+**No existing upload path, signing rule, header, canonical body rule, pairing field
+or course-batch field changed.** The additive host-failure variant uses
+`course:null`, `courseIds:[]`, `enrollmentComplete:false` and a versions/enrollment
+route. The extension builder must update its compatibility hold, null-course queue
+handling and optional 404 handling after receiver rollout. [Every contract change,
+decision and observed count](reviews/2026-09-24-d2l-receiver-fix.md).
+
+Final allocation checks: **161/0/0** across nine files, including all **69/0/0**
+collector tests, backup, migration parity and static remote-D1 syntax. The earlier
+combined #172 focused run was **204/0/0**. Full gateway on executable `396ace56`
+was **5304/2/0**, 202 passed and two failed files: unchanged meaning-search and
+Hermes timeout tests. Each file passed alone on that head, **70/0/0** and
+**71/0/0**. The full suite was not rerun for the later SQL filename-only allocation
+change; the exact SQL blob and fresh affected checks are recorded in the evidence.
+All **63 distinct mutation cases / 71 confirmed attempts** have named
+red/restored-green proof, with zero other mutation outcomes and byte-identical
+restoration. Source typing has zero diagnostics; test typing remains red
+with **143 outside collector / 0 collector**. No full-suite green claim.
+
+No deploy, real database migration, remote-D1 rehearsal, live Telegram/school
+request, secret, permissions, services, tasks, registry, logon or local-agent
+operation. The supplied PC incident file was absent. #157-owned files are
+unchanged. Owner-only rollout/acceptance remains in OWNER-ACTIONS; the external
+ledger remains at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+
+Next, **when the new PR is published**: independent and automated review of its
+exact head, without waiting in this builder task. **After independent clearance
+and authorized rollout**: extension integration and two-board owner acceptance.
+
 ## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
 
 Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
