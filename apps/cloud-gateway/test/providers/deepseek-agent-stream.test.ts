@@ -111,6 +111,7 @@ describe("DeepSeek agent streaming", () => {
     ["a different choice index", ['data: {"choices":[{"index":1,"delta":{},"finish_reason":"stop"}]}\n\n', done]],
     ["non-string content", [agentFrame({ content: {} }), agentFrame({}, "stop"), done]],
     ["non-array tool calls", [agentFrame({ tool_calls: {} }), end, done]],
+    ["string-valued tool calls", [agentFrame({ tool_calls: "" }), agentFrame({}, "stop"), done]],
     ["a negative tool index", [opener(-1), end, done]],
     ["an excessive tool index", [opener(16), end, done]],
     ["non-string arguments", [opener(0, { name: "memory_remember", arguments: {} }), end, done]],

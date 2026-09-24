@@ -1,5 +1,17 @@
 # Known issues
 
+## Voice action checks cover recognized sentence forms, not arbitrary paraphrases
+
+Voice streams plain text without the Telegram `claimedActions` inventory or
+rewrite call. Before speech, recognized action sentences require exact wording
+from a code-owned receipt; unsupported forms get a fixed honest line. These
+lexical checks cannot prove the meaning of every English sentence. Novel action
+paraphrases can evade them, and a long unfinished first sentence can still wait
+until completion or the deadline. Offline fixtures establish the tested forms
+and early delivery through the real redactor; live DeepSeek tool streaming and
+phone latency remain unverified. See [the design and evidence](docs/voice-streaming.md)
+and [the owner's first live check](docs/OWNER-ACTIONS.md).
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd

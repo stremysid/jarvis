@@ -415,5 +415,29 @@
     "replace": "      const executed = await this.memoryTool(input, port, call);\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return executed;",
     "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts",
     "expect": "claims a memory tap before the streaming voice tool body refuses malformed arguments and never refunds it"
+  },
+  {
+    "name": "P24-truncated-body",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (next.done) throw new DeepSeekAdapterError(\"other\", \"agent_stream_incomplete\");",
+    "replace": "if (next.done) { yield { type: \"completed\", completion: { content, toolCalls: [], finishReason: \"stop\" } }; return; }",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a truncated stream without returning executable calls"
+  },
+  {
+    "name": "P25-content-type",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (typeof delta.content !== \"string\") throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses non-string content without returning executable calls"
+  },
+  {
+    "name": "P26-tool-array",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!Array.isArray(delta.tool_calls)) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses string-valued tool calls without returning executable calls"
   }
 ]

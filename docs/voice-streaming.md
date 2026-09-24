@@ -35,6 +35,15 @@ One shared `executeCalls` still owns the one-action cap, owner authority, tier
 gate and all memory operations. A second tool round is refused even if a provider
 ignores `tool_choice: none`. There is no retry.
 
+After the interrupted builder run, `origin/main` at `c5310bee` was merged
+normally. Its #159 gate remains inside the memory and pipeline dispatch
+branches, after channel refusals and before the tool body. Streaming voice
+tests preserve pending taps, claim once before even a malformed tool body,
+refuse replay, and leave an unsupported pipeline's tap available to Telegram.
+No assignment tools were added: the separate `codex/guided-assignment` builder
+owns those. Streaming uses the existing channel port's tool definitions and
+shared dispatcher, so adding tools does not require a separate voice loop.
+
 The 8-second first-token ceiling now reaches the streaming provider and includes
 waiting for headers. Role-only/empty chunks do not count as progress; text or a
 tool fragment does. The overall signal also bounds body reads. A caller can
@@ -78,7 +87,8 @@ stream ends, suppression before and after a real memory receipt, a fragmented
 mid-stream call executing once, failure after commit, incomplete and malformed
 tool streams, deadlines and cleanup, and the retained production composition pin.
 
-No live API, phone call, production data, secret, migration, merge or deployment
-was used. No sync-recovery or store-permissions file was changed. The incident
+No live API, phone call, production data, secret, remote migration, merge into
+main or deployment was used. Local D1 fixtures apply test migrations. No
+sync-recovery or store-permissions file was changed by this PR. The incident
 report at the supplied Downloads path was absent; no local-agent or PC-setting
 code was run. The first live check remains Sid's action.
