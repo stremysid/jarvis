@@ -246,6 +246,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       if (ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId) {
         const pipelines = createOwnerPipelineModels(env, baseModel, redactor, ownerPrincipalId, toolAuthority.directPipelineText);
         model = new OwnerTelegramAgentAdapter({
+          guidedAssignmentTelegram: telegram,
           provider: new DeepSeekAgentProvider({
             apiKey,
             model: env.DEEPSEEK_MODEL,

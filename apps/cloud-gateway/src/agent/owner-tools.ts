@@ -1,10 +1,12 @@
 import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
+import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
 
 /** A new owner capability reaches both communication adapters from this catalogue. */
 export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
+  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",

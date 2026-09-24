@@ -1,5 +1,6 @@
 import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../src/school/guided-assignment-tools.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
 import { readPreviousVoiceAssistant, readVoiceReplyPayload } from "../../src/memory/voice-memory-reference.js";
@@ -513,6 +514,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
+    expect(request?.tools).toEqual(expect.arrayContaining(GUIDED_ASSIGNMENT_TOOL_DEFINITIONS));
     const telegramProvider = new FakeAgentProvider([stopped("Hello.")]);
     const adapter = new OwnerTelegramAgentAdapter({
       provider: telegramProvider, database: env.DB, archive: env.ARCHIVE,

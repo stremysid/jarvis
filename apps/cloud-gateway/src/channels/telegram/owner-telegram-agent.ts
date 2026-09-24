@@ -16,6 +16,7 @@ import {
 } from "../../model/model-adapter.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../agent/owner-tools.js";
 import { ownerPipelineModel } from "../../agent/owner-pipelines.js";
+import type { TelegramProvider } from "../../providers/provider-types.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -43,6 +44,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
 
 export interface OwnerTelegramAgentDependencies {
+  readonly guidedAssignmentTelegram?: TelegramProvider;
   readonly provider: ModelAgentProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;

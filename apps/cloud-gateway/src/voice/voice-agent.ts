@@ -8,6 +8,7 @@ import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { OWNER_TOOL_DEFINITIONS } from "../agent/owner-tools.js";
 import { ownerPipelineModel, type OwnerPipelineModels } from "../agent/owner-pipelines.js";
+import type { TelegramProvider } from "../providers/provider-types.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readPreviousVoiceAssistant } from "../memory/voice-memory-reference.js";
 import { recordPendingTelegramMemoryReferences } from "../memory/telegram-memory-reference.js";
@@ -40,6 +41,7 @@ There is no screen on a call. Describe links or files in spoken words when neede
 For a staged memory, Sid can confirm the exact wording with a spoken yes on this call. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
 
 export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
+  readonly guidedAssignmentTelegram?: TelegramProvider;
   readonly provider: ModelAgentProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;

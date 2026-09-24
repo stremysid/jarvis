@@ -36,6 +36,7 @@ import migration0035 from "../persistence/migrations/0035_autonomy_tool_capabili
 import migration0038 from "../persistence/migrations/0038_memory_lifetime_and_pins.sql";
 import migration0039 from "../persistence/migrations/0039_tool_confirmation_consumptions.sql";
 import migration0040 from "../persistence/migrations/0040_school_collector_keys.sql";
+import migration0043 from "../persistence/migrations/0043_guided_assignment.sql";
 import migration0044 from "../persistence/migrations/0044_owner_channel_parity.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
@@ -78,5 +79,6 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0038_memory_lifetime_and_pins.sql", sql: migration0038 }),
   Object.freeze({ name: "0039_tool_confirmation_consumptions.sql", sql: migration0039 }),
   Object.freeze({ name: "0040_school_collector_keys.sql", sql: migration0040 }),
+  Object.freeze({ name: "0043_guided_assignment.sql", sql: migration0043 }),
   Object.freeze({ name: "0044_owner_channel_parity.sql", sql: migration0044 }),
 ]);

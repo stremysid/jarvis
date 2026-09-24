@@ -350,5 +350,13 @@
     "replace": "",
     "testPath": "apps/cloud-gateway/test/backup/memory-backup-restore.test.ts",
     "expect": "downloads and hashes each verified object once before later restore steps use the durable cache"
+  },
+  {
+    "name": "voice-drops-new-main-guided-assignment-tool",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "toolDefinitions: OWNER_TOOL_DEFINITIONS,",
+    "replace": "toolDefinitions: OWNER_TOOL_DEFINITIONS.filter(tool => tool.name !== \"guided_assignment_save\"),",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "offers tools that deep-equal Telegram and tells the model it is speaking on a call"
   }
 ]

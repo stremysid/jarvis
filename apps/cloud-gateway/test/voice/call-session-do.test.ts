@@ -32,6 +32,7 @@ import {
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
+import { GUIDED_ASSIGNMENT_PROMPT } from "../../src/school/guided-assignment-tools.js";
 import { OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import {
   createTargetGuestAccessDocumentVerifier,
@@ -2436,6 +2437,7 @@ describe("CallSession production composition", () => {
     const [system] = body.messages as { role: string; content: string }[];
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(system?.content).toContain(GUIDED_ASSIGNMENT_PROMPT);
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }]);
   });
