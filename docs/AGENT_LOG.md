@@ -1166,6 +1166,16 @@ marker compliance and phone latency are unverified; OWNER-ACTIONS has the first
 live check. No live API, secret, paid action, production operation, real
 migration, deploy, merge into main or PC-setting mutation was performed.
 
+## 2026-09-24 — Telegram body timeout and provider audit
+
+Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
+
+- **T4 result:** `TelegramRestProvider.sendMessage` and `sendChatAction` now keep their abort timers armed through `response.json()`. An aborted body read returns a transient `timeout`; each path clears its timer in `finally`. The original hung-request comment now covers the body read.
+- **Other providers result:** inspected every file under `apps/cloud-gateway/src/providers/` for fetch/body deadline ordering. Twilio and capacity readers retain deadlines through their body reads. `DeepSeekModelAdapter.stream` clears its overall timer before `response.text()` on an HTTP error; recorded the stalled-error-body follow-up in `KNOWN_ISSUES.md`. Did not edit `deepseek-provider.ts`, which #174 owns. No other headers-then-unguarded-body case found.
+- **New test names in `telegram-body-timeout.test.ts`:** `times out when sendMessage receives headers but its body stalls`; `times out when sendChatAction receives headers but its body stalls`. Both use fake timers and an abort-aware injected fetch, and assert the transient timeout, body abort, and zero pending timers. The existing Telegram test file is unchanged.
+- **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
+- **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
+
 ## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
 
 Branch `docs/d2l-api-findings` (PR #161). `origin/main` `f56f279` (#170) merged
@@ -2285,6 +2295,7 @@ All three reported examples reproduced at that base. Both ordinary and post-tool
 
 **Next, when the PR opens:** automated and independent adversarial review; this
 builder has not merged or deployed. — Codex (builder)
+
 ## 2026-09-23 — DeepSeek builder: sync recovery, and the store-permission defect that destroyed Sid's profile twice
 
 Branch `goal/sync-recovery`, pushed. Two independent defects from
@@ -2480,6 +2491,7 @@ branch fails now.
   at access-check time". The first half is factually wrong (`OW` is OWNER RIGHTS;
   `CO` is CREATOR OWNER) and is corrected. The second half was never measured on
   this machine, and the comment now says so rather than repeating the claim.
+
 ## 2026-09-23 — Codex builder: #170 gateway pinned, receiver compatibility verified
 
 Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`.
@@ -2637,6 +2649,7 @@ Observed final gates: full cloud package once **5192 passed / 0 failed / 0 skipp
 Remaining gaps are explicit in [KNOWN_ISSUES](../KNOWN_ISSUES.md#school-collector-retention-and-public-pairing-remain-bounded-only-in-part): unpruned pending keys/nonces, public exhaustion of Sid's own pairing budget, course retirement and duplicate-tap wording. No production, real DB, live provider, secret, permissions, services, tasks, registry or local-agent operation occurred; the incident file was absent. The ledger and gate logs remain outside the repository at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
 
 Next, **when this fix head is pushed**: automated and independent adversarial re-review. **After independent clearance and authorized rollout**: owner acceptance on both devices, as already listed in OWNER-ACTIONS. Remove only this clean worktree after publication, retaining the ledger.
+
 ## 2026-09-23 — Codex builder: PR #158 round 3 includes newly merged #159
 
 **Signed: Codex, documentation builder for Sid.** A second fresh fetch found
@@ -2796,6 +2809,7 @@ configuration and iPhone acceptance only after separately authorized deployment.
 The builder will remove its worktree after publication and retain the ledger.
 
 — Codex, builder
+
 ## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
 
 Normal merges retain the original PR history: `0c0d0fa` integrated main at
@@ -2908,6 +2922,7 @@ production/database migration, PC permission change or local-agent test occurred
 The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
 
 Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) round 1 keeps shared school-store errors visible
 
 Signed: Codex GPT-6, builder. Read the full independent review [5805656319](https://github.com/stremysid/jarvis/pull/167#issuecomment-5805656319). Its blocking finding is confirmed: `ingestD2lEmailGrade` writes to `SchoolObservationRepository`, while the read catch used the retired Classroom scan-health name. The original mixed-source test asserted that incorrect omission; the prior entry's blanket shared-repository claim is corrected below.
@@ -3023,6 +3038,7 @@ No owner-only action arose. No merge of this PR into main or deployment is
 authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
 the worktree is removed after the updated PR is published. Next: assigned automated
 and independent reviewers assess #155 when its new head is pushed.
+
 ## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
 
 Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
@@ -3067,6 +3083,7 @@ retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
 the final merge commit runs the full gateway suite. No force
 push, merge into main, deployment, real database operation, real provider call
 or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#169](https://github.com/stremysid/jarvis/pull/169) D2L school collector receiver
 
 Branch `codex/d2l-ingest-run`, refreshed from `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. School remains the priority. Built the separately scoped Ed25519 collector registry in assigned **0040**, owner Telegram pairing, terminal tier-3 revocation, signed bounded per-course observation ingestion, immutable raw evidence, labelled deadline projection and owner `school_d2l_status` tools. Failed/incomplete/stale reads become digest gaps. Undated work remains evidence; no code decides missed work. The P2 login-and-scrape reader is parked. See the [final design](plan/2026-09-23-d2l-collector-design.md) and [named verification evidence](reviews/2026-09-23-d2l-collector.md).
@@ -3301,6 +3318,7 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+
 ## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
 
 Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
@@ -3929,6 +3947,7 @@ this entry does not present one.
 Signed: **DeepSeek, reasoning effort not determinable from inside this session.** I am the model
 this session ran as and the brief names DeepSeek, but I cannot read my own effort setting with
 certainty, so I am saying so rather than naming a number.
+
 ## 2026-09-21 — DeepSeek builder: PR #141 rebased onto a moved main, its carrier conflicts resolved, and the Windows pipe-server brief written
 
 Branch `b/141-rebase` (rebases `codex/pc-controls-p1`, PR #141) on `d0ec419`. Cherry-picked
@@ -4562,6 +4581,7 @@ caught behaviourally, so the behaviour pinning is real and partial rather than a
 remains unpinned is one comparison — an item whose `creation_event_sequence` falls inside a
 suppression's sequence window. Worth a fixture; not worth overstating, which is what an earlier
 draft of this note did.
+
 ## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
 
 Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
@@ -9620,6 +9640,7 @@ wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=pr
 — Codex
 
 ---
+
 ## 2026-09-17 05:13 UTC — Codex, PR #80 round 5 ready for Claude max re-review
 
 Draft PR: https://github.com/ksid1229-ops/jarvis/pull/80

@@ -98,43 +98,47 @@ export class TelegramRestProvider implements TelegramProvider {
     }
     if (input.replyMarkup !== undefined) body.reply_markup = input.replyMarkup;
 
-    // A hung request would hold a Worker invocation open until the platform
-    // kills it, so the timeout is enforced here rather than relied upon.
+    // A hung fetch or body read would hold a Worker invocation open until the
+    // platform kills it, so keep the deadline through response.json().
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
 
-    let response: Response;
     try {
-      response = await this.#fetch(`${API_ORIGIN}/bot${this.#botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch {
-      throw ProviderFailure.transient("timeout");
+      let response: Response;
+      try {
+        response = await this.#fetch(`${API_ORIGIN}/bot${this.#botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch {
+        throw ProviderFailure.transient("timeout");
+      }
+
+      let parsed: TelegramApiResponse;
+      try {
+        parsed = (await response.json()) as TelegramApiResponse;
+      } catch {
+        if (controller.signal.aborted) throw ProviderFailure.transient("timeout");
+        // A non-JSON body from a 2xx is still a failed send as far as we are
+        // concerned: we cannot confirm delivery without a message id.
+        throw response.ok ? ProviderFailure.transient("temporarily_unavailable") : failureFor(response.status);
+      }
+      if (controller.signal.aborted) throw ProviderFailure.transient("timeout");
+
+      if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
+
+      const providerMessageId = messageIdOf(parsed.result);
+      // Telegram reported success but gave us nothing to record. Treated as
+      // transient rather than permanent: the send may well have happened, and
+      // the outbox must not conclude the message was rejected.
+      if (providerMessageId === null) throw ProviderFailure.transient("temporarily_unavailable");
+
+      return { providerMessageId };
     } finally {
       clearTimeout(timer);
     }
-
-    let parsed: TelegramApiResponse;
-    try {
-      parsed = (await response.json()) as TelegramApiResponse;
-    } catch {
-      // A non-JSON body from a 2xx is still a failed send as far as we are
-      // concerned: we cannot confirm delivery without a message id.
-      throw response.ok ? ProviderFailure.transient("temporarily_unavailable") : failureFor(response.status);
-    }
-
-    if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
-
-    const providerMessageId = messageIdOf(parsed.result);
-    // Telegram reported success but gave us nothing to record. Treated as
-    // transient rather than permanent: the send may well have happened, and
-    // the outbox must not conclude the message was rejected.
-    if (providerMessageId === null) throw ProviderFailure.transient("temporarily_unavailable");
-
-    return { providerMessageId };
   }
 
   async sendChatAction(input: Readonly<{ chatId: string; action: "typing" }>): Promise<void> {
@@ -144,27 +148,31 @@ export class TelegramRestProvider implements TelegramProvider {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
-    let response: Response;
     try {
-      response = await this.#fetch(`${API_ORIGIN}/bot${this.#botToken}/sendChatAction`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: input.chatId, action: input.action }),
-        signal: controller.signal,
-      });
-    } catch {
-      throw ProviderFailure.transient("timeout");
+      let response: Response;
+      try {
+        response = await this.#fetch(`${API_ORIGIN}/bot${this.#botToken}/sendChatAction`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: input.chatId, action: input.action }),
+          signal: controller.signal,
+        });
+      } catch {
+        throw ProviderFailure.transient("timeout");
+      }
+
+      let parsed: TelegramApiResponse;
+      try {
+        parsed = (await response.json()) as TelegramApiResponse;
+      } catch {
+        if (controller.signal.aborted) throw ProviderFailure.transient("timeout");
+        throw response.ok ? ProviderFailure.transient("temporarily_unavailable") : failureFor(response.status);
+      }
+      if (controller.signal.aborted) throw ProviderFailure.transient("timeout");
+      if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
     } finally {
       clearTimeout(timer);
     }
-
-    let parsed: TelegramApiResponse;
-    try {
-      parsed = (await response.json()) as TelegramApiResponse;
-    } catch {
-      throw response.ok ? ProviderFailure.transient("temporarily_unavailable") : failureFor(response.status);
-    }
-    if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
   }
 }
 
