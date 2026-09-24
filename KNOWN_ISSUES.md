@@ -41,6 +41,10 @@ labels; a good receipt does not mean every shape has a deadline adapter. Positiv
 submission shapes, Opera GX persistence/federation, live two-board ingestion and the
 real database upgrade remain unverified by this builder.
 
+Positive submission detection currently requires an object with `Status: 1`, but
+the owner-observed `mysubmissions/` route returns an array. Empty arrays remain
+unknown evidence, and no populated-array projection has been observed.
+
 The review also identified an untested enrollment-retirement case: a course
 absent from later manifests may leave a stale per-course deadline source, whose
 digest label is only "Brightspace". This round does not retire sources or claim

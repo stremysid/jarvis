@@ -38,6 +38,22 @@ describe("school evidence and projection", () => {
       .toEqual({ title: "Synthetic essay [availability end]", due_at: "2026-09-24T03:59:00.000Z" });
   });
 
+  it.each([
+    ["an empty object", 200, {}],
+    ["a refusal", 403, {}],
+    ["a missing-tool response", 404, {}],
+  ] as const)("keeps one deadline identity after a good read when folders returns %s", async (_label, status, body) => {
+    const f = await collectorFixture();
+    await ingest(f, observedBatch(f));
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const next = observedBatch(f);
+    await ingest(f, { ...next, routes: next.routes.map((route, index) => index === 0 ? { ...route, status, body } : route) });
+    expect((await repo(f).status()).state).toBe("current");
+    const deadlines = await env.DB.prepare("SELECT external_id, status FROM deadlines WHERE source_id = ? AND status = 'open' ORDER BY external_id")
+      .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).all();
+    expect(deadlines.results).toEqual([{ external_id: "folder-17", status: "open" }]);
+  });
+
   it("prefers myItems dates then assignment DueDate then availability end and labels each source", async () => {
     const f = await collectorFixture();
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
@@ -57,7 +73,6 @@ describe("school evidence and projection", () => {
     const f = await collectorFixture();
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
     expect(mapSchoolCourse(batch).items.map((item) => item.submission)).toEqual(["unknown", "unknown"]);
-    batch.routes[3].route += "mysubmissions/";
     batch.routes[3].body = { Status: 1 };
     expect(mapSchoolCourse(batch).items[0]!.submission).toBe("positive submission status");
     for (const status of [0, 2, 3]) {
@@ -120,15 +135,22 @@ describe("school evidence and projection", () => {
   it("retains unknown JSON submissions without guessing a status and labels non-JSON bodies as session failures", async () => {
     const f = await collectorFixture();
     const batch = observedBatch(f);
-    for (const own of [false, true]) {
-      for (const body of [null, [], "unexpected login page", true]) {
-        const routes = batch.routes.map((row, i) => i === 3 ? { ...row, route: row.route + (own ? "mysubmissions/" : ""), body } : row);
-        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes })).outcome).toBe(typeof body === "string" ? "failed" : "good");
-        expect(mapSchoolCourse({ ...batch, routes }).items[0]!.submission).toBe("unknown");
-        const refused = routes.map((row, i) => i === 3 ? { ...row, status: 403 } : row);
-        expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: refused })).outcome).toBe(typeof body === "string" ? "failed" : "good");
-      }
+    for (const body of [null, [], "unexpected login page", true]) {
+      const routes = batch.routes.map((row, i) => i === 3 ? { ...row, body } : row);
+      expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes })).outcome).toBe(typeof body === "string" ? "failed" : "good");
+      expect(mapSchoolCourse({ ...batch, routes }).items[0]!.submission).toBe("unknown");
+      const refused = routes.map((row, i) => i === 3 ? { ...row, status: 403 } : row);
+      expect((await ingest(f, { ...batch, readId: newUlid(f.clock()), routes: refused })).outcome).toBe(typeof body === "string" ? "failed" : "good");
     }
+  });
+
+  it("names the missing mysubmissions route instead of falling back to all-users submissions", async () => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    const allUsersRoute = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/17/submissions/`;
+    const mapped = mapSchoolCourse({ ...batch, routes: batch.routes.map((row, index) => index === 3 ? { ...row, route: allUsersRoute } : row) });
+    expect(mapped.failures).toContain(`${allUsersRoute}mysubmissions/:not_read`);
+    expect(mapped.items[0]!.submission).toBe("unknown");
   });
 
   it("bounds refusals to the latest read and requested limit without losing the older good read time", async () => {
@@ -279,7 +301,7 @@ describe("school evidence and projection", () => {
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
     batch.routes[0].body[0].Id = "x".repeat(512);
     batch.routes[0].body[0].DueDate = "2026-09-25T12:00:00Z";
-    batch.routes[3].route = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${"x".repeat(512)}/submissions/`;
+    batch.routes[3].route = `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${"x".repeat(512)}/submissions/mysubmissions/`;
     expect(mapSchoolCourse(batch).failures).toEqual([]);
     expect((await ingest(f, batch)).outcome).toBe("failed");
     const status = await repo(f).status();

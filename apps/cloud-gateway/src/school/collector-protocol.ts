@@ -75,12 +75,14 @@ export function parseSchoolBatch(value: unknown, now: Date): SchoolObservationBa
     const route = exact(value, ["route", "status", "fetchedAt", "complete", "body"]);
     if (typeof route.route !== "string" || !route.route.startsWith("/d2l/api/") || route.route.includes("#")) throw new Error("school_route_invalid");
     const url = new URL(route.route, `https://${root.host}`);
+    const isMyItems = url.pathname === myItemsRoute.split("?")[0] && url.searchParams.get("orgUnitIdsCSV") === courseId;
+    const isQuizzes = url.pathname === prefix + "quizzes/";
     const allowed = hostFailure
       ? ["/d2l/api/versions/", "/d2l/api/lp/1.43/enrollments/myenrollments/"].includes(url.pathname)
-      : (url.pathname === myItemsRoute.split("?")[0] && url.searchParams.get("orgUnitIdsCSV") === courseId)
+      : isMyItems
         || url.pathname.startsWith(prefix)
-          && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/(mysubmissions\/)?|content\/toc|grades\/values\/myGradeValues\/|news\/|quizzes\/)$/.test(url.pathname.slice(prefix.length));
-    if (!allowed || url.hostname !== root.host
+          && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/mysubmissions\/|content\/toc|grades\/values\/myGradeValues\/|news\/|quizzes\/)$/.test(url.pathname.slice(prefix.length));
+    if (route.route !== url.pathname + url.search || !allowed || (url.search !== "" && !isMyItems && !isQuizzes)
       || seen.has(route.route)) throw new Error("school_route_invalid");
     seen.add(route.route);
     if (!Number.isInteger(route.status) || !(route.status === 0 || Number(route.status) >= 100 && Number(route.status) <= 599)

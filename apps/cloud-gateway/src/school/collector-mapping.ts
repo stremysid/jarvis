@@ -98,20 +98,17 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
   const myItems = batch.routes.filter((row) => new URL(row.route, `https://${batch.host}`).pathname === "/d2l/api/le/1.82/content/myItems/");
   const personalDates = new Map<string, { at: string; route: string }>();
   const personalResources = new Map<string, string>();
-  const topicDates = new Map<string, { at: string | null; title: string; topicId: string }>();
+  const topicDates = new Map<string, { at: string | null; title: string; itemId: string; toolItemId: string | null }>();
   for (const page of myItems) if (page.status === 200) attempt(page, () => {
     for (const item of rows(page)) attempt(page, () => {
-      const dueAt = date(item.DueDate);
       if (item.ToolItemId !== undefined) {
         const key = id(item.ToolItemId);
+        const dueAt = date(item.DueDate);
         personalResources.set(key, page.route);
         if (dueAt !== null) personalDates.set(key, { at: dueAt, route: page.route });
       } else {
-        // ScheduledItem.ItemId is a content ID, not an assignment or quiz ID.
-        const end = date(item.EndDate);
-        items.push({ id: `myitem-${id(item.ItemId)}`, title: title(item.ItemName), dueAt: dueAt ?? end,
-          dateSource: dueAt !== null ? "content/myItems" : end !== null ? "availability end" : null,
-          dateRoute: dueAt !== null || end !== null ? page.route : null, submission: "unknown" });
+        // No populated ScheduledItem shape has been observed, so its content ID cannot identify an assignment.
+        unmapped.push(`${page.route}:scheduled_item_projection_unknown`);
       }
     });
   });
@@ -120,15 +117,18 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       for (const module of list(modules)) {
         const end = date(module.EndDateTime) ?? inheritedEnd;
         for (const topic of list(module.Topics ?? [])) {
-          const key = topic.ToolItemId === undefined || topic.ToolItemId === null ? `topic-${id(topic.TopicId)}` : id(topic.ToolItemId);
-          const candidate = { at: date(topic.EndDateTime) ?? end, title: title(topic.Title), topicId: id(topic.TopicId) };
+          const topicId = id(topic.TopicId);
+          const linked = topic.ToolItemId !== undefined && topic.ToolItemId !== null;
+          const toolItemId = linked ? id(topic.ToolItemId) : null;
+          const itemId = toolItemId === null ? `topic-${topicId}` : `folder-${toolItemId}`;
+          const candidate = { at: date(topic.EndDateTime) ?? end, title: title(topic.Title), itemId, toolItemId };
           // Conflicting links are evidence for Jarvis, not permission to pick a date.
-          if (topicDates.has(key) && topicDates.get(key)?.at !== candidate.at) {
-            topicDates.set(key, { ...candidate, at: null });
+          if (topicDates.has(itemId) && topicDates.get(itemId)?.at !== candidate.at) {
+            topicDates.set(itemId, { ...candidate, at: null });
             unmapped.push(`${toc.route}:ambiguous_content_date`);
             continue;
           }
-          topicDates.set(key, candidate);
+          topicDates.set(itemId, candidate);
         }
         walk(module.Modules ?? [], end);
       }
@@ -147,11 +147,11 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       seen.add(key);
       const personal = personalDates.get(key) ?? null;
       const assignment = date(folder.DueDate);
-      const availability = topicDates.get(key)?.at ?? null;
+      const availability = topicDates.get(`folder-${key}`)?.at ?? null;
       const dueAt = personal?.at ?? assignment ?? availability;
       const dateSource = personal !== null ? "content/myItems" : assignment !== null ? "assignment DueDate" : availability !== null ? "availability end" : null;
       const ownPath = `dropbox/folders/${key}/submissions/mysubmissions/`;
-      const submission = routes.get(prefix + ownPath) ?? required(`dropbox/folders/${key}/submissions/`);
+      const submission = required(ownPath);
       const ownPositive = submission?.route === prefix + ownPath && submission.status === 200 && submission.complete
         && submission.body !== null && !Array.isArray(submission.body) && typeof submission.body === "object"
         && submission.body.Status === 1;
@@ -160,12 +160,12 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
         submission: ownPositive ? "positive submission status" : "unknown" });
     });
   });
-    for (const [key, topic] of topicDates) {
-      if (seen.has(key)) continue;
-      items.push({ id: `topic-${topic.topicId}`, title: topic.title, dueAt: topic.at,
-        dateSource: topic.at === null ? null : "availability end", dateRoute: topic.at === null ? null : toc!.route,
-        submission: "unknown" });
-    }
+  for (const topic of topicDates.values()) {
+    if (topic.toolItemId !== null && seen.has(topic.toolItemId)) continue;
+    items.push({ id: topic.itemId, title: topic.title, dueAt: topic.at,
+      dateSource: topic.at === null ? null : "availability end", dateRoute: topic.at === null ? null : toc!.route,
+      submission: "unknown" });
+  }
   for (const [key, route] of personalResources) if (!seen.has(key)) unmapped.push(`${route}:unlinked_myItems_item`);
   // Announcement publication/expiry is not an assignment due date. Its entire body stays raw.
   for (const quizRoute of batch.routes.filter((row) => new URL(row.route, `https://${batch.host}`).pathname === prefix + "quizzes/" && row.status === 200)) {

@@ -39,12 +39,12 @@ async function runSchoolTool(f: CollectorFixture, name: string, args: Record<str
   return requests;
 }
 
-it("reads school evidence without spending an action tap even when school tracking is tier three", async () => {
+it("refuses school evidence without direct private text before spending a tier-three action tap", async () => {
   const f = await collectorFixture();
   await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
   const result = await runSchoolTool(f, "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 43_200_000 }, false);
-  expect(JSON.stringify(result[1])).not.toContain("pending_confirmation");
-  expect(JSON.stringify(result[1])).toContain("lastGoodReadAt");
+  expect(JSON.stringify(result[1])).toContain("not Sid's direct private Telegram text");
+  expect(JSON.stringify(result[1])).not.toContain("lastGoodReadAt");
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
 });
 

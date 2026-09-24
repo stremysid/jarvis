@@ -81,10 +81,12 @@ it("stores the observed empty myItems envelope and all linked pages without trea
   const page2 = { ...row, route: path + "&bookmark=second", body: { Objects: [{ ItemId: 71, ItemName: "Scheduled reading", DueDate: null, EndDate: null }], Next: null } };
   const paged = { ...batch, readId: newUlid(f.clock()), routes: [...batch.routes, page1, page2] };
   expect(await (await upload(f, paged)).json()).toMatchObject({ outcome: "good" });
-  expect(mapSchoolCourse(paged).items).toEqual(expect.arrayContaining([
+  const mapped = mapSchoolCourse(paged);
+  expect(mapped.items).toEqual(expect.arrayContaining([
     expect.objectContaining({ id: "folder-17", dateSource: "content/myItems", dueAt: "2026-09-28T00:00:00.000Z" }),
-    expect.objectContaining({ id: "myitem-71", dueAt: null, submission: "unknown" }),
   ]));
+  expect(mapped.items.some((item) => item.id === "myitem-71")).toBe(false);
+  expect(mapped.unmapped).toContain(`${page2.route}:scheduled_item_projection_unknown`);
   for (const routes of [[...batch.routes, page1], [...batch.routes, page1, { ...page2, body: { ...page2.body, Next: path } }]]) {
     expect(await (await upload(f, { ...batch, readId: newUlid(f.clock()), routes })).json()).toMatchObject({ outcome: "failed" });
   }
@@ -93,8 +95,7 @@ it("stores the observed empty myItems envelope and all linked pages without trea
 it("accepts observed empty student submissions as unknown evidence with their original body", async () => {
   const f = await collectorFixture();
   const batch = observedBatch(f);
-  const routes = batch.routes.map((row, i) => i >= 3 ? { ...row, route: row.route + "mysubmissions/", body: [] } : row);
-  const value = { ...batch, routes };
+  const value = batch;
   expect(await (await upload(f, value)).json()).toMatchObject({ outcome: "good" });
   expect(mapSchoolCourse(value).items).toHaveLength(2);
   expect(mapSchoolCourse(value).items.every((item) => item.submission === "unknown")).toBe(true);
@@ -126,7 +127,7 @@ it("keeps a first-run host session failure visible after the other host succeeds
 it("accepts a compact oversized-manifest failure and refuses a host-only success or invented course", async () => {
   const f = await collectorFixture();
   const failure = hostFailure(f);
-  const value = { ...failure, routes: [{ ...failure.routes[0]!, route: "/d2l/api/lp/1.43/enrollments/myenrollments/?bookmark=page",
+  const value = { ...failure, routes: [{ ...failure.routes[0]!, route: "/d2l/api/lp/1.43/enrollments/myenrollments/",
     status: 200, body: { collectorFailure: "course-manifest-too-large", courseCount: 129 } }] };
   expect(await (await upload(f, value)).json()).toMatchObject({ outcome: "failed" });
   expect(await repo(f).status()).toMatchObject({ state: "failed", hosts: [{ sessionExpired: false }] });

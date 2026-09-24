@@ -45,14 +45,37 @@ def test_every_missing_store_ancestor_is_created_private_and_validated(
 
     def guard(path: Path) -> None:
         validated.append(path)
-        original_guard(path)
+        if os.name == "posix":
+            # The real inspection runs where it exists. On Windows its body
+            # cannot: `os.open(..., O_DIRECTORY)` is refused there. What this
+            # test asserts is *how many times* the walk calls the guard -- once
+            # per directory, not twice -- which is the defect being pinned.
+            original_guard(path)
 
     monkeypatch.setattr(Path, "mkdir", mkdir)
     monkeypatch.setattr(database, "_restrict_sqlite_directory", guard)
+    # The POSIX branch is forced so the counting assertion runs on every host.
+    # `_restrict_sqlite_directory` is a POSIX inspection -- it returns immediately
+    # on Windows, and so does not run at all on the Windows branch -- which made
+    # "once per directory, not twice" a property only the Ubuntu job could check.
+    # The Windows guard is the DACL `_make_directory_private` writes, and it is
+    # covered by `test_an_ancestor_above_the_store_root_is_created_without_the_store_dacl`
+    # and `test_the_ancestor_above_the_boundary_is_created_without_a_mode_on_windows`.
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
+    if os.name != "posix":
+        # `_restrict_sqlite_file` is the other POSIX body and cannot run on a
+        # Windows host either -- `os.geteuid` does not exist there. This test is
+        # about the *directory* guard; the file guard has its own POSIX-only
+        # tests, which run on the host where they mean something. Only the
+        # no-op is platform-dependent, so the POSIX run still exercises it.
+        monkeypatch.setattr(database, "_restrict_sqlite_file", lambda *_args, **_kwargs: None)
     previous = os.umask(0o022)
     connection = None
     try:
-        connection = connect(inner / "archive.sqlite3")
+        # `repair_permissions=True`: this is the creating open, which is the one
+        # call that may make directories private. The default is the read-only
+        # opener, and every test that needs a store built has to say so.
+        connection = connect(inner / "archive.sqlite3", repair_permissions=True)
         assert requested == {outer: 0o700, inner: 0o700}
         assert validated == [outer, inner]
         if os.name == "posix":
@@ -63,16 +86,130 @@ def test_every_missing_store_ancestor_is_created_private_and_validated(
             connection.close()
 
 
+def test_an_ancestor_above_the_store_root_is_created_without_the_store_dacl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Above the root is not the store, so it must not receive the store's DACL.
+
+    The store is `<tmp>/outer/mid/Jarvis/data` and the boundary the caller named is
+    `<tmp>/outer/mid/Jarvis`, with only `outer` present. So `mid` is a missing
+    ancestor *above* the boundary: it has to be created or a first run could not
+    start, but writing the store's owner-only SDDL onto it is the `path.parents`
+    walk that emptied this account's profile -- one directory above where it
+    stopped being the store. `boundary` itself is the outermost store directory,
+    so making it private is correct; `mid` must be created with a plain `mkdir`.
+
+    Both of the obvious ways to write this test are wrong, and each was caught by
+    mutating the branch rather than by reading it. Making only the store directory
+    missing left nothing above `boundary` in the walk, so the branch never ran.
+    Making `outer` the missing ancestor did not help either: it is missing, but
+    `_ensure_sqlite_directory` stops ascending at the first directory that exists,
+    and `boundary.mkdir(parents=True)` had already created the whole chain.
+
+    `_make_directory_private` is replaced with a recorder because this is about
+    *which* directories are handed to it, not about what an ACL contains; the
+    Win32 seam is stubbed package-wide and no real DACL is written here.
+    """
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    mid = outer / "mid"
+    boundary = mid / "Jarvis"
+    store = boundary / "data"
+    assert not boundary.exists(), "the branch under test only runs when the boundary is missing"
+
+    private: list[Path] = []
+    original_mkdir = Path.mkdir
+
+    def record(directory: Path, *, store_root: Path) -> None:
+        private.append(directory)
+        original_mkdir(directory, mode=stat.S_IRWXU, exist_ok=True)
+
+    monkeypatch.setattr(database, "_make_directory_private", record)
+
+    database._ensure_sqlite_directory(store, store_root=boundary, repair_permissions=True)
+
+    assert store in private, "the store directory must be made private"
+    assert boundary in private, "the boundary is the outermost store directory and is made private"
+    assert mid not in private, "a missing ancestor above the store root was given the store DACL"
+    assert outer not in private, "a missing ancestor above the store root was given the store DACL"
+    assert store.is_dir(), "the store directory was not created"
+
+
+@pytest.mark.parametrize(("posix", "expected_mode"), [(False, 0o777), (True, 0o700)])
+def test_the_ancestor_above_the_boundary_is_created_without_a_mode_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, posix: bool, expected_mode: int,
+) -> None:
+    r"""On Windows `mode=0o700` is not a mode, it is the CVE-2024-4030 DACL.
+
+    That DACL names `OW`, `SY` and `BA` and nothing that identifies the user, so
+    an *ancestor* created with it hands everything inside it to an owner Windows
+    chose -- the `OW` resolves to Administrators for an elevated creator and the
+    user's own entry is gone. Above the boundary a plain `mkdir` is the correct
+    call: with no mode argument the directory inherits its parent's DACL, which
+    is exactly what it would have had if the store had never been created.
+
+    POSIX keeps the mode, because there a mode is the only thing that makes a
+    directory private. Both legs are asserted here so neither can be changed
+    into the other by accident.
+
+    The recorded mode is the default `Path.mkdir` applies when the call passes
+    none (`0o777`) against `0o700` -- which is what makes this a test of the
+    *argument* rather than of the resulting permissions, and on Windows those two
+    are different things.
+    """
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    mid = outer / "mid"
+    boundary = mid / "Jarvis"
+    store = boundary / "data"
+
+    recorded: dict[Path, int] = {}
+    original_mkdir = Path.mkdir
+
+    def mkdir(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+        recorded[path] = mode
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(database, "_is_posix", lambda: posix)
+    monkeypatch.setattr(
+        database, "_make_directory_private", lambda directory, *, store_root: original_mkdir(directory, exist_ok=True)
+    )
+
+    database._ensure_sqlite_directory(store, store_root=boundary, repair_permissions=True)
+
+    assert mid in recorded, "the missing ancestor above the boundary was never created"
+    assert recorded[mid] == expected_mode, (
+        f"the ancestor above the store root was made with mode {recorded[mid]:#o}; "
+        f"{expected_mode:#o} is what {'POSIX' if posix else 'Windows'} requires here"
+    )
+    assert store.is_dir(), "the store directory was not created"
+
+
+def test_a_default_open_refuses_a_store_directory_that_does_not_exist(tmp_path: Path) -> None:
+    """False means read-only, not "create it quietly on the way in".
+
+    The default opener creates nothing: not the store, and not the components
+    above it. Creating those is also what walks above the boundary, and that
+    walk is where this account's profile was lost from.
+    """
+    missing = tmp_path / "state" / "archive.sqlite3"
+    with pytest.raises(database.SQLiteDirectoryError, match="does not create stores"):
+        connect(missing)
+    assert not (tmp_path / "state").exists(), "the read-only opener created the directory"
+
+
 @POSIX_ONLY
 @pytest.mark.parametrize("open_store", [ArchiveRepository.open, FactRepository.open])
-def test_store_and_live_wal_files_ignore_a_permissive_umask(
-    tmp_path: Path,
+def test_store_and_live_wal_files_ignore_a_permissive_umask(    tmp_path: Path,
     open_store: Callable[[Path], ClosableStore],
 ) -> None:
     database_path = tmp_path / "state" / "store.sqlite3"
     previous = os.umask(0o022)
     try:
-        store = open_store(database_path)
+        # The creating open: `state` does not exist, and the default opener
+        # refuses to manufacture a store rather than doing it quietly.
+        store = open_store(database_path, repair_permissions=True)
         store.connection.execute("CREATE TABLE permission_probe (value TEXT)")
         store.connection.execute("INSERT INTO permission_probe VALUES ('private')")
         files = [database_path, Path(f"{database_path}-wal"), Path(f"{database_path}-shm")]
@@ -209,32 +346,63 @@ def test_store_directory_refuses_wrong_type_or_owner(
     assert closed == [7]
 
 
-@POSIX_ONLY
 @pytest.mark.parametrize("mode", [0o755, 0o750])
-def test_connect_refuses_an_existing_shared_parent_without_chmod(tmp_path: Path, mode: int) -> None:
+def test_connect_refuses_an_existing_shared_parent_without_chmod(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int,
+) -> None:
+    """The default (read-only) opener still refuses a world-readable parent.
+
+    This is what keeps `repair_permissions=False` from being the quiet way past
+    the POSIX guard. Nothing is written -- the inspection only reads the mode and
+    refuses -- so it runs on the read-only path too, and a reader is still told
+    its store is exposed instead of opening it silently.
+
+    The POSIX branch is forced, and the three `os` calls it makes are stubbed, so
+    this runs and can be mutation-killed on a Windows host; otherwise it is a
+    POSIX-only test that the machine this is developed on never executes.
+    """
     parent = tmp_path / "owner-chosen"
     parent.mkdir()
     parent.chmod(mode)
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
+    monkeypatch.setattr(database.os, "open", lambda *_args: 7)
+    monkeypatch.setattr(
+        database.os, "fstat", lambda _descriptor: SimpleNamespace(st_mode=stat.S_IFDIR | mode, st_uid=1000)
+    )
+    monkeypatch.setattr(database.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(database.os, "close", lambda _descriptor: None)
+
     with pytest.raises(PermissionError, match=r"owner-chosen.*0700"):
         connect(parent / "archive.sqlite3")
-    assert stat.S_IMODE(parent.stat().st_mode) == mode
+    if os.name == "posix":
+        assert stat.S_IMODE(parent.stat().st_mode) == mode, "connect chmodded the parent instead of refusing"
     assert not (parent / "archive.sqlite3").exists()
 
 
 def test_connect_applies_the_directory_guard_to_the_store_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The guard runs on the parent of the store, exactly once.
+
+    The POSIX branch is forced because that is where the guard lives:
+    `_restrict_sqlite_directory` returns immediately off POSIX, so without this
+    the assertion would be vacuous on Windows and the duplicate call the walk used
+    to make -- `[state, state]` rather than `[state]` -- would only be catchable on
+    the Ubuntu job. The Windows equivalent is the DACL, not a mode, and it is
+    asserted through `_make_directory_private` elsewhere.
+    """
     database_path = tmp_path / "state" / "archive.sqlite3"
     guarded: list[Path] = []
     monkeypatch.setattr(database, "_restrict_sqlite_directory", guarded.append)
     monkeypatch.setattr(database, "_restrict_sqlite_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
 
     class FakeConnection:
         def execute(self, _statement: str) -> FakeConnection:
             return self
 
     monkeypatch.setattr(database.sqlite3, "connect", lambda *_args, **_kwargs: FakeConnection())
-    connect(database_path)
+    connect(database_path, repair_permissions=True)
 
     assert guarded == [database_path.parent]
 

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import json
+import logging
 import os
 import shlex
 import signal
@@ -23,8 +24,10 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores
+from jarvis_local.archive import store_permissions
 from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.archive.database import SQLiteDirectoryError
+from jarvis_local.archive.store_permissions import StoreDaclRefusedError, UnsafeStorePathError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.crypto.signed_request import signature_text
@@ -261,15 +264,45 @@ def test_duplicate_socket_refusal_happens_before_any_store_is_opened(
 
 def test_a_second_store_open_failure_closes_the_first_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     archive = FakeClosable()
-    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", lambda _: archive)
+    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", lambda _path, **_kwargs: archive)
 
-    def fail_memory(_: Path) -> FactRepository:
+    def fail_memory(_path: Path, **_kwargs: object) -> FactRepository:
         raise RuntimeError("memory open failed")
 
     monkeypatch.setattr("jarvis_local.agent.FactRepository.open", fail_memory)
     with pytest.raises(RuntimeError, match="memory open failed"):
         open_stores(tmp_path / "archive.sqlite3", tmp_path / "memory.sqlite3")
     assert archive.closed == 1
+
+
+def test_the_service_is_the_only_caller_that_asks_for_the_permission_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`open_stores` passes `repair_permissions=True`; nothing else does.
+
+    Every opener defaults to False so that opening a store cannot rewrite a
+    permission by accident -- a DACL write propagates to everything below the
+    object it names, and the last accidental one emptied this account's profile.
+    That makes this keyword the whole of the exception, so it is pinned in both
+    directions: dropped, the service stops repairing its own store at start;
+    defaulted back to True, every reader writes ACLs again.
+    """
+    asked: list[tuple[str, bool]] = []
+
+    def archive_open(_path: Path, **kwargs: object) -> object:
+        asked.append(("archive", bool(kwargs.get("repair_permissions"))))
+        return FakeClosable()
+
+    def memory_open(_path: Path, **kwargs: object) -> object:
+        asked.append(("memory", bool(kwargs.get("repair_permissions"))))
+        return FakeClosable()
+
+    monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", archive_open)
+    monkeypatch.setattr("jarvis_local.agent.FactRepository.open", memory_open)
+
+    open_stores(tmp_path / "archive.sqlite3", tmp_path / "memory.sqlite3")
+
+    assert asked == [("archive", True), ("memory", True)]
 
 
 def test_signal_setup_failure_unwinds_the_control_thread_and_stores(
@@ -1222,6 +1255,130 @@ def test_the_posix_owner_and_mode_checks_are_not_applied_to_a_windows_assembly(
     with pytest.raises(NodeStartupError, match="group or world"):
         _validate_existing_device_key(key, platform="linux")
     _validate_existing_device_key(key, platform="win32")
+
+
+def test_serve_logs_the_store_roots_it_will_change_permissions_inside(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path,
+) -> None:
+    """Which boundary applies must be visible in the log, not inferred.
+
+    The guard refuses a store outside these roots, so a support read of the log
+    needs the resolved roots -- including when they came from the fallback
+    rather than from configuration, which is the part nobody can reconstruct
+    from the environment afterwards.
+
+    `_default_store_root` is patched to `tmp_path` because the allowlist
+    `serve` now applies permits one location -- the default -- and a store in
+    the test's own temporary directory is only legitimate once that directory
+    *is* the default. Doing it this way keeps the test running the real
+    `permit_store_roots` rather than stepping around it.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+    state = ServiceState()
+    monkeypatch.setattr(
+        "jarvis_local.node.build_node",
+        lambda *_args, **_kwargs: NodeRuntime(
+            StoppingLoop(state), state, FakeControl(), FakeClosable(), FakeClosable()
+        ),
+    )
+
+    from jarvis_local.node import _serve
+
+    with caplog.at_level(logging.INFO, logger="jarvis_local.node"):
+        _serve(JarvisLocalConfig.load(windows_environment()), command="serve")
+
+    logged = [record.getMessage() for record in caplog.records if "store root" in record.getMessage()]
+    assert logged, "the serve path logged no store root"
+    assert os.fspath(tmp_path) in logged[0], logged
+
+
+def test_serve_refuses_a_store_outside_the_permitted_location_before_assembling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The allowlist is checked before anything is opened, and it is its own exit code.
+
+    Exit 4 would be indistinguishable from a busy pipe, and this failure's whole
+    value is the sentence naming the repair -- so it gets 6, and the caller can
+    branch on it without parsing text.
+    """
+    permitted = tmp_path / "Jarvis"
+    permitted.mkdir()
+    elsewhere = tmp_path / "Documents"
+    elsewhere.mkdir()
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: permitted)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(elsewhere / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(elsewhere / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+
+    def never_called(*_args: Any, **_kwargs: Any) -> NodeRuntime:
+        raise AssertionError("the service was assembled for a store outside the permitted location")
+
+    monkeypatch.setattr("jarvis_local.node.build_node", never_called)
+
+    from jarvis_local.node import EXIT_NODE_STORE_PERMISSIONS, _serve
+
+    assert _serve(JarvisLocalConfig.load(windows_environment()), command="serve") == EXIT_NODE_STORE_PERMISSIONS
+    assert "outside the only permitted store location" in capsys.readouterr().out
+
+
+def test_serve_reports_a_refused_store_dacl_as_a_store_permission_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The mapped exit code, over the branch that actually carries the repair sentence.
+
+    `store_root_summary` is the start-up call that reads the real owner, so an
+    Administrators-owned store raises here -- before `permit_store_roots` is
+    reached. Raised through the same call the service makes, so what is under
+    test is the mapping from that exception to exit 6 rather than a mock of it.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+
+    def refuse() -> str:
+        raise StoreDaclRefusedError(
+            "cannot set the permissions of the store. One-time fix, either: run `jarvis serve` "
+            "once from an elevated shell"
+        )
+
+    monkeypatch.setattr("jarvis_local.node.store_root_summary", refuse)
+
+    from jarvis_local.node import EXIT_NODE_STORE_PERMISSIONS, _serve
+
+    assert _serve(JarvisLocalConfig.load(windows_environment()), command="serve") == EXIT_NODE_STORE_PERMISSIONS
+    # The repair is printed, not swallowed: this exit code exists so the caller
+    # sees which failure it is, and the sentence is what makes it actionable.
+    assert "One-time fix" in capsys.readouterr().out
+
+
+def test_serve_reports_a_path_the_guard_refuses_as_a_store_permission_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`UnsafeStorePathError` is neither a configuration error nor a startup one.
+
+    Without its own arm it falls through to the catch-all and exits 4 with "the
+    Jarvis node could not start" -- indistinguishable from a busy pipe, and with
+    the sentence naming the path it refused thrown away. That sentence is the
+    whole value of the exception, so it gets exit 6 and is printed.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(tmp_path / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    monkeypatch.setattr("jarvis_local.node._running_on_windows", lambda: True)
+
+    def refuse() -> str:
+        raise UnsafeStorePathError("refusing a system or account root: /profile")
+
+    monkeypatch.setattr("jarvis_local.node.store_root_summary", refuse)
+
+    from jarvis_local.node import EXIT_NODE_STORE_PERMISSIONS, _serve
+
+    assert _serve(JarvisLocalConfig.load(windows_environment()), command="serve") == EXIT_NODE_STORE_PERMISSIONS
+    assert "refusing a system or account root" in capsys.readouterr().out
 
 
 def test_serve_refuses_a_host_that_cannot_bind_the_pipe(

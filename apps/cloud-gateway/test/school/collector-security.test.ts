@@ -234,9 +234,12 @@ describe("school collector security", () => {
       { ...batch, routes: [{ ...batch.routes[0], route: "/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=other" }] },
       { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/content/myItems/` }] },
       { ...batch, routes: [{ ...batch.routes[0], route: "/d2l/api/le/1.82/other/dropbox/folders/" }] },
+      { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/content/toc?x=1` }] },
+      { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/other/../${f.courseId}/content/toc` }] },
+      { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/17/submissions/` }] },
       { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/users/` }] },
       { ...batch, routes: [batch.routes[0], batch.routes[0]] },
-      { ...batch, routes: Array.from({ length: 257 }, (_, i) => ({ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${i}/submissions/` })) },
+      { ...batch, routes: Array.from({ length: 257 }, (_, i) => ({ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/dropbox/folders/${i}/submissions/mysubmissions/` })) },
       { ...batch, routes: [{ ...batch.routes[0], status: -1 }] },
       { ...batch, routes: [{ ...batch.routes[0], complete: 1 }] },
       { ...batch, routes: [{ ...batch.routes[0], fetchedAt: new Date(f.clock().getTime() - 1).toISOString() }] },
@@ -247,6 +250,8 @@ describe("school collector security", () => {
     expect(parseSchoolBatch(batch, f.clock())).toEqual(batch);
     const myItems = { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}` }] };
     expect(parseSchoolBatch(myItems, f.clock())).toEqual(myItems);
+    const quizzes = { ...batch, routes: [{ ...batch.routes[0], route: `/d2l/api/le/1.82/${f.courseId}/quizzes/?bookmark=next` }] };
+    expect(parseSchoolBatch(quizzes, f.clock())).toEqual(quizzes);
     expect(SCHOOL_AUDIENCE).toBe("jarvis-school-collector");
   });
 

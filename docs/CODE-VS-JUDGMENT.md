@@ -185,9 +185,10 @@ of this file.
 Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
 storable unknown JSON as a failed school read. It records projection labels and keeps
 raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
-no longer spend an action tap or depend on the pipeline's direct-text action authority.
-Collector revocation still requires its tier-three tap. These changes follow Sid's
-explicit follow-up instruction; the two existing judgment findings below remain open.
+do not spend an action tap, but they again require the pipeline's direct-text authority.
+Collector revocation still requires its tier-three tap. Whether the evidence read should
+bypass that authority remains open for Sid; the earlier attributed instruction is not
+confirmed. The two existing judgment findings below remain open.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|

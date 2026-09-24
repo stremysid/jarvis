@@ -103,9 +103,11 @@ This PR changes no extension-owned file and makes no live-ingest claim.
   Durham's failed or stale read. The top-level last-good timestamp is the older of
   their latest good times, or null if a reported host has none. Evidence pagination
   keeps all history; latest-read refusal sampling remains bounded.
-- Per Sid's newer explicit instruction, `school_d2l_status` does not consume an
-  action tap or depend on pipeline direct-text authority. Revocation, pairing
-  activation, key isolation, signed-request verification and replay protection stay.
+- `school_d2l_status` does not consume an action tap after direct-private authority
+  succeeds. The refusal now runs before that read; whether evidence should bypass
+  it remains open for Sid because the earlier attributed instruction is unconfirmed.
+  Revocation, pairing activation, key isolation, signed-request verification and
+  replay protection stay.
 - Pairing retries recover after proof persistence, decision creation and failed
   notification. A scoped unique decision index resolves racing creation. Delivery
   remains at-least-once if a process dies after Telegram accepted it but before
