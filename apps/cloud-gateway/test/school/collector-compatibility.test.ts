@@ -191,7 +191,7 @@ it("stores unfamiliar JSON shapes with projection labels and prevents an empty d
   expect(status.evidence[0]!.unmapped_json).not.toContain("linked_topic_folder_list_unread");
   expect(status.evidence.find((row) => row.route === routes[0]!.route)?.raw_json).toBe(JSON.stringify(routes[0]!.body));
   const result = await digest(f);
-  expect(result.text).toContain("unknown projection");
+  expect(result.text).toContain("unknown projection or date disagreement");
   expect(result.text.toLowerCase()).not.toContain("nothing due");
 });
 
@@ -267,7 +267,24 @@ it("keeps unlinked and conflicting dates visible without projecting an arbitrary
   expect(mapped.deadlines).toHaveLength(0);
   expect(await (await upload(f, batch)).json()).toMatchObject({ outcome: "good" });
   expect((await repo(f).status()).unmappedRoutes).toBe(3);
-  expect((await digest(f)).text).toContain("unknown projection");
+  expect((await digest(f)).text).toContain("unknown projection or date disagreement");
+});
+
+it("counts each folder-specific projection label and keeps the digest gap visible", async () => {
+  const f = await collectorFixture();
+  const batch = structuredClone(observedBatch(f)) as SchoolBatch & { routes: any[] };
+  batch.routes[0].body[0].Availability = { ClosesAt: "2026-09-25T00:00:00Z" };
+  batch.routes[0].body[1].Availability = { EndDate: 5 };
+  const mapped = mapSchoolCourse(batch);
+  expect(mapped.unmapped).toEqual([
+    `${batch.routes[0].route}:folder-17:folder_availability_shape_unknown`,
+    `${batch.routes[0].route}:folder-18:folder_availability_shape_unknown`,
+  ]);
+  expect(await (await upload(f, batch)).json()).toMatchObject({ outcome: "good" });
+  const status = await repo(f).status();
+  expect(status).toMatchObject({ unmappedRoutes: 2, hosts: [expect.objectContaining({ unmappedRoutes: 2 })] });
+  expect(status.instructions).toContain("unmappedRoutes counts unmapped_json label entries");
+  expect((await digest(f)).text).toContain("unknown projection or date disagreement");
 });
 
 it("counts an unmapped route once even when several of its items cannot be projected", async () => {

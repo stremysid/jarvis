@@ -3,6 +3,67 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #176 low follow-ups identify affected D2L items
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-labels.
+The branch began clean at `origin/main` `b16e9be`. Git remained read-only; no
+merge, push, deployment, migration, secret or live school operation was attempted.
+
+Results:
+
+1. L1 now has separate malformed folder-availability cases for numeric
+   `EndDate` and the string `not-a-date`. Both retain the course read, label
+   `folder-17:folder_availability_shape_unknown`, keep that folder's `dueAt`
+   null and prove another folder still projects.
+2. L3's digest gap now says `unknown projection or date disagreement`. The
+   status-tool description now says Availability end dates from either folder
+   or content evidence are not confirmed due dates. Tests pin both phrases.
+3. L4's folder availability and assignment-disagreement labels include the
+   validated `folder-<id>`. `ambiguous_content_date` safely does the same with
+   its already-validated projected item id, which can name either a folder or a
+   topic. Date precedence is unchanged.
+4. `unmappedRoutes` still comes from `json_array_length(unmapped_json)`, while
+   each mapper result still deduplicates identical labels with a `Set`. Its
+   historical name already counted labels rather than routes. For these three
+   item-scoped labels, the meaning intentionally changes from one issue-type
+   label per route to one label per affected item; generic route-level
+   projection labels are unchanged. The returned status instructions now state
+   that explicitly. Two affected folders therefore report two labels at both
+   host and aggregate status levels. The digest still emits one gap whenever
+   the count is positive; it does not display the numeric count.
+
+New test names:
+
+- `labels a numeric folder Availability EndDate without dropping the rest of the course`
+- `labels a malformed folder Availability EndDate without dropping the rest of the course`
+- `names each item whose content dates disagree`
+- `counts each folder-specific projection label and keeps the digest gap visible`
+
+The existing unknown-Availability, unequal/equal assignment-date, unknown-
+projection digest and real-tool-dispatch tests now pin the new label or wording
+forms.
+
+Observed checks:
+
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` — exit 0, no diagnostics.
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` —
+  exit 1 with the documented 143 diagnostics and none in `collector-ingest`,
+  `collector-compatibility` or `collector-wiring`.
+- `node scripts/check-state.mjs` — exit 0 with its existing background-access
+  re-verification advisory.
+- `git diff --check` — exit 0 after the handoff files were written.
+
+The harness must run `collector-ingest.test.ts`,
+`collector-compatibility.test.ts` and `collector-wiring.test.ts` first; then all
+six gateway collector files (`collector-ingest`, `collector-compatibility`,
+`collector-security`, `collector-pages`, `collector-wiring` and
+`collector-migration`), `digest-job.test.ts`, and the full cloud-gateway suite.
+It must rerun #176's M2b and M3 mutations against the two new malformed-EndDate
+cases and mutate each new item-id segment to prove the multi-item assertions are
+load-bearing. This container has no Vitest or pnpm, so no runtime test, full
+suite or mutation result is claimed. No live D2L read, production behavior,
+database migration or deployment was verified.
+
 ## 2026-09-24 — Codex builder: D2L receiver follow-up surfaces fallback and disagreement evidence
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-followup.
