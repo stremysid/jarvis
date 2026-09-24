@@ -1,5 +1,14 @@
 # Known issues
 
+## DeepSeek error response body can outlive its timeout (2026-09-24)
+
+`DeepSeekModelAdapter.stream` in
+[`deepseek-provider.ts`](apps/cloud-gateway/src/providers/deepseek-provider.ts)
+clears `overall` after receiving non-success response headers, then awaits
+`response.text()` for the error detail. A stalled error body therefore has no
+request deadline. PR #174 is changing this file; its builder should keep the
+deadline armed through that body read and pin the case with an injected fetch.
+
 ## Owner voice streaming acceptance (PR #171, 2026-09-24)
 
 Live DeepSeek tool-call streaming and phone latency remain unverified. The
