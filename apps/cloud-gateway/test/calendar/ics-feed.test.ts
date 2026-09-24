@@ -101,12 +101,12 @@ describe("the private calendar composer", () => {
   });
 
   it("folds at 75 UTF-8 octets including continuation spaces without splitting code points", () => {
-    const feed = composeCalendarFeed({ ...input, actions: [{ ...action, text: "é🙂".repeat(100) }] });
+    const feed = composeCalendarFeed({ ...input, actions: [{ ...action, text: "é🙂x".repeat(100) }] });
     const lines = feed.split("\r\n");
     expect(lines.some((line) => line.startsWith(" "))).toBe(true);
     expect(lines.every((line) => new TextEncoder().encode(line).byteLength <= 75)).toBe(true);
     expect(lines.every((line) => line.isWellFormed())).toBe(true);
-    expect(unfold(feed)).toContain(`SUMMARY:Chemistry: ${"é🙂".repeat(100)} (25 min)`);
+    expect(unfold(feed)).toContain(`SUMMARY:Chemistry: ${"é🙂x".repeat(100)} (25 min)`);
     const exact = composeCalendarFeed({ ...input, actions: [{ ...action, courseName: "A", text: "x".repeat(55) }] });
     expect(exact.split("\r\n")).toContain(`SUMMARY:A: ${"x".repeat(55)} (25 min)`);
   });

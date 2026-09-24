@@ -23,9 +23,10 @@ export async function handleCalendarFeedRequest(
   if (request.method !== "GET" || match === null || expected === undefined || Array.from(expected).length < 32) {
     return failure(404, "Not found");
   }
+  const encodedToken = match[1]!;
   let presented: string;
   try {
-    presented = decodeURIComponent(match[1]!);
+    presented = decodeURIComponent(encodedToken);
   } catch {
     return failure(404, "Not found");
   }
