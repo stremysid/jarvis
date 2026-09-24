@@ -106,8 +106,8 @@
   {
     "name": "M3 Cyclic Next pages fail coverage",
     "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
-    "find": "if (seen.has(key) || page?.status !== 200)",
-    "replace": "if (seen.has(key)) break;\n      if (page?.status !== 200)",
+    "find": "if (seen.has(key) || page?.status !== 200 || !sameTool)",
+    "replace": "if (seen.has(key)) break;\n      if (page?.status !== 200 || !sameTool)",
     "testPath": "apps/cloud-gateway/test/school/collector-compatibility.test.ts",
     "expect": "stores the observed empty myItems envelope and all linked pages without treating an unseen page as empty"
   },
@@ -494,5 +494,13 @@
     "replace": "if (false)",
     "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
     "expect": "counts undated work from the latest good whole read and names it in a current digest"
+  },
+  {
+    "name": "M19 Next pages must belong to the same tool",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "const sameTool = new URL(key).pathname === new URL(routeKey(route.route)).pathname;",
+    "replace": "const sameTool = true;",
+    "testPath": "apps/cloud-gateway/test/school/collector-pages.test.ts",
+    "expect": "does not count a different tool response as the next myItems page"
   }
 ]

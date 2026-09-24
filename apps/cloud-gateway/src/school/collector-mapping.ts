@@ -79,7 +79,8 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       if (typeof next !== "string") { failures.push(`${route.route}:paging_incomplete`); break; }
       const key = routeKey(next);
       const page = pages.get(key);
-      if (seen.has(key) || page?.status !== 200) { failures.push(`${route.route}:paging_incomplete`); break; }
+      const sameTool = new URL(key).pathname === new URL(routeKey(route.route)).pathname;
+      if (seen.has(key) || page?.status !== 200 || !sameTool) { failures.push(`${route.route}:paging_incomplete`); break; }
       seen.add(key);
       next = record(page.body).Next;
     }

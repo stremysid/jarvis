@@ -174,6 +174,13 @@ of this file.
 
 ## School collector findings, 2026-09-23 (still a partial register)
 
+Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
+storable unknown JSON as a failed school read. It records projection labels and keeps
+raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
+no longer spend an action tap or depend on the pipeline's direct-text action authority.
+Collector revocation still requires its tier-three tap. These changes follow Sid's
+explicit follow-up instruction; the two existing judgment findings below remain open.
+
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|
 | `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
