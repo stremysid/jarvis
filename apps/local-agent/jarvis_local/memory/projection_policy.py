@@ -37,7 +37,7 @@ _REDACTED_PATTERNS = (
     _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}\b"),
     _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}\b"),
     _js_whitespace_pattern(
-        r"\b(?:pin|passcode|code)(?:\s+number)?(?:\s+(?:is|was)\s+|['’]s\s+)"
+        r"\b(?:pin|passcode|code)(?:\s+number)?(?:\s+(?:is|was)\s+|['\u2019]s\s+)"
         + r"(?:[0-9]+\b|" + _SPOKEN_DIGIT + r"(?:[ -]+" + _SPOKEN_DIGIT + r"){2,})"
     ),
     _js_whitespace_pattern(r"(?<![A-Za-z0-9])([\"']?)code\1\s*[=:]\s*[0-9]+\b"),

@@ -1207,6 +1207,8 @@ follow-up. The commit message and 12-line PR addendum are updated.
 - After the focused gates pass: harness commits; CI runs full suites and the
   independent reviewer checks the exact resulting head. F5 remains a follow-up.
 
+Round 2 CI lint follow-up, signed Codex, 2026-09-24: replaced Python's literal curly apostrophe with raw regex `\u2019` for RUF001 without changing its meaning; `rg` found no other curly-quote literals in `apps/local-agent`; TypeScript unchanged; harness runs Ruff, pytest and the differential.
+
 ## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
 
 Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
