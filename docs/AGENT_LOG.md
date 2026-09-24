@@ -3,6 +3,78 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: private iPhone school calendar feed ready for review
+
+Branch `codex/calendar-feed-run`, from freshly fetched `origin/main`
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. School is Sid's top priority and he
+tracks everything in iPhone Calendar; this fact is now in `FACTS.md`.
+
+`GET /calendar/<token>.ics` is a read-only route in the default Worker fetch.
+It requires optional `CALENDAR_FEED_TOKEN` with at least 32 characters, compares
+fixed-size hashes with Workers' native constant-time primitive, returns opaque
+404s for absent/wrong credentials, and uses an independent health-equivalent
+limiter. Every calendar response is private/no-store. Errors neither echo nor log
+the credential. Repository failures return 503, not an empty successful feed.
+
+The pure composer emits planned catch-up tasks as saved all-day dates, open
+deadlines in `[now - 14 days, now + 90 days)` with their alarm lead times, and
+dated application/workflow items with saved verified/unverified labels. UIDs are
+namespaced row ids. Text escapes, control stripping and UTF-8 75-octet folding
+prevent property injection, including a literal CRLF followed by `ATTACH:`.
+
+**Premise findings:** the importer exists and there was no outbound ICS path.
+Catch-up had no complete planned-action reader, so one was added. Both university
+methods were digest views capped at five by default and ten maximum; explicit
+`null` now requests all eligible rows while numeric limits/defaults stay intact.
+The deadline store has no principal column and is currently single-owner.
+The prompt assigns 0039 to #159 and later unreserves it; GitHub metadata instead
+shows #159 carrying `0040_tool_confirmation_consumptions.sql`. No number is needed
+or claimed here, and none of the parallel sync builder's owned files changed.
+
+Observed gates (pass / fail / skip):
+
+| Check | Result |
+|---|---|
+| Related tests during iteration, 7 files | **51 / 0 / 0** |
+| Final restored calendar/route tests, 2 files | **13 / 0 / 0** |
+| Full cloud-gateway suite, run once, 192 files | **5121 / 0 / 0**, 224.83 s; no isolated rerun needed |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | exit 0, zero diagnostics; lint is the same `tsc --noEmit` command and was not redundantly rerun |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | exit 1, **144 existing diagnostics in 32 files**, zero in the new files; existing diagnostic lines unchanged from the initial run |
+| `node scripts/check-state.mjs` | exit 0, **3 carriers**, no warnings printed |
+| Diff whitespace check | exit 0 |
+
+Mutation spec: `reviewer-tools/calendar-feed-mutations.json`, **36 unique faults**.
+The initial sweep killed 34 twice and found two survivors: the missing-path guard
+was redundant with an overly broad decode catch, and an all-multibyte fixture
+missed continuation-space accounting. Encoded-token extraction now precedes the
+URI-only catch; the fixture mixes ASCII and multibyte text. The follow-up killed
+both survivors plus the affected malformed-URI 404 probe, each twice: **3 killed,
+0 survived**. Combined: **36/36 unique killed**, zero wrong-test, unconfirmed,
+not-applied or invalid results. Both sweeps verified byte-identical restoration
+(5 files, then 2), followed by the 13/13 restored pass above. Runner was the
+repository `mutate.ps1` copied outside the worktree with only an explicit resolved
+temporary-path check added before its backup cleanup. Evidence logs and the
+continuity ledger are under `C:\Users\Sid\codex-ledgers\calendar-feed-*`.
+
+Initial iteration also observed 12 passing tests and one failing fixture: its
+workflow status evidence did not name the step. Fixed before the green baselines.
+An initial source type error from `node:crypto` was removed by using the native
+Workers primitive; the new test's Request type was corrected as well.
+
+**Not verified:** iPhone subscription/refresh/alerts, platform access-log policy,
+live endpoint, production configuration or deployment. The required Downloads
+incident report was absent and sections 1–3 could not be read. No local-agent,
+PC permissions/settings, production, real secrets, real database or migration
+operation ran. OWNER-ACTIONS records setup and the missing report; the runbook
+explains bearer-URL exposure, secret rotation, Settings search for “Subscribed
+Calendar”, and **Remove Alerts off — unverified on Sid's phone**.
+
+Next: automated and independent adversarial review when the PR opens; owner
+configuration and iPhone acceptance only after separately authorized deployment.
+The builder will remove its worktree after publication and retain the ledger.
+
+— Codex, builder
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,

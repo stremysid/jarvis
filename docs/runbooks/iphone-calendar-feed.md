@@ -66,7 +66,8 @@ path; platform/access-log settings were not inspected or changed here.
 
 To revoke a leaked URL, replace `CALENDAR_FEED_TOKEN` with a new random secret
 using the same owner step, then update or recreate the iPhone subscription with
-the new private URL. The old URL immediately returns 404 on future requests.
+the new private URL. Once the updated secret is active, the old URL returns 404
+on future requests.
 Removing the secret disables the feed. Rotation cannot erase calendar data
 someone has already downloaded, or cached events already on a device.
 
