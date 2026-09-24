@@ -68,7 +68,7 @@ import type {
   ModelFunctionDefinition,
   ModelFunctionResult,
 } from "../providers/provider-types.js";
-import { guardReplyClaims } from "../school/school-catchup-model.js";
+import { guardReplyClaims, type ReceiptedToolSentence } from "../school/school-catchup-model.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader, readGuidedAssignmentReferences } from "../school/guided-assignment.js";
 import { GUIDED_ASSIGNMENT_PROMPT, GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
@@ -578,6 +578,17 @@ function unsupportedClaims(reply: ParsedReply, receiptIds: ReadonlySet<string>):
     claim.receiptIds.length === 0 || claim.receiptIds.some((id) => !receiptIds.has(id))));
 }
 
+/** Bind model-declared sentences to this turn's receipts before any channel emits them. */
+export function receiptedToolClaims(reply: ParsedReply, executed: readonly ExecutedTool[]): readonly ReceiptedToolSentence[] {
+  const toolsByReceipt = new Map(executed.flatMap((entry) => entry.receiptId === null
+    ? [] : [[entry.receiptId, entry.providerResult.name] as const]));
+  return Object.freeze(reply.claimedActions.filter((claim) =>
+    claim.receiptIds.length > 0 && claim.receiptIds.every((id) => toolsByReceipt.has(id)))
+    .map((claim) => Object.freeze({ sentence: claim.sentence,
+      toolNames: Object.freeze(claim.receiptIds.map((id) => toolsByReceipt.get(id)!)),
+    })));
+}
+
 function removeUnsupportedSentences(reply: ParsedReply, unsupported: readonly ParsedClaim[]): string {
   let text = reply.reply;
   for (const claim of unsupported) text = text.replace(claim.sentence, "");
@@ -846,7 +857,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         yield Object.freeze({
           index: 0,
           text: port.composeReply([], guardReplyClaims(honest.reply, {
-            receiptedInternalSentences: this.receiptedClaims(honest, new Set()),
+            receiptedInternalSentences: receiptedToolClaims(honest, []),
           })),
         });
         return;
@@ -893,7 +904,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       yield Object.freeze({
         index: 0,
         text: port.composeReply(receipts, guardReplyClaims(honest.reply, {
-          receiptedInternalSentences: this.receiptedClaims(honest, receiptIds),
+          receiptedInternalSentences: receiptedToolClaims(honest, executed),
         })),
       });
     } finally {
@@ -956,12 +967,6 @@ export abstract class OwnerAgentCore implements ModelAdapter {
 
   private fixedReply(reply: string): ParsedReply {
     return Object.freeze({ reply, claimedActions: Object.freeze([]) });
-  }
-
-  private receiptedClaims(reply: ParsedReply, receiptIds: ReadonlySet<string>): readonly string[] {
-    return Object.freeze(reply.claimedActions.filter((claim) =>
-      claim.receiptIds.length > 0 && claim.receiptIds.every((id) => receiptIds.has(id)))
-      .map((claim) => claim.sentence));
   }
 
   private async executeCalls(

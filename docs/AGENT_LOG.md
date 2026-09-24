@@ -3,6 +3,28 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: PR #172 round 1 receipt proof and missing pins
+
+Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
+review at comment `5807157980`; reproduced the contradictory send claim on both
+Telegram and voice (**31/2/0**, both failures named for the channel draft claim).
+Current-turn executed receipts now carry proving tool names into the sentence
+guard. No linguistic send exemption, whole-reply workaround, or streaming code
+change. Focused tests **101/0/0** and source typecheck pass; mutation verification
+and the full gateway gate are pending at this checkpoint.
+
+Added exact stored scribed-byte fidelity with fillers and whitespace, Telegram
+tool offering parity, and the three 0043 trigger names/shapes. Fresh main
+`0d695563` was already an ancestor: normal merge reported already up to date.
+#169 and #171 remain open; channel-parity has not merged.
+
+For #171: its plain-text stream removes `claimedActions`, so its exact-receipt
+policy does not support this reviewed paraphrase contract. The exported
+`receiptedToolClaims` proof seam and backward-compatible guard options work
+sentence by sentence, but streaming must retain a declaration binding to use it.
+[Coordination handoff](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216).
+[Round 1 design and evidence](reviews/2026-09-23-guided-assignment.md).
+
 ## 2026-09-23 — Codex builder: PR #172 guided assignment tools and voice scribe
 
 Signed: Codex, builder on `codex/guided-assignment`. Sid's approved accommodation:

@@ -46,13 +46,14 @@ function call(name: string, args: unknown): ModelFunctionCall {
 
 async function run(h: Harness, text: string, tool: ModelFunctionCall | null, options: {
   voice?: boolean; direct?: boolean; durableDirect?: boolean; owner?: string; reply?: string;
+  claimedActions?: (request: ModelAgentCompletionInput) => readonly { sentence: string; receiptIds: readonly string[] }[];
   beforeModel?: () => Promise<void>;
 } = {}) {
   const requests: ModelAgentCompletionInput[] = [];
   const provider = { async completeAgent(input: ModelAgentCompletionInput) {
     requests.push(input);
     if (tool !== null && requests.length === 1) return { content: null, toolCalls: [tool], finishReason: "tool_calls" as const };
-    return { content: JSON.stringify({ reply: options.reply ?? "Why does he trust them?", claimedActions: [] }),
+    return { content: JSON.stringify({ reply: options.reply ?? "Why does he trust them?", claimedActions: options.claimedActions?.(input) ?? [] }),
       toolCalls: [], finishReason: "stop" as const };
   } };
   const turnId = newUlid();
@@ -136,9 +137,13 @@ describe("guided assignment tools", () => {
     const h = await harness();
     const id = await assignment(h);
     const raw = "  um, I think... like, he wants power.\nI mean he wants power.  ";
-    const scribed = "I think he wants power.";
+    const scribed = "  um, I think he wants  power, like a king.\nThat is his idea.  ";
     const saved = await run(h, raw, call("guided_assignment_save", { assignmentId: id, scribed, stepNotes: "Asked why he trusts them; next ask about ambition." }));
     expect(saved.result.data).toMatchObject({ raw, scribed });
+    const stored = await env.DB.prepare("SELECT scribed FROM guided_assignment_answers WHERE principal_id = ? AND answer_id = ?")
+      .bind(h.principalId, saved.result.data.answerId).first<string>("scribed");
+    expect(new TextEncoder().encode(stored!)).toEqual(new TextEncoder().encode(scribed));
+    expect(saved.requests[0]?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(saved.requests[0]?.systemPrompt).toContain(`"assignmentId":"${id}"`);
     expect(saved.result.receiptId).toMatch(/^receipt:/u);
     expect(saved.reply).toContain("Saved your answer");
@@ -178,6 +183,51 @@ describe("guided assignment tools", () => {
     expect(h.telegram.requests.slice(before)).toEqual([expect.objectContaining({ chatId: h.chatId, text: "Second.\n\nFirst." })]);
     expect(sent.reply).toContain("Sent your scribed draft to your own Telegram.");
     expect(sent.result.data.providerMessageId).toBeTruthy();
+  });
+
+  it.each(["voice", "Telegram"])("keeps a %s draft claim proved by this turn's send receipt", async (channel) => {
+    const h = await harness(); const id = await assignment(h);
+    const saved = await run(h, "My answer.", call("guided_assignment_save", { assignmentId: id, scribed: "My answer.", stepNotes: "Asked why." }));
+    const sentence = "I sent your draft to your Telegram.";
+    const before = h.telegram.requests.length;
+    const sent = await run(h, "Give me my draft.", call("guided_assignment_draft", {
+      assignmentId: id, answerIds: [saved.result.data.answerId],
+    }), { voice: channel === "voice", reply: sentence, claimedActions: (request) => [{
+      sentence, receiptIds: [JSON.parse(request.toolResults![0]!.content).receiptId],
+    }] });
+    expect(sent.result.status).toBe("completed");
+    expect(sent.result.receiptId).toMatch(/^receipt:/u);
+    expect(h.telegram.requests.slice(before)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ chatId: h.chatId, text: "My answer." }),
+    ]));
+    expect(sent.reply).toContain(sentence);
+    expect(sent.reply).not.toContain("can't confirm");
+    expect(sent.requests).toHaveLength(2);
+  });
+
+  it.each(["voice", "Telegram"])("rejects a %s send claim supported only by a prior turn's receipt", async (channel) => {
+    const h = await harness(); const id = await assignment(h);
+    const saved = await run(h, "My answer.", call("guided_assignment_save", { assignmentId: id, scribed: "My answer.", stepNotes: "Asked why." }));
+    const sent = await run(h, "Give me my draft.", call("guided_assignment_draft", {
+      assignmentId: id, answerIds: [saved.result.data.answerId],
+    }));
+    const sentence = "I sent your draft to your Telegram.";
+    const later = await run(h, "Did you send another copy?", null, { voice: channel === "voice", reply: sentence,
+      claimedActions: () => [{ sentence, receiptIds: [sent.result.receiptId] }],
+    });
+    expect(later.reply).not.toContain(sentence);
+  });
+
+  it("does not treat a save receipt as proof that a draft was sent", async () => {
+    const h = await harness(); const id = await assignment(h);
+    const sentence = "I sent your draft to your Telegram.";
+    const saved = await run(h, "My answer.", call("guided_assignment_save", {
+      assignmentId: id, scribed: "My answer.", stepNotes: "Asked why.",
+    }), { reply: sentence, claimedActions: (request) => [{
+      sentence, receiptIds: [JSON.parse(request.toolResults![0]!.content).receiptId],
+    }] });
+    expect(saved.reply).not.toContain(sentence);
+    expect(saved.reply).toContain("can't confirm");
   });
 
   it("rejects a caller supplied recipient before any draft is sent", async () => {

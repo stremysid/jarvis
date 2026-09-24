@@ -83,6 +83,46 @@ Owner-authorized remote rehearsal remains necessary before rollout.
 
 ## Evidence
 
+### Round 1 revision
+
+The [independent review](https://github.com/stremysid/jarvis/pull/172#issuecomment-5807157980)
+found that a successful draft send's model-declared claim was contradicted by
+the external-completion guard. The revision carries the proving tool names from
+this turn's executed receipt ids into the sentence guard. An exact declared
+sentence proved by `guided_assignment_draft` survives; a save-only receipt,
+unknown or stale id, substring, or neighbouring sentence cannot borrow it.
+Code checks proof; the model still chooses and declares its claim. No extra
+linguistic send-word exception or whole-reply repair was introduced.
+
+`receiptedToolClaims` is an exported proof-binding seam and
+`ReplyClaimGuardOptions.receiptedInternalSentences` accepts typed sentence/tool
+proof alongside existing internal strings. It works when checking one sentence
+before delivery. This deliberately preserves the existing internal-action
+behavior for older callers.
+
+**Streaming integration conflict:** #171 at `eb2263c6` removes voice
+`claimedActions` and accepts only exact code-owned receipt sentences. Its plain
+text protocol cannot prove a paraphrased send claim. The
+[handoff on #171](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216)
+requests a sentence-local declaration/receipt binding, not a blanket exemption
+after sending. No streaming code was changed, and this branch's end-to-end
+voice tests exercise main's current protocol, not unmerged #171.
+
+Fresh main `0d695563` was already included, so the normal merge was a no-op.
+The channel-parity builder has not merged; Telegram's actual first request is
+now pinned against the shared guided definition constant, matching voice.
+The scribed fixture includes `um`, `like`, doubled spaces, boundary whitespace
+and a newline, with a UTF-8 byte equality assertion against the stored row.
+The offline remote-D1 syntax file pins all three 0043 trigger names and complete
+definitions, including the insert collision condition and plain `SELECT RAISE`.
+
+Observed so far: reproduction **31/2/0** (both channel send-claim tests), then
+focused restored behavior **101/0/0**, source typecheck pass. Round 1 mutations
+and the requested single full gateway run are pending. The reproducible added
+faults live in `reviewer-tools/mutation-specs-guided-round1.json`.
+
+### Original builder evidence
+
 The single full gateway run observed **5,215 passed, 1 failed, 0 skipped**. The
 failure was a backup-manifest assertion still naming `0039`; after changing only
 that expectation to `0043`, the backup file passed **27/0/0**. The new guided file
