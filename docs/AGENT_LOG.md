@@ -3,6 +3,44 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: D2L GET-only shape probe, ready for independent review
+
+Built on freshly fetched `origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`
+in `C:\w\d2l-probe-run`, branch `codex/d2l-probe-run`. The task authorises this
+probe and its terms risk; no browser, tenant, secret, production or deploy-tree
+interaction occurred. No migration or parallel sync-builder file is changed.
+
+`apps/d2l-extension` is an unpacked MV3 Opera GX probe: exactly the LDSB host,
+alarms/storage, a hard-coded GET transport, and fixed route templates. It reads
+versions, paged LP 1.43 enrollments, LE 1.82 scheduled items (including due, with
+orgUnitIdsCSV), content tree, folders, every folder's **student** mysubmissions,
+grades and overdue items. Accessible Groups are included. The no-tab background
+pass and open-tab content pass take one click each and retain separate reports.
+Only allowlisted field names, structural counts, null/set counts and HTTP statuses
+reach session storage, popup and clipboard. No key/signing/push or school judgment.
+
+**Premise findings:** #161 at `63ae51d2ebfe18470d5a36a7fc9ec9e1a11b3618` does not
+contain the prompt's overdueItems empty-envelope or content/myItems/due 400
+observations; those remain owner-supplied. Manifest V3 cannot constrain HTTP
+methods, so GET is enforced in the sole fetch call. The requested incident file
+was absent in Downloads; no permission-changing code was run. See the
+[runbook](runbooks/d2l-extension.md) for sources and limitations.
+
+**Observed gates:** final package suite **33 pass / 0 fail / 0 skip** (run once);
+mutations **46 killed / 0 unconfirmed / 0 not applied**, each with a named passing
+baseline, two named failures and a passing byte-exact restoration; state checker
+**pass, 3 carriers**; JS syntax **5 pass / 0 fail**. A startup-error regression
+first failed **0/1/0**, proving a swallowed tab-query failure; fixed and mutation
+verified. [Exact evidence](research/2026-09-23-d2l-probe-test-evidence.md) records
+the named tests and counts. Browser/account behaviour and CI are not claimed.
+
+Only Sid can load and run it; the action is in `OWNER-ACTIONS.md`. Reviewers can
+proceed with the automated and independent adversarial passes. This builder does
+not merge or wait for review. The external continuity ledger remains at
+`C:\Users\Sid\codex-ledgers\d2l-probe-run.md` after worktree removal.
+
+Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
 Sid's order: fix `previousAssistant` on #147, then merge #147, #144 and #146 in that order,
