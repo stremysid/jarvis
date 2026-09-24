@@ -37,6 +37,7 @@ import scheduledRunDetailSql from "../../src/persistence/migrations/0034_schedul
 import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
 import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
 import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
+import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -308,6 +309,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   ]);
   await newestRuntimeMigrated;
+  await applyD1Migrations(env.DB, [{ name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) }]);
 }
 
 /**
@@ -355,6 +357,7 @@ const allCloudGatewayMigrations = Object.freeze([
     queries: splitMigration(memoryLifetimeAndPinsSql),
   },
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+  { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
 ]);
 
 /**
