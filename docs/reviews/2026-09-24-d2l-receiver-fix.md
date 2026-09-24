@@ -14,6 +14,13 @@ this work. Inspected its runtime diff: queue limits/session fallback changed,
 but `protocol.js`, signed paths and course batch fields did not. No rebase or
 force push occurred.
 
+Main advanced again with #172 during the full gate. A read-only merge simulation
+proved migration-list conflicts. Normally merged
+`7b805fa2eb79ba97cd7a8eebbc289dfbd3313957` in
+`396ace56c9d23a4682f1fa1288d7362e35e9fa0c`, retaining guided assignments and 0043
+before 0044. Backup schema remains 0044. This changed executable code, so the
+combined code needs a fresh full gate; the first run is preserved below.
+
 ## Extension handoff: every contract change
 
 Paths, SignedRequestV1, canonical UTF-8 body bytes, body SHA-256, audience,
@@ -120,17 +127,34 @@ Iteration history, pass/fail/skip:
   **0/1/0** before the fix: a grades result satisfied a myItems Next link. Requiring
   the same tool pathname produced **1/0/0**. The new guard and the affected missing
   and cyclic page guards were mutation-checked after the fix.
-- Final merged collector run: **69/0/0**, six files, 17.58 seconds.
+- Collector run after the #173 documentation merge: **69/0/0**, six files,
+  17.58 seconds.
+- First full gateway run on executable head `e48149e3`: **5256/2/0**, 200 passed
+  and 2 failed files, 378.29 seconds. The unchanged Hermes exact-cap delimiter-free
+  frame test hit 15 seconds; the unchanged meaning-search bge-m3 cap test hit
+  30 seconds. Both timeouts are also recorded in #172's evidence. Reran each file
+  alone: Hermes **71/0/0**, 3.29 seconds; meaning-search **70/0/0**, 43.76 seconds.
+  No cause beyond the observed timeout is claimed, and the red full run stays red.
+- Focused integration after #172: **204/0/0**, 11 files, 105.32 seconds. This
+  includes all **69/0/0** collector tests plus guided assignments, receipt claims,
+  backup, migration parity **5/0/0** and static remote-D1 syntax **60/0/0**.
+  Refreshed source typing:
+  **0 diagnostics**. Refreshed test typing: **143 outside / 0 collector**.
 
-Mutation evidence: **63 distinct cases killed in 65 confirmed attempts** (62 initial
-plus 3 paging follow-ups). **0 survived, 0 wrong-test kills, 0 unconfirmed,
+Mutation evidence: **63 distinct cases killed in 67 confirmed attempts** (62 initial,
+3 paging follow-ups, 2 owner-tool rechecks after #172). **0 survived,
+0 wrong-test kills, 0 unconfirmed,
 0 NOT APPLIED, 0 invalid**. Each named fault failed twice, then the named restored
 test passed. Initial sweep restored **8 files** byte-identically; follow-up restored
-**1 file**. Initial baselines were **15/0/0**, **21/0/0**, **1/0/0** and **9/0/0**;
-paging follow-up baselines were **15/0/0** and **1/0/0**. Every named run selected one
+**1 file**, and the main recheck restored **1 file**. Initial baselines were
+**15/0/0**, **21/0/0**, **1/0/0** and **9/0/0**; paging follow-up baselines were
+**15/0/0** and **1/0/0**; main recheck baseline was **9/0/0**.
+Every named run selected one
 test: red **0/1** twice and restored **1/0**, with **14**, **20**, **8** or **0** other
-tests skipped depending on the selected file. Logs: `d2l-receiver-fix-mutations.txt`
-and `d2l-receiver-fix-page-mutations.txt` beside the external ledger.
+tests skipped depending on the selected file. Logs: `d2l-receiver-fix-mutations.txt`,
+`d2l-receiver-fix-page-mutations.txt` and `d2l-receiver-fix-main-mutations.txt`
+beside the external ledger. All other mutation target files and collector tests
+are unchanged by #172; their confirmed proof was not rerun.
 
 The new mutation specification is
 [`mutation-specs-d2l-receiver-fix.json`](../../reviewer-tools/mutation-specs-d2l-receiver-fix.json).
