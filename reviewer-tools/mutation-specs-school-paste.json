@@ -221,7 +221,7 @@
     "find": "throw new RangeError(\"school_catchup_total_fact_limit_exceeded\");",
     "replace": "throw new RangeError(\"school_catchup_fact_limit_exceeded\");",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-    "expect": "names the 48 active facts in total cap"
+    "expect": "names the '48 active facts in total' cap"
   },
   {
     "name": "M29-hide-existing-course-cap-reason",
@@ -237,7 +237,7 @@
     "find": "throw new RangeError(\"school_catchup_course_fact_limit_exceeded\");",
     "replace": "throw new RangeError(\"school_catchup_fact_limit_exceeded\");",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-    "expect": "names the 16 active facts per course cap"
+    "expect": "names the '16 active facts per course' cap"
   },
   {
     "name": "M31-drop-profile-budget-retry",
