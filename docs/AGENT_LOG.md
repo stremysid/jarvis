@@ -44,6 +44,414 @@ The old owner probe request is replaced with one collector-load/pair row,
 gated on independent review and the receiver blockers; no duplicate probe request.
 Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-probe-run.md`.
 
+## 2026-09-23 — Codex builder: PR #165 review fixes and mutation evidence
+
+Publication follow-up: main advanced during the gates to
+`248c3de4b1145c22638eff5bc31999d18d00308a` (Hermes PR #156). A second normal
+merge retains both log histories; only AGENT_LOG conflicted. Gateway code/tests,
+contracts, workspace test configuration and dependency files remain identical
+to the tested revision, so their passing gates were not repeated. No Hermes or
+PC settings code was executed. This follow-up supersedes the earlier main SHA
+as the PR's final base without changing calendar behavior.
+
+Normal merge `083b36a0b5bcf6866ab0a884fbdedacee2365c77` joins reviewed
+head `38fc6224979d310dc556d1e4271374cb0750307f` and main
+`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Only AGENT_LOG and
+OWNER-ACTIONS conflicted. Both log histories are preserved (442 and 443 parent
+entries checked, zero missing), and the unrelated incident-report restoration
+owner row is removed. No rebase, force push, merge to main or deployment.
+
+The ten review requests are addressed. Text escapes U+2028/U+2029 as newlines,
+strips Cc/Cs/Co and the specified bidi controls, and preserves ZWJ/ZWNJ. Catch-up
+and date-only university events have exclusive next-day DTEND values, including
+month/year/leap-day boundaries. Authentication hashes and compares before
+rejecting unset/short configuration; padded configuration also gets opaque 404.
+Tests pin case-sensitive credentials and well-formed physical lines with astral
+characters swept across nine fold offsets. The runbook explains silent 404s,
+interactive secret entry only (never piped), and limiting after authentication.
+The optional-secret comment in wrangler.toml includes CALENDAR_FEED_TOKEN.
+
+Observed evidence on source commit `6bd5c302b3687f3663194742dda81805a82894a8`
+plus assertion-reporting fix `0730c2842c52da34ee4898a0b4b8b74b02119ba8`:
+
+- Focused new tests: 23 passed, 0 failed, 0 skipped in 2 files. After the
+  assertion fix and again after mutation restoration: 23/0/0 each.
+- Full cloud-gateway suite, once: **5137 passed, 0 failed, 0 skipped**, 192
+  files, 194.48 seconds. No flaky-file rerun.
+- Source typecheck: exit 0, zero diagnostics. Test-file typecheck remains a
+  non-gate: 143 errors in 31 existing files, zero calendar-file diagnostics.
+  Every diagnostic matches the previous 144-error baseline except the one
+  telegram callback diagnostic removed by main; the assertion fix changed none.
+- State-carrier check: pass, 3 carriers, no warnings. Carrier files did not
+  change afterward.
+
+The committed 48-case mutation spec now has **48 unique kills**, each confirmed
+twice on its named test. In particular, lowercasing both credentials fails
+"compares mixed-case credentials exactly and refuses the lower-cased URL", and
+iterating `line.split("")` fails "keeps every physical line well formed when
+astral characters straddle each fold offset".
+
+Initial sweep: 47 killed, 0 survived/wrong-test/unconfirmed/not-applied, 1 INVALID;
+5 files restored byte-identically. A diagnostic repeat of strip-controls was
+also INVALID: raw Vitest output showed WS_ERR_INVALID_UTF8 in the Workers
+transport, with no named test failure. Changing that assertion to boolean
+membership kept unstripped lone surrogates out of its failure diagnostics.
+The same probe then killed the named control-stripping test twice, 0 invalid,
+and restored its file byte-identically. Restored focused tests passed afterward.
+The external runner adds only safe temporary-path cleanup validation and, for
+the diagnostic rerun, raw failure capture; neither invalid run counts as a kill.
+
+No real secret, database, migration, production, local-agent or PC settings
+operation occurred. iPhone subscription/refresh/alerts and platform request
+logs remain unverified. The supplied incident report is still absent; its
+unrelated owner row was removed as requested. Owner setup remains in the
+calendar runbook. Automated and independent adversarial re-review should use
+the new pushed head; the builder does not wait for or perform deployment.
+
+Signed: Codex (GPT-6), builder.
+
+## 2026-09-23 — Codex builder: private iPhone school calendar feed ready for review
+
+Branch `codex/calendar-feed-run`, from freshly fetched `origin/main`
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. School is Sid's top priority and he
+tracks everything in iPhone Calendar; this fact is now in `FACTS.md`.
+
+`GET /calendar/<token>.ics` is a read-only route in the default Worker fetch.
+It requires optional `CALENDAR_FEED_TOKEN` with at least 32 characters, compares
+fixed-size hashes with Workers' native constant-time primitive, returns opaque
+404s for absent/wrong credentials, and uses an independent health-equivalent
+limiter. Every calendar response is private/no-store. Errors neither echo nor log
+the credential. Repository failures return 503, not an empty successful feed.
+
+The pure composer emits planned catch-up tasks as saved all-day dates, open
+deadlines in `[now - 14 days, now + 90 days)` with their alarm lead times, and
+dated application/workflow items with saved verified/unverified labels. UIDs are
+namespaced row ids. Text escapes, control stripping and UTF-8 75-octet folding
+prevent property injection, including a literal CRLF followed by `ATTACH:`.
+
+**Premise findings:** the importer exists and there was no outbound ICS path.
+Catch-up had no complete planned-action reader, so one was added. Both university
+methods were digest views capped at five by default and ten maximum; explicit
+`null` now requests all eligible rows while numeric limits/defaults stay intact.
+The deadline store has no principal column and is currently single-owner.
+The prompt assigns 0039 to #159 and later unreserves it; GitHub metadata instead
+shows #159 carrying `0040_tool_confirmation_consumptions.sql`. No number is needed
+or claimed here, and none of the parallel sync builder's owned files changed.
+
+Observed gates (pass / fail / skip):
+
+| Check | Result |
+|---|---|
+| Related tests during iteration, 7 files | **51 / 0 / 0** |
+| Final restored calendar/route tests, 2 files | **13 / 0 / 0** |
+| Full cloud-gateway suite, run once, 192 files | **5121 / 0 / 0**, 224.83 s; no isolated rerun needed |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | exit 0, zero diagnostics; lint is the same `tsc --noEmit` command and was not redundantly rerun |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | exit 1, **144 existing diagnostics in 32 files**, zero in the new files; existing diagnostic lines unchanged from the initial run |
+| `node scripts/check-state.mjs` | exit 0, **3 carriers**, no warnings printed |
+| Diff whitespace check | exit 0 |
+
+Mutation spec: `reviewer-tools/calendar-feed-mutations.json`, **36 unique faults**.
+The initial sweep killed 34 twice and found two survivors: the missing-path guard
+was redundant with an overly broad decode catch, and an all-multibyte fixture
+missed continuation-space accounting. Encoded-token extraction now precedes the
+URI-only catch; the fixture mixes ASCII and multibyte text. The follow-up killed
+both survivors plus the affected malformed-URI 404 probe, each twice: **3 killed,
+0 survived**. Combined: **36/36 unique killed**, zero wrong-test, unconfirmed,
+not-applied or invalid results. Both sweeps verified byte-identical restoration
+(5 files, then 2), followed by the 13/13 restored pass above. Runner was the
+repository `mutate.ps1` copied outside the worktree with only an explicit resolved
+temporary-path check added before its backup cleanup. Evidence logs and the
+continuity ledger are under `C:\Users\Sid\codex-ledgers\calendar-feed-*`.
+
+Initial iteration also observed 12 passing tests and one failing fixture: its
+workflow status evidence did not name the step. Fixed before the green baselines.
+An initial source type error from `node:crypto` was removed by using the native
+Workers primitive; the new test's Request type was corrected as well.
+
+**Not verified:** iPhone subscription/refresh/alerts, platform access-log policy,
+live endpoint, production configuration or deployment. The required Downloads
+incident report was absent and sections 1–3 could not be read. No local-agent,
+PC permissions/settings, production, real secrets, real database or migration
+operation ran. OWNER-ACTIONS records setup and the missing report; the runbook
+explains bearer-URL exposure, secret rotation, Settings search for “Subscribed
+Calendar”, and **Remove Alerts off — unverified on Sid's phone**.
+
+Next: automated and independent adversarial review when the PR opens; owner
+configuration and iPhone acceptance only after separately authorized deployment.
+The builder will remove its worktree after publication and retain the ledger.
+
+— Codex, builder
+## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
+
+Normal merges retain the original PR history: `0c0d0fa` integrated main at
+`a6a0efd` (#154); the final merge integrates `248c3de` (#156). Both sides of
+the log conflicts and the earlier OWNER-ACTIONS conflict are preserved. No
+rebase, force-push, PR merge or deployment.
+
+`applyOwnerPlan` now supplies committed evidence through `onResult`, including
+inserted/deduplicated facts per course and the repaired stored actions.
+`schoolPlanReceipt` uses that evidence, reports dropped/clamped blocks, retains
+every course's counts and total, and limits previews with "and K more saved".
+The 60/60/60/240-minute proposal shows three stored 60-minute blocks, never 240;
+a single 240-minute block shows its stored 180 minutes. Re-pastes distinguish
+new from already saved facts. Cap failures name 16/course or 48/total and say
+nothing was saved. The school reply no longer leaves "Done." attached to a
+removed email claim. University refusal is pinned with zero model calls.
+
+The profile reference is bounded to 8,192 UTF-8 bytes and omitted if oversized
+or if it crowds out an otherwise saveable paste. Read-failure and omission
+notices are rules text, not profile JSON. Capacity/ranking remain prompt
+judgments. CODE-VS-JUDGMENT reconciles #160/#162 as rows 10/11, with university
+refusal at 12; #162's tutoring runtime change is not included. M18 uses a
+single-line find that does not depend on checkout line endings.
+
+**Observed gates:** new file/restored pass **22/0/0**; school + university
+folders **1,276/0/0**, 19 files; related Telegram integration + new file during
+iteration **26/0/0**, 2 files (pass/fail/skip). Full workspace Vitest, run once:
+**5,489 passed, 0 failed, 0 skipped**, 210 files, exit 0, 188.68 seconds.
+Breakdown: gateway **5,136/0/0**, 191 files; contracts **77/0/0**, 5 files;
+acceptance **276/0/0**, 14 files. No flaky-file rerun. Production typecheck
+passed. Test typecheck remains **143 diagnostics**, all outside changed files,
+matching #154's recorded baseline; the new fixture type error was corrected.
+State check passed all **3 carriers** before the final main integration.
+
+**Mutation evidence:** source `4be7ca7`, using `reviewer-tools/mutate.ps1` and
+`mutation-specs-school-paste.json`: **33 confirmed named kills**, 2
+`KILLED/OTHER` results because parameterized cap test names included quotes
+missing from the selectors. Commit `2d7e01b` corrected only those selectors;
+both reruns produced **2 confirmed named kills**, 0 wrong-test/unconfirmed/
+survived/not-applied/invalid. All **35 distinct mutations** now have expected
+failures confirmed twice. Both sweeps verified byte-exact restoration (6 then
+2 files). Restored tests and the full suite passed afterward. M22 specifically
+kills the previously surviving university-refusal bypass. M18 applied and died.
+
+The realistic 25-item paste (130-character statements), after
+`composeReceiptReply` with a 700-character agent reply, measures **1,482 UTF-16
+units / 1,490 UTF-8 bytes**, with both courses, total and complete reply visible.
+The 12-course/48-fact maximum-shape test also retains every count and the reply.
+This replaces the initial model-JSON size evidence. Receipts cap at 3,200 units;
+the unchanged outer composer can still prioritize an unusually long reply.
+
+The final main merge changes Hermes and documentation, not any source, tests,
+configuration or lockfile covered by the completed workspace run. No persistent
+edit to owner-agent-core, telegram-webhook, owner-telegram-agent.test.ts or the
+university code/corpus. New behavior tests stay in school-paste.test.ts; one
+existing Telegram integration assertion follows the new receipt wording.
+
+Tests use local D1 and synthetic model/profile data. Live model adherence,
+real D2L/Telegram delivery and production state were not tested. No migration,
+deploy, secret operation, PC permission/settings operation or local-agent test.
+Owner acceptance after reviewed deployment remains in OWNER-ACTIONS. Detailed
+logs/JSON and the continuity ledger are outside the repo under
+`C:\Users\Sid\codex-ledgers\school-paste-r1-*` and `school-paste-run.md`.
+
+Signed: **Codex (GPT-6), builder**, 2026-09-23. Independent review follows.
+
+## 2026-09-23 — Codex builder: school assignment pastes, pinned capacity and saved-course receipts
+
+**Branch:** `codex/school-paste-run`, isolated from freshly fetched `origin/main`
+at `a666097`. Main was integrated before push; no PR merge or deployment.
+
+The school-selected adapter now skips the university execution regex, so a D2L
+paste containing "Email Ms. Patel if you need an extension." reaches the planner.
+University/unselected behavior and corpus tests are unchanged. Forwarded Telegram
+text still refuses, and reply-claim guarding remains. Both retained decisions are
+recorded in `CODE-VS-JUDGMENT.md`.
+
+The three Telegram pipeline descriptions give concrete routing examples. The
+production school adapter reads/composes the pinned core profile as labelled JSON
+reference data, retained inside the prompt budget when conversation context is
+trimmed. Daily capacity, due-date/weight priority and not inventing missing values
+are model instructions, not a new coded ranking policy. Receipts include saved
+notes per course, resolved notes and completed study actions; a partial save does
+not claim a rejected schedule. No persistent edit to `owner-agent-core.ts`,
+`telegram-webhook.ts` or `owner-telegram-agent.test.ts`.
+
+**Observed evidence:** restored focused tests **70 passed, 0 failed, 0 skipped**
+in 3 files, including 11 new tests in `test/school/school-paste.test.ts`. Exit 0,
+with Cloudflare worker-shutdown timeout warnings. Production typecheck passed.
+Test typecheck reports **144 diagnostics**, matching the documented baseline count,
+with **0 in changed files**, after correcting one new test assertion's type.
+Full cloud-gateway suite, run once: **5,119 passed, 0 failed, 0 skipped**, 191 files.
+State check passed: **3 carriers**, exit 0.
+
+**Mutations:** **23/23 named kills**, each confirmed with the fault still applied;
+0 wrong-test kills, unconfirmed, survived, not-applied or invalid. The runner
+verified byte-exact restoration. Reproduce with `reviewer-tools/mutate.ps1` and
+`reviewer-tools/mutation-specs-school-paste.json`. The first 21 ran at `e05dff9`;
+the two receipt-wording mutations ran at `1897455`. The 25-item fixture (13 Chemistry,
+12 English, 2 actions) persisted all 25 facts in test D1; response JSON measured
+**2,795 characters / 2,795 UTF-8 bytes**. Existing 16-facts/course, 48-total-facts and
+21-action storage caps remain; this is not a claim that 25 items in one course fit.
+
+**Premise corrections / limits:** PR #159 used migration `0040`, not `0039`, when
+inspected at `26d0fec8`; this task needs none. The required incident report was
+absent from Downloads; its local attachment-cache copy was found and sections 1-3
+read before tests. Profile-view rows and model responses are synthetic; production
+database wiring has a source assertion. No live model/D2L/Telegram acceptance,
+production/database migration, PC permission change or local-agent test occurred.
+The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
+
+Signed: **Codex, builder**, 2026-09-23.
+## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) round 1 keeps shared school-store errors visible
+
+Signed: Codex GPT-6, builder. Read the full independent review [5805656319](https://github.com/stremysid/jarvis/pull/167#issuecomment-5805656319). Its blocking finding is confirmed: `ingestD2lEmailGrade` writes to `SchoolObservationRepository`, while the read catch used the retired Classroom scan-health name. The original mixed-source test asserted that incorrect omission; the prior entry's blanket shared-repository claim is corrected below.
+
+- Renamed only the read-error gap to `School grades/submissions store`. Classroom scan-health warnings remain retired. The mixed-source daily/retro test now requires the shared-store error first and the live Brightspace failure second. The retirement comment explains shared D2L storage and the FACTS row ruling out LDSB iCal when neither source is configured.
+- Normally merged freshly fetched `origin/main` at `6249ab13f0611e80b1332a002b73a67479498dac` in `b0c2129`; preserved both sides of AGENT_LOG and OWNER-ACTIONS insertion conflicts. No force-push, PR merge, migration or production operation.
+- Focused digest/poll/deadline tests: **177 passed / 0 failed / 0 skipped**, **10 files**. Gateway source typecheck passed with zero diagnostics.
+- Mutation on `4054b5bb01ae`: changed the store catch back to the retired name. Green baseline; **1 killed, confirmed twice; 0 survived / wrong-test / unconfirmed / not applied / invalid**. Named killer: `excludes retired sources while a live failing source still appears in the daily digest`; the retro variant also failed. Byte-identical restoration verified; restored digest file **37 passed / 0 failed / 0 skipped**.
+- Full gateway suite run once: **5,116 passed / 1 failed / 0 skipped**, **189 passed / 1 failed files**, 325.74 s. The unchanged `meaning-search.test.ts` test `keeps the 100-input bge-m3 request inside the byte ceiling and independent mutation cap` hit its 30,000 ms timeout. This exact timeout is already recorded in the log's test-budget evidence (CI run `35469836873`); no cause is inferred from this run. Isolated file rerun: **70 passed / 0 failed / 0 skipped**, 28.60 s. Gateway source typecheck passed with zero diagnostics; state check passed for all **3 carriers**; `git diff --check` passed. No full-suite rerun.
+
+Next: independent re-review of the updated head; deployment and live digest checks remain owner-only after clearance and merge.
+
+## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) retires closed school sources from digest health
+
+Branch `codex/digest-retire`, freshly based on `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Signed: Codex GPT-6, builder.
+
+- `RETIRED_DIGEST_HEALTH_SOURCES` in `digest-job.ts` explicitly retires the three fixed health names for D2L notification email and Classroom deadlines/observations. It filters final gaps only, so missing-row/configuration and failed/stale paths agree while existing deadlines, grades, source rows and ingestion remain intact. Other Brightspace sources and shared deadline-repository failures remain visible. **Correction from independent review:** the original claim included all shared repositories, but `e357cad` hid school-observation store failures under the retired Classroom name. Round 1 separates that store-read error from Classroom scan health. No migration, database write, or parallel builder-owned implementation change.
+- FACTS' 2026-09-17/18 Classroom rows and 2026-09-21 D2L-email row confirm the retirement premise. Both `/digest` and scheduled digest reach this assembler. Fixed health names avoid retiring the shared `brightspace` kind or trusting source-provided labels. This is the owner's explicit retirement choice, not a relevance judgment inferred by code.
+- Focused tests: initial **61 passed / 1 failed / 0 skipped**; corrected the old two-gap expectation in Brightspace truncation, then that file passed **18/0/0**. Gateway production typecheck passed with zero diagnostics.
+- Mutation on code/test commit `0db138a297ef`: `reviewer-tools/mutate.ps1` removed the final exclusion after a green baseline. **1 killed, confirmed twice; 0 survived / wrong-test / unconfirmed / not applied / invalid.** Named killer: `excludes retired sources while a live failing source still appears in the daily digest`; the retro variant also failed. The tool listed 12 newly failing tests on the first mutation run. Restoration was byte-identical; the restored digest file passed **37/0/0**.
+- Final gates: full gateway suite run once, **5,117 passed / 0 failed / 0 skipped**, **190 files passed**, 235.05 s. `node scripts/check-state.mjs` passed for all **3 carriers**; `git diff --check` passed. No unrelated failure or flake rerun.
+- Not independently verified: the reported live deployment/digest output (production access forbidden), and the unpublished `codex/d2l-ingest-run` branch (not in initial fetched branches/open PRs; design/probe #160/#163 were visible). The prompt contradicts itself about 0039 allocation; this task uses no number. The supplied Downloads incident report was absent; no local-agent tests or host-administration code ran. No merge, deploy, real migration or live provider/Telegram operation. Owner follow-up is in OWNER-ACTIONS.
+
+Next: automated and independent review at the pushed head; owner deployment and live digest checks only after clearance and merge.
+
+## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
+
+Signed: Codex (GPT-6), builder. **PR #155, round 2.** Reviewed head:
+`d22a87bd43ae8b425fe9d8aad918bef66b61d980`.
+
+All four revision bypasses and the uppercase false positive reproduced on the
+unchanged reviewed checker: expanded baseline **111 passed / 14 failed / 0 skipped**.
+No reported finding was false. SHA matching is now lowercase only. An exemption
+requires an all-decimal word with an adjacent run marker outside a URL, or an
+immediate `/actions/runs/` path inside one. Commit/tree/blob URLs and query/fragment
+lookalikes cannot conceal a revision. The arbitrary-URL fixture now fails; the
+decimal Actions run URL and marked IDs around it pass. The first and final focused
+runs each passed **125 / 0 / 0**.
+
+The [round 2 evidence](reviews/2026-09-23-check-state-round-2.md) records the exact
+before/after cases and mutation evidence. The initial full sweep was **117 killed,
+1 survived, 0 not applied, 0 invalid**. The surviving marker-boundary fixture needed
+a later unmarked decimal revision, since a hex-letter revision is rejected by the
+new decimal guard independently. That named mutation now fails twice and passes
+after restoration. No checker change was needed for this coverage correction.
+
+Final full sweep: **118 killed, 0 survived, 0 not applied, 0 invalid**. Every named
+mutant failed twice and passed after byte-identical restoration. A fresh fetch
+still found main at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`; the normal merge command
+reported already up to date, with main already present through round 1's merge.
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings** and
+no carrier row needing correction. Three Node syntax checks passed.
+
+Final full scripts suite: **152 passed / 0 failed / 0 skipped**. Before #154, root `pnpm test`:
+**5,461 / 0 / 0 across 209 passing files**, exit 0, with no file rerun needed.
+Whitespace, preservation of every other agent-log entry, and main ancestry each
+passed; three blob comparisons confirm the tested files stayed unchanged.
+No owner-only action arose. No product package, parallel-builder file, migration,
+production state or secret changed. Hosted CI and the next independent review are
+not claimed. Before publication, main advanced to `a6a0efd` (#154). The normal merge
+`38de971055019c06b2d62a64c9eeb483e8690dc3` retains both log histories byte for byte.
+The carriers still pass with **0 warnings**; tested checker files are unchanged.
+The workspace rerun on that merged tree passed **5,467 / 0 / 0 across 209 files**,
+exit 0, 282.81 s. No failed-file rerun was needed.
+Next: the assigned reviewer assesses round 2 after the new head is
+pushed. The worktree is removed after publication; the external ledger is retained.
+
+### Round 1 evidence (historical)
+
+Signed: Codex (GPT-6), builder. **PR #155, round 1 fixes.** Reviewed head:
+`c7d603193de03ba94caa0918e0fd509eb2a969bc`. Main
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` was merged normally into this branch in
+`565c2924c147d93771ce8f41e354adf47f7e2dc3`, after the full mutation sweep.
+
+Every round 1 review finding reproduced; none was false. Before source changes,
+the expanded suite was **68 passed / 34 failed / 0 skipped**. All six requested
+anchor/query mutants applied and survived the original 57-test suite, then died
+under their new fixtures. The [initial submission evidence](reviews/2026-09-23-check-state-hardening.md)
+is historical; [round 1 evidence](reviews/2026-09-23-check-state-round-1.md) records
+the current rules, crafted inputs, all development counts and remaining limits.
+
+Restored the whole-visible-line SHA rule with individual run-ID/URL exemptions;
+kept nested list text visible; bounded inline code and bracket labels to a
+paragraph; rejected pipe-led register rows after a gap. Warnings now aggregate
+once per file with a count and first line, retaining plain per-row detail. Status
+must start with yes to avoid a warning. Empty claims, the additional placeholder
+sources and dates more than one UTC day ahead fail. Footnotes and nested labels
+are handled, and all six anchor/query transformations have mutation fixtures.
+
+Observed final gates: checker **109 passed / 0 failed / 0 skipped**; full scripts
+**136 / 0 / 0**; root `pnpm test` **5,461 / 0 / 0 in 209 passing files**, exit 0.
+The first scripts attempt was **129 / 1 / 0** because it started alongside offline
+installation and could not import TOML. After installation, the unchanged file
+passed alone **7 / 0 / 0**, followed by the green full run. This was a command-order
+error, not a known-flake claim. Three Node syntax checks passed; runner controls
+were **3 / 0 / 0**. The staged whitespace check passed, and a byte comparison
+confirmed every other agent-log entry is preserved.
+
+Mutations: **107 killed, 0 survived, 0 not applied, 0 invalid**; every named test
+failed twice and passed after byte-identical restoration. The first new sweep
+was **105 killed / 2 survived**; a redundant escape check and an incomplete warning
+count assertion were corrected, and both mutants now die.
+
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings**.
+**No row violates a new rule, and no newly detected lie is claimed.** No row needed
+repair; FACTS prose describes the new rules. At 2026-10-25 the real carriers emit
+**4 annotations and 41 plain detail lines**, down from 41 annotations. CI keeps
+the explicit Windows and Linux fixture steps added in the initial submission.
+Hosted CI, Linux execution and GitHub's annotation rendering are not claimed here.
+
+No sync-recovery builder file, migration, production state or secret was touched.
+No owner-only action arose. No merge of this PR into main or deployment is
+authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
+the worktree is removed after the updated PR is published. Next: assigned automated
+and independent reviewers assess #155 when its new head is pushed.
+## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
+
+Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
+
+Corrects review of `26d0fec`: the agent used to consume a tap before memory
+and channel refusal checks. Both dispatch branches now finish those checks
+before the consuming gate. Voice's unsupported pipeline refusal leaves a
+Telegram tap unspent and writes no audit with that decision id. A later
+permitted Telegram turn claims it once. Audit/tool failures after dispatch
+still do not refund approval. Binding remains principal + capability + exact
+argument fingerprint, with no channel or call-session restriction.
+
+**Migration allocation correction from Sid:** `0039` was never reserved for
+an abandoned builder. This PR renames its migration from `0040` to `0039`;
+`0040` is assigned to D2L collector keys and `0041` to owner reminders. The
+older entry below preserves the instructions known then, not current ownership.
+Backup/restore imports, all three test lists, inventory/manifest expectations,
+rollout tests and current docs use `0039`. The migration remains additive;
+migration first is preferred, code first refuses tier 3 until schema exists.
+
+Agent regressions use real adapters, conversation service and local D1, with
+synthetic providers. They cover all four refusal checks, voice refusal then
+one later execution, both branch gates, and no refund after tool failure.
+The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
+consumeStandingDecision. Before the main merge, focused suites: 238 passed,
+0 failed, 0 skipped.
+Mutations: 10 killed twice, none survived or invalid; restored suites total
+102 passed, 0 failed, 0 skipped. Source types pass; after main's callback-test
+fix, test types retain 143 prior diagnostics in 31 files with none added.
+State checks: 3 passed. The initial fixture
+failures and named mutations are in [the review document](reviews/2026-09-23-tier3-tap.md).
+For full-suite counts on the final published head, see [PR #159](https://github.com/stremysid/jarvis/pull/159)
+and `C:\Users\Sid\codex-ledgers\tier3-round1-merged-full-gateway.json` beside the ledger.
+
+Normal merges initially reported already up to date at a666097. Main advanced
+before push to a6a0efd (#154), which was merged normally with both sides of
+the AGENT_LOG and OWNER-ACTIONS conflicts retained. Its fix covers the existing
+archived-memory test that failed in the pre-merge full run (5,132/1/0) and first
+isolated rerun (71/1/0). A main control and matched PR rerun both passed 72/0/0;
+the original occurrence's cause was not established. All earlier evidence is
+retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
+the final merge commit runs the full gateway suite. No force
+push, merge into main, deployment, real database operation, real provider call
+or local-agent test. Owner rollout remains in OWNER-ACTIONS.
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
 Limited to Sid's post-review requests: literal LDSB host assertions for every
@@ -240,6 +648,41 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
+
+Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
+adds a durable consumption row keyed by decision. One SQL insert checks binding
+and TTL while claiming the tap; only the winner proceeds. No call/session scope
+was added. The original answer is immutable, and consumed marks are backed up.
+
+Premise corrections: the old lookup already had a ten-minute TTL (inclusive,
+against `resolved_at`); replay was inside that window. `0001` replay was repaired
+in `8a977a1`, and the runbook says fresh remote replay works; not re-proven remotely
+here. Main has `0001`–`0035` and `0038`, PR #96 has `0036`, `0037` stays empty and
+Sid reserves `0039` for the sync builder. Final pre-push check covered every file
+page of #96, #122, #154, #155, #156, #157 and #158; none adds `0040`.
+Main remained `a666097`. Recheck every open PR before merge.
+
+Observed so far: focused gate/migration/backup suites **120 passed, 0 failed,
+0 skipped, 7 files**; source typecheck passed. Test typecheck reports 144 errors
+in 32 files, including four existing ULID fixture errors in the backup/restore
+file this change touches; none occur in the new gate or rollout tests.
+All 12 guard mutations failed their named test twice and restored to 14/14 green
+after each, with byte-identical restoration: 12 killed and zero survivors,
+unapplied or invalid mutations. Full gateway: **5,125 passed, 0 failed,
+0 skipped, 192 files**. `node scripts/check-state.mjs`: exit 0, 3 carriers.
+No flaky rerun was needed. Earlier fixture-only failures and all mutation names
+are recorded in the linked evidence, not silently omitted.
+See [design, rollout and evidence](reviews/2026-09-23-tier3-tap.md).
+
+Migration first is preferred. Code first refuses tier-3 while the new table is
+missing; old readers still work after the additive migration. Owner remote
+rehearsal, rollout and a fresh-tap acceptance check are in `OWNER-ACTIONS.md`.
+No production, secret, remote database, real tool side effect or PC permission
+operation was performed. The requested incident report was absent; the task's
+explicit PC restrictions were followed. No parallel builder's owned files changed.
+
+— Codex, builder (not reviewer)
 
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 

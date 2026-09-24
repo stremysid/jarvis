@@ -17,6 +17,7 @@ required = [
 # set these with `wrangler secret put` only for the capability being enabled.
 # Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_USERNAME.
 # Sync: SYNC_CONTINUATION_SECRET. Model: DEEPSEEK_API_KEY.
+# Calendar subscription: CALENDAR_FEED_TOKEN.
 # Scheduled jobs: OWNER_PRINCIPAL_ID, DIGEST_TIMEZONE.
 # Heartbeats: WATCHDOG_HEARTBEAT_URL, WATCHDOG_HEARTBEAT_SECRET.
 # DEEPSEEK_MODEL: model override. GITHUB_TOKEN: private project polling.
