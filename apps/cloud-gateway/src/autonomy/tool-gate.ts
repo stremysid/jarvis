@@ -84,6 +84,12 @@ function describeTier(tier: AutonomyTier | null): string {
   return tier === null ? "unclassified" : `tier ${String(tier)}`;
 }
 
+function evaluationAudit(evaluation: AutonomyEvaluation): string {
+  return `[autonomy ${evaluation.evaluationId} capability=${
+    evaluation.capability
+  } ${describeTier(evaluation.tier)} outcome=${evaluation.outcome}]`;
+}
+
 /**
  * The receipt. One line, and it always carries the same facts: which capability
  * was evaluated, what tier it holds, what the outcome was, and the evaluation id
@@ -99,9 +105,7 @@ export function gateReceipt(
   classified: boolean,
   confirmedBy: string | null,
 ): string {
-  const audit = `[autonomy ${evaluation.evaluationId} capability=${
-    evaluation.capability
-  } ${describeTier(evaluation.tier)} outcome=${evaluation.outcome}]`;
+  const audit = evaluationAudit(evaluation);
   switch (evaluation.outcome) {
     case "permitted":
       return `Allowed ${toolName} (${describeTier(evaluation.tier)}). ${audit}`;
@@ -181,6 +185,7 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     const argumentsHash = await argumentsFingerprint(request.arguments);
     const decisionId = await this.#confirmations.consumeStandingDecision({
       principalId: request.principalId,
+      toolName: request.toolName,
       capability,
       argumentsHash,
     });
@@ -202,6 +207,16 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       summary: toolSummary(request.toolName),
       decisionId,
     });
+    // A tap answers the first evaluation only. Even a newly permissive outcome
+    // means the policy changed under it, so it cannot authorize this attempt.
+    if (confirmed.outcome !== first.outcome) {
+      return Object.freeze({
+        verdict: "deny",
+        evaluation: confirmed,
+        receipt: `Nothing happened: ${request.toolName} was refused because its safety outcome changed from ${first.outcome} to ${confirmed.outcome} during confirmation. The tap was spent and cannot be reused. ${evaluationAudit(confirmed)}`,
+        confirmedBy: null,
+      });
+    }
     return Object.freeze({
       // The policy outcome is still `requires_confirmation`, because tier 3
       // always requires one. What changed is that one stands, which is why the

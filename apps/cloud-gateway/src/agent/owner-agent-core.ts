@@ -1200,14 +1200,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
    * Ask for the tap a tier-3 capability requires, using the decision queue that
    * already exists rather than a second confirmation mechanism.
    *
-   * The raised question carries the capability and a fingerprint of the
+   * The raised question carries the tool name, capability and a fingerprint of the
    * arguments, so the tap authorizes this action and not a similar one. It does
    * not carry the arguments themselves: the owner is asked to approve something
    * the model is about to do, not to have its content written into the queue.
    *
    * The question is raised durably whichever channel asked, because a standing
-   * confirmation is looked up by capability and argument fingerprint with no
-   * channel in it -- so a tap Sid gave on Telegram authorizes the same call on
+   * confirmation is looked up by tool name, capability and argument fingerprint
+   * with no channel in it -- so a tap Sid gave on Telegram authorizes the same call on
    * the next phone call. What a channel supplies is only the *surface* that can
    * present the question; a channel with none says so instead of implying a tap
    * is coming.
@@ -1222,7 +1222,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const raised = await this.dependencies.decisions.raise({
       principalId: input.principalId,
       origin: TIER3_TOOL_ORIGIN,
-      originReference: confirmationReference(decision.evaluation.capability, argumentsHash),
+      originReference: confirmationReference(call.name, decision.evaluation.capability, argumentsHash),
       urgency: "normal",
       question: `Run ${call.name}? ${decision.evaluation.capability} always needs your tap.`,
       detail: `${decision.receipt} Tap Confirm, then ask me again and I will do it.`,
