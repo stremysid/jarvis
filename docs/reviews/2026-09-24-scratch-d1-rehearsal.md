@@ -1,12 +1,18 @@
 # Scratch D1 rehearsal — 2026-09-24
 
-**Result: PASS.** The reviewer ran this on a throwaway remote D1, created and
-deleted through the Cloudflare API. Sid authorized that rehearsal in the
-orchestrator chat on 2026-09-24: "2: yes". Production application and deployment
-were not performed by this rehearsal and remain Sid's separate actions.
+**Result: orchestrator-reported PASS.** The Claude orchestrator ran it; results are
+transcribed from its harness-supplied summary and table; not independently re-run.
+A subagent of the Claude orchestrator session used the Cloudflare connector to
+run this on a throwaway remote D1, created and deleted through the Cloudflare API.
+Sid, 2026-09-24 (orchestrator chat, supplied by the harness): '2: yes'.
+That answered item 2, authorizing the orchestrator's scratch rehearsal through the
+Cloudflare connector. Item 1 was the renumbering question. The harness supplies
+his whole message verbatim: "is there any bad things from saying yes to 1? 2: yes".
+Production application and deployment were not performed by this rehearsal and
+remain Sid's separate actions.
 
 Recorded by **Codex GPT-6 Astra, headless cloud docs builder,
-claude/friendly-hawking-qjcyia**, from the reviewer's rehearsal, not from a new run.
+claude/friendly-hawking-qjcyia**, from the Claude orchestrator's reported rehearsal.
 Sources: the harness-supplied `SUMMARY.md`, `table.md` and `seeds.sql` in its
 2026-09-24 rehearsal scratch directory. Database and account identifiers are omitted.
 The copied baseline/candidate migration files match this checkout byte-for-byte.

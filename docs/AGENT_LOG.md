@@ -19,10 +19,10 @@ Files changed, and why:
   removed merged work, rechecked surviving non-PR work, retained T1/T2, T3 and B2,
   and tracked #174 L2, #176 L2 and #171's four open lows.
 - `docs/STATE.md`: replaced stale in-flight and phase verdicts, retained the exact
-  Production section, recorded pending migrations and scratch PASS, and traced the
+  Production section, recorded pending migrations and orchestrator-reported scratch PASS, and traced the
   guest-call profile/catalogue leak on main and the recorded deployed source.
 - `docs/OWNER-ACTIONS.md`: removed duplicate #167, corrected merged statuses,
-  marked reviewer scratch work done while production remains not started, recorded
+  marked orchestrator-reported scratch work done while production remains not started, recorded
   renumbering as decided, and added the D2L-date and St. Remy scope questions.
 - `docs/FACTS.md`: recorded the supplied exact owner quotes and model-use direction,
   the previously recorded PC test-load rule, corrected voice/Windows launcher facts,
@@ -33,21 +33,23 @@ Files changed, and why:
 - `TESTING.md` and `AGENTS.md`: aligned the test-typecheck count to 143, measured
   2026-09-24 by the builders. `AGENTS.md` additionally distinguishes Windows
   `jarvis serve` from the still-Linux-only `jarvis node`; no other guidance changed.
-- `docs/reviews/2026-09-24-scratch-d1-rehearsal.md`: transcribed the reviewer's PASS,
+- `docs/reviews/2026-09-24-scratch-d1-rehearsal.md`: transcribed the orchestrator-reported PASS,
   all 41 table rows, synthetic seed roles, pre-check, whole-call duplicate rollback,
   #174-after-0045 result and limits, without database/account identifiers.
 - `docs/AGENT_LOG.md`: moved only nine misplaced September 24 blocks above
   September 23, preserving all existing entry bytes and within-date order, then
   added this entry.
-- `.codex-commit-msg.txt` and `.codex-pr-body.md`: prepared the harness handoff;
-  these root artifacts do not authorize publication or replace independent review.
+
+Supplied to the harness, not committed: `.codex-commit-msg.txt` and
+`.codex-pr-body.md`. These handoff artifacts do not replace independent review.
 
 Verification: `node scripts/check-state.mjs` passed (STATE 133 lines, limit 150),
 with the existing unconfirmed Opera GX background/federation fact warning. No
 application tests or mutation probes were run for this docs-only change. Neither
 root nor gateway `node_modules/.bin/tsc` exists, so the 143 count is explicitly the
 builders' measurement, not this builder's. The rehearsal migration copies match
-the checkout byte-for-byte; no new rehearsal was run.
+the checkout byte-for-byte. The Claude orchestrator ran it; results are transcribed
+from its harness-supplied summary and table; not independently re-run.
 
 The log verification script compares the complete heading/body multiset against
 the original: **486 existing entries identical**, all **16 September 24 entries**
@@ -57,9 +59,9 @@ before September 23, relative order within every date unchanged. Global dates ar
 "move only" September 24 scope. This is a disclosed check limitation, not a global
 order pass. The temporary verifier lives outside the repository.
 
-#171's L5/L6 descriptions were absent from main's KNOWN_ISSUES section and the
-searched #171 records. The GitHub discussion connector returned 404. Their open
-status comes from the harness; recover the review text before building either fix.
+In round 1, #171's L5/L6 descriptions were absent from main's KNOWN_ISSUES section
+and the searched #171 records; the GitHub discussion connector returned 404.
+The round-2 brief supplied the review text and citation, now recorded below.
 `AGENTS.md` contained no voice-tools claim to edit. Its node claim needed the
 precise command/config distinction: the Windows configuration gate changed, but
 the `node` command still refuses Windows.
@@ -74,9 +76,181 @@ Next actions:
 
 - Before this docs change merges: independent review of the resulting head,
   particularly owner attributions, rollout status and the log preservation evidence.
-- Before #171 L5/L6 builder work: the reviewer supplies the missing finding text.
-- At the authorized production rollout: Sid uses the reviewed runbook; scratch PASS
+- During #171 L5/L6 builder work: use the review findings cited in the round-2 note.
+- At the authorized production rollout: Sid uses the reviewed runbook; orchestrator-reported scratch PASS
   has not changed production's Worker or D1 version.
+
+### Round 2 — PR #179, after the independent review of `6df941f`
+
+[Review: 0 high, 4 medium, 5 low](https://github.com/stremysid/jarvis/pull/179#issuecomment-5821260841).
+Resolved the harness-started main merge from `f5ba9a8` without staging. Both
+conflicted files keep both sides' contributions: #166's small-hours choice and
+live deadline acceptance remain in OWNER-ACTIONS, updated for its merge. Main's
+#166 commit added no QUEUE row; the merged PR leaves this branch's open table.
+
+- **M1:** removed the unsupported coding-model assignment from FACTS; retained
+  the exact quotes and non-coding GPT-6 Astra at xhigh/high direction.
+- **M2:** framed '2: yes' as Sid's 2026-09-24 orchestrator-chat quote supplied by
+  the harness, in the rehearsal record and all three rollout rows; no FACTS row added.
+- **M3:** corrected the executor to the Claude orchestrator, through its session's
+  subagent using the Cloudflare connector. Every rehearsal PASS in these carriers
+  and this entry is orchestrator-reported, transcribed rather than independently re-run.
+- **M4:** removed the unattributed recommendation from the #176 L2 choices.
+- **L1:** replaced missing #171 L5/L6 descriptions with the [review's findings](https://github.com/stremysid/jarvis/pull/171#issuecomment-5817201176),
+  owned by the builder. Read `guardVoiceReplySentence` and both prompt/test paths:
+  voice lacks the worked-application mask and saved-object check; the worked-
+  explanation prompt assertion covers `OWNER_AGENT_SYSTEM_PROMPT`, not the voice
+  stream prompt. Six replaced explanations and surviving N27 remain review evidence.
+- **L2:** moved the two handoff artifacts out of the committed-file list.
+- **L3:** restored STATE's governing revision rule and rationale verbatim from main.
+- **L4:** added the historical DECISIONS section's "unconfirmed and superseded in
+  part" label and BUILDING's out-of-scope statement; kept the St. Remy question open.
+- **L5:** explicitly named both certainty and `uncertain` as absent from
+  `FORBIDDEN_PROPOSAL_KEYS`; the forced assignment remains a separate issue.
+- **Merge refresh:** #178 (`4f5758b`) and #166 (`f5ba9a8`, 20:14 UTC) leave the open
+  queue; #177 is cleared at `e0631a8` or later pending its log-only main merge;
+  #174's round-4 review at `1b0b0e9` must now integrate main's `deadline_record` /
+  `OWNER_ARGUMENT_TOOL_DEFINITIONS` into shared `OWNER_TOOL_DEFINITIONS`. #168 still
+  needs its builder/renumbering round after #174. #166 [round-7 lows X/Y](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515)
+  are builder coverage work; Z is a neutral owner question about filler-only gaps
+  across the hard sentence-separator arm. The source and existing tests were read.
+
+Both-parent verification: HEAD has 487 entries and MERGE_HEAD 500; the combined
+log has 501. All parent headings and all 500 other entry bodies are preserved
+byte-for-byte; only this entry has the authorized corrections and note. Both
+parents' within-date order is preserved, with all 31 September 24 entries above
+September 23. The same four older inversions remain; no global order pass is claimed.
+`node scripts/check-state.mjs` and `git diff --check` pass; STATE is 141/150 lines
+and the existing unconfirmed FACTS warning remains. No application code or tests
+were edited in this round; main's automatic code/test merge is untouched.
+
+Next: before PR #179 merges, the independent reviewer checks the resulting
+merge-plus-fix head. The harness owns staging/commit; production remains unchanged.
+
+## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item R: all requested vertical breaks now become `, ` before evidence
+gaps are cut. Any character other than a letter, digit, whitespace or straight
+or curly apostrophe is a soft separator under the existing filler rule. The
+eight punctuation/parenthesis forms and U+2028 refuse Math/quiz from borrowing
+the English essay's due phrase. `Chem:\nlab report`, `Chem - lab report`, and
+the complete punctuated/conjoined titles remain accepted. No unpunctuated
+joining-word heuristic was added.
+
+Review item S: under `tonight`, 12 o'clock with a p.m. suffix now returns
+`deadline_ambiguous_date` with the message date and following date. `12pm`,
+`12 p.m.` and `12:30pm` are covered at both 09:00 and 22:00 owner-local times;
+without `tonight`, `12pm` remains noon on the message date.
+
+Review item T: `Math unit 3 quiz due Friday at 3pm` remains accepted with Math
+as the course and quiz as the title. This keeps an unpunctuated digit-bearing
+gap out of the soft-separator rule and targets surviving mutation S14.
+
+Review item U: the model-visible deadline description names the suffix-less
+`00:00`–`12:59` and 12 o'clock p.m. `tonight` ambiguities.
+CODE-VS-JUDGMENT records the general punctuation boundary instead of an
+enumerated list, and OWNER-ACTIONS keeps Sid's still-unanswered small-hours end
+hour current. `OWNER_SMALL_HOURS_END_HOUR` remains `null`. No adapter or tool
+catalogue file changed.
+
+New test names in `deadline-review-r7.test.ts`:
+
+- `refuses a hyphen from tying Math quiz to the essay's due phrase`
+- `refuses an en dash from tying Math quiz to the essay's due phrase`
+- `refuses an em dash from tying Math quiz to the essay's due phrase`
+- `refuses a pipe from tying Math quiz to the essay's due phrase`
+- `refuses a bullet from tying Math quiz to the essay's due phrase`
+- `refuses a colon from tying Math quiz to the essay's due phrase`
+- `refuses an ellipsis from tying Math quiz to the essay's due phrase`
+- `refuses parentheses from tying Math quiz to the essay's due phrase`
+- `refuses a Unicode line separator from tying Math quiz to the essay's due phrase`
+- `accepts a colon and line break between the course and title`
+- `accepts a filler-only hyphen between the course and title`
+- `accepts the complete title Q&A worksheet`
+- `accepts the complete title A/B testing lab`
+- `accepts the complete title Romeo and Juliet essay`
+- `accepts an unpunctuated unit number between the course and title`
+- `asks which date tonight at 12pm means when sent at 09:00`
+- `asks which date tonight at 12 p.m. means when sent at 09:00`
+- `asks which date tonight at 12:30pm means when sent at 09:00`
+- `asks which date tonight at 12pm means when sent at 22:00`
+- `asks which date tonight at 12 p.m. means when sent at 22:00`
+- `asks which date tonight at 12:30pm means when sent at 22:00`
+- `keeps 12pm without tonight as noon on the message date`
+
+The harness must run `deadline-review-r7.test.ts`, the complete deadline test
+folder and full cloud-gateway suite, plus source/test TypeScript checks and the
+targeted R/S/T mutation pass, including S14. Available verification: the
+cloud-gateway source TypeScript check completed with zero diagnostics; test
+TypeScript retains its 143 pre-existing diagnostics and names none of the
+changed deadline files. `check-state.mjs` passed with its one existing FACTS
+re-verification warning, and `git diff --check` passed. This sandbox has neither
+Vitest nor pnpm, so no behavioral, full-suite or mutation result is claimed. No
+live provider, database, migration, deployment, secret, PC or owner operation
+was performed.
+
+## 2026-09-24 — Codex builder: #176 low follow-ups identify affected D2L items
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-labels.
+The branch began clean at `origin/main` `b16e9be`. Git remained read-only; no
+merge, push, deployment, migration, secret or live school operation was attempted.
+
+Results:
+
+1. L1 now has separate malformed folder-availability cases for numeric
+   `EndDate` and the string `not-a-date`. Both retain the course read, label
+   `folder-17:folder_availability_shape_unknown`, keep that folder's `dueAt`
+   null and prove another folder still projects.
+2. L3's digest gap now says `unknown projection or date disagreement`. The
+   status-tool description now says Availability end dates from either folder
+   or content evidence are not confirmed due dates. Tests pin both phrases.
+3. L4's folder availability and assignment-disagreement labels include the
+   validated `folder-<id>`. `ambiguous_content_date` safely does the same with
+   its already-validated projected item id, which can name either a folder or a
+   topic. Date precedence is unchanged.
+4. `unmappedRoutes` still comes from `json_array_length(unmapped_json)`, while
+   each mapper result still deduplicates identical labels with a `Set`. Its
+   historical name already counted labels rather than routes. For these three
+   item-scoped labels, the meaning intentionally changes from one issue-type
+   label per route to one label per affected item; generic route-level
+   projection labels are unchanged. The returned status instructions now state
+   that explicitly. Two affected folders therefore report two labels at both
+   host and aggregate status levels. The digest still emits one gap whenever
+   the count is positive; it does not display the numeric count.
+
+New test names:
+
+- `labels a numeric folder Availability EndDate without dropping the rest of the course`
+- `labels a malformed folder Availability EndDate without dropping the rest of the course`
+- `names each item whose content dates disagree`
+- `counts each folder-specific projection label and keeps the digest gap visible`
+
+The existing unknown-Availability, unequal/equal assignment-date, unknown-
+projection digest and real-tool-dispatch tests now pin the new label or wording
+forms.
+
+Observed checks:
+
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` — exit 0, no diagnostics.
+- `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway/tsconfig.test.json` —
+  exit 1 with the documented 143 diagnostics and none in `collector-ingest`,
+  `collector-compatibility` or `collector-wiring`.
+- `node scripts/check-state.mjs` — exit 0 with its existing background-access
+  re-verification advisory.
+- `git diff --check` — exit 0 after the handoff files were written.
+
+The harness must run `collector-ingest.test.ts`,
+`collector-compatibility.test.ts` and `collector-wiring.test.ts` first; then all
+six gateway collector files (`collector-ingest`, `collector-compatibility`,
+`collector-security`, `collector-pages`, `collector-wiring` and
+`collector-migration`), `digest-job.test.ts`, and the full cloud-gateway suite.
+It must rerun #176's M2b and M3 mutations against the two new malformed-EndDate
+cases and mutate each new item-id segment to prove the multi-item assertions are
+load-bearing. This container has no Vitest or pnpm, so no runtime test, full
+suite or mutation result is claimed. No live D2L read, production behavior,
+database migration or deployment was verified.
 
 ## 2026-09-24 — Codex builder: D2L receiver follow-up surfaces fallback and disagreement evidence
 
@@ -133,6 +307,251 @@ none of the gateway collector runtime tests, the full suite or mutations was
 verified here. No live D2L read, positive submission shape, production behavior,
 database migration or deployment was verified.
 
+## 2026-09-24 — Codex builder: #166 round 5 closes deadline proof gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item 1: line breaks now become `, ` before the course-to-title and
+title-to-due gaps are cut. `&`, `+`, `/`, `then`, `or`, `plus` and `also` join
+comma and `and` as soft separators under the same filler rule. Both requested
+line-break forms and all seven added separator forms refuse the proposed
+Math/quiz row; `Chem:\nlab report due Friday at 3pm` retains its accepted path.
+No heuristic was added for unpunctuated speech.
+
+Review item 2: under `tonight`, suffix-less two-digit clocks from `00:00`
+through `12:59` now return `deadline_ambiguous_date`. The `12:00` and `12:30`
+fixtures each exercise both 09:00 and 22:00 owner-local receipt times, so the
+late case cannot fall through to `deadline_time_already_passed`.
+
+Review item 3: the filler set now includes `it`, `which`, `that`, `that's`,
+`like`, `so`, `i`, `think` and `just`. The two exact requested messages are
+accepted, and separate fixtures cover every added filler plus the curly `’`
+normalisation and the existing `at` filler.
+
+Review item 4: any Unicode digit in a soft-separated gap is assignment content.
+The Math/essay proposal for `Math is at 3, the essay is due Friday at 3pm`
+refuses before a row is written.
+
+Review item 5: `proveDeadlineDue` accepts an optional test-only small-hours end
+hour while its production default remains `OWNER_SMALL_HOURS_END_HOUR = null`.
+With a test value of 4, clocked tomorrow, date-only tomorrow and date-only today
+all ask at 00:30 and resolve at 04:00. No channel adapter or tool catalogue file
+was changed; CODE-VS-JUDGMENT records the bounded proof rules.
+
+New test names in `deadline-review-r5.test.ts`:
+
+- `refuses a line break from tying Math quiz to the essay's due phrase`
+- `refuses a line break and list marker from tying Math quiz to the essay's due phrase`
+- `refuses an ampersand from tying Math quiz to the essay's due phrase`
+- `refuses a plus sign from tying Math quiz to the essay's due phrase`
+- `refuses a slash from tying Math quiz to the essay's due phrase`
+- `refuses then from tying Math quiz to the essay's due phrase`
+- `refuses or from tying Math quiz to the essay's due phrase`
+- `refuses plus from tying Math quiz to the essay's due phrase`
+- `refuses also from tying Math quiz to the essay's due phrase`
+- `accepts a line break after course punctuation when it does not cross assignments`
+- `asks which date tonight at 12:00 means at both 09:00 and 22:00`
+- `asks which date tonight at 12:30 means at both 09:00 and 22:00`
+- `accepts Math homework, it is due Friday at 3pm`
+- `accepts Chem lab report, I think it's due Friday at 3pm`
+- `accepts which as filler in a soft-separated gap`
+- `accepts that as filler in a soft-separated gap`
+- `accepts that's as filler in a soft-separated gap`
+- `accepts like as filler in a soft-separated gap`
+- `accepts so and just as filler in a soft-separated gap`
+- `accepts a curly apostrophe in that's as filler`
+- `accepts at as filler in a soft-separated gap`
+- `refuses a digit as content in a soft-separated course-to-title gap`
+- `asks which adjacent date tomorrow at 9am means at 00:30 when the window ends at 4`
+- `asks which adjacent date date-only tomorrow means at 00:30 when the window ends at 4`
+- `asks which adjacent date date-only today means at 00:30 when the window ends at 4`
+- `resolves tomorrow at 9am at 04:00 when the window ends at 4`
+- `resolves date-only tomorrow at 04:00 when the window ends at 4`
+- `resolves date-only today at 04:00 when the window ends at 4`
+
+Available verification: cloud-gateway source TypeScript completed with zero
+diagnostics. Test TypeScript retains the 143 pre-existing diagnostics and reports
+none in the changed deadline files. `git diff --check` passed. The sandbox cannot
+run Vitest or pnpm, so no behavioural or mutation pass is claimed; the harness
+must run the new round-5 file, the affected deadline suite and the S8/S11/S12/S14/S15
+mutations. No live provider, database, migration, deployment, secret, PC or owner
+operation was performed.
+
+Main merge (#171, #175): retained #171's `streamAgent` voice path, plain-spoken
+claim-marker prompt and guided-draft delivery wording alongside #166's shared
+argument catalogue, durable channel-1 owner-turn proof and configured deadline
+zone; #175's D2L receiver and migration 0045 remain intact. The production
+composition test `gives an owner's call memory, shared argument, guided assignment
+and school collector tools in the configured owner zone` now asserts the streaming
+request while retaining its deadline catalogue and zone assertions. All
+`deadline-voice.test.ts` cases now use the streaming fixture; the successful case
+is renamed `records a marked spoken deadline claim from the durable turn date in
+the configured owner zone` and proves that a `deadline_record` marker names the
+same tool as its current receipt before the sentence is spoken. No extra copied
+deadline text was needed in `OWNER_VOICE_STREAM_PROMPT`: both channels receive the
+same deadline tool description, and voice retains its owner-zone/durable-turn
+channel prompt. Available post-merge checks: source TypeScript has zero
+diagnostics; test TypeScript retains its 143 existing diagnostics and names
+neither the adapted fixture nor deadline voice file; state and diff checks pass,
+with the existing one-row FACTS re-verification warning. The harness owns the
+merge, staging and behavioral validation; this builder ran no Git write command
+and claims no Vitest result.
+
+## 2026-09-24 — Codex builder: #166 round 4 narrows deadline refusals
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item 1, partial pending Sid's hour: `OWNER_SMALL_HOURS_END_HOUR` is the
+single owner-local end hour and is `null`, so `today` is the current calendar
+date and `tomorrow` the next one at every hour. The prepared adjacent-date
+refusal covers clocked and date-only `today`/`tomorrow` only inside that future
+window. The all-day `tomorrow` refusal is removed; the round-3 fixture now states
+the null-window behaviour, and the round-3 date-proof/voice fixture edits are
+reverted. `tonight` with an a.m. clock remains a separate two-date ambiguity.
+OWNER-ACTIONS now asks Sid for the hour without inventing one.
+
+Review item 2: `recordDeadline` now checks only the course-to-title gap and the
+title-to-due gap. It never scans the course or title text. A date, clock or
+sentence separator in either gap refuses; comma or `and` refuses only when that
+gap also contains a word outside `is`, `was`, `will be`, `due`, `on`, `by`, `at`,
+`it's`, `the`, `um`, `uh`, `for`, `in` and the `and` connector itself. The eight
+requested acceptance strings and a filler-only `and` gap are covered. Every
+round-3 comma/`and` borrowing fixture remains present.
+
+Review item 3: removed the unreachable `relative()` non-past guard. Each relative
+date constructor already produces a non-past date; explicit historical calendar
+dates retain their separate path. Review item 4: added the direct `tonight at
+00:30` at 22:00 ambiguity case. Review item 5: no channel adapter or tool catalogue
+file was touched; only deadline source/tests and the required state/proof documents
+changed.
+
+New or renamed test names:
+
+- `accepts tomorrow at 3pm when sent at 10:00`
+- `accepts tomorrow at 11:59pm when sent at 20:00`
+- `uses the calendar date for date-only today while the small-hours window is unset`
+- `uses the calendar date for date-only tomorrow while the small-hours window is unset`
+- `asks which date tonight at 00:30 means when sent at 22:00`
+- `accepts a filler-only comma between the course and title`
+- `accepts a filler-only comma between the title and due phrase`
+- `accepts filler words around commas before the due phrase`
+- `accepts and inside an assignment title`
+- `accepts an ordinal inside an assignment title`
+- `accepts a weekday inside an assignment title`
+- `accepts punctuation inside an assignment title`
+- `accepts a comma alone between the course and title`
+- `accepts and with only filler words before the due phrase`
+- `uses the next calendar date for tomorrow while the small-hours window is unset`
+
+Available verification: the cloud-gateway source typecheck completed with zero
+diagnostics. The test typecheck still reports its 143 pre-existing diagnostics and
+none in the changed deadline files. `check-state.mjs` passed all carriers, links,
+size and BLOCKS checks with the one existing FACTS re-verification warning. The
+harness forbids pnpm and Vitest here, so the focused deadline files, affected
+folder, full gateway suite and requested mutations were not run and no behavioural
+pass is claimed. No live provider, database, migration, deployment, secret, PC or
+channel operation was performed.
+
+## 2026-09-24 — Codex builder: #166 round 3 deadline proof corrections
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Resolved the harness-started merge of `origin/main` `d4e5416` by retaining both complete `AGENT_LOG` histories; no conflict marker remains. Review item 1: `this <weekday>` now resolves only to the next occurrence on or after the durable message's owner-local date, including Sunday→Wednesday, Thursday→Monday and Saturday→Friday; every non-explicit date path has the same non-past boundary, while explicit historical dates remain valid. Item 2: both course-to-due and title-to-due gaps now refuse an intervening DATE/CLOCK match, comma, `and`, or sentence separator, so the exact reported `course: Chem`, `title: quiz` proposal writes no row for any of the three messages. Item 3: no late-night cut-off was invented. `tomorrow` refuses with both dates when its clock is still ahead on the message date, and `tonight` with an a.m. clock refuses with the message date and following date. Item 4: `refuses a title from the previous sentence even when the course shares the due sentence` now kills M3a; removing the title sentence check leaves that fixture otherwise admissible and would write the row. Item 5: `today` with a passed clock returns `deadline_time_already_passed`; repeated DST clocks use that reason only when every occurrence has passed, so a still-future second 01:30 returns the clock-ambiguity reason. CODE-VS-JUDGMENT now records these proof boundaries and attributes the round-2 bare-clock rule to the review contract, not Sid.
+
+New test names in `deadline-review-r3.test.ts`:
+
+- `resolves this Wednesday on Sunday to the next Wednesday`
+- `resolves this Monday on Thursday to the next Monday`
+- `resolves this Friday on Saturday to the next Friday`
+- `refuses a comma-separated date from tying Chem to the later Physics quiz`
+- `refuses an and-separated date from tying Chem to the later Physics quiz`
+- `refuses another date and clock between the title and its proposed due phrase`
+- `refuses an intervening date without relying on a clause separator`
+- `refuses an intervening clock without relying on a clause separator`
+- `refuses a comma-separated assignment without relying on another date or clock`
+- `refuses an and-separated assignment without relying on another date or clock`
+- `refuses a title from the previous sentence even when the course shares the due sentence`
+- `asks which date tomorrow means when its clock is still ahead on the message date`
+- `asks which date tonight at 12am means after the message date's evening`
+- `asks which date tonight at 1am means after the message date's evening`
+- `refuses today's clock after that clock has passed`
+- `reports a repeated clock as ambiguous while its second occurrence is still ahead`
+
+The harness must run the new round-3 file plus `deadline-date-proof.test.ts`, `deadline-review-r2.test.ts`, `deadline-tool.test.ts` and `deadline-voice.test.ts`, then the affected deadline folder and full cloud-gateway suite. It must also run source/test typechecks and the requested mutation pass, especially M3a and isolated removals of the DATE, CLOCK, comma and `and` gap arms. Here, source typecheck completed with 0 diagnostics; test typecheck still reports the 143 pre-existing diagnostics and none in the changed deadline files; `check-state.mjs` passed with its one existing FACTS re-verification warning. Vitest and pnpm cannot run in this sandbox, so no behavioral, mutation or full-suite result is claimed. No live provider, database, migration, deployment or PC action was performed.
+
+Per the round instruction, no channel adapter or shared tool-catalogue file was touched. PR #174's builder must add `OWNER_ARGUMENT_TOOL_DEFINITIONS` to its shared catalogue when #166 or #174 lands second.
+
+## 2026-09-24 — Codex builder: #166 retains newly merged #170
+
+Signed: Codex, builder. The next fetch brought main `f56f279d` (#170 extension). Normal merge `4f8229a4` keeps both log histories. Gateway source/tests are identical to the #172 integration tree (`git diff --quiet`, exit 0), so its 789/0/0 and production 1/0/129 checks still apply. The extension's complete local Node unit suite passed **50/0/0**; no browser, live D2L session, network collector or real PC configuration was used. State/diff passed. No repeated gateway full run or new task guard. B receives this final A head.
+
+## 2026-09-24 — Codex builder: #166 integrates newly merged #172
+
+Signed: Codex, builder. Both once-only full runs had finished when fresh main advanced to `7b805fa2` (#172). Normal merge `2e08bd48` preserves its guided tools, receipt checks, provider wiring and 0043 registration alongside the shared argument tools. Both log histories and owner-action rows remain. The generic available-tools voice prompt remains truthful for guided drafts and #168 reminders; it does not claim guided drafts are the only message delivery tool.
+
+Affected deadline/school/adapter/claims/backup/parity/syntax gate: **789 passed / 0 failed / 0 skipped, 35 files**. Targeted production voice composition: **1/0/129**, preserving owner-zone and both catalogues' assertions. Two catalogue/tier mutation rechecks killed the expected voice tests twice and restored both files byte-identically; restored voice file **6/0/0**. Source types: 0 diagnostics; test types: 143 existing diagnostics. State/diff passed with 0 state warnings. The earlier **5348/1/0** full run and **70/0/0** isolated rerun precede #172, not an exact-final-tree full claim; the full suite was not repeated under Sid's once-only instruction. No new task guard or production operation. B receives this A head and places its assigned 0041 before upstream 0043.
+
+## 2026-09-24 — Codex builder: #166 corrects a false-green voice refusal fixture
+
+Signed: Codex, builder. While proving B's voice path, removing its durable-turn check survived. A diagnostic assertion established **0 passed / 1 failed / 10 skipped** with `conversation_turn_immutable`: the old setup UPDATE threw before tool dispatch. A used the same flawed setup. Replaced it with a shared test-only read-back mismatch and required a real refused tool result in the second model request. No production source changed. The corrected A voice file passed **6/0/0** before and after mutation. Two additional probes (remove the actual durable row-channel guard; disable the test mismatch seam) each killed that named test twice and restored both files byte-identically. Test types remain 143 existing diagnostics, none in the corrected files.
+
+Fresh main `54c1b67b80421e540161714e666cec1b81e3f189` added only owner-probe documentation and was normally merged as `522b5e0f`. A's once-only full result above/below remains **5348/1/0**, followed by its isolated **70/0/0**, before this test-only correction; no new full run or production change is claimed. A now has the original 15 confirmed probes, 2 integration rechecks and these 2 follow-ups. B carries this correction and re-proves its previously surviving guard. No live or production action. External `deadline-r2-durable-*` and `reminder-r2-durable-repro.log` preserve the evidence.
+
+## 2026-09-24 — Codex builder: #166 round 2 publication gates
+
+Signed: Codex, builder. Normal merge `863371ac` includes fresh main `29fbfcd6` (#169) and retains the collector tools alongside the shared deadline tools in both adapters. Both log histories remain. A final fetch still found this main head and no published channel-parity branch. #168 receives this A head next and adds its reminders to the shared argument catalogue/dispatcher.
+
+Restored deadline/school/voice/classification gate: **535 passed / 0 failed / 0 skipped, 27 files**. The single full cloud-gateway run: **5,348 passed / 1 failed / 0 skipped, 203 files passed / 1 failed**. The existing bge-m3 byte-ceiling test in meaning-search hit its documented 30-second timeout; the entire file then passed **70/0/0** alone. No cause is inferred and the full run was not repeated. Earlier iteration evidence remains: 83/0/0 in four files; 303/0/0 in sixteen files plus nine worker-start ECONNRESET errors; those nine files passed 281/0/0 alone with two workers; the full call-session fixture passed 130/0/0. Source types: 0 diagnostics. Test types: 143 existing diagnostics, none in new files or changed lines. State/diff checks passed, state with 0 warnings.
+
+Mutation evidence: **15 distinct probes killed on named tests twice**, all five files restored byte-identically. After the main merge, the changed voice catalogue and core tier branch were probed again: **2/2 confirmed kills**, both files restored byte-identically. Zero survivors, wrong-test kills, unconfirmed, not-applied or invalid probes. Restored tests passed, including the voice file in the full run. Evidence/specs: external `deadline-r2-*` logs and the approved Markdown ledger. No live provider/call, real DB or remote migration, deployment, local-agent execution, or PC settings change. Owner acceptance and retained grammar judgment findings remain explicit below and in OWNER-ACTIONS/CODE-VS-JUDGMENT.
+
+## 2026-09-24 — Codex builder: #166 round 2 date proof and voice tools
+
+Signed: Codex, builder. Read independent comment `5807130601` in full. Bare clocks now use the durable message's local date, per Sid's explicit instruction; a passed bare/weekday clock refuses with `deadline_time_already_passed`, never an automatic tomorrow. Next weekday and a bare weekday naming today refuse with `deadline_ambiguous_date` naming both candidate dates. Course and title must both precede the due phrase within the same sentence. Removed the Chem/Chemistry semantic alias; the existing prefix-collision path asks which assignment is intended. Updated tests whose former expectations encoded the now-rejected convention/alias.
+
+Both adapters now import `OWNER_ARGUMENT_TOOL_DEFINITIONS` and `ownerArgumentTool` from `src/agent/owner-argument-tools.ts`. Voice uses its existing durable owner-turn proof (channel 1), the adapter clock, and `DIGEST_TIMEZONE ?? America/Toronto` from production composition. The shared core, authority checks and argument-tool tier gate are unchanged. **For the channel-parity builder:** include this shared argument catalogue in the unified list and retain the shared dispatcher on both channels. No remote `codex/channel-parity` or PR was available when checked; recheck at push. #168 will add its three reminder definitions and dispatch here after merging A, so neither channel gets a separate reminder list. The older voice prompt's blanket claim that tools cannot send a message was corrected; spoken output alone still makes no external send.
+
+Initial focused regressions: **83/0/0 in 4 files**. A broader deadline/school/adapter/classification run observed **303/0/0 in 16 files plus 9 worker-start ECONNRESET errors**; the nine unstarted files are not counted as passes or skips, and the cause is unproven. Further gates, mutations and the single full run will be recorded after execution. Source types passed with 0 diagnostics; test types have 143 existing diagnostics, none in the new deadline/voice fixture paths. The remaining earlier omitted-year/ordinal and bare-next-week bound conventions are explicitly recorded as judgment findings in CODE-VS-JUDGMENT, not owner-approved exceptions. No migration added, real database touched, live call/provider invoked, deployment or PC configuration operation. Ledger and `deadline-r2-*` evidence remain outside the repo.
+
+## 2026-09-24 — Codex builder: #166 integrates newly merged #165
+
+Signed: Codex, builder. The next mandatory fetch brought `0d695563` (#165 calendar feed). Normally merged as `504cbf5f`, preserving both log histories. Deadline proof and shared core remain unchanged. Calendar feed/routes, deadline folder, school repository and classification gate: **235 passed / 0 failed / 0 skipped, 14 files**. Source types passed, 0 diagnostics; state passed 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff passed. This local integration result supplements the 454-test #164 gate. The once-only full run remains explicitly before these upstream integrations, not an exact-final-tree claim. No new guard authored or production operation performed. #168 receives this A head before its final push.
+
+## 2026-09-24 — Codex builder: #166 integrates newly merged #164
+
+Signed: Codex, builder. The mandatory final fetch while finishing #168 brought `0b63b916` (#164), after both once-only full runs had finished. Normally merged it into A as `bc70f023` to resolve the shared tool-description conflict. Retained #164's complete school, university and study descriptions and appended the deadline versus finished-work distinction. Both log histories and both CODE-VS-JUDGMENT sections remain. Deadline source and owner-agent core are unchanged from A's already reviewed integration source.
+
+Final integration gate: **454 passed / 0 failed / 0 skipped, 22 files** (deadline/school folders, owner-pipeline integration and classification). Source types passed, 0 diagnostics; test types remain 143 existing diagnostics, none in these changed/new files. State passed all 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff check passed. The earlier 5,227/1/0 full run and its 70/0/0 isolated rerun remain reported **before #164**, not as a final-tree full run. Per Sid's once-only full-suite instruction, only affected integration gates were rerun. No new proof guard or mutation was added by this merge; the 40 confirmed probes cover unchanged proof code. #168 receives this updated A head by normal merge next.
+
+## 2026-09-24 — Codex builder: #166 round 1, carry into #168
+
+Signed: Codex, builder. Addresses the eleven review requests on `a4af0baa190f1cfc7d8ada717e9231714cc15bc7`. Owner timezone is wired from DIGEST_TIMEZONE with Toronto fallback; a different zone needs literal due-phrase evidence and receipts remain in the owner zone. One short grounded dueExcerpt proves date and clock together using the durable current-message event timestamp. Relative/partial forms, explicit date-only/end-of-day receipts, missing/ambiguous date reasons, status preservation/synonyms, normalised principal-scoped matching and honest upsert outcome/previous-time receipts are implemented. Effort uses the ingestion lead defaults; explicit owner metadata updates preserve the collector's existing retag contract.
+
+The accepted grammar and calendar conventions are in CODE-VS-JUDGMENT and the model-visible description. Bare next week is an explicitly unconfirmed end-of-week bound; ambiguous numeric dates still require clarification. Coordinated school_update wording against #164 at `cca359793d7927855b1f206a73c4c991b5b1d562`: missed classwork/finished work belong there; finished is not proof of submission. P2 platform rows may duplicate owner-reported rows. #166 adds no migration.
+
+#159 merged during this fix. A normal merge reproduced its argument-branch gate regression (0 passed / 1 failed / 24 skipped), then two lines restored gateTool after direct-owner and durable-turn authority checks. Normal merges also retained #155 and #167. Both sides of every AGENT_LOG/OWNER-ACTIONS conflict were preserved. The voice hook was not enlarged: the Telegram adapter reads the typed durable turn proof for the deadline timestamp.
+
+Observed R1 gates: restored deadline + school folders + classification **428 passed / 0 failed / 0 skipped, 20 files**. Source types: 0 diagnostics. Test types: 143 existing diagnostics, none in the changed deadline/argument-fixture files. The single full gateway run was **5,227 passed / 1 failed / 0 skipped, 195 files passed / 1 failed**. The existing `keeps the 100-input bge-m3 request inside the byte ceiling and independent mutation cap` hit its 30-second timeout, already documented by #167 and the test-budget entry. The entire meaning-search file then passed **70/0/0** alone. No source change or full rerun followed, and no timeout cause is inferred. State check passed all 3 carriers and FACTS/link/size/BLOCKS checks with 0 warnings; diff check passed.
+
+Mutation evidence: **40 final probes killed on their named tests and confirmed on a second mutated run**, with byte-identical restoration. Initial 39-probe sweep: 37 kills, 2 survivors, 0 wrong-test/unconfirmed/not-applied/invalid. Removed the redundant ordinal range guard (32nd still fails the bounded calendar search). Isolated effort-only metadata changes from lead changes; its refined probe now kills the named test. Two further probes cover empty normalised identities and a zone-only phrase missing its date. Follow-ups: 2/2 and 1/1 confirmed kills. One attempted follow-up aborted on an unresolved documentation merge before applying any mutation; it is not counted. External specs/logs: `C:\Users\Sid\codex-ledgers\deadline-r1-*`.
+
+Iteration failures retained: original four repros 0/4/0; expanded 72/3/0 (two timeouts, one fixture outbox clock assertion); folder run 416/1/0 exposed collector effort overwrite; corrected focused four files 104/0/0. Whitespace-only identities were independently reproduced at 0/2/25 before the refusal fix. No guessed timeout cause is asserted. Final restored folder gate includes the corrected tests.
+
+No live Telegram/model/calendar acceptance, deployment, real database operation, local-agent run or PC permissions/settings change. Durable event time is the anchor, not a newly imported native Telegram timestamp. Date-only qualification remains in the receipt; the deadline schema stores an instant. Owner acceptance is updated in OWNER-ACTIONS. PR #168 must receive this branch via normal merge before its new push; retain 0039 then 0041 in backup restore. No force push or PR merge authorized/performed.
+
+## 2026-09-24 — Codex builder: owner-reported dated deadlines, PR A
+
+Branch `codex/deadlines-reminders-run`, based on freshly fetched `a666097`. Telegram exposes `deadline_record` through a small optional channel hook after the existing authority and tier gates and the durable direct-owner turn proof. `school.track` is already tier 1 in `0035`; `manual` sources exist in `0011`. No migration. The tool writes `DeadlineRepository.upsert` under `owner-reported`, with explicit status/effort updates and local-time receipts. Exact principal/course/title identifies a row. **P2's future platform rows may duplicate owner-reported rows.**
+
+Grounding is deliberately mechanical: a word-boundary excerpt in the current message, literal course/title/status, and an explicit full calendar date and clock time matching the supplied named IANA zone and offset. Relative dates, missing years or times require clarification. There is no guessed end-of-day or lead-time nudge. The durable message is the evidence; the future calendar feed and live model tool selection were not verified.
+
+Integration update: the required pre-push fetch brought in `a6a0efd` (#154), which fixes the two existing failures below. It was merged normally as `4e98dcb`, preserving both builders' log entries and owner-action rows. The combined-head gate results are in PR A's body and the retained `deadline-merged-*` logs; the earlier full runs below remain historical evidence, not a claim about the combined head.
+
+Observed gates on final code `425b24d`: new deadline tests 25 passed plus repository tests 23 passed (48/48 focused), classification 2/2; source typecheck passed. Test typecheck reports 144 diagnostics, none in the new files. Final gateway full suite: **5,132 passed, 1 failed, 0 skipped**, 190 files passed/1 failed. The existing `replays a model-inference Confirm tap without creating another promotion` failed its expected memory receipt; its whole file passed **100/100** alone. Before the last two fixes, the full run was 5,130 passed/1 failed/0 skipped; the existing archived-memory history-evidence assertion failed, and its whole file passed 72/72 alone (exit 0, worker shutdown warning). Both flaky files are covered by open #154. No failure cause is inferred from an isolated pass. State check passed all 3 carriers; diff check passed.
+
+Mutation evidence: **14 unique faults killed on their named tests and confirmed on a second run**, with byte-identical restoration. Covers input format, named zone, date/clock zone matching, date/clock excerpt matching, course/title/status evidence, explicit-open refusal, current-message grounding, direct-owner and durable-turn checks, and the unchanged-row status race. Two initial probes were `KILLED/OTHER`; their corrected probes were independently confirmed, not counted as initial expected kills. Evidence and specs: `C:\Users\Sid\codex-ledgers\deadline-*.log` / `deadline-*mutations*.json`; continuity: `deadlines-reminders-run.md` in that folder.
+
+Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
 ## 2026-09-24 — Codex builder: PR #175 review round 2 closes linked-tool and unreadable-folder gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.

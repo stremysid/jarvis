@@ -20,10 +20,22 @@ The following low-severity follow-ups from the independent review remain open:
 - **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
   order.
 
-The 2026-09-24 carrier-refresh harness also lists **L5 and L6** as open. Their
-finding text is absent from this section at the checked main revision and from
-the searched #171 log entries. Recover the review's exact findings before scoping
-those fixes; [QUEUE](docs/QUEUE.md) retains both rather than inventing their content.
+- **L5:** `guardVoiceReplySentence` in
+  [school-catchup-model.ts](apps/cloud-gateway/src/school/school-catchup-model.ts)
+  does not apply #162's `WORKED_APPLIED_FOR_YOU` mask before
+  `FALSE_EXTERNAL_COMPLETIONS`, and its `VOICE_MEMORY_COMPLETION` backstop matches
+  "saved" without a worked-object check. The review found six worked explanations
+  that Telegram keeps but voice replaces. This fails closed.
+- **L6:** No test pins #162's worked-explanation sentence in
+  `OWNER_VOICE_STREAM_PROMPT`. The matching assertion in
+  [tutoring-reply-review.test.ts](apps/cloud-gateway/test/school/tutoring-reply-review.test.ts)
+  checks `OWNER_AGENT_SYSTEM_PROMPT`; the voice test uses a fixed provider reply.
+  The review reports that mutant N27 survived.
+
+Source: [#171's independent review](https://github.com/stremysid/jarvis/pull/171#issuecomment-5817201176).
+The guard paths and missing voice-prompt assertion were checked against merged
+main on 2026-09-24; the six-case and N27 results are the review's measurements,
+not new probes. Both fixes belong to the builder in [QUEUE](docs/QUEUE.md).
 
 Sid's 2026-09-24 report, "ive already done test calling and it works", establishes
 his working-call observation, not the specific streaming checks above.

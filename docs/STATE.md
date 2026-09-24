@@ -1,28 +1,35 @@
 # State
 
-What is true right now. Short on purpose, regenerated rather than appended.
-If this file disagrees with a longer document, correct the longer document.
+What is true right now. **Short on purpose, and regenerated rather than appended.**
 
-Last regenerated: 2026-09-24, from repository evidence and the harness's approximately
-19:40 UTC observations. No production query was made by this docs builder.
+One rule governs every line below: **nothing here states a revision as current.** A
+fact that depends on a revision carries the command that prints it, or a date and
+the session that observed it. The handoff, the roadmap and this file have each, at
+different times, asserted a sha that had already moved; the fix is to stop writing
+them down.
+
+If this file disagrees with a longer document, this file is right and the longer
+document is stale — say so in the pull request that fixes it.
+
+Last regenerated: 2026-09-24, after #166 merged at 20:14 UTC, from repository
+evidence and the harness's round-2 observations. No production query was made by this docs builder.
 For the repository revision, run `git log --oneline origin/main -1`.
 
 ## In flight, and what each one would change here
 
-Six PRs are open in the harness snapshot. [QUEUE](QUEUE.md) carries their observed
+Four PRs remain open in the harness's round-2 snapshot. [QUEUE](QUEUE.md) carries their observed
 heads, verdicts and next owners; merged PRs have left it.
 
 | PR | What it would change |
 |---|---|
-| [#166](https://github.com/stremysid/jarvis/pull/166) | `deadline_record`; round-7 fix under independent review, rest ready at round 6 |
-| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; round-4 fix under independent review, migration `0044` |
-| [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders; stale with eight conflicts, builder round after #166/#174 and migration renumbering above main's maximum |
-| [#177](https://github.com/stremysid/jarvis/pull/177) | Scratch runbook, deploy.md and REVIEWER-MANUAL stale-fixes; round-2 review running |
-| [#178](https://github.com/stremysid/jarvis/pull/178) | #176 D2L label lows L1/L3/L4; review running |
+| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; round-4 review running at `1b0b0e9`, migration `0044`; must merge main's #166 and retain its argument tools |
+| [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders; still needs its builder/renumbering round after #174; #166 has merged |
+| [#177](https://github.com/stremysid/jarvis/pull/177) | Scratch runbook, deploy.md and REVIEWER-MANUAL stale-fixes; cleared at `e0631a8` or later, merging after a log-only main merge |
 | [#122](https://github.com/stremysid/jarvis/pull/122) | Memory redesign spec; unchanged, awaiting Sid's plan decision |
 
-Whichever of #166/#174 lands second must include `deadline_record` in shared
-`OWNER_TOOL_DEFINITIONS`, with review of the resulting head.
+#178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
+#174 must now merge main and include `deadline_record` / `OWNER_ARGUMENT_TOOL_DEFINITIONS`
+in shared `OWNER_TOOL_DEFINITIONS`, with review of the resulting head.
 
 ## Where the project actually stands
 
@@ -30,7 +37,7 @@ Whichever of #166/#174 lands second must include `deadline_record` in shared
 |---|---|---|
 | 1 The nervous system | **partial; shared agent core** | `OwnerAgentCore` shares the loop, caps, tier gate and receipt guard. Telegram and voice still compose separate conversations; #174 addresses channel parity. No shared conversation DO, SMS path or Queues |
 | 2 Memory | **shared write store; different recall** | #147 lets calls act on `memory_items` through `D1MemoryControlTargetFinder`. Telegram recalls the memory store; voice still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. #174 addresses recall and confirmation parity. Hidden-text receipts remain a defect |
-| 3 School | **paste, calendar, guided assignment and D2L collector/receiver merged; rollout pending** | #164 saves Telegram assignment pastes, #165 provides the private calendar feed, #172 guided assignments, #169/#170 the receiver/extension, and #175/#176 two-board evidence and date labels. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance, production migrations and deployment remain pending; the old D2L email route yields no deadlines |
+| 3 School | **paste, calendar, guided assignment and D2L collector/receiver merged; rollout pending** | #164 saves Telegram assignment pastes, #165 provides the private calendar feed, #172 guided assignments, #169/#170 the receiver/extension, and #175/#176/#178 two-board evidence and date labels. #166 adds owner-reported deadlines without a migration. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance, production migrations and deployment remain pending; the old D2L email route yields no deadlines |
 | 4 Control | **built; policy remains table-driven** | Confirmations bind capability and arguments, not tool. #159 adds single-use ten-minute taps; `0039` and gateway production rollout remain pending. T1/T2 guards, T3's literal permit and B2 tool binding remain in QUEUE |
 | 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate |
 | 6 Daily rhythm | **cron only** | Four cron triggers; owner reminders await #168. Jarvis cannot schedule its own wake-ups or choose the digest time |
@@ -41,7 +48,7 @@ Measured against [the roadmap](plan/2026-09-19-jarvis-roadmap.md).
 ## The one thing that changes what Jarvis is
 
 Both channels share the agent loop, but their context and catalogues still differ.
-On main, voice has memory, guided-assignment and school-collector tools; Telegram
+On main, voice has memory, deadline, guided-assignment and school-collector tools; Telegram
 also has school, university and study pipelines. The recorded production build
 predates guided-assignment and collector tools: voice there has the nine memory tools.
 Voice recall still reads the local-agent projection rather than Telegram's memory
@@ -82,8 +89,9 @@ Main contains pending `0039`, `0040`, `0043` and `0045`; `0036`, `0037`, `0041`
 and `0042` are absent. `0044` belongs to open #174. Renumbering older `0041`/`0042`
 above main's maximum is approved; it does not authorize production application.
 
-The reviewer completed the authorized remote scratch rehearsal on 2026-09-24:
-**PASS**, including `0044` after `0045`. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
+The 2026-09-24 scratch result is **orchestrator-reported PASS**, including `0044` after `0045`.
+The Claude orchestrator ran it; results are transcribed from its harness-supplied summary and table;
+not independently re-run. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
 Production migration application and tonight's deployment are **not started**, Sid's
 separate actions in [OWNER-ACTIONS](OWNER-ACTIONS.md).
 
