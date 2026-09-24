@@ -3,6 +3,10 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #168 final calendar-feed integration
+
+Signed: Codex, builder. The required main fetch brought #165 (`0d695563`). Normally merged it as `ea821333`, then carried A's updated `e2c484a5b4e1303942c9273cf9c85bcd5f49c4fa` as `37fe9f50`. Only AGENT_LOG conflicted; both histories remain. Deadline/core/calendar/school source is identical to A. Final calendar/routes/reminder/classification gate: **68 passed / 0 failed / 0 skipped, 8 files**. Source types passed with 0 diagnostics; test types remain 143 existing diagnostics, none in the new/changed paths. State passed 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff passed. The earlier 590-test and 497-test integration gates remain green evidence for their scopes. The once-only full run remains explicitly **before #164/#165**; no exact-final-tree full claim is made. New mutation evidence remains 1/1 confirmed reminder gate kill plus A's 40 carried probes on unchanged proof code. No real database, live provider, deployment or PC settings action occurred. 0041-before-deploy and owner acceptance remain recorded.
+
 ## 2026-09-24 — Codex builder: #168 final #164 integration
 
 Signed: Codex, builder. Normally merged A's final `4eddb684daa89439fbccde08f68c9d992e95e65b` as `3f78729f`, carrying main's newly merged #164 after the once-only full gate. The only conflict was this log; both complete histories remain. Deadline, shared core and school source are identical to A; the Telegram adapter retains only B's three reminder additions. Backup/migration code is unchanged from the passing 590-test gate.
