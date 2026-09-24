@@ -118,6 +118,19 @@ export interface ModelAgentProvider {
   completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion>;
 }
 
+export interface ModelAgentStreamInput extends ModelAgentCompletionInput {
+  readonly firstTokenTimeoutMs: number;
+}
+
+/** Tool arguments become executable only in a validated terminal event. */
+export type ModelAgentStreamChunk =
+  | Readonly<{ type: "text"; text: string }>
+  | Readonly<{ type: "completed"; completion: ModelAgentCompletion }>;
+
+export interface ModelAgentStreamProvider {
+  streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk>;
+}
+
 export interface ModelCompleteJsonInput {
   correlationId: string;
   principalId: string;

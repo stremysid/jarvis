@@ -15,7 +15,11 @@ import { recordPendingTelegramMemoryReferences } from "../memory/telegram-memory
 import { readMemoryOwnerTurnEvidence } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
-import type { ModelAgentProvider, ModelFunctionCall } from "../providers/provider-types.js";
+import type {
+  ModelAgentProvider,
+  ModelAgentStreamProvider,
+  ModelFunctionCall,
+} from "../providers/provider-types.js";
 import {
   composeReceiptReply,
   OwnerAgentCore,
@@ -36,13 +40,13 @@ export const OWNER_VOICE_AGENT_CHANNEL_PROMPT = `You are speaking with Sid on a 
 
 A receipt added to your words is read aloud verbatim by the system, so never read one back or paraphrase one.
 
-There is no screen on a call. Describe links or files in spoken words when needed; swipe replies and inline keyboards belong to Telegram.
+There is no screen and Sid cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here. Describe links or files in spoken words when needed.
 
-For a staged model-inferred memory, ask Sid to open /decisions in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
+When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap. For a staged model-inferred memory, ask Sid to open /decisions in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
 
 export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly guidedAssignmentTelegram?: TelegramProvider;
-  readonly provider: ModelAgentProvider;
+  readonly provider: ModelAgentProvider & ModelAgentStreamProvider;
   readonly database: D1Database;
   readonly archive: ArchiveBucket;
   /**
@@ -86,6 +90,8 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     super(voice, snapshotModelAdapterStreamInput);
     safeText(voice.ownerPrincipalId, 1_024);
   }
+
+  protected override streamingProvider(): ModelAgentStreamProvider { return this.voice.provider; }
 
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;

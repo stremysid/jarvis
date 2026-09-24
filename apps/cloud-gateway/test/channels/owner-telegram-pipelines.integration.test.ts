@@ -20,6 +20,9 @@ import type {
   ModelAgentCompletion,
   ModelAgentCompletionInput,
   ModelAgentProvider,
+  ModelAgentStreamChunk,
+  ModelAgentStreamInput,
+  ModelAgentStreamProvider,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model.js";
@@ -46,7 +49,7 @@ class SequenceModel implements ModelAdapter {
   }
 }
 
-class ToolAgentProvider implements ModelAgentProvider {
+class ToolAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly requests: ModelAgentCompletionInput[] = [];
   constructor(private readonly toolName: string) {}
 
@@ -68,6 +71,31 @@ class ToolAgentProvider implements ModelAgentProvider {
       toolCalls: Object.freeze([]),
       finishReason: "stop" as const,
     });
+  }
+
+  async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    this.requests.push(input);
+    if (this.requests.length === 1) {
+      yield Object.freeze({
+        type: "completed" as const,
+        completion: Object.freeze({
+          content: null,
+          toolCalls: Object.freeze([Object.freeze({
+            id: "pipeline_call",
+            name: this.toolName,
+            arguments: "{}",
+          })]),
+          finishReason: "tool_calls" as const,
+        }),
+      });
+      return;
+    }
+    const completion = Object.freeze({
+      content: "",
+      toolCalls: Object.freeze([]),
+      finishReason: "stop" as const,
+    });
+    yield Object.freeze({ type: "completed" as const, completion });
   }
 }
 
@@ -181,6 +209,13 @@ it("keeps production voice pipelines authoritative with thinking disabled", () =
 
 describe.each(["telegram", "voice"] as const)("owner %s agent validated feature pipelines", (channel) => {
   const run = (input: Omit<Parameters<typeof runPipelineTurn>[0], "channel">) => runPipelineTurn({ ...input, channel });
+  const expectReceiptBoundary = (reply: string): void => {
+    // #171 preserves every emitted byte through relay settlement and the raw
+    // archive. A receipt-only voice turn has already emitted its separator,
+    // while Telegram composes the same receipt as one settled message.
+    expect(reply.endsWith(" ")).toBe(channel === "voice");
+  };
+
   it("lets the agent choose school and preserves the existing validated save and receipt", async () => {
     const structured = JSON.stringify({
       engaged: true,
@@ -209,6 +244,7 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
     });
 
     expect(result.reply).toContain("Today: Chemistry: Review titration calculations (25 min).");
+    expectReceiptBoundary(result.reply);
     expect(result.agent.requests).toHaveLength(2);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",
@@ -250,6 +286,7 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
     });
 
     expect(result.reply).toContain("Saved: University of Waterloo Computer Science (unverified).");
+    expectReceiptBoundary(result.reply);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",
       receiptId: "receipt:pipeline_call",
@@ -290,6 +327,7 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
     });
 
     expect(result.reply).toContain("I couldn't validate that as a university update, so I didn't save it.");
+    expectReceiptBoundary(result.reply);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "not_saved",
       receiptId: null,
@@ -306,7 +344,8 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
       modelReplies: [],
     });
 
-    expect(result.reply).toBe("Coursework check-ins are off.");
+    expect(result.reply).toBe(`Coursework check-ins are off.${channel === "voice" ? " " : ""}`);
+    expectReceiptBoundary(result.reply);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",
       receiptId: "receipt:pipeline_call",

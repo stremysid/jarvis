@@ -60,11 +60,10 @@ describe("production voice through the real DO stub and socket", () => {
       if (url === "https://api.deepseek.com/chat/completions") {
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         modelBodies.push(body);
-        // The production voice path reaches the shared owner agent, which is a
-        // non-streaming `completeAgent` request; the streaming shape is what a
-        // bare `DeepSeekModelAdapter` asks for on other channels.
+        // Keep both response shapes available so a failed composition produces
+        // an assertion below rather than an unrelated synthetic fetch failure.
         if (body.stream === true) {
-          return new Response('data: {"choices":[{"delta":{"content":"A real socket reply."}}]}\n\ndata: [DONE]\n\n',
+          return new Response('data: {"choices":[{"index":0,"delta":{"content":"A real socket reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             { headers: { "content-type": "text/event-stream" } });
         }
         return Response.json({
@@ -175,6 +174,12 @@ describe("production voice through the real DO stub and socket", () => {
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(2);
     expect(requests.filter((url) => url.endsWith("/user/balance"))).toHaveLength(2);
+    expect(modelBodies[0]).toMatchObject({
+      stream: true, tool_choice: "auto", thinking: { type: "disabled" },
+    });
+    expect(modelBodies[1]).toMatchObject({
+      stream: true, tool_choice: "auto", thinking: { type: "disabled" },
+    });
     expect(JSON.stringify(modelBodies[0])).toContain(canonicalFact);
     expect(JSON.stringify(modelBodies[1])).toContain("What is my canonical voice marker?");
     expect(call.closes).toEqual([]);
