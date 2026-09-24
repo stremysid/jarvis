@@ -19,8 +19,9 @@ const encoder = new TextEncoder();
 function text(value: string): string {
   // Escape line breaks before stripping controls: source text stays text even
   // when it contains an apparent property or component boundary.
-  return value.replace(/\\/gu, "\\\\").replace(/\r\n|\r|\n/gu, "\\n")
-    .replace(/\p{C}/gu, "").replace(/;/gu, "\\;").replace(/,/gu, "\\,");
+  return value.replace(/\\/gu, "\\\\").replace(/\r\n|[\r\n\u2028\u2029]/gu, "\\n")
+    .replace(/[\p{Cc}\p{Cs}\p{Co}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
+    .replace(/;/gu, "\\;").replace(/,/gu, "\\,");
 }
 
 function fold(line: string): string {
@@ -46,23 +47,29 @@ function date(value: string): string {
   return value.replace(/-/gu, "");
 }
 
+function allDay(value: string): readonly string[] {
+  const next = new Date(`${value}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return [`DTSTART;VALUE=DATE:${date(value)}`, `DTEND;VALUE=DATE:${date(next.toISOString().slice(0, 10))}`];
+}
+
 /** Deterministic serialization of saved rows; no model, fetch, or persistence. */
 export function composeCalendarFeed(input: CalendarFeedInput): string {
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Jarvis//School Calendar//EN", "CALSCALE:GREGORIAN"];
   const stamp = instant(input.now.toISOString());
-  function event(uid: string, summary: string, start: string, alarm: readonly string[] = []): void {
+  function event(uid: string, summary: string, dates: readonly string[], alarm: readonly string[] = []): void {
     lines.push("BEGIN:VEVENT", `UID:${text(uid)}@jarvis`, `DTSTAMP:${stamp}`,
-      start, `SUMMARY:${text(summary)}`, ...alarm, "END:VEVENT");
+      ...dates, `SUMMARY:${text(summary)}`, ...alarm, "END:VEVENT");
   }
-  // A DATE event without DTEND lasts one day; timed deadlines are instants,
-  // so inventing a duration would imply time the stored plan never allocated.
+  // Explicit exclusive ends keep all-day events one day across calendar clients.
+  // Timed deadlines remain instants rather than inventing a study duration.
   for (const action of input.actions) {
     event(`catchup-${action.actionId}`, `${action.courseName}: ${action.text} (${action.estimatedMinutes} min)`,
-      `DTSTART;VALUE=DATE:${date(action.localDate)}`);
+      allDay(action.localDate));
   }
   for (const deadline of input.deadlines) {
     const summary = `${deadline.course}: ${deadline.title}`;
-    event(`deadline-${deadline.deadlineId}`, summary, `DTSTART:${instant(deadline.dueAt)}`, [
+    event(`deadline-${deadline.deadlineId}`, summary, [`DTSTART:${instant(deadline.dueAt)}`], [
       "BEGIN:VALARM", `TRIGGER:-PT${deadline.leadMinutes}M`, "ACTION:DISPLAY",
       `DESCRIPTION:${text(summary)}`, "END:VALARM",
     ]);
@@ -70,12 +77,12 @@ export function composeCalendarFeed(input: CalendarFeedInput): string {
   for (const item of input.applications) {
     if (item.dueDate === null) continue;
     event(`application-${item.itemId}`, `[${item.verification.state}] ${item.university} / ${item.programName}: ${item.label}`,
-      `DTSTART;VALUE=DATE:${date(item.dueDate)}`);
+      allDay(item.dueDate));
   }
   for (const item of input.workflows) {
     const due = item.deadline;
     if (due.instant === null && due.date === null) continue;
-    const start = due.instant !== null ? `DTSTART:${instant(due.instant)}` : `DTSTART;VALUE=DATE:${date(due.date!)}`;
+    const start = due.instant !== null ? [`DTSTART:${instant(due.instant)}`] : allDay(due.date!);
     event(`workflow-${item.workflowId}`, `[${due.verification.state}] ${item.university} / ${item.programName}: ${item.label}`, start);
   }
   lines.push("END:VCALENDAR");

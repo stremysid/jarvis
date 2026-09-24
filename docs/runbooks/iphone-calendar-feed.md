@@ -17,7 +17,7 @@ collect new data from Brightspace or make an unavailable school source work.
    pnpm exec wrangler secret put CALENDAR_FEED_TOKEN
    ```
 
-   Enter the value only at the private prompt. Do not include it in a command,
+   Enter the value only at the interactive private prompt, **never piped**. Do not include it in a command,
    screenshot, ticket, chat, log, or commit. The existing `OWNER_PRINCIPAL_ID`
    binding must identify Sid; without it the feed returns 503.
 3. Privately construct `https://<gateway-host>/calendar/<token>.ics` using the
@@ -53,8 +53,9 @@ collect new data from Brightspace or make an unavailable school source work.
 The feed serializes stored plans; it does not choose tasks or assign certainty.
 The subscription is read-only. Editing or completing an event on the phone does
 not update Jarvis. Stable row-based UIDs allow a refreshed event to retain its
-identity when a title, date or workflow revision changes. No extra event duration
-or all-day alert time is invented.
+identity when a title, date or workflow revision changes. All-day events explicitly
+end on the next date (an exclusive `DTEND`); timed deadlines have no invented
+duration. No all-day alert time is invented.
 
 ## Privacy, rotation and failures
 
@@ -72,9 +73,14 @@ Removing the secret disables the feed. Rotation cannot erase calendar data
 someone has already downloaded, or cached events already on a device.
 
 All calendar responses carry `Cache-Control: private, no-store`. An unset,
-too-short or incorrect secret and malformed calendar paths return the same 404;
-only GET is supported. Repository failures return a generic 503 rather than an
-empty successful calendar. Authenticated requests use a separate per-isolate
+too-short or incorrect secret and malformed calendar paths return the same 404.
+This is deliberately silent: a secret with a trailing newline or space, or fewer
+than 32 characters, gives the same **404 Not found** as a wrong URL. Check the
+value privately and re-enter it at the interactive prompt without whitespace;
+do not pipe it or post the URL to diagnose it. Only GET is supported. Repository
+failures return a generic 503 rather than an empty successful calendar.
+The limiter runs **after authentication**: wrong credentials still get 404 and
+do not consume the authenticated allowance. Authenticated requests use a separate per-isolate
 allowance with the same limits as `/health`: 30 per minute, 43,200 per day.
 Exceeding it returns 429. Like health, this is not a global cross-isolate limit.
 

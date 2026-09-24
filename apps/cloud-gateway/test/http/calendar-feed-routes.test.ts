@@ -137,6 +137,39 @@ describe("the private calendar route", () => {
     expect((await dispatch(`/calendar/${encoded}.ics`)).status).toBe(200);
   });
 
+  it("compares mixed-case credentials exactly and refuses the lower-cased URL", async () => {
+    const mixedCase = `CaLeNdAr-${token}`;
+    const configured = { CALENDAR_FEED_TOKEN: mixedCase };
+    expect((await dispatch(`/calendar/${mixedCase}.ics`, "GET", configured)).status).toBe(200);
+    const response = await dispatch(`/calendar/${mixedCase.toLowerCase()}.ics`, "GET", configured);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+  });
+
+  it("hashes and compares both values before rejecting unset or short configuration", async () => {
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    const compare = vi.spyOn(crypto.subtle, "timingSafeEqual");
+    const read = vi.spyOn(env.DB, "prepare");
+    for (const expected of [undefined, "", token.slice(0, 31)]) {
+      digest.mockClear();
+      compare.mockClear();
+      const response = await dispatch(path, "GET", { CALENDAR_FEED_TOKEN: expected });
+      expect(response.status).toBe(404);
+      expect(digest).toHaveBeenCalledTimes(2);
+      expect(compare).toHaveBeenCalledTimes(1);
+      expect(compare.mock.calls[0]!.map((buffer) => buffer.byteLength)).toEqual([32, 32]);
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("refuses padded secrets even when an encoded URL presents the same whitespace", async () => {
+    for (const expected of [`${token}\n`, `${token} `]) {
+      const response = await dispatch(`/calendar/${encodeURIComponent(expected)}.ics`, "GET", { CALENDAR_FEED_TOKEN: expected });
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe("Not found");
+    }
+  });
+
   it("limits calendar requests separately from health and returns 404 for a wrong token even while limited", async () => {
     for (let index = 0; index < 30; index += 1) expect((await dispatch()).status).toBe(200);
     const limited = await dispatch();

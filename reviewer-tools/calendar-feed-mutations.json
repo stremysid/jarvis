@@ -2,8 +2,8 @@
   {
     "name": "token-comparison",
     "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
-    "find": "if (!crypto.subtle.timingSafeEqual(actualHash!, expectedHash!))",
-    "replace": "if (false)",
+    "find": "const tokenMatches = crypto.subtle.timingSafeEqual(actualHash!, expectedHash!);",
+    "replace": "const tokenMatches = true;",
     "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
     "expect": "returns indistinguishable private 404 responses"
   },
@@ -24,12 +24,12 @@
     "expect": "returns indistinguishable private 404 responses"
   },
   {
-    "name": "unset-token",
+    "name": "hash-before-unset",
     "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
-    "find": "expected === undefined || ",
-    "replace": "",
+    "find": "  const [actualHash, expectedHash] = await Promise.all",
+    "replace": "  if (env.CALENDAR_FEED_TOKEN === undefined) return failure(404, \"Not found\");\n  const [actualHash, expectedHash] = await Promise.all",
     "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
-    "expect": "returns indistinguishable private 404 responses"
+    "expect": "hashes and compares both values before rejecting unset or short configuration"
   },
   {
     "name": "get-only",
@@ -42,7 +42,7 @@
   {
     "name": "calendar-path-shape",
     "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
-    "find": "match === null || ",
+    "find": " || match === null",
     "replace": "",
     "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
     "expect": "returns private 404 responses for malformed"
@@ -162,7 +162,7 @@
   {
     "name": "escape-linebreak",
     "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
-    "find": ".replace(/\\r\\n|\\r|\\n/gu, \"\\\\n\")",
+    "find": ".replace(/\\r\\n|[\\r\\n\\u2028\\u2029]/gu, \"\\\\n\")",
     "replace": "",
     "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
     "expect": "escapes property injection and punctuation"
@@ -170,7 +170,7 @@
   {
     "name": "strip-controls",
     "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
-    "find": ".replace(/\\p{C}/gu, \"\")",
+    "find": ".replace(/[\\p{Cc}\\p{Cs}\\p{Co}\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]/gu, \"\")",
     "replace": "",
     "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
     "expect": "strips controls including bidi overrides"
@@ -286,5 +286,101 @@
     "replace": "statuses: [\"open\", \"submitted\"]",
     "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
     "expect": "reads all planned owner tasks and university dates"
+  },
+  {
+    "name": "escape-line-separator",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "\\u2028",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "escape-paragraph-separator",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "\\u2029",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "escapes property injection and punctuation"
+  },
+  {
+    "name": "case-sensitive-token",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "encoder.encode(value)",
+    "replace": "encoder.encode(value.toLowerCase())",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "compares mixed-case credentials exactly"
+  },
+  {
+    "name": "whole-code-points",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "for (const character of line)",
+    "replace": "for (const character of line.split(\"\"))",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "keeps every physical line well formed"
+  },
+  {
+    "name": "preserve-joiners",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "/[\\p{Cc}\\p{Cs}\\p{Co}\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]/gu",
+    "replace": "/\\p{C}/gu",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "preserves joiners used by emoji"
+  },
+  {
+    "name": "hash-before-short",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "  const [actualHash, expectedHash] = await Promise.all",
+    "replace": "  if (Array.from(expected).length < 32) return failure(404, \"Not found\");\n  const [actualHash, expectedHash] = await Promise.all",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "hashes and compares both values before rejecting unset or short configuration"
+  },
+  {
+    "name": "padded-secret",
+    "file": "apps/cloud-gateway/src/http/calendar-feed-routes.ts",
+    "find": "expected !== expected.trim()",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/http/calendar-feed-routes.test.ts",
+    "expect": "refuses padded secrets even when an encoded URL"
+  },
+  {
+    "name": "all-day-exclusive-end",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": ", `DTEND;VALUE=DATE:${date(next.toISOString().slice(0, 10))}`",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "ends every all-day event exclusively"
+  },
+  {
+    "name": "next-calendar-date",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "next.getUTCDate() + 1",
+    "replace": "next.getUTCDate()",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "ends every all-day event exclusively"
+  },
+  {
+    "name": "all-day-catchup",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "allDay(action.localDate)",
+    "replace": "[`DTSTART;VALUE=DATE:${date(action.localDate)}`]",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "ends every all-day event exclusively"
+  },
+  {
+    "name": "all-day-application",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "allDay(item.dueDate)",
+    "replace": "[`DTSTART;VALUE=DATE:${date(item.dueDate)}`]",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "ends every all-day event exclusively"
+  },
+  {
+    "name": "all-day-workflow",
+    "file": "apps/cloud-gateway/src/calendar/ics-feed.ts",
+    "find": "allDay(due.date!)",
+    "replace": "[`DTSTART;VALUE=DATE:${date(due.date!)}`]",
+    "testPath": "apps/cloud-gateway/test/calendar/ics-feed.test.ts",
+    "expect": "ends every all-day event exclusively"
   }
 ]

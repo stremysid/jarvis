@@ -18,9 +18,9 @@ export async function handleCalendarFeedRequest(
   env: Pick<Env, "DB" | "CALENDAR_FEED_TOKEN" | "OWNER_PRINCIPAL_ID">,
   dependencies: { readonly clock: () => Date; readonly rateLimiter: LivenessRateLimiter },
 ): Promise<Response> {
-  const expected = env.CALENDAR_FEED_TOKEN;
+  const expected = env.CALENDAR_FEED_TOKEN ?? "";
   const match = /^\/calendar\/([^/]+)\.ics$/u.exec(new URL(request.url).pathname);
-  if (request.method !== "GET" || match === null || expected === undefined || Array.from(expected).length < 32) {
+  if (request.method !== "GET" || match === null) {
     return failure(404, "Not found");
   }
   const encodedToken = match[1]!;
@@ -31,10 +31,12 @@ export async function handleCalendarFeedRequest(
     return failure(404, "Not found");
   }
   // Fixed-length digests let the runtime compare every byte in constant time,
-  // including when the presented credential has the wrong length.
+  // including when the presented credential has the wrong length. Hash and
+  // compare even an unset or short configuration before refusing it.
   const [actualHash, expectedHash] = await Promise.all([presented, expected].map((value) =>
     crypto.subtle.digest("SHA-256", encoder.encode(value))));
-  if (!crypto.subtle.timingSafeEqual(actualHash!, expectedHash!)) {
+  const tokenMatches = crypto.subtle.timingSafeEqual(actualHash!, expectedHash!);
+  if (!tokenMatches || Array.from(expected).length < 32 || expected !== expected.trim()) {
     return failure(404, "Not found");
   }
   try {
