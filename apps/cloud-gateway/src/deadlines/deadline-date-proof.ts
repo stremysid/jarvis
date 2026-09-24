@@ -12,6 +12,9 @@ const WEEKDAY = "(?:Sunday|Sun|Monday|Mon|Tuesday|Tue|Wednesday|Wed|Thursday|Thu
 const DATE = `(?:\\d{4}-\\d{2}-\\d{2}|${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}\\.?(?:,?\\s+\\d{4})?|(?:next\\s+week(?:\\s+(?:on\\s+)?${WEEKDAY})?)|(?:(?:next|this)\\s+)?${WEEKDAY}|today|tomorrow|(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th))`;
 const CLOCK = "(?:\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\.?|\\d{1,2}:\\d{2})";
 const DATE_OR_CLOCK = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${DATE}|${CLOCK})(?=$|[^\\p{L}\\p{N}])`, "iu");
+// Sid has not chosen where late night ends. Null keeps calendar words literal
+// instead of turning an invented boundary into a clarification rule.
+const OWNER_SMALL_HOURS_END_HOUR: number | null = null;
 // The whole phrase must be one due expression. Searching the surrounding
 // message independently for a date and a clock combines different assignments.
 const DUE_PHRASE = new RegExp(`^(?:(${DATE})(?:(?:\\s+(?:at\\s+)?|T)(${CLOCK}))?|(?:tonight\\s+)?(?:at\\s+)?(${CLOCK}))$`, "iu");
@@ -41,6 +44,11 @@ function wallParts(instant: Date, zone: string): { date: string; hour: number; m
   return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour), minute: Number(parts.minute) };
 }
 
+function inOwnerSmallHours(messageAt: Date, ownerZone: string,
+  endHour: number | null = OWNER_SMALL_HOURS_END_HOUR): boolean {
+  return endHour !== null && wallParts(messageAt, ownerZone).hour < endHour;
+}
+
 function validZone(zone: string): void {
   try {
     if (!/^[A-Za-z]/u.test(zone)) throw new Error();
@@ -67,19 +75,13 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
   const [year, month, day] = anchor.split("-").map(Number) as [number, number, number];
   const weekday = new Date(`${anchor}T00:00:00Z`).getUTCDay();
   const monday = addDays(anchor, -((weekday + 6) % 7));
-  const relative = (date: string, bound = false, checkPast = false) => {
-    if (date < anchor) {
-      return reject("deadline_ambiguous_date", `The relative phrase resolves before ${anchor}. Ask Sid for the intended date.`);
-    }
-    return { date, bound, checkPast };
-  };
   if (phrase === "today" || phrase === "tomorrow") {
-    return relative(addDays(anchor, phrase === "tomorrow" ? 1 : 0), false, true);
+    return { date: addDays(anchor, phrase === "tomorrow" ? 1 : 0), bound: false, checkPast: true };
   }
   const week = /^next week(?: (?:on )?(\w+))?$/u.exec(phrase);
   if (week !== null) {
     const index = week[1] === undefined ? 6 : (WEEKDAYS.findIndex((name) => name.startsWith(week[1]!)) + 6) % 7;
-    return relative(addDays(monday, 7 + index), week[1] === undefined);
+    return { date: addDays(monday, 7 + index), bound: week[1] === undefined };
   }
   const namedDay = /^(?:(next|this) )?(\w+)$/u.exec(phrase);
   const index = WEEKDAYS.findIndex((name) => name.startsWith(namedDay?.[2] ?? "!"));
@@ -88,7 +90,7 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
     if (namedDay?.[1] === "next" || namedDay?.[1] === undefined && index === weekday) {
       return reject("deadline_ambiguous_date", `The phrase supports ${nearest} or ${addDays(nearest, 7)}. Ask Sid which date; code cannot choose between them.`);
     }
-    return relative(nearest, false, true);
+    return { date: nearest, bound: false, checkPast: true };
   }
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(phrase);
   if (iso !== null) return { date: dateKey(Number(iso[1]), Number(iso[2]), Number(iso[3])), bound: false };
@@ -99,7 +101,7 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
     for (let offset = 0; offset < 12; offset += 1) {
       const candidate = new Date(Date.UTC(year, month - 1 + offset, requested));
       if (candidate.getUTCDate() === requested && candidate.toISOString().slice(0, 10) >= anchor) {
-        return relative(candidate.toISOString().slice(0, 10));
+        return { date: candidate.toISOString().slice(0, 10), bound: false };
       }
     }
   }
@@ -113,7 +115,7 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
     const resolvedYear = explicitYear === undefined
       ? year + (dueMonth < month || dueMonth === month && dueDay < day ? 1 : 0) : Number(explicitYear);
     const date = dateKey(resolvedYear, dueMonth, dueDay);
-    return explicitYear === undefined ? relative(date) : { date, bound: false };
+    return { date, bound: false };
   }
   return reject("deadline_ambiguous_date", "The date is not one uniquely supported by this due phrase; ask which date.");
 }
@@ -144,6 +146,7 @@ export function proveDeadlineDue(input: {
   const resolved = parsed[1] === undefined ? { date: anchor, bound: false, checkPast: true } : resolveDate(parsed[1], anchor);
   const datePhrase = parsed[1]?.toLowerCase().replace(/\./gu, "").replace(/\s+/gu, " ");
   const isTonight = /^tonight\s+/iu.test(phrase);
+  const smallHours = inOwnerSmallHours(messageAt, input.ownerZone);
   const clock = (parsed[2] ?? parsed[3])?.toLowerCase().replace(/[.\s]/gu, "");
   let candidates: number[] = [];
   let note = resolved.bound ? "unconfirmed date-only bound: end of next week; the exact day was not stated"
@@ -162,14 +165,16 @@ export function proveDeadlineDue(input: {
     } else {
       candidates = wallCandidates(resolved.date, hour, minute, zone);
       if (candidates.length !== 1) note = "date-only: the clock falls in a repeated or nonexistent local hour";
-      if (datePhrase === "tomorrow" && wallCandidates(anchor, hour, minute, zone)
-        .some((candidate) => candidate >= messageAt.getTime())) {
-        return reject("deadline_ambiguous_date", `The phrase supports ${anchor} or ${resolved.date}. Ask Sid which date; code cannot choose between them.`);
-      }
       if (isTonight && morningClock) {
         return reject("deadline_ambiguous_date", `The phrase supports ${anchor} or ${addDays(anchor, 1)}. Ask Sid which date; code cannot choose between them.`);
       }
     }
+  }
+  if (smallHours && datePhrase === "today") {
+    return reject("deadline_ambiguous_date", `The phrase supports ${addDays(anchor, -1)} or ${anchor}. Ask Sid which date; code cannot choose between them.`);
+  }
+  if (smallHours && datePhrase === "tomorrow") {
+    return reject("deadline_ambiguous_date", `The phrase supports ${anchor} or ${resolved.date}. Ask Sid which date; code cannot choose between them.`);
   }
   if (resolved.checkPast && candidates.length > 0 && candidates.every((candidate) => candidate < messageAt.getTime())) {
     return reject("deadline_time_already_passed", `That clock has already passed on ${resolved.date}. Ask for the intended date; it was not rolled forward.`);

@@ -27,9 +27,7 @@ describe("deadline voice parity", () => {
   });
 
   it("records a spoken deadline with the default Toronto owner zone", async () => {
-    const messageAt = new Date("2026-09-23T20:00:00.000Z");
-    const turn = await voiceArgumentTurn(text, { ...call, arguments: call.arguments.replace("22:00", "19:00") },
-      { messageAt, processingAt: messageAt });
+    const turn = await voiceArgumentTurn(text, { ...call, arguments: call.arguments.replace("22:00", "19:00") });
     expect(turn.spoken).toContain("America/Toronto");
     expect(await rows()).toMatchObject([{ due_at: "2026-09-24T19:00:00.000Z" }]);
   });

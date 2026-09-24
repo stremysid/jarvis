@@ -3,6 +3,61 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 round 4 narrows deadline refusals
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item 1, partial pending Sid's hour: `OWNER_SMALL_HOURS_END_HOUR` is the
+single owner-local end hour and is `null`, so `today` is the current calendar
+date and `tomorrow` the next one at every hour. The prepared adjacent-date
+refusal covers clocked and date-only `today`/`tomorrow` only inside that future
+window. The all-day `tomorrow` refusal is removed; the round-3 fixture now states
+the null-window behaviour, and the round-3 date-proof/voice fixture edits are
+reverted. `tonight` with an a.m. clock remains a separate two-date ambiguity.
+OWNER-ACTIONS now asks Sid for the hour without inventing one.
+
+Review item 2: `recordDeadline` now checks only the course-to-title gap and the
+title-to-due gap. It never scans the course or title text. A date, clock or
+sentence separator in either gap refuses; comma or `and` refuses only when that
+gap also contains a word outside `is`, `was`, `will be`, `due`, `on`, `by`, `at`,
+`it's`, `the`, `um`, `uh`, `for`, `in` and the `and` connector itself. The eight
+requested acceptance strings and a filler-only `and` gap are covered. Every
+round-3 comma/`and` borrowing fixture remains present.
+
+Review item 3: removed the unreachable `relative()` non-past guard. Each relative
+date constructor already produces a non-past date; explicit historical calendar
+dates retain their separate path. Review item 4: added the direct `tonight at
+00:30` at 22:00 ambiguity case. Review item 5: no channel adapter or tool catalogue
+file was touched; only deadline source/tests and the required state/proof documents
+changed.
+
+New or renamed test names:
+
+- `accepts tomorrow at 3pm when sent at 10:00`
+- `accepts tomorrow at 11:59pm when sent at 20:00`
+- `uses the calendar date for date-only today while the small-hours window is unset`
+- `uses the calendar date for date-only tomorrow while the small-hours window is unset`
+- `asks which date tonight at 00:30 means when sent at 22:00`
+- `accepts a filler-only comma between the course and title`
+- `accepts a filler-only comma between the title and due phrase`
+- `accepts filler words around commas before the due phrase`
+- `accepts and inside an assignment title`
+- `accepts an ordinal inside an assignment title`
+- `accepts a weekday inside an assignment title`
+- `accepts punctuation inside an assignment title`
+- `accepts a comma alone between the course and title`
+- `accepts and with only filler words before the due phrase`
+- `uses the next calendar date for tomorrow while the small-hours window is unset`
+
+Available verification: the cloud-gateway source typecheck completed with zero
+diagnostics. The test typecheck still reports its 143 pre-existing diagnostics and
+none in the changed deadline files. `check-state.mjs` passed all carriers, links,
+size and BLOCKS checks with the one existing FACTS re-verification warning. The
+harness forbids pnpm and Vitest here, so the focused deadline files, affected
+folder, full gateway suite and requested mutations were not run and no behavioural
+pass is claimed. No live provider, database, migration, deployment, secret, PC or
+channel operation was performed.
+
 ## 2026-09-24 — Codex builder: #166 round 3 deadline proof corrections
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.

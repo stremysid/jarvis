@@ -98,12 +98,11 @@ describe("deadline review round three", () => {
     expect(await rows()).toEqual([]);
   });
 
-  it("asks which date tomorrow means when its clock is still ahead on the message date", () => {
-    const error = refusedProof(() => prove("tomorrow at 9am", "2026-09-24T13:00:00.000Z",
-      { messageAt: "2026-09-23T04:30:00.000Z" }));
-    expect(error).toMatchObject({ reason: "deadline_ambiguous_date" });
-    expect(error.detail).toContain("2026-09-23");
-    expect(error.detail).toContain("2026-09-24");
+  it("uses the next calendar date for tomorrow while the small-hours window is unset", () => {
+    expect(prove("tomorrow at 9am", "2026-09-24T13:00:00.000Z",
+      { messageAt: "2026-09-23T04:30:00.000Z" })).toMatchObject({
+      dueAt: "2026-09-24T13:00:00.000Z", dateOnly: false,
+    });
   });
 
   it.each([
