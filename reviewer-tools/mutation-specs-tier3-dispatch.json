@@ -1,0 +1,67 @@
+[
+  {
+    "name": "claim-before-memory-authority",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (!this.dependencies.directOwnerText) {\n        return refusedTool(call, port.memoryAuthorityRefusal);",
+    "replace": "      await this.gateTool(input, port, call);\n      if (!this.dependencies.directOwnerText) {\n        return refusedTool(call, port.memoryAuthorityRefusal);",
+    "expect": "preserves a Telegram tap when memory authority refuses dispatch",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "claim-before-reply-target",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (!await port.replyTargetsLatestAssistant(input)) {",
+    "replace": "      await this.gateTool(input, port, call);\n      if (!await port.replyTargetsLatestAssistant(input)) {",
+    "expect": "preserves a Telegram tap when reply target refuses dispatch",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "claim-before-pipeline-authority",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (this.dependencies.directPipelineText === false) {",
+    "replace": "    await this.gateTool(input, port, call);\n    if (this.dependencies.directPipelineText === false) {",
+    "expect": "preserves a Telegram tap when pipeline authority refuses dispatch",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "claim-before-pipeline-availability",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "replace": "    await this.gateTool(input, port, call);\n    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "expect": "preserves a Telegram tap after voice refuses an unsupported pipeline",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "bypass-memory-dispatch-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool(input, port, call);",
+    "replace": "      return this.memoryTool(input, port, call);",
+    "expect": "requires a tap before dispatching the tier-3 tool memory_pin",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "bypass-pipeline-dispatch-gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    const gated = await this.gateTool(input, port, call);\n    if (gated !== null) return gated;\n    return this.runPipeline(input, port, call, pipeline);",
+    "replace": "    return this.runPipeline(input, port, call, pipeline);",
+    "expect": "requires a tap before dispatching the tier-3 tool school_update",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "hardcoded-expiry-receipt",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+        "find": "export const CONFIRMATION_TTL_MS = 10 * 60_000;",
+        "replace": "export const CONFIRMATION_TTL_MS = 20 * 60_000;"
+      },
+      {
+        "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+        "find": "valid once for ${CONFIRMATION_TTL_MS / 60_000} minutes",
+        "replace": "valid once for 10 minutes"
+      }
+    ],
+    "expect": "describes tap expiry using the configured confirmation lifetime",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  }
+]
