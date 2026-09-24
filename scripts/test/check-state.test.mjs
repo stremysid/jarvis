@@ -330,13 +330,56 @@ for (const [name, line] of revisionForms) {
 }
 
 test('exempts only the marked run tokens and URL tokens on a revision line', () => {
-  for (const token of ['run 35532044202', 'run id `35532044202`', 'runs/35532044202', '#35532044202', 'https://example.invalid/a666097']) {
+  for (const token of ['run 35532044202', 'run id `35532044202`', 'run: 35532044202', 'runs/35532044202', '#35532044202', 'https://github.com/stremysid/jarvis/actions/runs/35532044202']) {
     const result = run({ 'docs/STATE.md': state + `origin/main: ${token}\n` });
     assert.equal(result.status, 0, result.output);
     const withRevision = run({ 'docs/STATE.md': state + `origin/main: ${token}; actual revision (a666097)\n` });
     assert.equal(withRevision.status, 1, withRevision.output);
     assert.match(withRevision.output, /literal sha/);
+    // A hex-letter revision also fails the decimal guard, so only a later
+    // unmarked decimal revision proves that the run marker stays local.
+    const withDecimalRevision = run({ 'docs/STATE.md': state + `origin/main: ${token}; actual revision (35532044204)\n` });
+    assert.equal(withDecimalRevision.status, 1, withDecimalRevision.output);
+    assert.match(withDecimalRevision.output, /literal sha/);
   }
+});
+
+const nonRunRevisions = [
+  ['rejects a commit URL naming the origin main revision', 'origin/main is at https://github.com/stremysid/jarvis/commit/a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d'],
+  ['rejects a tree link naming the origin main revision', '`origin/main` → [head](https://github.com/stremysid/jarvis/tree/a666097)'],
+  ['rejects a hexadecimal revision after a hash marker', 'origin/main is #a666097'],
+  ['rejects a hexadecimal revision after a run marker', 'origin/main run a666097'],
+  ['rejects a hexadecimal revision in an arbitrary URL', 'origin/main https://example.invalid/a666097'],
+  ['rejects a hexadecimal revision in an actions run URL', 'origin/main https://github.com/stremysid/jarvis/actions/runs/a666097'],
+  ['rejects a decimal revision in a commit URL', 'origin/main https://github.com/stremysid/jarvis/commit/35532044202'],
+  ['rejects a decimal revision in a tree URL', 'origin/main https://github.com/stremysid/jarvis/tree/35532044202'],
+  ['rejects a decimal revision in a blob URL', 'origin/main https://github.com/stremysid/jarvis/blob/35532044202/file.md'],
+  ['rejects a decimal token in a URL with a nonactions runs path', 'origin/main https://example.invalid/runs/35532044202'],
+  ['rejects a run path appearing only in a URL query', 'origin/main https://example.invalid/?next=/actions/runs/35532044202'],
+  ['rejects a run path appearing only in a URL fragment', 'origin/main https://example.invalid/#/actions/runs/35532044202'],
+  ['rejects a decimal token outside the immediate actions run segment', 'origin/main https://example.invalid/actions/runs/earlier/35532044202'],
+];
+for (const [name, line] of nonRunRevisions) {
+  test(name, () => {
+    const result = run({ 'docs/STATE.md': state + line + '\n' });
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /literal sha/);
+  });
+}
+
+test('allows a decimal actions run URL beside origin main', () => {
+  const result = run({ 'docs/STATE.md': state + 'origin/main https://github.com/stremysid/jarvis/actions/runs/35532044202\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('keeps marked decimal runs outside a URL separate from its path', () => {
+  const result = run({ 'docs/STATE.md': state + 'origin/main run 35532044201 https://github.com/stremysid/jarvis/actions/runs/35532044202 run 35532044203\n' });
+  assert.equal(result.status, 0, result.output);
+});
+
+test('does not mistake an uppercase word for a lowercase Git revision', () => {
+  const result = run({ 'docs/STATE.md': state + 'origin/main: DEFACED nothing\n' });
+  assert.equal(result.status, 0, result.output);
 });
 
 test('permits a revision on a line without origin main', () => {

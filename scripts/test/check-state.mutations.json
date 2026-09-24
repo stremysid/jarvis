@@ -607,38 +607,104 @@
   },
   {
     "name": "marked-run-token",
-    "find": "    if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) continue;",
-    "replace": "",
+    "find": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))",
+    "replace": "false",
     "test": "exempts only the marked run tokens and URL tokens on a revision line"
   },
   {
     "name": "run-exemption-not-line",
-    "find": "    if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) continue;",
-    "replace": "    if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) return false;",
+    "find": "else if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) continue;",
+    "replace": "else if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) return false;",
     "test": "exempts only the marked run tokens and URL tokens on a revision line"
   },
   {
     "name": "run-marker-boundary",
-    "find": "    if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) continue;",
-    "replace": "    if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*/iu.test(line.slice(0, word.index))) continue;",
+    "find": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))",
+    "replace": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*/iu.test(line.slice(0, word.index))",
     "test": "exempts only the marked run tokens and URL tokens on a revision line"
   },
   {
     "name": "url-token",
-    "find": "    if (urls.some((url) => word.index >= url.index && word.index < url.index + url[0].length)) continue;",
-    "replace": "",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "false",
     "test": "exempts only the marked run tokens and URL tokens on a revision line"
   },
   {
     "name": "url-exemption-not-line",
-    "find": "    if (urls.some((url) => word.index >= url.index && word.index < url.index + url[0].length)) continue;",
-    "replace": "    if (urls.some((url) => word.index >= url.index && word.index < url.index + url[0].length)) return false;",
+    "find": "if (/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))) continue;",
+    "replace": "if (/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))) return false;",
     "test": "exempts only the marked run tokens and URL tokens on a revision line"
   },
   {
     "name": "sha-word-scan",
-    "find": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/giu)) {",
+    "find": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/gu)) {",
     "replace": "  for (const word of line.matchAll(/NEVER_A_HEX_WORD/gu)) {",
     "test": "rejects a parenthesized revision after origin main"
+  },
+  {
+    "name": "decimal-run-marker",
+    "find": "/^[0-9]+$/u.test(word[0])",
+    "replace": "/^[0-9a-f]+$/u.test(word[0])",
+    "test": "rejects a hexadecimal revision after a hash marker"
+  },
+  {
+    "name": "decimal-run-url",
+    "find": "/^[0-9]+$/u.test(word[0])",
+    "replace": "/^[0-9a-f]+$/u.test(word[0])",
+    "test": "rejects a hexadecimal revision in an actions run URL"
+  },
+  {
+    "name": "lowercase-sha",
+    "find": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/gu)) {",
+    "replace": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/giu)) {",
+    "test": "does not mistake an uppercase word for a lowercase Git revision"
+  },
+  {
+    "name": "url-start-boundary",
+    "find": "word.index >= url.index && word.index < url.index + url[0].length",
+    "replace": "word.index < url.index + url[0].length",
+    "test": "keeps marked decimal runs outside a URL separate from its path"
+  },
+  {
+    "name": "url-end-boundary",
+    "find": "word.index >= url.index && word.index < url.index + url[0].length",
+    "replace": "word.index >= url.index",
+    "test": "keeps marked decimal runs outside a URL separate from its path"
+  },
+  {
+    "name": "url-marker-isolation",
+    "find": "if (url) {",
+    "replace": "if (false) {",
+    "test": "rejects a decimal token in a URL with a nonactions runs path"
+  },
+  {
+    "name": "actions-run-path",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a decimal token in a URL with a nonactions runs path"
+  },
+  {
+    "name": "run-url-query",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a run path appearing only in a URL query"
+  },
+  {
+    "name": "run-url-fragment",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a run path appearing only in a URL fragment"
+  },
+  {
+    "name": "immediate-run-segment",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\//iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a decimal token outside the immediate actions run segment"
+  },
+  {
+    "name": "numeric-commit-url",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "true",
+    "test": "rejects a decimal revision in a commit URL"
   }
 ]

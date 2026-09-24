@@ -244,9 +244,15 @@ function checkLinks(file, text) {
 function namesRevision(line) {
   if (!line.includes('origin/main')) return false;
   const urls = [...line.matchAll(/(?:\b[a-z][a-z0-9+.-]*:\/\/|\/\/)[^\s<>`]+/giu)];
-  for (const word of line.matchAll(/\b[0-9a-f]{7,40}\b/giu)) {
-    if (/(?:\brun(?:\s+id)?(?:\s+|:\s*)|\bruns\/|#)[\s`*_]*$/iu.test(line.slice(0, word.index))) continue;
-    if (urls.some((url) => word.index >= url.index && word.index < url.index + url[0].length)) continue;
+  for (const word of line.matchAll(/\b[0-9a-f]{7,40}\b/gu)) {
+    if (/^[0-9]+$/u.test(word[0])) {
+      const url = urls.find((url) => word.index >= url.index && word.index < url.index + url[0].length);
+      if (url) {
+        // Only the immediate actions run path identifies a URL token as a run.
+        // A generic URL, query or fragment could otherwise conceal a revision.
+        if (/^(?:[a-z][a-z0-9+.-]*:)?\/\/[^/?#]+\/(?:[^?#]*\/)?actions\/runs\/$/iu.test(url[0].slice(0, word.index - url.index))) continue;
+      } else if (/(?:\brun(?:\s+id)?(?:\s+|:\s*)|\bruns\/|#)[\s`*_]*$/iu.test(line.slice(0, word.index))) continue;
+    }
     return true;
   }
   return false;
@@ -270,8 +276,8 @@ for (const file of [...CARRIERS, FACTS]) {
 
   if (file === 'docs/STATE.md') {
     if (lines.length > STATE_LINE_BUDGET) failures.push(`${file}: ${lines.length} lines, budget is ${STATE_LINE_BUDGET}. State that does not fit is not state.`);
-    // Keep main's whole-line rule. Exempt the individual run/URL token, never
-    // the line: a run ID must not launder a revision beside it.
+    // Keep main's lowercase, whole-line rule. Only a marked decimal run ID is
+    // exempt: neither a run label nor a URL must hide a revision beside it.
     visibleLines.forEach((line, index) => {
       if (namesRevision(line)) {
         failures.push(`${file}:${index + 1}: names origin/main and a literal sha. Query it instead.`);
