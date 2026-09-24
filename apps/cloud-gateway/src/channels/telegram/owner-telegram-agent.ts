@@ -23,6 +23,7 @@ import {
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../../agent/owner-argument-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../../providers/provider-types.js";
 import { SCHOOL_COLLECTOR_TOOLS } from "../../school/collector-tools.js";
@@ -54,11 +55,12 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
+  ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",
-    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work.",
+    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline, a missed deadline or an explicit submission; finished alone does not mean submitted.",
     parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
@@ -83,6 +85,7 @@ export interface OwnerTelegramAgentDependencies {
   /** Main's broader school/study authority: direct text in a private non-bot chat. */
   readonly directPipelineText?: boolean;
   readonly authorityText: string;
+  readonly timeZone?: string;
   /** Telegram's durable pointer when Sid swipes on one of Jarvis's messages. */
   readonly replyToBotMessageId?: number | null;
   readonly targets: TelegramMemoryTargetFinder;
@@ -147,7 +150,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: "",
+      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
       toolDefinitions: OWNER_TELEGRAM_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -193,6 +196,9 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         if (call.name === "study_coach") return adapter.telegram.studyCoachModel;
         return null;
       },
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
+        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto",
+        () => readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,

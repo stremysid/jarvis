@@ -33,6 +33,7 @@ import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
 import { SCHOOL_COLLECTOR_TOOLS } from "../../src/school/collector-tools.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { GUIDED_ASSIGNMENT_PROMPT, GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../src/school/guided-assignment-tools.js";
 import { OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import {
@@ -2416,7 +2417,7 @@ describe("CallSession production composition", () => {
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
   });
 
-  it("gives an owner's call the memory and guided assignment tools through the production voice adapter", async () => {
+  it("gives an owner's call memory, shared argument, guided assignment and school collector tools in the configured owner zone", async () => {
     // The fixture above answers both a streaming and an agent request, so every
     // other test in this block passes whether `createProductionCallSessionCore`
     // composes `OwnerVoiceAgentAdapter` or a bare `DeepSeekModelAdapter`. This
@@ -2424,7 +2425,7 @@ describe("CallSession production composition", () => {
     // no voice prompt, and a call silently goes back to talking without acting.
     await seedActiveVoiceIdentity();
     const stored = await createInboundSession(repository());
-    const call = await runtime(stored);
+    const call = await runtime(stored, { ...configuration(), DIGEST_TIMEZONE: "America/Vancouver" });
     await call.setup();
     await call.prompt("What do you remember about my exams?");
 
@@ -2433,10 +2434,11 @@ describe("CallSession production composition", () => {
     expect(body).toMatchObject({ stream: true, tool_choice: "auto" });
     expect(body).not.toHaveProperty("response_format");
     expect((body.tools as { function: { name: string } }[]).map((tool) => tool.function.name))
-      .toEqual([...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS].map((tool) => tool.name));
+      .toEqual([...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS].map((tool) => tool.name));
     const [system] = body.messages as { role: string; content: string }[];
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(system?.content).toContain("Owner time zone: America/Vancouver");
     expect(system?.content).toContain("Return plain spoken text, with no JSON envelope.");
     expect(system?.content).toContain("[[claim");
     expect(system?.content).toContain('"toolName":"the_proving_tool_name"');

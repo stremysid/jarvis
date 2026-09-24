@@ -195,15 +195,19 @@ export interface DeadlineUpsertInput {
   readonly dueAt: string;
   readonly effort: DeadlineEffort;
   readonly leadMinutes: number;
+  /** Omission preserves the stored status, including a prior submission. */
+  readonly status?: DeadlineStatus;
+  /** Owner tools may retag unchanged content; collector sweeps preserve a prior retag. */
+  readonly replaceEffortAndLead?: boolean;
   readonly now: Date;
 }
 
-export type DeadlineUpsertOutcome = "created" | "revised" | "unchanged";
+export type DeadlineUpsertOutcome = "created" | "revised" | "updated" | "unchanged";
 
 export interface DeadlineUpsertResult {
   readonly outcome: DeadlineUpsertOutcome;
   readonly deadline: Deadline;
-  /** The revision appended by this call, or null when nothing changed. */
+  /** Metadata changes do not append a content revision. */
   readonly revisionId: string | null;
   /** What the row said before, present only on `revised`. It is how a caller reports that a date moved. */
   readonly previous: Readonly<{ dueAt: string; title: string; course: string }> | null;
@@ -372,6 +376,8 @@ export class DeadlineRepository {
    * the same title tomorrow, computes the same hash, and does not reach the
    * branch that would overwrite him. When the teacher actually edits the item,
    * the tag we derived from the old text is stale anyway and is re-derived.
+   * An explicit owner status also replaces effort on unchanged content, so a
+   * spoken submission or retag cannot be swallowed by the polling fast path.
    *
    * `reminded_at` is cleared only when the due date itself moved. A corrected
    * typo in a title is not a reason to remind him again; a date that moved is
@@ -385,28 +391,32 @@ export class DeadlineRepository {
     const dueAt = requireInstant(input.dueAt, "deadline_due_at");
     const effort = requireEffort(input.effort);
     const leadMinutes = requireLeadMinutes(input.leadMinutes);
+    const status = input.status === undefined ? null : requireStatus(input.status);
+    const replaceEffortAndLead = input.replaceEffortAndLead === true || status !== null;
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
-    // The common hourly path is one statement per unchanged item. Reading
-    // first and then touching last_seen_at tripled the D1 cost of a steady
-    // school feed before the caller even computed disappearances.
-    const unchanged = await this.#database.prepare(
-      `UPDATE deadlines
-       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
-       WHERE source_id = ? AND external_id = ? AND content_hash = ?
-       RETURNING *`,
-    ).bind(observedAt, observedAt, sourceId, externalId, contentHash).first<DeadlineRow>();
-    if (unchanged !== null) {
-      return Object.freeze({
-        outcome: "unchanged" as const,
-        deadline: toDeadline(unchanged),
-        revisionId: null,
-        previous: null,
-      });
-    }
-
     for (let attempt = 0; attempt < UPSERT_ATTEMPTS; attempt += 1) {
+      // The common hourly path is one statement per unchanged item. Reading
+      // first and then touching last_seen_at tripled the D1 cost of a steady
+      // school feed before the caller even computed disappearances.
+      const unchanged = await this.#database.prepare(
+        `UPDATE deadlines
+         SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
+             status = coalesce(?, status)
+         WHERE source_id = ? AND external_id = ? AND content_hash = ?
+           AND (? IS NULL OR status = ?) AND (? = 0 OR (effort = ? AND lead_minutes = ?))
+         RETURNING *`,
+      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status, replaceEffortAndLead ? 1 : 0, effort, leadMinutes).first<DeadlineRow>();
+      if (unchanged !== null) {
+        return Object.freeze({
+          outcome: "unchanged" as const,
+          deadline: toDeadline(unchanged),
+          revisionId: null,
+          previous: null,
+        });
+      }
+
       const existing = await this.#readRow(sourceId, externalId);
 
       if (existing === null) {
@@ -417,11 +427,11 @@ export class DeadlineRepository {
             `INSERT INTO deadlines (
                deadline_id, source_id, external_id, course, title, due_at, effort, lead_minutes,
                status, content_hash, first_seen_at, last_seen_at, reminded_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, coalesce(?, 'open'), ?, ?, ?, NULL)
              ON CONFLICT (source_id, external_id) DO NOTHING`,
           ).bind(
             deadlineId, sourceId, externalId, course, title, dueAt, effort, leadMinutes,
-            contentHash, observedAt, observedAt,
+            status, contentHash, observedAt, observedAt,
           ),
           // Guarded on the insert above having landed. Without the guard a lost
           // race would leave this pointing at a deadline_id that does not
@@ -446,12 +456,17 @@ export class DeadlineRepository {
       }
 
       if (existing.content_hash === contentHash) {
-        return Object.freeze({
-          outcome: "unchanged" as const,
-          deadline: toDeadline(existing),
-          revisionId: null,
-          previous: null,
-        });
+        // A metadata update must be receipted as an update without inventing a
+        // due-date revision. Compare the read row so a racing edit is retried.
+        const updated = await this.#database.prepare(`UPDATE deadlines
+          SET status = coalesce(?, status),
+              effort = CASE WHEN ? THEN ? ELSE effort END,
+              lead_minutes = CASE WHEN ? THEN ? ELSE lead_minutes END, last_seen_at = max(last_seen_at, ?)
+          WHERE deadline_id = ? AND content_hash = ?
+          RETURNING *`).bind(status, replaceEffortAndLead ? 1 : 0, effort, replaceEffortAndLead ? 1 : 0, leadMinutes, observedAt, existing.deadline_id,
+          contentHash).first<DeadlineRow>();
+        if (updated === null) continue;
+        return Object.freeze({ outcome: "updated" as const, deadline: toDeadline(updated), revisionId: null, previous: null });
       }
 
       const revisionId = newUlid();
@@ -461,11 +476,11 @@ export class DeadlineRepository {
         // incoming one.
         this.#database.prepare(
           `UPDATE deadlines
-           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, content_hash = ?, last_seen_at = ?,
+           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, content_hash = ?, last_seen_at = ?, status = coalesce(?, status),
                reminded_at = CASE WHEN due_at = ? THEN reminded_at ELSE NULL END
            WHERE deadline_id = ? AND content_hash = ?`,
         ).bind(
-          course, title, dueAt, effort, leadMinutes, contentHash, observedAt,
+          course, title, dueAt, effort, leadMinutes, contentHash, observedAt, status,
           dueAt, existing.deadline_id, existing.content_hash,
         ),
         // Guarded on the new hash being what the row now holds, so a concurrent
