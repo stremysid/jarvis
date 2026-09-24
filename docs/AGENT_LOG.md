@@ -3,6 +3,47 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: two-host collector draft, receiver contract blocked
+
+Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`, based on
+the latest #163 head `ad17cc2efbd35e4e062cf5751b82f2b12408df40`. Sid explicitly
+authorised this collector round and the existing external Markdown ledger.
+
+The extension now has two-host GET reads, enrollment pagination and active-course
+filtering, tool refusals, cached folder traversal, hourly/startup sync, an isolated
+tab fallback and LDSB-first Durham federation using the locally entered hop.
+Its popup carries course names/status only. It has non-extractable Ed25519 key
+generation, IndexedDB persistence, pairing/proof, canonical signed course batches,
+bounded failure batches and a durable retry queue with fresh nonces. No academic
+judgment or inferred submission status is made by the extension.
+
+**Not load-ready.** #169 is still at `5abba944d76c92616b65255b6823435d44780d47`.
+Its host and route allowlists reject Durham/news/quizzes; its myItems mapper expects
+an array instead of the observed Objects envelope. Course projection identities
+omit host and no first-run host-only failure envelope exists. The literal gateway
+origin is absent from public checked-in config and remains unset, with a deliberate
+failing readiness test. Both questions were sent to Sid; no endpoint or wire contract
+was guessed. [Exact findings and receiver paths](research/2026-09-23-d2l-collector-contract-gaps.md).
+
+The independent owner probe, not this builder, supplied the account shapes. Older
+module-date assumptions are not applied to current courses. Official version docs
+confirm SupportedVersions contains strings. The real run still must establish Opera
+GX background access, CryptoKey persistence, Durham recovery and ingestion through
+the updated receiver. No browser/D2L access, live pairing, migration, production,
+secret, permission, registry or service operation occurred. No sync-builder file
+was touched. The requested PC incident file remains absent.
+
+Final full extension suite: **36 pass / 1 fail / 0 skip** out of 37. The one
+failure is the unset gateway readiness test, not a flaky test. Full mutations:
+**101 killed / 0 unconfirmed / 0 NOT APPLIED**, each named baseline/restoration
+1/0/0 and two faulted 0/1/0 runs. State gate: **3 carriers pass**. Runtime syntax:
+**10 pass / 0 fail**. Runbook: **2 PowerShell blocks, 0 parse errors**, not executed.
+[Full evidence](research/2026-09-23-d2l-collector-test-evidence.md) records the
+six initially unconfirmed mutations and their successful assertion fixes.
+The old owner probe request is replaced with one collector-load/pair row,
+gated on independent review and the receiver blockers; no duplicate probe request.
+Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-probe-run.md`.
+
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
 Limited to Sid's post-review requests: literal LDSB host assertions for every

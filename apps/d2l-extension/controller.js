@@ -1,54 +1,82 @@
-(() => {
-  function createController(api, fetchImpl) {
-    const probe = globalThis.D2LProbe;
-    let active = false;
-    const tabs = () => api.tabs.query({ url: probe.MATCH });
+import { collectHost, HOSTS } from "./collector.js";
+import { sessions, validateHop } from "./sessions.js";
+import { delivery } from "./delivery.js";
 
-    async function run() {
-      if (active) return;
-      active = true;
-      let context;
-      let report;
-      try {
-        const openTabs = await tabs();
-        context = openTabs.length === 0 ? "background" : "content";
-        const target = openTabs.find((tab) => tab.active) ?? openTabs[0];
-        report = { state: "incomplete", rows: [] };
-        const save = async () => { await api.storage.session.set({ [context]: report }); };
-        await save();
-        const readRoute = async (route, args) => {
-          if (context === "content") {
-            return await api.tabs.sendMessage(target.id, { type: "D2L_READ", route, args }, { frameId: 0 });
-          }
-          if ((await tabs()).length !== 0) throw new Error("context-changed");
-          const result = await probe.read(route, args, fetchImpl);
-          if ((await tabs()).length !== 0) throw new Error("context-changed");
-          return result;
-        };
-        report.state = await probe.collect(readRoute, async (row) => {
-          report.rows.push(row);
-          await save();
-        });
-        await save();
-      } catch {
-        if (!report) throw new Error("probe-unavailable");
-        report.state = "interrupted: retry with D2L tabs closed, or refresh the open D2L tab";
-        await api.storage.session.set({ [context]: report });
-      } finally {
-        active = false;
-      }
-    }
-
-    function onMessage(message, sender, reply) {
-      if (sender.id !== api.runtime.id || sender.url !== api.runtime.getURL("popup.html")) return false;
-      if (message?.type !== "RUN_PROBE") return false;
-      void (async () => {
-        try { await run(); reply({ done: true }); }
-        catch { reply({ done: false }); }
-      })();
-      return true;
-    }
-    return { run, onMessage };
+export function controller({ api, store, clock = () => new Date().toISOString(), makeId = () => crypto.randomUUID(), fetchImpl, send, sleep, now }) {
+  let busy = false;
+  const push = delivery({ store, clock, send });
+  async function publish(status) {
+    await store.set("status", status);
+    await api.storage.local.set({ status });
   }
-  globalThis.D2LController = { createController };
-})();
+  async function run(backgroundOnly = false) {
+    if (busy) return;
+    busy = true;
+    let status = { running: true, error: null };
+    try {
+      status = { ...(await store.get("status") ?? {}), ...status };
+      await publish(status);
+      const settings = await store.get("settings") ?? {};
+      const session = sessions({ api, fetchImpl, hop: settings.hop, sleep, now });
+      const hosts = [];
+      for (const host of HOSTS) {
+        if (backgroundOnly) {
+          const result = await session.request(host, "enrollments", {}, true);
+          hosts.push({ host, status: result.status, error: result.error ?? (result.complete ? null : "refused") });
+          continue;
+        }
+        const summary = await collectHost({ host, request: session.request, store, emit: push.enqueue, clock, readId: makeId() });
+        const lastGood = summary.lastGoodRead ?? await store.get(`lastGood:${host}`) ?? null;
+        await store.set(`lastGood:${host}`, lastGood);
+        hosts.push({ ...summary, lastGoodRead: lastGood, context: session.contexts[host] });
+        status = { ...status, hosts };
+        await publish(status);
+      }
+      if (backgroundOnly) status.backgroundTest = { at: clock(), hosts };
+      else {
+        try { status.pairing = await push.status(); }
+        catch { status.pairing = { status: "unavailable-or-refused" }; }
+        status.delivery = await push.flush();
+      }
+    } catch { status.error = "collector-interrupted-or-storage-unavailable"; }
+    finally {
+      busy = false;
+      await publish({ ...status, running: false });
+    }
+  }
+  async function setup(message) {
+    if (busy) throw new Error("collector-busy");
+    busy = true;
+    try {
+      await store.set("settings", { hop: validateHop(message.hop) });
+      const pairing = await push.pair(message.deviceLabel);
+      await publish({ ...(await store.get("status") ?? {}), pairing });
+    } finally { busy = false; }
+  }
+  async function pollPairing() {
+    if (busy) return;
+    busy = true;
+    try {
+      await push.prove().catch(() => {});
+      let pairing;
+      try { pairing = await push.status(); }
+      catch { pairing = { status: "unavailable-or-refused" }; }
+      const receipt = await push.flush();
+      await publish({ ...(await store.get("status") ?? {}), pairing, delivery: receipt });
+    } finally { busy = false; }
+  }
+  function onMessage(message, sender, reply) {
+    // A content script cannot control pairing, retrieve the queue, or start reads.
+    if (sender.id !== api.runtime.id || sender.tab !== undefined || sender.url !== api.runtime.getURL("popup.html")) return false;
+    if (message?.type === "SYNC" || message?.type === "BACKGROUND_TEST") {
+      void run(message.type === "BACKGROUND_TEST");
+      reply({ accepted: true });
+      return false;
+    }
+    const action = message?.type === "SETUP" ? () => setup(message) : message?.type === "PAIRING_STATUS" ? pollPairing : null;
+    if (!action) return false;
+    void action().then(() => reply({ ok: true }), () => reply({ ok: false }));
+    return true;
+  }
+  return { run, onMessage, setup, pollPairing };
+}

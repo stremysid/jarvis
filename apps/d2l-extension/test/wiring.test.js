@@ -1,230 +1,111 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, existsSync } from "node:fs";
 import vm from "node:vm";
-import { existsSync, readdirSync } from "node:fs";
-import { load, plain, json, root, source, fakeApi, enrollment } from "./helpers.js";
+import { controller } from "../controller.js";
+import { format } from "../popup.js";
+import { GATEWAY } from "../protocol.js";
+import { database } from "../database.js";
+import { source, root, fakeApi, memory, versions, page, json, clock, D2L } from "./fixtures.js";
 
-test("It grants only the LDSB host and storage in Manifest V3.", () => {
+test("It grants only the two literal D2L hosts, the pinned gateway, alarms, and storage.", () => {
+  assert.match(GATEWAY, /^https:\/\/[^/]+$/);
   const manifest = JSON.parse(source("manifest.json"));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ["storage"]);
-  assert.deepEqual(manifest.host_permissions, ["https://ldsb.elearningontario.ca/*"]);
-  assert.deepEqual(manifest.content_scripts[0].matches, manifest.host_permissions);
-  assert.equal(manifest.content_scripts[0].all_frames, false);
-  assert.equal(manifest.content_scripts[0].world, "ISOLATED");
-  assert.equal(manifest.optional_permissions, undefined);
-  assert.equal(manifest.optional_host_permissions, undefined);
-  assert.equal(manifest.externally_connectable, undefined);
-  assert.equal(manifest.web_accessible_resources, undefined);
-  assert.match(manifest.content_security_policy.extension_pages, /connect-src https:\/\/ldsb\.elearningontario\.ca$/);
-  for (const file of [manifest.background.service_worker, manifest.action.default_popup, ...manifest.content_scripts[0].js]) {
-    assert.ok(existsSync(new URL(file, root)), file);
-  }
+  assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
+  assert.deepEqual(manifest.host_permissions, ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*", `${GATEWAY}/*`]);
+  assert.deepEqual(manifest.content_scripts[0].matches, ["https://ldsb.elearningontario.ca/*", "https://durham.elearningontario.ca/*"]);
+  assert.equal(manifest.content_scripts[0].all_frames, false); assert.equal(manifest.content_scripts[0].world, "ISOLATED");
+  assert.equal(manifest.background.type, "module");
+  for (const key of ["optional_permissions", "optional_host_permissions", "externally_connectable", "web_accessible_resources"]) assert.equal(manifest[key], undefined);
+  assert.equal(manifest.content_security_policy.extension_pages, `script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca https://durham.elearningontario.ca ${GATEWAY}`);
+  for (const file of [manifest.background.service_worker, manifest.action.default_popup, ...manifest.content_scripts[0].js]) assert.ok(existsSync(new URL(file, root)));
 });
-
-test("It contains no cookie, DOM scraping, alternate network or dynamic execution path.", () => {
-  for (const file of ["probe.js", "controller.js", "worker.js", "content.js"]) {
-    assert.doesNotMatch(source(file), /document\.|innerHTML|localStorage|\.cookies|XMLHttpRequest|WebSocket|sendBeacon|eval\(|new Function|console\./);
-  }
-  assert.doesNotMatch(source("popup.js"), /innerHTML|console\./);
-});
-
-test("It permits only the probe read fetch call across every runtime script and popup asset.", () => {
-  const runtimeFiles = readdirSync(root).filter((file) => /\.(?:[cm]?js|html|css)$/.test(file));
-  assert.ok(runtimeFiles.includes("popup.js") && runtimeFiles.includes("popup.html"));
-  const callSites = [];
-  for (const file of runtimeFiles) {
+test("It allows one D2L read call site and one gateway push call site across every runtime asset.", () => {
+  const files = readdirSync(root).filter((file) => /\.(?:[cm]?js|html|css)$/.test(file));
+  const calls = [];
+  assert.ok(files.includes("popup.html") && files.includes("popup.js"));
+  for (const file of files) {
     let text = source(file);
-    // The transport and its worker injector bind fetch without making a request.
-    // Removing only these exact expressions leaves any added API use visible.
-    if (file === "probe.js" || file === "worker.js") {
-      text = text.replace("globalThis.fetch.bind(globalThis)", "BOUND_TRANSPORT");
-    }
-    for (const match of text.matchAll(/\b(?:fetch|fetchImpl)\s*\(/g)) callSites.push({ file, call: match[0] });
+    if (["probe.js", "protocol.js"].includes(file)) text = text.replace("globalThis.fetch.bind(globalThis)", "BOUND_TRANSPORT");
+    for (const match of text.matchAll(/\b(?:fetch|fetchImpl)\s*\(/g)) calls.push({ file, call: match[0] });
     if (file === "probe.js") text = text.replace("response = await fetchImpl(url, {", "response = await ALLOWED_READ(url, {");
-    if (file === "worker.js") text = text.replace('importScripts("probe.js", "controller.js");', "");
-    assert.doesNotMatch(text,
-      /\bfetch\b|\bfetchImpl\s*\(|\b(?:XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b|\bimportScripts\s*\(/,
-      file);
+    if (file === "protocol.js") text = text.replace("const response = await fetchImpl(`${GATEWAY}${path}`, {", "const response = await ALLOWED_PUSH(`${GATEWAY}${path}`, {");
+    assert.doesNotMatch(text, /\bfetch\b|\bfetchImpl\s*\(|\b(?:XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b|importScripts\s*\(|\bimport\s*(?:\(|[^;]*from\s*)["']https?:/);
+    assert.doesNotMatch(text, /\.cookies\b|document\.cookie|\beval\s*\(|new Function|innerHTML|console\./);
+    if (file !== "popup.js") assert.doesNotMatch(text, /document\.|querySelector|\.innerText|\.textContent/);
   }
-  assert.deepEqual(callSites, [{ file: "probe.js", call: "fetchImpl(" }]);
+  assert.deepEqual(calls, [{ file: "probe.js", call: "fetchImpl(" }, { file: "protocol.js", call: "fetchImpl(" }]);
 });
-
-test("It runs background reads only with no D2L tabs and persists shapes rather than bodies.", async () => {
-  const { api, state, calls } = fakeApi();
-  const context = load();
-  let fetchCalls = 0;
-  await context.D2LController.createController(api, async (url) => {
-    fetchCalls += 1;
-    return json(url.includes("myenrollments") ? { Items: [] } : [{ Name: "SYNTHETIC_PRIVATE_BODY" }]);
-  }).run();
-  assert.equal(fetchCalls, 2);
-  assert.equal(state.background.state, "finished");
-  assert.equal(state.content, undefined);
-  assert.equal(state.background.rows.length, 2);
-  assert.ok(calls.every(([type, query]) => type === "query" && query.url === context.D2LProbe.MATCH));
-  assert.doesNotMatch(JSON.stringify(state), /SYNTHETIC_PRIVATE|"body"/);
+test("It rejects control messages from content scripts and from non-popup extension pages.", () => {
+  const f = fakeApi(); const app = controller({ ...f, store: memory() });
+  const sender = { id: f.api.runtime.id, url: f.api.runtime.getURL("popup.html") };
+  for (const altered of [{ ...sender, id: "foreign" }, { ...sender, tab: { id: 1 } }, { ...sender, url: "https://ldsb.elearningontario.ca" }, { ...sender, url: f.api.runtime.getURL("other.html") }]) {
+    assert.equal(app.onMessage({ type: "SETUP" }, altered, () => assert.fail("No reply")), false);
+  }
+  assert.equal(app.onMessage({ type: "unknown" }, sender, () => assert.fail("No reply")), false);
 });
-
-test("It runs open-tab requests through the content script and retains the background comparison.", async () => {
-  const { api, state, calls } = fakeApi([{ id: 11, active: false }, { id: 22, active: true }]);
-  state.background = { state: "finished", rows: [] };
-  const context = load();
-  await context.D2LController.createController(api, async () => { assert.fail("Background fetch must not run with a D2L tab open."); }).run();
-  assert.equal(state.content.state, "finished");
-  assert.equal(state.background.state, "finished");
-  const messages = calls.filter(([type]) => type === "message");
-  assert.equal(messages.length, 2);
-  assert.ok(messages.every(([, id, message, options]) => id === 22 && message.type === "D2L_READ" && options.frameId === 0));
+test("It restricts content reads to worker messages for the current D2L origin.", async () => {
+  let listener; let calls = 0;
+  const sandbox = vm.createContext({ chrome: { runtime: { id: "own", onMessage: { addListener: (fn) => { listener = fn; } } } },
+    location: { origin: D2L.HOSTS[0] }, D2L: { read: async () => { calls += 1; return { status: 200 }; }, failed: D2L.failed } });
+  vm.runInContext(source("content.js"), sandbox);
+  const message = { type: "D2L_READ", host: D2L.HOSTS[0], route: "versions", args: {} };
+  for (const [value, sender] of [[message, { id: "foreign" }], [message, { id: "own", tab: {} }], [{ ...message, host: D2L.HOSTS[1] }, { id: "own" }], [{ ...message, type: "unknown" }, { id: "own" }]]) assert.equal(listener(value, sender, () => assert.fail()), false);
+  await new Promise((resolve) => { assert.equal(listener(message, { id: "own" }, resolve), true); });
+  assert.equal(calls, 1);
 });
-
-test("It interrupts a background pass when a D2L tab opens before a request.", async () => {
-  const { api, state } = fakeApi();
-  let queries = 0;
-  api.tabs.query = async () => ++queries === 1 ? [] : [{ id: 11 }];
-  let fetchCalls = 0;
-  await load().D2LController.createController(api, async () => { fetchCalls += 1; return json([]); }).run();
-  assert.equal(fetchCalls, 0);
-  assert.match(state.background.state, /^interrupted/);
-});
-
-test("It interrupts a background pass when a D2L tab opens during a request.", async () => {
-  const { api, state } = fakeApi();
-  let queries = 0;
-  api.tabs.query = async () => ++queries < 3 ? [] : [{ id: 11 }];
-  let fetchCalls = 0;
-  await load().D2LController.createController(api, async () => { fetchCalls += 1; return json([]); }).run();
-  assert.equal(fetchCalls, 1);
-  assert.match(state.background.state, /^interrupted/);
-  assert.equal(state.background.rows.length, 0);
-});
-
-test("It prevents a duplicate click from starting a second concurrent pass.", async () => {
-  const { api } = fakeApi();
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
-  let requests = 0;
-  const controller = load().D2LController.createController(api, async (url) => {
-    requests += 1; await held; return json(url.includes("myenrollments") ? { Items: [] } : []);
+test("It wires hourly alarms and browser startup to the collector without widening permissions.", async () => {
+  const listeners = {}; const calls = [];
+  const event = (key) => ({ addListener: (fn) => { listeners[key] = fn; } });
+  const sandbox = vm.createContext({
+    controller: () => ({ run: async () => { calls.push("run"); }, onMessage: () => {} }), database: () => ({}),
+    chrome: { runtime: { onInstalled: event("install"), onStartup: event("startup"), onMessage: event("message") },
+      storage: { local: { setAccessLevel: async (value) => { calls.push(value); } } },
+      alarms: { create: async (...args) => { calls.push(args); }, onAlarm: event("alarm") } },
   });
-  const first = controller.run();
-  const second = controller.run();
-  release();
-  await Promise.all([first, second]);
-  assert.equal(requests, 2);
+  vm.runInContext(source("worker.js").replace(/^import .*;\r?\n/gm, ""), sandbox);
+  listeners.startup(); await new Promise(setImmediate);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ accessLevel: "TRUSTED_CONTEXTS" }, ["d2l-hourly", { periodInMinutes: 60 }], "run"]);
+  listeners.alarm({ name: "other" }); assert.equal(calls.length, 3);
+  listeners.alarm({ name: "d2l-hourly" }); assert.equal(calls.length, 4);
+  listeners.install(); await new Promise(setImmediate); assert.equal(calls.filter((call) => call === "run").length, 3);
 });
-
-test("It stores an explicit interruption when a tab closes or its content script is unavailable.", async () => {
-  const { api, state } = fakeApi([{ id: 11 }]);
-  api.tabs.sendMessage = async () => { throw new Error("SYNTHETIC_PRIVATE_TAB_ERROR"); };
-  await load().D2LController.createController(api).run();
-  assert.match(state.content.state, /^interrupted/);
-  assert.doesNotMatch(JSON.stringify(state), /SYNTHETIC_PRIVATE/);
-});
-
-test("It rejects a failed tab preflight instead of presenting an old report as a completed pass.", async () => {
-  const { api, state } = fakeApi();
-  state.background = { state: "finished", rows: [] };
-  api.tabs.query = async () => { throw new Error("SYNTHETIC_PRIVATE_PREFLIGHT"); };
-  const controller = load().D2LController.createController(api, async () => assert.fail());
-  await assert.rejects(controller.run(), /probe-unavailable/);
-  const reply = await new Promise((resolve) => controller.onMessage({ type: "RUN_PROBE" }, {
-    id: api.runtime.id, url: api.runtime.getURL("popup.html"),
-  }, resolve));
-  assert.equal(reply.done, false);
-  assert.doesNotMatch(JSON.stringify(state), /SYNTHETIC_PRIVATE/);
-});
-
-test("It accepts probe commands only from this extension popup.", async () => {
-  const { api } = fakeApi();
-  const controller = load().D2LController.createController(api, async (url) => json(url.includes("myenrollments") ? { Items: [] } : []));
-  for (const sender of [{ id: "other", url: api.runtime.getURL("popup.html") }, { id: api.runtime.id, url: "https://ldsb.elearningontario.ca/" }]) {
-    assert.equal(controller.onMessage({ type: "RUN_PROBE" }, sender, () => assert.fail()), false);
-  }
-  const sender = { id: api.runtime.id, url: api.runtime.getURL("popup.html") };
-  assert.equal(controller.onMessage({ type: "OTHER" }, sender, () => assert.fail()), false);
-  const result = await new Promise((resolve) => {
-    assert.equal(controller.onMessage({ type: "RUN_PROBE" }, sender, resolve), true);
-  });
-  assert.deepEqual(plain(result), { done: true });
-});
-
-test("It accepts content reads only from its extension and never from a tab sender.", async () => {
-  let listener;
-  let requests = 0;
-  const chrome = { runtime: { id: "test-extension", onMessage: { addListener(fn) { listener = fn; } } } };
-  const context = load({ chrome, fetch: async () => { requests += 1; return json([]); } });
-  vm.runInContext(source("content.js"), context);
-  for (const sender of [{ id: "other" }, { id: "test-extension", tab: { id: 1 } }]) {
-    assert.equal(listener({ type: "D2L_READ", route: "versions" }, sender, () => assert.fail()), false);
-  }
-  assert.equal(listener({ type: "OTHER" }, { id: "test-extension" }, () => assert.fail()), false);
-  const result = await new Promise((resolve) => assert.equal(listener({ type: "D2L_READ", route: "versions" }, { id: "test-extension" }, resolve), true));
-  assert.equal(result.status, 200);
-  assert.equal(requests, 1);
-  const invalid = await new Promise((resolve) => listener({ type: "D2L_READ", route: "https://invalid.example" }, { id: "test-extension" }, resolve));
-  assert.equal(invalid.error, "invalid-route");
-  assert.equal(requests, 1);
-});
-
-test("It wires the real worker entry point to the controller with no automatic probe.", () => {
-  let listener;
-  const { api } = fakeApi();
-  api.runtime.onMessage = { addListener(fn) { listener = fn; } };
-  const context = vm.createContext({ chrome: api, URL, AbortSignal, fetch: async () => assert.fail("No automatic request is allowed.") });
-  context.importScripts = (...files) => { for (const file of files) vm.runInContext(source(file), context); };
-  vm.runInContext(source("worker.js"), context);
-  assert.equal(typeof listener, "function");
-});
-
-test("It traverses the real content listener from the controller and stores only shapes.", async () => {
-  const { api, state } = fakeApi([{ id: 11 }]);
-  let listener;
-  const requested = [];
-  const content = load({ chrome: { runtime: { id: api.runtime.id,
-    onMessage: { addListener(fn) { listener = fn; } },
-  } }, fetch: async (url, init) => {
-    requested.push({ url, method: init.method });
-    if (url.includes("myenrollments")) return json({ Items: [enrollment("101")] });
-    if (url.endsWith("/folders/")) return json([{ Id: "202", Name: "SYNTHETIC_PRIVATE_FOLDER" }]);
-    return json({ Objects: [{ Grade: 98.765, Name: "SYNTHETIC_PRIVATE_CONTENT" }], Next: null });
+test("It serializes sync runs and persists only course names and fixed status fields for the popup.", async () => {
+  const f = fakeApi(); const store = memory(); let release; let calls = 0;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const app = controller({ ...f, store, clock, sleep: async () => {}, fetchImpl: async (url) => {
+    calls += 1;
+    if (calls === 1) await blocked;
+    return json(url.endsWith("/versions/") ? versions : url.includes("myenrollments") ? page() : url.endsWith("/folders/") ? [] : { collectorFailure: "PRIVATE BODY", Grade: "PRIVATE GRADE", Text: "PRIVATE TEXT" });
   } });
-  vm.runInContext(source("content.js"), content);
-  api.tabs.sendMessage = async (_id, message) => await new Promise((resolve) => {
-    assert.equal(listener(message, { id: api.runtime.id }, resolve), true);
-  });
-  await load().D2LController.createController(api, async () => assert.fail("Only the content transport may fetch.")).run();
-  assert.equal(state.content.state, "finished");
-  assert.equal(requested.length, 9);
-  assert.ok(requested.every((request) => request.method === "GET"));
-  assert.ok(requested.at(-1).url.endsWith("/202/submissions/mysubmissions/"));
-  assert.doesNotMatch(JSON.stringify(state), /SYNTHETIC_PRIVATE|98\.765|"body"|\/101\/|\/202\//);
+  const first = app.run(); await new Promise(setImmediate); await app.run(); assert.equal(calls, 1);
+  release(); await first;
+  assert.equal(f.state.status.running, false); assert.equal(f.state.status.hosts.length, 2);
+  assert.doesNotMatch(JSON.stringify(f.state.status), /PRIVATE|body|Grade|Text/);
+  assert.match(format(f.state.status), /Synthetic course 1/);
+  assert.equal((await store.get("queue")).length, 2);
+  assert.equal(f.state.status.delivery.error, "pairing-required");
 });
-
-test("It renders and copies the shape report and provides a clipboard fallback without extra permission.", async () => {
-  const elements = Object.fromEntries(["run", "copy", "status", "summary"].map((id) => [id, {
-    value: "", textContent: "", listeners: {}, addEventListener(event, callback) { this.listeners[event] = callback; },
-    focus() { this.focused = true; }, select() { this.selected = true; },
-  }]));
-  let copied;
-  let rejectClipboard = false;
-  let changed;
-  const context = load({ document: { getElementById: (id) => elements[id] },
-    navigator: { clipboard: { async writeText(value) { if (rejectClipboard) throw new Error("blocked"); copied = value; } } },
-    chrome: {
-      storage: { session: { async get() { return { background: { state: "finished", rows: [] } }; } }, onChanged: { addListener(fn) { changed = fn; } } },
-      runtime: { async sendMessage(message) { assert.equal(message.type, "RUN_PROBE"); return { done: true }; } },
-    },
-  });
-  vm.runInContext(source("popup.js"), context);
-  await elements.run.listeners.click();
-  assert.equal(elements.run.disabled, false);
-  assert.match(elements.summary.value, /background: finished/);
-  await elements.copy.listeners.click();
-  assert.equal(copied, elements.summary.value);
-  rejectClipboard = true;
-  await elements.copy.listeners.click();
-  assert.equal(elements.summary.selected, true);
-  assert.match(elements.status.textContent, /Ctrl\+C/);
-  assert.equal(typeof changed, "function");
+test("It preserves the last good timestamp when a later read expires and keeps raw failures out of the popup.", async () => {
+  const f = fakeApi(); const store = memory({ [`lastGood:${D2L.HOSTS[0]}`]: clock(), [`courses:${D2L.HOSTS[0]}`]: [{ id: "1", name: "Synthetic course" }] });
+  f.api.tabs.sendMessage = async () => D2L.failed(200, "session-expired");
+  const app = controller({ ...f, store, clock, sleep: async () => {}, fetchImpl: async () => new Response("PRIVATE LOGIN HTML", { headers: { "content-type": "text/html" } }) });
+  await app.run();
+  assert.equal(f.state.status.hosts[0].lastGoodRead, clock());
+  assert.match(format(f.state.status), /session-expired/); assert.doesNotMatch(format(f.state.status), /PRIVATE LOGIN/);
+  assert.ok(JSON.parse((await store.get("queue"))[0].body).routes.every((route) => !route.complete));
+  await app.run(true); assert.equal(f.state.status.backgroundTest.hosts[0].error, "session-expired");
+});
+test("It waits for IndexedDB transaction completion and rejects rollback instead of claiming durable storage.", async () => {
+  let openRequest; let transaction; const request = { result: "synthetic" };
+  const db = { createObjectStore: () => {}, transaction: () => (transaction = { objectStore: () => ({ get: () => request, put: () => request }) }) };
+  const store = database({ open: () => (openRequest = { result: db }) });
+  openRequest.onupgradeneeded(); openRequest.onsuccess();
+  let done = false; const pending = store.set("keys", {}).then(() => { done = true; });
+  await new Promise(setImmediate); assert.equal(done, false);
+  transaction.oncomplete(); await pending; assert.equal(done, true);
+  const aborted = store.set("queue", []); await new Promise(setImmediate); transaction.onabort(); await assert.rejects(aborted);
+  const opened = database({ open: () => (openRequest = {}) });
+  const read = opened.get("keys"); openRequest.onerror(); await assert.rejects(read);
 });
