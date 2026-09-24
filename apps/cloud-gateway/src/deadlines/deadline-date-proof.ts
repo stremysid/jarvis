@@ -77,7 +77,6 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
   const ordinal = /^(?:the )?(\d{1,2})(?:st|nd|rd|th)$/u.exec(phrase);
   if (ordinal !== null) {
     const requested = Number(ordinal[1]);
-    if (requested < 1 || requested > 31) return reject("deadline_ambiguous_date", "That day of the month does not exist.");
     // The next occurrence is a stated interpretation, including across a short month.
     for (let offset = 0; offset < 12; offset += 1) {
       const candidate = new Date(Date.UTC(year, month - 1 + offset, requested));

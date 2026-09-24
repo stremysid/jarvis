@@ -72,6 +72,9 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     requireText(dueExcerpt, "deadline_due_excerpt", 160);
     const course = requireText(args.course, "deadline_course", 512);
     const title = requireText(args.title, "deadline_title", 512);
+    if (normalize(course).length === 0 || normalize(title).length === 0) {
+      throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy a nonblank course and title from the current message.");
+    }
     const evidence = normalize(excerpt);
     const courses = courseKey(course) === "chemistry" ? ["chem", "chemistry"] : [normalize(course)];
     const titleStart = wordBoundaryOccurrence(evidence, normalize(title));

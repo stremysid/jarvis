@@ -120,6 +120,23 @@ describe("deadline review regression proofs", () => {
     expect((await rows()).results[0]).toMatchObject({ effort: "quiz", lead_minutes: DEFAULT_LEAD_MINUTES.quiz });
   });
 
+  it("reports an effort-only owner retag as updated when its lead minutes are unchanged", async () => {
+    await recordDeadline(env.DB, input(message), call(), now);
+    const row = (await rows()).results[0]!;
+    const result = await new DeadlineRepository(env.DB).upsert({ sourceId: "owner-reported", externalId: String(row.external_id),
+      course: "Chemistry", title: "Lab report", dueAt: String(row.due_at), effort: "quiz",
+      leadMinutes: DEFAULT_LEAD_MINUTES.project, replaceEffortAndLead: true, now });
+    expect(result.outcome).toBe("updated");
+    expect(result.deadline.effort).toBe("quiz");
+    expect(result.deadline.leadMinutes).toBe(DEFAULT_LEAD_MINUTES.project);
+  });
+
+  it.each(["course", "title"])("refuses a %s whose normalised identity is empty", async (field) => {
+    const result = await recordDeadline(env.DB, input(message), call({ [field]: "   " }), now);
+    expect(JSON.parse(result.providerResult.content).status).toBe("refused");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
   it("matches Chem and Chemistry across case and whitespace without a duplicate", async () => {
     const text = message.replace("Chemistry Lab report", "Chem lab   report");
     await recordDeadline(env.DB, input(text), call({ course: "Chem", title: "lab   report", evidenceExcerpt: text }), now);
