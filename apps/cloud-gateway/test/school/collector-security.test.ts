@@ -255,6 +255,14 @@ describe("school collector security", () => {
     expect(SCHOOL_AUDIENCE).toBe("jarvis-school-collector");
   });
 
+  it("refuses duplicate orgUnitIdsCSV course bindings on a myItems route", async () => {
+    const f = await collectorFixture();
+    const batch = observedBatch(f);
+    const duplicate = { ...batch, routes: [{ ...batch.routes[0],
+      route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}&orgUnitIdsCSV=other` }] };
+    expect(() => parseSchoolBatch(duplicate, f.clock())).toThrow("school_route_invalid");
+  });
+
   it("refuses directly inserted active keys and malformed public keys at the database boundary", async () => {
     const f = await collectorFixture(false);
     const insert = (suffix: string, status: string, publicKey: string) => env.DB.prepare(`INSERT INTO school_collector_keys

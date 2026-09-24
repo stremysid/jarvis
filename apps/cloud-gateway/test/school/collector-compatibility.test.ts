@@ -124,10 +124,10 @@ it("keeps a first-run host session failure visible after the other host succeeds
   expect(result.text.toLowerCase()).not.toContain("nothing due");
 });
 
-it("accepts a compact oversized-manifest failure and refuses a host-only success or invented course", async () => {
+it("accepts a paged compact oversized-manifest failure and refuses a host-only success or invented course", async () => {
   const f = await collectorFixture();
   const failure = hostFailure(f);
-  const value = { ...failure, routes: [{ ...failure.routes[0]!, route: "/d2l/api/lp/1.43/enrollments/myenrollments/",
+  const value = { ...failure, routes: [{ ...failure.routes[0]!, route: "/d2l/api/lp/1.43/enrollments/myenrollments/?bookmark=page",
     status: 200, body: { collectorFailure: "course-manifest-too-large", courseCount: 129 } }] };
   expect(await (await upload(f, value)).json()).toMatchObject({ outcome: "failed" });
   expect(await repo(f).status()).toMatchObject({ state: "failed", hosts: [{ sessionExpired: false }] });
@@ -160,8 +160,11 @@ it("stores unfamiliar JSON shapes with projection labels and prevents an empty d
     : i === 1 ? { ...row, body: { Modules: [] } } : row);
   expect(await (await upload(f, { ...batch, routes })).json()).toMatchObject({ outcome: "good" });
   const status = await repo(f).status();
+  // `unmappedRoutes` counts labels in unmapped_json. This fixture removes every
+  // toc topic, so only the unfamiliar folder-list shape contributes a label.
   expect(status).toMatchObject({ state: "current", unmappedRoutes: 1, lastGoodReadUndatedItems: 0 });
   expect(status.evidence[0]!.unmapped_json).toContain("projection_unknown");
+  expect(status.evidence[0]!.unmapped_json).not.toContain("linked_topic_folder_list_unread");
   expect(status.evidence.find((row) => row.route === routes[0]!.route)?.raw_json).toBe(JSON.stringify(routes[0]!.body));
   const result = await digest(f);
   expect(result.text).toContain("unknown projection");
@@ -228,7 +231,8 @@ it("keeps unlinked and conflicting dates visible without projecting an arbitrary
   batch.routes[0].body.push({ ...batch.routes[0].body[0], DueDate: "2026-09-30T00:00:00Z" });
   expect(mapSchoolCourse(batch).items.find((item) => item.id === "folder-17")?.dueAt).toBeNull();
   batch.routes[0].body.pop();
-  batch.routes[1].body.Modules[0].Topics.push({ TopicId: 43, Title: "Other link", ToolItemId: 17, EndDateTime: "2026-10-02T00:00:00Z" });
+  batch.routes[1].body.Modules[0].Topics.push({ TopicId: 43, Title: "Other link", ToolItemId: 17,
+    TypeIdentifier: "Dropbox", EndDateTime: "2026-10-02T00:00:00Z" });
   expect(mapSchoolCourse(batch).items.find((item) => item.id === "folder-17")?.dueAt).toBeNull();
   batch.routes[0].body.push({ ...batch.routes[0].body[0], DueDate: "2026-09-30T00:00:00Z" });
   batch.routes.push({ route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, fetchedAt: batch.startedAt,

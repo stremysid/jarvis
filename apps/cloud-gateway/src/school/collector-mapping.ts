@@ -118,8 +118,8 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
         const end = date(module.EndDateTime) ?? inheritedEnd;
         for (const topic of list(module.Topics ?? [])) {
           const topicId = id(topic.TopicId);
-          const linked = topic.ToolItemId !== undefined && topic.ToolItemId !== null;
-          const toolItemId = linked ? id(topic.ToolItemId) : null;
+          const dropboxLinked = topic.TypeIdentifier === "Dropbox" && topic.ToolItemId !== undefined && topic.ToolItemId !== null;
+          const toolItemId = dropboxLinked ? id(topic.ToolItemId) : null;
           const itemId = toolItemId === null ? `topic-${topicId}` : `folder-${toolItemId}`;
           const candidate = { at: date(topic.EndDateTime) ?? end, title: title(topic.Title), itemId, toolItemId };
           // Conflicting links are evidence for Jarvis, not permission to pick a date.
@@ -136,8 +136,11 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
     walk(record(toc.body).Modules, null);
   });
   const seen = new Set<string>();
+  let folderListReadable = false;
   if (folders !== null) attempt(folders, () => {
-    for (const folder of rows(folders)) attempt(folders, () => {
+    const folderRows = rows(folders);
+    folderListReadable = true;
+    for (const folder of folderRows) attempt(folders, () => {
       const key = id(folder.Id);
       if (seen.has(key)) {
         const previous = items.findIndex((item) => item.id === `folder-${key}`);
@@ -161,7 +164,13 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
     });
   });
   for (const topic of topicDates.values()) {
-    if (topic.toolItemId !== null && seen.has(topic.toolItemId)) continue;
+    if (topic.toolItemId !== null) {
+      if (!folderListReadable) {
+        unmapped.push(`${toc!.route}:linked_topic_folder_list_unread`);
+        continue;
+      }
+      if (seen.has(topic.toolItemId)) continue;
+    }
     items.push({ id: topic.itemId, title: topic.title, dueAt: topic.at,
       dateSource: topic.at === null ? null : "availability end", dateRoute: topic.at === null ? null : toc!.route,
       submission: "unknown" });

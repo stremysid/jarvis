@@ -91,7 +91,7 @@ line whenever anything is dropped, so silence is never unexplained.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions; these language heuristics also mistake some worked explanations for actions. | `OWNER_AGENT_SYSTEM_PROMPT` and the model's `claimedActions` should carry the judgment; receipts enforce proof. #162 narrows the tutoring heuristic and retains a fallback for undeclared real actions. Its runtime change is not part of this PR. The school intake still guards claims, including a leading "Done." attached to a removed external-action claim. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a worked verb object plus a completely parsed explanation prefix and tail. Unknown continuation words, destinations and second actions remain claims, including verbs absent from the original action list. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
 | 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
@@ -185,10 +185,10 @@ of this file.
 Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
 storable unknown JSON as a failed school read. It records projection labels and keeps
 raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
-do not spend an action tap, but they again require the pipeline's direct-text authority.
-Collector revocation still requires its tier-three tap. Whether the evidence read should
-bypass that authority remains open for Sid; the earlier attributed instruction is not
-confirmed. The two existing judgment findings below remain open.
+deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decision](https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523).
+The pipeline's direct-text authority still applies because that decision removed the safety
+tier, not the authenticated-source boundary. Collector revocation still requires its
+tier-three tap. The two existing judgment findings below remain open.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|

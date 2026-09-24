@@ -54,6 +54,46 @@ describe("school evidence and projection", () => {
     expect(deadlines.results).toEqual([{ external_id: "folder-17", status: "open" }]);
   });
 
+  it("keeps the last good assignment date when the folder list is refused", async () => {
+    const f = await collectorFixture();
+    const first = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    first.routes[0].body[0].DueDate = "2026-10-01T12:00:00Z";
+    await ingest(f, first);
+    f.setNow(new Date(f.clock().getTime() + 60_000));
+    const next = observedBatch(f);
+    const refused = { ...next, routes: next.routes.map((route, index) => index === 0 ? { ...route, status: 403, body: {} } : route) };
+    const mapped = mapSchoolCourse(refused);
+    expect(mapped.items.some((item) => item.id === "folder-17")).toBe(false);
+    expect(mapped.unmapped).toContain(`${refused.routes[1]!.route}:linked_topic_folder_list_unread`);
+    expect((await ingest(f, refused)).outcome).toBe("good");
+    expect((await repo(f).status()).state).toBe("current");
+    expect(await env.DB.prepare("SELECT due_at FROM deadlines WHERE source_id = ? AND external_id = 'folder-17'")
+      .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toEqual({ due_at: "2026-10-01T12:00:00.000Z" });
+  });
+
+  it("does not turn a quiz-linked topic into an assignment folder", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Synthetic quiz", ToolItemId: 55,
+      TypeIdentifier: "Quiz", EndDateTime: "2026-10-05T00:00:00Z" });
+    batch.routes.push({ ...batch.routes[2], route: `/d2l/api/le/1.82/${f.courseId}/quizzes/`, body: { Objects: [
+      { QuizId: 55, Name: "Synthetic quiz", DueDate: "2026-10-04T00:00:00Z", EndDate: "2026-10-05T00:00:00Z" },
+    ], Next: null } });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items.some((item) => item.id === "folder-55")).toBe(false);
+    expect(mapped.items.map((item) => item.id)).toEqual(expect.arrayContaining(["topic-42", "quiz-55", "quiz-55-end"]));
+  });
+
+  it("does not give an assignment folder a quiz-linked topic's end date", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Synthetic quiz", ToolItemId: 18,
+      TypeIdentifier: "Quiz", EndDateTime: "2026-10-05T00:00:00Z" });
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({ dueAt: null, dateSource: null, dateRoute: null });
+    expect(mapped.items.find((item) => item.id === "topic-42")).toMatchObject({ dueAt: "2026-10-05T00:00:00.000Z" });
+  });
+
   it("prefers myItems dates then assignment DueDate then availability end and labels each source", async () => {
     const f = await collectorFixture();
     const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
@@ -374,7 +414,8 @@ describe("school evidence and projection", () => {
       (b: any) => { b.routes[0].body[0].DueDate = "not a date"; },
       (b: any) => { b.routes[0].body[0].DueDate = "2026-02-31T12:00:00Z"; },
       (b: any) => { b.routes[0].body.push(b.routes[0].body[0]); },
-      (b: any) => { b.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Conflicting", ToolItemId: 17, EndDateTime: "2026-09-30T00:00:00Z" }); },
+      (b: any) => { b.routes[1].body.Modules[0].Topics.push({ TopicId: 42, Title: "Conflicting", ToolItemId: 17,
+        TypeIdentifier: "Dropbox", EndDateTime: "2026-09-30T00:00:00Z" }); },
       (b: any) => { b.routes.push({ ...b.routes[0], route: `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${f.courseId}`, body: { Surprise: [] } }); },
     ]) {
       const batch = structuredClone(observedBatch(f));

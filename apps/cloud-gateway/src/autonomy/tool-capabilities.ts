@@ -70,6 +70,8 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
+  // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
+  // authority still applies, and collector revocation stays gated. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
   school_collector_revoke: "school.collector.revoke",
   university_update: "university.track",
