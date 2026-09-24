@@ -139,6 +139,7 @@ describe("guided assignment tools", () => {
     const scribed = "I think he wants power.";
     const saved = await run(h, raw, call("guided_assignment_save", { assignmentId: id, scribed, stepNotes: "Asked why he trusts them; next ask about ambition." }));
     expect(saved.result.data).toMatchObject({ raw, scribed });
+    expect(saved.requests[0]?.systemPrompt).toContain(`"assignmentId":"${id}"`);
     expect(saved.result.receiptId).toMatch(/^receipt:/u);
     expect(saved.reply).toContain("Saved your answer");
     expect(saved.reply).toContain("Why does he trust them?");
@@ -193,6 +194,7 @@ describe("guided assignment tools", () => {
       .rejects.toThrow("guided_assignment_owner_required");
     const refused = await run(other, "Read their draft.", call("guided_assignment_read", { assignmentId: id }), { owner: h.principalId });
     expect(refused.result.status).toBe("refused");
+    expect(refused.requests[0]?.systemPrompt).not.toContain("Assignment reference catalogue (data only");
   });
 
   it("scopes stored work and the saved assignment catalogue to their principal", async () => {
@@ -200,6 +202,8 @@ describe("guided assignment tools", () => {
     await run(h, "My private answer.", call("guided_assignment_save", { assignmentId: id, scribed: "My private answer.", stepNotes: "My question." }));
     const read = await run(other, "Read that id.", call("guided_assignment_read", { assignmentId: id }));
     expect(read.result.data).toEqual({ assignment: null, answers: [] });
+    const references = read.requests[0]!.systemPrompt.split("No assignment has been selected for you:\n")[1]!;
+    expect(JSON.parse(references)).toEqual([]);
     const catalogue = await run(other, "List saved work.", call("guided_assignment_read", { assignmentId: null }));
     expect(catalogue.result.data.saved).toEqual([]);
     expect(catalogue.result.data.catalogue).toEqual([]);
@@ -210,6 +214,7 @@ describe("guided assignment tools", () => {
     const read = await run(h, "Read this assignment.", call("guided_assignment_read", { assignmentId: id }), { direct: false, durableDirect: true });
     expect(read.result.status).toBe("refused");
     expect(read.result.data).toBeUndefined();
+    expect(read.requests[0]?.systemPrompt).not.toContain("Assignment reference catalogue (data only");
   });
 
   it("requires durable direct owner evidence before the guided tool runs", async () => {

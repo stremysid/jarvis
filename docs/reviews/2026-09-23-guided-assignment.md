@@ -67,7 +67,12 @@ before sending if it exceeds that limit. The model can choose ordered sections.
 No automatic splitting or editing decides where Sid's paragraphs belong. A
 retry after an unconfirmed Telegram delivery may duplicate a message; the tool
 tells Sid to check before retrying. No exactly-once network-delivery guarantee is
-claimed. Existing one-tool-per-turn behavior is unchanged.
+claimed. Existing one-tool-per-turn behavior is unchanged. Tool results are not
+retained between turns on main. A compact reference catalogue (all stored ids,
+titles and courses, including saved source snapshots) therefore reaches each
+direct owner prompt. This allows the model to save the next answer without
+asking Sid to recite an id, or to read Macbeth's progress on a later call. The
+catalogue makes no assignment selection and contains no generated next prompt.
 
 These tests use a scripted model and local workerd/D1. They establish tool
 behavior, composition, storage and permissions. They do not establish live model

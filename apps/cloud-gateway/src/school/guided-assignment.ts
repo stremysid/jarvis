@@ -21,6 +21,28 @@ export interface AssignmentEvidenceReader {
   list(principalId: string): Promise<readonly AssignmentEvidence[]>;
 }
 
+// Tool results are not retained between owner-agent turns. Give the model a
+// reference catalogue so the next answer can name an assignment without asking
+// Sid to repeat an opaque id aloud. This contains every reference, not a choice
+// of relevant work or of the next step.
+export async function readGuidedAssignmentReferences(database: D1Database, principalId: string) {
+  const rows = await database.prepare(`
+    SELECT 'fact:' || f.fact_id AS assignmentId, f.statement AS title, c.course_name AS course
+    FROM school_course_facts f JOIN school_course_cards c
+      ON c.principal_id = f.principal_id AND c.course_id = f.course_id WHERE f.principal_id = ?1
+    UNION
+    SELECT 'action:' || a.action_id, a.action_text, c.course_name
+    FROM school_catchup_actions a JOIN school_course_cards c
+      ON c.principal_id = a.principal_id AND c.course_id = a.course_id WHERE a.principal_id = ?1
+    UNION
+    SELECT 'deadline:' || deadline_id, title, course FROM deadlines
+    UNION
+    SELECT assignment_id, json_extract(assignment_json, '$.title'), json_extract(assignment_json, '$.course')
+    FROM guided_assignment_answers WHERE principal_id = ?1`).bind(principalId)
+    .all<{ assignmentId: string; title: string; course: string }>();
+  return rows.results;
+}
+
 export class StoredAssignmentEvidenceReader implements AssignmentEvidenceReader {
   constructor(private readonly database: D1Database) {}
 
