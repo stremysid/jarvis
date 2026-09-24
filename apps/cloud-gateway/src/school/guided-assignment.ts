@@ -123,17 +123,21 @@ export class GuidedAssignmentService {
       const assignmentId = text(args.assignmentId);
       const scribed = text(args.scribed);
       const stepNotes = text(args.stepNotes);
+      const existing = await database.prepare(`SELECT answer_id AS answerId, raw, scribed, step_notes AS stepNotes
+        FROM guided_assignment_answers WHERE principal_id = ? AND assignment_id = ? AND turn_id = ?`)
+        .bind(input.principalId, assignmentId, input.correlationId).first();
+      // Stored answers cannot be changed or deleted, so this receipt can safely
+      // reuse the original row. A concurrent insert still loses to the DB guard.
+      if (existing !== null) return result(call, existing, "Your answer was already saved; the original raw words, scribed text and step notes are unchanged.");
       const answers = await this.answers(input.principalId, assignmentId);
       const catalogue = await this.dependencies.evidence.list(input.principalId);
       const assignment = catalogue.find((entry) => entry.assignmentId === assignmentId)
         ?? (answers[0] === undefined ? null : JSON.parse(answers[0].assignmentJson) as AssignmentEvidence);
       if (assignment === null) throw new Error("guided_assignment_missing");
-      // RETURNING binds the receipt to the write itself. The retry only assigns
-      // the same turn id, so it returns the original answer without a second read.
+      // RETURNING binds the receipt to the write itself rather than a later read.
       const saved = await database.prepare(`INSERT INTO guided_assignment_answers
         (principal_id, assignment_id, answer_id, turn_id, assignment_json, raw, scribed, step_notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (principal_id, assignment_id, turn_id) DO UPDATE SET turn_id = excluded.turn_id
         RETURNING answer_id AS answerId, raw, scribed, step_notes AS stepNotes`)
         .bind(input.principalId, assignmentId, newUlid(), input.correlationId, JSON.stringify(assignment),
           input.userText, scribed, stepNotes, this.dependencies.now().toISOString()).first();

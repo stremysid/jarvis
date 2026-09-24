@@ -233,7 +233,8 @@ describe("guided assignment tools", () => {
 
   it("refuses an invented assignment instead of saving its answer", async () => {
     const h = await harness();
-    await expect(service(h).execute(input(h), call("guided_assignment_save", { assignmentId: "fact:missing", scribed: "Words.", stepNotes: "Question." })))
+    const turn = await run(h, "Words.", null);
+    await expect(service(h).execute(input(h, turn.turnId), call("guided_assignment_save", { assignmentId: "fact:missing", scribed: "Words.", stepNotes: "Question." })))
       .rejects.toThrow("guided_assignment_missing");
   });
 
@@ -357,5 +358,36 @@ describe("guided assignment tools", () => {
     await expect(env.DB.prepare(`INSERT INTO guided_assignment_answers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(h.principalId, "fact:test", newUlid(), newUlid(), "{}", "Words.", "Words.", "Question.", NOW.toISOString()).run())
       .rejects.toThrow("FOREIGN KEY constraint failed");
+  });
+
+  it("prevents database updates from changing saved raw words or model scribing", async () => {
+    const h = await harness(); const id = await assignment(h);
+    const saved = await run(h, "um, original", call("guided_assignment_save", { assignmentId: id, scribed: "Original.", stepNotes: "Why?" }));
+    await expect(env.DB.prepare("UPDATE guided_assignment_answers SET raw = 'changed', scribed = 'changed' WHERE answer_id = ?")
+      .bind(saved.result.data.answerId).run()).rejects.toThrow("guided_assignment_answer_update_forbidden");
+  });
+
+  it("prevents deletion from erasing a saved answer", async () => {
+    const h = await harness(); const id = await assignment(h);
+    const saved = await run(h, "My answer.", call("guided_assignment_save", { assignmentId: id, scribed: "My answer.", stepNotes: "Why?" }));
+    await expect(env.DB.prepare("DELETE FROM guided_assignment_answers WHERE answer_id = ?")
+      .bind(saved.result.data.answerId).run()).rejects.toThrow("guided_assignment_answer_delete_forbidden");
+  });
+
+  it("blocks replacement through either answer identity independently of the delete guard", async () => {
+    const h = await harness(); const id = await assignment(h);
+    const saved = await run(h, "My answer.", call("guided_assignment_save", { assignmentId: id, scribed: "My answer.", stepNotes: "Why?" }));
+    const otherTurn = await run(h, "Another answer.", null);
+    await env.DB.prepare("DROP TRIGGER guided_assignment_answers_reject_delete").run();
+    try {
+      for (const [answerId, turnId] of [[saved.result.data.answerId, otherTurn.turnId], [newUlid(), saved.turnId]]) {
+        await expect(env.DB.prepare("INSERT OR REPLACE INTO guided_assignment_answers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(h.principalId, id, answerId, turnId, "{}", "changed", "changed", "changed", NOW.toISOString()).run())
+          .rejects.toThrow("guided_assignment_answer_conflict");
+      }
+    } finally {
+      await env.DB.prepare(`CREATE TRIGGER guided_assignment_answers_reject_delete BEFORE DELETE ON guided_assignment_answers
+        BEGIN SELECT RAISE(ABORT, 'guided_assignment_answer_delete_forbidden'); END`).run();
+    }
   });
 });
