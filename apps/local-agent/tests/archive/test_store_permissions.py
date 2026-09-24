@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -906,3 +907,157 @@ def test_the_environment_root_arm_refuses_on_its_own() -> None:
     assert os.environ.get("USERPROFILE", "").strip(), "USERPROFILE must be set for this to mean anything"
     with pytest.raises(UnsafeStorePathError, match=r"refusing USERPROFILE"):
         _refuse_unsafe_path(profile, profile.parent)
+
+
+# --- the allowlist, and the read-only opener ---------------------------------
+
+
+def test_a_store_root_outside_the_permitted_location_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The allowlist refuses by default rather than listing known-bad places.
+
+    A denylist answers "is this one of the bad ones" and is wrong for every bad
+    place nobody thought of. The question that matters before a process starts
+    changing ACLs is "is this one of the good ones", so a directory that is
+    merely *unlisted* -- not a drive root, not the profile, not Temp -- must
+    still be refused.
+    """
+    permitted = tmp_path / "Jarvis"
+    permitted.mkdir()
+    elsewhere = tmp_path / "Documents" / "notes"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: permitted)
+
+    with pytest.raises(store_permissions.StoreRootUnresolvedError, match="outside the only permitted store location"):
+        store_permissions.permit_store_roots((elsewhere,))
+    # And the permitted location itself, and anything beneath it, is allowed.
+    assert store_permissions.permit_store_roots((permitted,)) == (permitted.resolve(),)
+    assert store_permissions.permit_store_roots((permitted / "data",)) == ((permitted / "data").resolve(),)
+
+
+def test_the_allowlist_refuses_rather_than_returning_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """An empty permitted set must be a refusal, not a silently open boundary.
+
+    `configured_store_roots` once returned an empty tuple on a missing
+    configuration and the guard treated empty as "no boundary", which removed
+    the check on the one call that changes permissions. The same shape must not
+    reappear here.
+    """
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path / "Jarvis")
+    with pytest.raises(store_permissions.StoreRootUnresolvedError, match="no store root to allow"):
+        store_permissions.permit_store_roots(())
+
+
+def test_a_relative_configured_store_path_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A relative path would resolve against the process's working directory.
+
+    For a service started by a logon task that is a directory nobody chose, so
+    the same configuration would name different stores on different runs. That
+    is the one property a boundary may not have, so it is refused instead of
+    being resolved.
+    """
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.path.join("relative", "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(tmp_path / "memory.sqlite3"))
+    with pytest.raises(store_permissions.StoreRootUnresolvedError, match="is not an absolute path"):
+        store_permissions.configured_store_roots()
+
+
+def test_the_walk_skips_a_reparse_point_instead_of_granting_it_access(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stub: StubWin32,
+) -> None:
+    """A junction is a door, and only this guard knows a door is not a room.
+
+    The junction points back at the store root itself, which is the case where
+    nothing else can be the deciding factor. `_refuse_unsafe_path` resolves a
+    junction and checks the *target*, so a door whose target is the store passes
+    it -- correctly, that is the store. Only the reparse check stops the walk
+    writing the store's DACL onto the door as well.
+
+    Getting here took three attempts, and the two failures are the reason the
+    comment is long. A junction pointing outside the store is refused by the
+    containment check first, and a junction pointing inside it resolves to the
+    directory the walk visits anyway; both make the test pass with this guard
+    deleted, which is how the first two versions survived their own mutation.
+    """
+    outer = tmp_path / "outer"
+    store = outer / "store"
+    store.mkdir(parents=True)
+    (store / "notes").mkdir()
+    door = store / "door"
+    # `os.symlink` cannot make a real directory junction, and the difference
+    # matters: `os.walk` does not descend a symlink, so a symlinked door would
+    # never be handed to the DACL at all. A junction is created explicitly; it
+    # needs no privilege on Windows.
+    if os.name == "nt":
+        completed = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+            ["cmd", "/c", "mklink", "/J", str(door), str(store)],  # noqa: S607 - cmd from PATH by design
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            pytest.skip("could not create a junction on this machine")
+    else:
+        try:
+            os.symlink(store, door, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this platform cannot create a directory reparse point without privileges")
+    assert store_permissions.is_reparse_point(door), "the fixture did not produce a reparse point"
+
+    # The configured roots are read from the environment once these are set, so
+    # the store is inside the permitted boundary and only the reparse check
+    # stands between the walk and the door.
+    monkeypatch.setenv("JARVIS_ARCHIVE_PATH", os.fspath(store / "archive.sqlite3"))
+    monkeypatch.setenv("JARVIS_MEMORY_PATH", os.fspath(store / "memory.sqlite3"))
+
+    _REAL_REPAIR(store, SID, store_root=store)
+
+    # Resolved, because every one of these paths goes through
+    # `_refuse_unsafe_path`, which resolves: the door is written as its target
+    # and carries a trailing separator from `os.walk`. With the guard deleted,
+    # `door` therefore appears in this list as the store itself.
+    written = [Path(path).resolve() for path in stub.paths]
+    assert written.count(store.resolve()) == 1, (
+        f"the store root was repaired {written.count(store.resolve())} times, so the walk went through "
+        f"the door as well: {written}"
+    )
+    assert (store / "notes").resolve() in written, "a real directory under the store is still repaired"
+    assert store.resolve() in written, "the store root itself must still be repaired"
+
+
+def test_the_walk_aborts_at_the_first_refused_directory_rather_than_walking_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The whole point is to stop, not to collect one copy of the error per directory.
+
+    A guard refusal does not mean "this subtree is unlucky" -- it means the
+    boundary or the caller is wrong, so every directory below refuses
+    identically. Walking on is what made the first version's failures unreadable.
+    """
+    roots = tmp_path / "Jarvis"
+    store = roots / "data"
+    store.mkdir(parents=True)
+    # A few sibling branches and a nested one, so a walk that failed to abort
+    # would have several directories to visit and the assertion below can tell
+    # "stopped at the first" from "had nothing else to do".
+    for name in ("a", "b", "c"):
+        (store / name / "child").mkdir(parents=True)
+    monkeypatch.setattr(store_permissions, "_default_store_root", lambda: roots)
+
+    seen: list[Path] = []
+
+    def always_refuse(path: Path, _sid: str, *, store_root: Path) -> None:
+        seen.append(path)
+        raise UnsafeStorePathError(f"refusing {path}")
+
+    monkeypatch.setattr(store_permissions, "apply_owner_only_dacl", always_refuse)
+
+    failures = _REAL_REPAIR(store, SID, store_root=store)
+
+    assert len(seen) == 1, f"the walk did not abort: it visited {seen}"
+    assert failures == (store,)
+

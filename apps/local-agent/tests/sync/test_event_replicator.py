@@ -29,6 +29,12 @@ from jarvis_local.sync.event_replicator import (
     SyncAckPending,
 )
 
+#: The gateway materializes at most this many events per page
+#: (`MAXIMUM_MATERIAL_EVENTS` in `apps/cloud-gateway/src/sync/sync-service.ts`),
+#: while the agent asks for `DEFAULT_PAGE_SIZE` = 128. The gap between the two is
+#: what lets a catching-up device be offered a page that contains the cursor.
+MAXIMUM_MATERIAL_EVENTS = 48
+
 OCCURRED_AT = "2026-09-01T12:00:00.000Z"
 BASE = "https://gateway.example"
 DEVICE = "device-1"
@@ -692,14 +698,24 @@ class RecoveringGateway:
     rather than serving pre-baked pages is the point of the test -- the agent is
     the client, and what it needs is a cloud that stops refusing.
 
+    `cap_at_cursor` adds the *other* gateway half, `SyncService.pageUpperBound`
+    (as of `c0c2366`): a page whose requested range contains the consumer cursor
+    ends at the cursor, so what the device stores and acknowledges is a range
+    ending exactly where the cloud cursor stands -- which the replay branch above
+    then accepts. Without it the gateway can hand back a page that straddles the
+    cursor, which is neither a replay nor a cursor match, and the device wedges.
+
     `pages` and `acks` record what the agent asked for, so the test can show it
     walked forward page by page instead of being handed the answer.
     """
 
-    def __init__(self, *, upper: int, cursor: int, page_size: int = 1) -> None:
+    def __init__(
+        self, *, upper: int, cursor: int, page_size: int = 1, cap_at_cursor: bool = False
+    ) -> None:
         self.upper = upper
         self.cursor = cursor
         self.page_size = page_size
+        self.cap_at_cursor = cap_at_cursor
         self.pages: list[int] = []
         self.acks: list[tuple[int, int]] = []
         self._outstanding: dict[str, int] = {}
@@ -709,7 +725,14 @@ class RecoveringGateway:
         body = json.loads(request.data.decode("utf-8"))
         if request.full_url.endswith("/sync/pull"):
             after = body["afterSequence"]
-            through = min(after + self.page_size, self.upper)
+            requested = body["pageSize"]
+            # The material cap the gateway reads against, then the cursor cap.
+            # `MAXIMUM_MATERIAL_EVENTS` is 48 and the agent asks for 128, which
+            # is why a catching-up device is offered a page that contains the
+            # cursor rather than one that stops short of it.
+            through = min(after + min(requested, self.page_size), self.upper)
+            if self.cap_at_cursor and after < self.cursor < through:
+                through = self.cursor
             self.pages.append(after)
             self._serial += 1
             snapshot = f"snapshot-{self._serial}"
@@ -774,6 +797,79 @@ def test_a_fresh_archive_catches_up_to_a_cursor_ahead_of_it_and_ends_in_sync(tmp
         # stood, so the cursor never had to move backwards to accommodate one.
         assert all(expected <= through for expected, through in gateway.acks)
         assert [through for _, through in gateway.acks] == list(range(1, 301))
+        rows = repository.connection.execute("SELECT COUNT(*) FROM archive_event").fetchone()
+        assert rows is not None and rows[0] == 300
+        assert replicator.cursors.pending_ack() is None
+    finally:
+        repository.close()
+
+
+def test_a_capped_page_that_ends_at_the_cursor_catches_up_without_error(tmp_path: Path) -> None:
+    """A device behind the cursor, with the real 128-request / 48-material gap.
+
+    The original wedge, wired through the agent rather than the gateway: the
+    agent stands at 240, the cloud cursor is at 267, and the agent asks for its
+    128-event page. The gateway materializes at most 48
+    (`MAXIMUM_MATERIAL_EVENTS`), so without the cursor cap it answers 240->288 --
+    a range the cursor only partly covers, neither a replay (267 < 288) nor a
+    cursor match (267 != 240). Every acknowledgement is refused and the device
+    re-pulls the identical range forever.
+
+    With `pageUpperBound` the page stops at 267. That is a *short* page -- 27
+    events where the agent asked for up to 128 -- and the two ways to get this
+    wrong are both checked below: treating it as the device having reached the
+    head (it has not; the cursor is 267 and the head is 300), or treating it as
+    a truncated page to be errored on (it is a legitimate page).
+
+    The acknowledgement still has to survive one rejection: the agent stages
+    240->267 with `expectedCurrent: 240` against a cursor already at 267, which
+    the replay branch accepts. So no error reaches the caller and the device
+    walks on to the head.
+    """
+    path = tmp_path / "archive.sqlite3"
+    repository = ArchiveRepository.open(path)
+    try:
+        # A device that is behind, not fresh: it already holds 1..240.
+        for sequence in range(1, 241):
+            assert repository.insert_event_if_absent(event(sequence))
+        gateway = RecoveringGateway(
+            upper=300,
+            cursor=267,
+            page_size=MAXIMUM_MATERIAL_EVENTS,
+            cap_at_cursor=True,
+        )
+        replicator = EventReplicator(http_client(gateway), repository)
+        # Seeded through the store rather than by hand-written SQL, so this stays
+        # the same cursor the replicator will read. The staged acknowledgement is
+        # cleared because this device owes nothing: its position is durable and
+        # 240 is simply where it stands, which is the state that used to wedge.
+        replicator.cursors.advance_and_stage_ack(240)
+        replicator.cursors.clear_pending_ack()
+        assert replicator.cursor() == 240
+
+        # No SyncAckPending, no CloudSyncError: the wedge was an exception on
+        # every cycle, so reaching the head at all is the assertion.
+        for _ in range(50):
+            if replicator.cursor() == 300:
+                break
+            replicator.sync_once()
+
+        assert replicator.cursor() == 300
+        assert gateway.cursor == 300
+
+        # The first page the agent asked for was 240, and what came back ended
+        # at the cursor rather than at the requested 240+128.
+        assert gateway.pages[0] == 240
+        assert gateway.acks[0] == (240, 267)
+
+        # A short page is not "caught up". The agent had to acknowledge again and
+        # keep pulling: the head is 300 and 267 is not it, so a client that read
+        # "fewer events than I asked for" as the end would stop 33 events short.
+        assert gateway.pages[1] == 267, "a page ending at the cursor must not end the cycle"
+        assert gateway.acks[1] == (267, 300)
+        assert len(gateway.pages) == 2
+
+        # Nothing is missing between where it started and the head.
         rows = repository.connection.execute("SELECT COUNT(*) FROM archive_event").fetchone()
         assert rows is not None and rows[0] == 300
         assert replicator.cursors.pending_ack() is None

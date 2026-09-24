@@ -63,10 +63,58 @@ def test_every_missing_store_ancestor_is_created_private_and_validated(
             connection.close()
 
 
+def test_an_ancestor_above_the_store_root_is_created_without_the_store_dacl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Above the root is not the store, so it must not receive the store's DACL.
+
+    The store is `<tmp>/outer/mid/Jarvis/data` and the boundary the caller named is
+    `<tmp>/outer/mid/Jarvis`, with only `outer` present. So `mid` is a missing
+    ancestor *above* the boundary: it has to be created or a first run could not
+    start, but writing the store's owner-only SDDL onto it is the `path.parents`
+    walk that emptied this account's profile -- one directory above where it
+    stopped being the store. `boundary` itself is the outermost store directory,
+    so making it private is correct; `mid` must be created with a plain `mkdir`.
+
+    Both of the obvious ways to write this test are wrong, and each was caught by
+    mutating the branch rather than by reading it. Making only the store directory
+    missing left nothing above `boundary` in the walk, so the branch never ran.
+    Making `outer` the missing ancestor did not help either: it is missing, but
+    `_ensure_sqlite_directory` stops ascending at the first directory that exists,
+    and `boundary.mkdir(parents=True)` had already created the whole chain.
+
+    `_make_directory_private` is replaced with a recorder because this is about
+    *which* directories are handed to it, not about what an ACL contains; the
+    Win32 seam is stubbed package-wide and no real DACL is written here.
+    """
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    mid = outer / "mid"
+    boundary = mid / "Jarvis"
+    store = boundary / "data"
+    assert not boundary.exists(), "the branch under test only runs when the boundary is missing"
+
+    private: list[Path] = []
+    original_mkdir = Path.mkdir
+
+    def record(directory: Path, *, store_root: Path) -> None:
+        private.append(directory)
+        original_mkdir(directory, mode=stat.S_IRWXU, exist_ok=True)
+
+    monkeypatch.setattr(database, "_make_directory_private", record)
+
+    database._ensure_sqlite_directory(store, store_root=boundary)
+
+    assert store in private, "the store directory must be made private"
+    assert boundary in private, "the boundary is the outermost store directory and is made private"
+    assert mid not in private, "a missing ancestor above the store root was given the store DACL"
+    assert outer not in private, "a missing ancestor above the store root was given the store DACL"
+    assert store.is_dir(), "the store directory was not created"
+
+
 @POSIX_ONLY
 @pytest.mark.parametrize("open_store", [ArchiveRepository.open, FactRepository.open])
-def test_store_and_live_wal_files_ignore_a_permissive_umask(
-    tmp_path: Path,
+def test_store_and_live_wal_files_ignore_a_permissive_umask(    tmp_path: Path,
     open_store: Callable[[Path], ClosableStore],
 ) -> None:
     database_path = tmp_path / "state" / "store.sqlite3"

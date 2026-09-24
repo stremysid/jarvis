@@ -54,8 +54,17 @@ class ArchiveRepository:
         self._database = database
 
     @classmethod
-    def open(cls, path: Path, *, now: str | None = None, store_root: Path | None = None) -> ArchiveRepository:
-        return cls(ArchiveDatabase.open(Path(path), now=now or utc_now_iso(), store_root=store_root))
+    def open(
+        cls, path: Path, *, now: str | None = None, store_root: Path | None = None, repair_permissions: bool = True
+    ) -> ArchiveRepository:
+        return cls(
+            ArchiveDatabase.open(
+                Path(path),
+                now=now or utc_now_iso(),
+                store_root=store_root,
+                repair_permissions=repair_permissions,
+            )
+        )
 
     @property
     def connection(self) -> sqlite3.Connection:

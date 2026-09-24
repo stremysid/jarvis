@@ -29,7 +29,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
 from jarvis_local.archive.database import SQLiteDirectoryError
-from jarvis_local.archive.store_permissions import store_root_summary
+from jarvis_local.archive.store_permissions import (
+    StoreDaclRefusedError,
+    StoreOwnerUnknownError,
+    StoreRootUnresolvedError,
+    configured_store_roots,
+    permit_store_roots,
+    store_root_summary,
+)
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
@@ -58,6 +65,10 @@ EXIT_NODE_OK = 0
 EXIT_NODE_CONFIGURATION = 3
 EXIT_NODE_STARTUP = 4
 EXIT_NODE_AUTHENTICATION = 5
+#: The store's location or its permissions are wrong. Its own code because the
+#: repair is different from every other startup failure: an elevated run, or a
+#: configuration change -- not "try again".
+EXIT_NODE_STORE_PERMISSIONS = 6
 
 # Leave most of the control client's two-second exchange deadline for I/O.
 QUARANTINE_RETRY_WAIT_SECONDS = 0.1
@@ -718,6 +729,18 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
             # configured outside these roots is a refusal rather than a silent
             # rewrite, and this line is how a reader of the log sees which
             # boundary applied without reconstructing it from the environment.
+            #
+            # The allowlist is enforced here rather than in
+            # `configured_store_roots()`. This is the entry point that actually
+            # changes permissions on every run, so it is where being strict
+            # costs nothing; putting it in the shared resolver would make the
+            # integration tests' scratch root need an environment variable, and
+            # a guard with an off switch is the thing D12 removed.
+            # Raises before anything is opened if a configured store is not
+            # inside the one permitted location. The return value is the same
+            # roots resolved, which `store_root_summary` already reports, so it
+            # is the check that is used here and not the value.
+            permit_store_roots(configured_store_roots())
             logger.info("store roots for this service: %s", store_root_summary())
             settings = NodeSettings.from_config(config)
             runtime = build_node(settings, control_factory=_windows_control_endpoint, platform=current_platform)
@@ -748,6 +771,14 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
     except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
+    except (StoreDaclRefusedError, StoreOwnerUnknownError, StoreRootUnresolvedError) as error:
+        # Before the catch-all below, which would otherwise fold all three into
+        # "the Jarvis node could not start" and exit 4 -- indistinguishable from
+        # a port already in use, and with the one-time fix printed by
+        # `dacl_refused_message` thrown away. These are the failures whose whole
+        # value is the sentence naming the repair.
+        print(str(error))
+        return EXIT_NODE_STORE_PERMISSIONS
     except UnixSocketInUseError:
         recovery = (
             f"   rm -- {shlex.quote(requested_endpoint)}\n"

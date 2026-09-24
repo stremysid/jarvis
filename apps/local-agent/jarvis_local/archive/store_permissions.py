@@ -67,6 +67,7 @@ import ctypes
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 from jarvis_local.transport.pipe_server import current_user_sid
@@ -213,6 +214,15 @@ def configured_store_roots() -> tuple[Path, ...]:
     * **Set to empty is a misconfiguration and raises.** Falling back from a
       blank value would hide a broken configuration and widen the boundary the
       administrator thought they had set.
+    * **Set to a relative path is a misconfiguration and raises.** It used to be
+      resolved against the process's working directory, which for a boot-started
+      service is not a location anybody chose. The boundary would then depend on
+      where the logon task happened to start the process, and the same
+      configuration would name different directories on different runs -- which
+      is the one property a boundary may not have. `config.py` already refuses a
+      relative path for these two names; this is the same rule enforced at the
+      point that actually writes permissions, because these functions are also
+      reachable directly.
 
     The result is refused if it turns out to be a filesystem root, the user
     profile, or a temp directory: a store there is a misconfiguration, and
@@ -227,6 +237,12 @@ def configured_store_roots() -> tuple[Path, ...]:
         value = os.environ[variable].strip()
         if not value:
             raise StoreRootUnresolvedError(f"{variable} is set but empty")
+        if not os.path.isabs(value):
+            raise StoreRootUnresolvedError(
+                f"{variable} is not an absolute path: {value!r}. A relative store path would be "
+                f"resolved against the process working directory, which for a boot-started service "
+                f"nobody chose"
+            )
         supplied = True
         roots.append(Path(value).parent.resolve(strict=False))
     if not supplied:
@@ -305,6 +321,50 @@ def _refuse_broad_root(root: Path) -> None:
         value = os.environ.get(variable, "").strip()
         if value and root == Path(value).resolve(strict=False):
             raise StoreRootUnresolvedError(f"{variable} is not a store root: {root}")
+
+
+def store_root_base() -> Path:
+    """The one directory a store root is allowed to be at or beneath.
+
+    This is the allowlist, and it is deliberately a single fixed location rather
+    than an enumeration of the places a store must not live. A denylist answers
+    "is this one of the bad ones?" and is wrong for every bad place nobody
+    listed; the question that matters before a process starts changing ACLs is
+    "is this one of the *good* ones?", which only an allowlist can answer.
+
+    The value is `_default_store_root()` -- `%LOCALAPPDATA%\\Jarvis` on Windows,
+    its XDG equivalent elsewhere -- so the permitted set and the fallback the
+    live PC actually uses are the same directory by construction rather than by
+    two lists agreeing.
+    """
+    return _default_store_root().resolve(strict=False)
+
+
+def permit_store_roots(roots: Iterable[Path]) -> tuple[Path, ...]:
+    """The roots that are inside the allowlist, or a refusal.
+
+    Applied where `jarvis serve` starts and **not** inside
+    `configured_store_roots()`: the integration tests point a store at
+    `C:\\jarvis-test-scratch`, and a boundary check there would need an
+    environment variable to widen — which is a gate on the guard, and gates on
+    guards are what D12 removed. The service, which is the thing that actually
+    changes permissions on every run, is the right place to be strict.
+
+    Returns the roots resolved, so callers and tests compare the same values.
+    """
+    base = store_root_base()
+    if not roots:
+        raise StoreRootUnresolvedError("no store root to allow; the configuration resolved to nothing")
+    allowed: list[Path] = []
+    for root in roots:
+        resolved = root.resolve(strict=False)
+        if resolved != base and base not in resolved.parents:
+            raise StoreRootUnresolvedError(
+                f"{resolved} is outside the only permitted store location ({base}); "
+                f"move the store there, or point {_ARCHIVE_PATH_VARIABLE} / {_MEMORY_PATH_VARIABLE} at a file inside it"
+            )
+        allowed.append(resolved)
+    return tuple(allowed)
 
 
 def folder_only_sddl(user_sid: str) -> str:
@@ -513,6 +573,28 @@ def ensure_private_directory(path: Path, user_sid: str, *, store_root: Path) -> 
     apply_owner_only_dacl(path, user_sid, store_root=store_root)
 
 
+def is_reparse_point(path: Path) -> bool:
+    """Whether `path` is a junction, a symlink, or another reparse point.
+
+    A local copy of `jarvis_local.vault.paths.is_reparse_point` rather than an
+    import, because this module is imported by the archive open path and the
+    vault package imports the archive one -- an import here would be a cycle.
+    The two are deliberately identical; if one changes, both must.
+
+    `st_reparse_tag` is the accurate answer on Windows and `is_symlink()` alone
+    is not: it returns False for a directory *junction*, which is the reparse
+    point this walk is most likely to meet, because creating one needs no
+    privilege.
+    """
+    try:
+        status = os.lstat(os.fspath(path))
+    except OSError:
+        return False
+    if getattr(status, "st_reparse_tag", 0):
+        return True
+    return Path(path).is_symlink()
+
+
 def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = None) -> tuple[Path, ...]:
     """Re-apply the store DACL to every directory at or under `root`.
 
@@ -530,27 +612,60 @@ def repair_store_tree(root: Path, user_sid: str, *, store_root: Path | None = No
     left to `Path.rglob`, which raises the first `PermissionError` and abandons
     the rest of the tree -- precisely the tree that needs repairing.
 
+    **Two things stop the descent, and the first is not an optimisation.** A
+    reparse point is skipped rather than followed: a junction is a door out of
+    the store, so following one would apply this DACL to whatever it points at,
+    which is the class of mistake that damaged this account. And the whole walk
+    aborts at the first directory the *guard* refuses, because a refusal there
+    does not mean "this subtree is unlucky" -- it means the boundary or the
+    caller is wrong, so every directory below would be refused identically.
+    Walking the rest of the tree to collect hundreds of copies of one error is
+    what made the first version's failures unreadable.
+
+    A refused *DACL write* is deliberately not an abort. That one is the
+    Administrators-owned store, it is recoverable by an elevated run, and the
+    directories below it may well still be repairable -- aborting would abandon
+    a tree on the strength of one unreachable folder.
+
     Returns the paths that could not be repaired; each one is also logged as it
     happens, because the caller that ignores this return value is how the first
     version's refusals went unnoticed.
     """
     boundary = store_root if store_root is not None else root
     failures: list[Path] = []
+    aborted = False
 
     def record(error: OSError) -> None:
+        nonlocal aborted
         failed = Path(getattr(error, "filename", None) or root)
         failures.append(failed)
+        aborted = True
         logger.warning("could not read %s while repairing store permissions: %s", failed, error)
 
     if not root.exists():
         return ()
-    for current, _children, _files in os.walk(root, followlinks=False, onerror=record):
+    for current, children, _files in os.walk(root, followlinks=False, onerror=record):
+        if aborted:
+            break
+        directory = Path(current)
+        if is_reparse_point(directory):
+            # Not descended into and not written to. `followlinks=False` already
+            # stops `os.walk` from following one; this stops the DACL write too.
+            logger.warning("skipping %s: it is a junction or symlink, not a store directory", directory)
+            children[:] = []
+            continue
         try:
-            apply_owner_only_dacl(Path(current), user_sid, store_root=boundary)
-        except (OSError, UnsafeStorePathError) as error:
-            failures.append(Path(current))
-            logger.warning("could not repair %s: %s", current, error)
+            apply_owner_only_dacl(directory, user_sid, store_root=boundary)
+        except UnsafeStorePathError as error:
+            failures.append(directory)
+            aborted = True
+            logger.warning("could not repair %s: %s", directory, error)
+        except OSError as error:
+            failures.append(directory)
+            logger.warning("could not repair %s: %s", directory, error)
     return tuple(failures)
+
+
 
 
 def _refuse_unsafe_path(path: Path, store_root: Path) -> Path:
