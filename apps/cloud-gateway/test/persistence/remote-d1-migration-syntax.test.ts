@@ -191,6 +191,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0040_school_collector_keys.sql",
       "0043_guided_assignment.sql",
       "0044_owner_channel_parity.sql",
+      "0045_school_collector_hosts.sql",
     ]);
   });
 

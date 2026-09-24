@@ -21,7 +21,7 @@ beforeAll(applyNewestRuntimeMigration);
 // These fixtures promote status to tier 3; leaving that row changed would gate unrelated read tests.
 afterEach(async () => { await env.DB.prepare("UPDATE capability_tiers SET tier = 1 WHERE capability = 'school.track'").run(); });
 
-async function runSchoolTool(f: CollectorFixture, name: string, args: Record<string, unknown>) {
+async function runSchoolTool(f: CollectorFixture, name: string, args: Record<string, unknown>, directPipelineText = true) {
   const requests: ModelAgentCompletionInput[] = [];
   const adapter = new OwnerTelegramAgentAdapter({ database: env.DB, archive: env.ARCHIVE,
     provider: { async completeAgent(input) {
@@ -29,7 +29,7 @@ async function runSchoolTool(f: CollectorFixture, name: string, args: Record<str
       return requests.length === 1
         ? { content: null, toolCalls: [{ id: "school", name, arguments: JSON.stringify(args) }], finishReason: "tool_calls" }
         : { content: JSON.stringify({ reply: "Here is the result.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };
-    } }, ownerPrincipalId: f.owner, directOwnerText: true, directPipelineText: true, authorityText: "Check my collector",
+    } }, ownerPrincipalId: f.owner, directOwnerText: true, directPipelineText, authorityText: "Check my collector",
     targets: { async findControlTargets() { return []; } }, decisions: f.decisions,
     autonomy: new ToolAutonomyGate(new AutonomyService({ repository: new AutonomyRepository(env.DB), now: f.clock }), new D1ToolConfirmationStore(env.DB, f.clock)),
     schoolModel: { async *stream() {} }, universityModel: { async *stream() {} }, studyCoachModel: { async *stream() {} }, now: f.clock,
@@ -39,13 +39,13 @@ async function runSchoolTool(f: CollectorFixture, name: string, args: Record<str
   return requests;
 }
 
-it("gates school status before reading evidence and records its refusal in the autonomy audit", async () => {
+it("refuses school evidence without direct private text before spending a tier-three action tap", async () => {
   const f = await collectorFixture();
   await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
-  const result = await runSchoolTool(f, "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 43_200_000 });
-  expect(JSON.stringify(result[1])).toContain("pending_confirmation");
+  const result = await runSchoolTool(f, "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 43_200_000 }, false);
+  expect(JSON.stringify(result[1])).toContain("not Sid's direct private Telegram text");
   expect(JSON.stringify(result[1])).not.toContain("lastGoodReadAt");
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 1 });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
 });
 
 it.each([
@@ -135,7 +135,7 @@ it("hands the model D2L evidence through the real tool dispatcher without an act
   expect(JSON.stringify(requests[1])).toContain("lastGoodReadAt");
   expect(reply).toContain("undated practice");
   expect(reply).not.toContain("Saved");
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 1 });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
 });
 
 it("keeps an unavailable collector status visible in the digest", async () => {
