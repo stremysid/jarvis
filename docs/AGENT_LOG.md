@@ -3,6 +3,14 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 round 2 publication gates
+
+Signed: Codex, builder. Normal merge `863371ac` includes fresh main `29fbfcd6` (#169) and retains the collector tools alongside the shared deadline tools in both adapters. Both log histories remain. A final fetch still found this main head and no published channel-parity branch. #168 receives this A head next and adds its reminders to the shared argument catalogue/dispatcher.
+
+Restored deadline/school/voice/classification gate: **535 passed / 0 failed / 0 skipped, 27 files**. The single full cloud-gateway run: **5,348 passed / 1 failed / 0 skipped, 203 files passed / 1 failed**. The existing bge-m3 byte-ceiling test in meaning-search hit its documented 30-second timeout; the entire file then passed **70/0/0** alone. No cause is inferred and the full run was not repeated. Earlier iteration evidence remains: 83/0/0 in four files; 303/0/0 in sixteen files plus nine worker-start ECONNRESET errors; those nine files passed 281/0/0 alone with two workers; the full call-session fixture passed 130/0/0. Source types: 0 diagnostics. Test types: 143 existing diagnostics, none in new files or changed lines. State/diff checks passed, state with 0 warnings.
+
+Mutation evidence: **15 distinct probes killed on named tests twice**, all five files restored byte-identically. After the main merge, the changed voice catalogue and core tier branch were probed again: **2/2 confirmed kills**, both files restored byte-identically. Zero survivors, wrong-test kills, unconfirmed, not-applied or invalid probes. Restored tests passed, including the voice file in the full run. Evidence/specs: external `deadline-r2-*` logs and the approved Markdown ledger. No live provider/call, real DB or remote migration, deployment, local-agent execution, or PC settings change. Owner acceptance and retained grammar judgment findings remain explicit below and in OWNER-ACTIONS/CODE-VS-JUDGMENT.
+
 ## 2026-09-24 — Codex builder: #166 round 2 date proof and voice tools
 
 Signed: Codex, builder. Read independent comment `5807130601` in full. Bare clocks now use the durable message's local date, per Sid's explicit instruction; a passed bare/weekday clock refuses with `deadline_time_already_passed`, never an automatic tomorrow. Next weekday and a bare weekday naming today refuse with `deadline_ambiguous_date` naming both candidate dates. Course and title must both precede the due phrase within the same sentence. Removed the Chem/Chemistry semantic alias; the existing prefix-collision path asks which assignment is intended. Updated tests whose former expectations encoded the now-rejected convention/alias.
