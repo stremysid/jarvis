@@ -79,6 +79,46 @@ No live model, Telegram, call, remote D1 rehearsal, migration application, secre
 operation or deployment was performed. The test called remote-D1 syntax is
 offline. OWNER-ACTIONS carries the separately authorized rehearsal and rollout;
 QUEUE carries review. Independent review follows publication, not builder merge.
+## 2026-09-23 — Codex GPT-6 builder: #169 publication refresh after #164, #165 and #167
+
+Signed: Codex GPT-6, receiver builder. GitHub reported a conflict after the first normal push. Fresh fetch proved main had advanced to `0d69556394cc543bb55a5a66627c1b35aa6139d4`. Merged it normally in `d3ab0827869251cd09907c74a783b8056de3a141`; no rebase or force-push. Kept all upstream runtime changes and every conflicting log/fact/queue entry. The two digest test conflicts now retain main's retired-source behavior and the collector's separate coverage gap. No upload route, signing, pairing payload or batch format changed.
+
+Because upstream changed executable code after the earlier 5192/0/0 full run, final gates were refreshed: focused **141/0/0** across nine files (including all **52 collector** tests); full cloud **5240/0/0** across **199 files**. Pass/fail/skip throughout. Seven changed-file mutations killed twice and passed restored, zero other outcomes, two files byte-identical. Total round proof: **103 distinct killed guards / 125 attempts**, no unresolved survivor. Source typecheck: zero diagnostics; test typecheck: **143 outside collector / 0 collector**, still non-green. See [all observed evidence](reviews/2026-09-23-d2l-collector-round-1.md#publication-refresh-after-main-advanced).
+
+Next, **after this normal push**: follow-up independent and automated review. **After clearance and authorized rollout**: the existing owner acceptance actions. No main merge, deployment, real DB/provider, secret, PC permissions/services/tasks/registry or local-agent operation occurred. Remove only the verified clean worktree after publication and retain the external ledger.
+
+## 2026-09-23 — Codex GPT-6 builder: #169 review round 1
+
+Signed: Codex GPT-6, cloud receiver builder, 2026-09-23 EDT. Read all of [review comment 5806221250](https://github.com/stremysid/jarvis/pull/169#issuecomment-5806221250) before changes. Merged fresh main `c92078b964cf9a8ce22ee8494714da332e4f553b` normally in `ff3ae31`, preserving 0039 before 0040 and backup schema 0040. No rebase or force-push in this round. Final executable changes are `72094aea19dac430b309ccc564099d8569933eb1`.
+
+The merged revoke test reproduced the untapped revocation. Both school tools now validate arguments before the autonomy gate; invalid calls leave a tap unspent. Complete per-tool 403s stay evidence and do not fail reads. Refusals and both read aggregates are bounded; a separate last-good query preserves success through a failure streak. Current digests name undated work. The database-only non-Telegram activation test kills the review's surviving S5 mutation. Pairing quotas are per principal, and activation uses the key's qualified expiry. A separate probe also caught null successful submission containers being marked good; unfamiliar containers now fail while 403s stay normal. **No upload route, signature semantics, pairing payload or batch wire format changed.**
+
+Observed final gates: full cloud package once **5192 passed / 0 failed / 0 skipped**, 196 files; collector **52/0/0**. **103 distinct mutations killed**, 118 attempts including 15 affected mapping rechecks, zero survivors/unapplied/invalid/unconfirmed/wrong-test outcomes. Each named mutant failed twice and passed after restoration; sweeps restored 10 files and 1 file byte-identically. Source typecheck exit 0, zero diagnostics. Test typecheck remains red: **143 diagnostics outside collector files, zero inside**. Reproduction counts and complete named evidence are in [round 1 evidence](reviews/2026-09-23-d2l-collector-round-1.md).
+
+Remaining gaps are explicit in [KNOWN_ISSUES](../KNOWN_ISSUES.md#school-collector-retention-and-public-pairing-remain-bounded-only-in-part): unpruned pending keys/nonces, public exhaustion of Sid's own pairing budget, course retirement and duplicate-tap wording. No production, real DB, live provider, secret, permissions, services, tasks, registry or local-agent operation occurred; the incident file was absent. The ledger and gate logs remain outside the repository at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+
+Next, **when this fix head is pushed**: automated and independent adversarial re-review. **After independent clearance and authorized rollout**: owner acceptance on both devices, as already listed in OWNER-ACTIONS. Remove only this clean worktree after publication, retaining the ledger.
+## 2026-09-23 — Codex builder: PR #158 round 3 includes newly merged #159
+
+**Signed: Codex, documentation builder for Sid.** A second fresh fetch found
+`6e3f1ef2450fc47acc233cb70a7fa83a76ec2144` (#159) after the #163 merge below.
+Merged that new base normally too. Preserved both parent logs and #159's
+tier-3 rollout action immediately after the first-row probe action; completed
+deploy rows remain Done and other rows keep their order. No migration was
+applied and no production query was made. Final checks are recorded in the
+PR and external ledger after commit.
+
+## 2026-09-23 — Codex builder: PR #158 round 3 deploy wording and fresh main
+
+**Signed: Codex, documentation builder for Sid.** Merged freshly fetched main
+at `6249ab13f0611e80b1332a002b73a67479498dac` (#163) with a normal merge.
+Preserved all entries from both parents below the intro; the probe action
+remains first in Waiting on Sid, both completed deploy actions remain in
+Done, and all other owner rows retain their order. Corrected only the
+#149/#144 deploy phrases in QUEUE and made the original DOCS-VERIFY deploy
+observation explicitly historical, superseded by STATE. No production query
+or runtime code change. Final state and merge-tree results are retained in
+the PR and the external Markdown ledger after commit.
 
 ## 2026-09-23 — Codex builder: PR #165 review fixes and mutation evidence
 
@@ -488,6 +528,20 @@ retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
 the final merge commit runs the full gateway suite. No force
 push, merge into main, deployment, real database operation, real provider call
 or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+## 2026-09-23 — Codex GPT-6 builder: [#169](https://github.com/stremysid/jarvis/pull/169) D2L school collector receiver
+
+Branch `codex/d2l-ingest-run`, refreshed from `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. School remains the priority. Built the separately scoped Ed25519 collector registry in assigned **0040**, owner Telegram pairing, terminal tier-3 revocation, signed bounded per-course observation ingestion, immutable raw evidence, labelled deadline projection and owner `school_d2l_status` tools. Failed/incomplete/stale reads become digest gaps. Undated work remains evidence; no code decides missed work. The P2 login-and-scrape reader is parked. See the [final design](plan/2026-09-23-d2l-collector-design.md) and [named verification evidence](reviews/2026-09-23-d2l-collector.md).
+
+**Observed gates:** one full cloud run, **5,150 passed / 5 failed / 0 skipped**, 193 files. All five failures were old test expectations for the extra collector gap and two school voice tools. Correcting only those expectations and rerunning the three affected files produced **35 passed / 0 failed / 0 skipped**; no failing file remains unresolved. The full run included **40/0/0 collector tests**. This is not a claim of one green full-suite run. Product typecheck passed with zero diagnostics. Test typecheck remains red with **143 diagnostics outside collector files, zero in collector files**. State/whitespace results are recorded in the PR and evidence document.
+
+**Guard proof:** 80 distinct mutations each produced two named failures and a named restored pass. Initial round: 59 killed, 3 survived, 1 invalid; follow-ups: 18/18 and 6/6 killed, with zero unmatched/unconfirmed cases. The future-date fixture had masked its target guard; the owner predicate was redundant until all application owner predicates were removed; deleting an array check still threw at map; deleting a trigger broke the migration splitter. All four were corrected in the test/mutation specification and re-proved. Every round restored touched files byte-for-byte. Specifications are versioned in `reviewer-tools/mutation-specs-d2l-collector.json`.
+
+**Premise corrections and handoff:** #161 observed `submissions/`, not `mysubmissions/`, and no populated submissions/grades or myItems shape. Synthetic adapters are not live-verified. #163 corrected the myItems route to use `orgUnitIdsCSV`; it remains a probe with no signing/push adapter. #159's initial 0040 collision is resolved at `ebd02ca1f5e6e3a0a0f881abcb0547e5bca1cd0d`, which uses assigned 0039. Apply migration order after review. #159 overlaps shared owner-agent/voice/backup wiring; neither branch is merged here. #157 runtime/test files, sync handlers, local-agent and the deploy tree were untouched.
+
+Next, **now #169 is open**: automated and independent adversarial review. The separate extension builder must wire the approved production collector transport. **After independent clearance and authorized rollout**, Sid owns the PC/laptop pairing and live completeness checks in [OWNER-ACTIONS](OWNER-ACTIONS.md). No merge, deployment, real migration, live school/provider request, secret operation or PC-permission operation occurred. The requested incident file was absent. Ledger/logs remain at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`; remove the isolated worktree after publication.
+
+Signed: Codex GPT-6, cloud receiver builder, 2026-09-23 EDT.
+
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
 Limited to Sid's post-review requests: literal LDSB host assertions for every
@@ -554,6 +608,30 @@ not merge or wait for review. The external continuity ledger remains at
 `C:\Users\Sid\codex-ledgers\d2l-probe-run.md` after worktree removal.
 
 Signed: **Codex, builder**, 2026-09-23.
+
+## 2026-09-23 — Codex builder: PR #158 round 2 merges main and records the owner deploy
+
+**Signed: Codex, documentation builder for Sid.** Merged freshly fetched main
+at `248c3de4b1145c22638eff5bc31999d18d00308a` (#156, following #154 at `a6a0efd`)
+into `codex/docs-verify` with a normal merge, preserving both histories.
+Both conflicting documents retain the other builders' entries/actions. The
+two completed deploy actions move to Done in their existing relative order;
+all other owner rows retain their order. Every prior `## ` heading from each
+parent is checked for preservation, and all entries remain below the intro.
+
+STATE and FACTS now record Sid's/reviewer's observation of the 2026-09-23
+20:41 EDT deploy from `a6a0efd`: Worker `7e027a1f-065b-4f60-8229-f3edff0160dc`,
+health 200 at 20:42 EDT, no migrations, D1 `0038`, and the supplied pre-deploy
+restore bookmark. #133/#137/#144/#146/#147/#149/#154 are deployed as of that
+source; #156 is local-only and merged afterwards. Updated the three affected
+issue rows and README's deploy boundary. Older data/call observations remain
+dated 2026-09-21. This builder made no production query or deploy.
+
+The previous round's `a666097` and test counts below are historical evidence,
+not this merged base's results. Documentation only relative to merged main;
+no runtime code, tests or guards authored, and no mutations attempted.
+Final state-carrier and merge-tree gate results are recorded in the PR and
+external ledger `C:\Users\Sid\codex-ledgers\docs-verify.md` after commit.
 
 ## 2026-09-23 — Codex builder: issue #24, trusted PowerShell Store discovery
 
@@ -719,6 +797,76 @@ operation was performed. The requested incident report was absent; the task's
 explicit PC restrictions were followed. No parallel builder's owned files changed.
 
 — Codex, builder (not reviewer)
+
+## 2026-09-23 — Codex builder: PR #158 round 1 documentation corrections
+
+**Signed: Codex, documentation builder for Sid.** Addressed all six findings
+relayed from the independent Claude Opus review of `e96cf0e`. Restored the three
+mandatory requirements; preserved Sid's existing action order and removed the
+incident-report action; restored the runnable local-agent command from main;
+marked #137/#147 fixes as absent from recorded deploy `352991e`; corrected the
+call and watchdog evidence; moved the original audit entry below this intro.
+The original entry and every older entry remain intact below. Restored the
+concrete Hermes hashes and verified that `c363631` changed the canonical source
+hash without changing the profile lock. No code, tests or guards changed.
+
+Freshly fetched main remains `a666097`; `git merge origin/main` reported already
+up to date. #159 remains open, so its owner-action row is not part of this tree;
+the second PR to merge must preserve both sets of rows if they conflict.
+
+Observed round-1 checks: **6 documentation assertions passed, 0 failed,
+0 skipped**; **177 relative links resolved, 24 audit commit citations reachable,
+56/56 previous issue sections accounted for**, and every prior log entry
+preserved. `node scripts/check-state.mjs`: **3 carriers passed, exit 0**.
+`git diff --check`: **exit 0**. CI on the previous head `e96cf0e`: **8 jobs
+passed, 0 failed, 0 skipped**; this does not certify the new head. The earlier
+workspace/lint/typecheck results below were not rerun for these prose-only
+corrections. **0 mutations attempted; no guards added.** Python, Hermes and
+production were not executed or queried. The external Markdown ledger remains
+at `C:\Users\Sid\codex-ledgers\docs-verify.md`.
+
+<a id="docs-verify-2026-09-23"></a>
+
+## 2026-09-23 — Codex builder: documentation verified against a666097
+
+**Signed: Codex, documentation builder for Sid.** Branch `codex/docs-verify`;
+isolated worktree `C:\w\docs-verify`; audit base
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, freshly fetched from origin/main.
+
+Corrected README and the root requirements/testing/known-issues documents. The
+three requested docs/ paths did not exist; added links to the root documents
+instead of maintaining duplicate claims. [DOCS-VERIFY](DOCS-VERIFY.md) accounts
+for all 56 prior known-issue sections and cites fixing commits. Remaining issues
+link to implementation evidence. Removed obsolete source-state claims and
+separated roadmap requirements, built code, and production as of the source
+recorded in STATE. Only Markdown changed; no code, tests, guards or migrations.
+
+Premise findings: older supplied AGENTS guidance disagrees with current main;
+the requested incident report is missing from Downloads; current CI does run
+check-state. The audit did not access production or secrets. It read the
+projection and pipe paths as evidence but did not edit another builder's code.
+Owner-only follow-ups are in OWNER-ACTIONS. The removed no-deploy-guard claim
+there is fixed by `f6bab5b`.
+
+Observed gates on the audit base plus documentation edits:
+
+| Gate | Observed result |
+|---|---|
+| `pnpm.cmd test --reporter=json --outputFile=<external-report>` | **5,461 passed, 0 failed, 0 skipped, 0 todo; 209 files; exit 0.** No flaky rerun was needed. |
+| `pnpm.cmd lint` | **5 package scripts passed, 0 failed; exit 0.** These are compiler/syntax checks, not a general linter. |
+| `pnpm.cmd typecheck` | **5 package scripts passed, 0 failed; exit 0.** |
+| `pnpm.cmd --filter @jarvis/cloud-gateway typecheck:tests` | **exit 1; 144 diagnostics in 32 files.** Pre-existing at the untouched audit base; not misreported as a passing gate. |
+| `node scripts/check-state.mjs` | **exit 0; 3 carriers passed.** Final post-edit run recorded before commit. |
+| Documentation evidence validation | **177 relative links resolve; 24 cited short commits are ancestors of the audit base; 56/56 old issue sections have dispositions; existing AGENT_LOG content preserved.** The first log-preservation check hit Node's stdout buffer limit; increasing its capture buffer completed the comparison. |
+| Mutation verification | **Not applicable: 0 guards added or changed; 0 mutations attempted.** |
+| Python, Hermes, production and live voice | **Not run.** No permission-changing code or local-agent integration tests executed. |
+
+Offline dependency installation reused the cache (zero downloads). The full
+workspace run additionally validates the published command/count correction;
+no package source was touched. Evidence JSON/logs and the continuity ledger are
+outside the repository at `C:\Users\Sid\codex-ledgers\`. No merge or deployment
+authority was used. Automated and independent adversarial review are still to
+follow; the builder does not certify them.
 
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 

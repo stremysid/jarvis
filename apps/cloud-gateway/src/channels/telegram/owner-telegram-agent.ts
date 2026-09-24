@@ -25,6 +25,7 @@ import {
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../../providers/provider-types.js";
+import { SCHOOL_COLLECTOR_TOOLS } from "../../school/collector-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -54,6 +55,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
+  ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",
     description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work.",

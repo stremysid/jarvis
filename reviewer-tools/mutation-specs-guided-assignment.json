@@ -186,8 +186,8 @@
   {
     "name": "Voice tools exposed",
     "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
-    "find": "toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS],",
-    "replace": "toolDefinitions: MEMORY_TOOL_DEFINITIONS,",
+    "find": "toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],",
+    "replace": "toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],",
     "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
     "expect": "gives voice the same guided tools and persists a spoken answer"
   },

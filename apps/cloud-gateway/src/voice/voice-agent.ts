@@ -26,6 +26,7 @@ import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapt
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
+import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
@@ -124,7 +125,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     const adapter = this;
     return Object.freeze({
       channelPrompt: OWNER_VOICE_AGENT_CHANNEL_PROMPT,
-      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS],
+      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:

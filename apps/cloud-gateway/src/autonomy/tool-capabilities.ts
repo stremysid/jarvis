@@ -18,7 +18,7 @@
  * The tool names the owner agent can actually dispatch today, each mapped to a
  * registered capability.
  *
- * All nine are tier 1, and that is a deliberate classification rather than a
+ * The original conversational tools are tier 1, a deliberate classification rather than a
  * convenient one. The tier registry exists to govern actions that reach
  * *outside* the owner's own authenticated conversation -- device actions,
  * money, third parties, deletion, production -- and the tier-2 exemplars seeded
@@ -40,6 +40,8 @@
  * Note `memory_forget` is tier 1 and not the tier-3 `delete.data`: forget is
  * hiding by transition and suppression, never erasure, and its own receipt says
  * the original conversation remains retained.
+ * Collector revocation has its own tier-3 registry entry because it disables a
+ * credential rather than changing conversational state.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
   memory_remember: "memory.write",
@@ -68,6 +70,8 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
+  school_d2l_status: "school.track",
+  school_collector_revoke: "school.collector.revoke",
   university_update: "university.track",
   study_coach: "study.coach",
 });
