@@ -74,8 +74,11 @@ export async function handleSchoolRequest(request: Request, env: Env, options: {
           chatId, text: item.question, replyMarkup: buildDecisionKeyboard(item), idempotencyKey: item.decisionId,
         });
       });
-      await notify(decision);
-      await pairing.markDelivered(decision.decisionId);
+      // The decision schema equates open with delivered_at IS NULL.
+      if (decision.deliveredAt === null) {
+        await notify(decision);
+        await pairing.markDelivered(decision.decisionId);
+      }
       return reply(202, { status: "pending", decisionId: decision.decisionId });
     }
     const batch = parseSchoolBatch(verified.body, now());

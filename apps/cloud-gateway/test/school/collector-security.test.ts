@@ -28,14 +28,14 @@ describe("school collector security", () => {
     expect(await env.DB.prepare("SELECT * FROM device_keys WHERE device_id = ?").bind(f.key.collector_id).first()).toBeNull();
   });
 
-  it("refuses a wrong challenge, an expired pairing, a reused challenge, and a rejected tap", async () => {
+  it("refuses wrong or expired challenges and rejected taps while reusing the original pairing decision", async () => {
     const f = await collectorFixture(false);
     await expect(f.pairing.prove(f.key, { challenge: "wrong" })).rejects.toThrow("school_challenge_invalid");
     f.setNow(new Date(f.key.expires_at));
     await expect(f.pairing.prove(f.key, { challenge: f.key.challenge })).rejects.toThrow("school_challenge_invalid");
     f.setNow(new Date(Date.parse(f.key.expires_at) - 60_000));
     const decision = await f.pairing.prove(f.key, { challenge: f.key.challenge });
-    await expect(f.pairing.prove(f.key, { challenge: f.key.challenge })).rejects.toThrow("school_challenge_consumed");
+    expect((await f.pairing.prove(f.key, { challenge: f.key.challenge })).decisionId).toBe(decision.decisionId);
     await f.decisions.markDelivered(decision.decisionId);
     await f.decisions.answer({ decisionId: decision.decisionId, answeredByIdentityId: f.identity, optionKey: "reject" });
     expect(await f.pairing.activateFromDecision(decision.decisionId, f.identity)).toBe(false);

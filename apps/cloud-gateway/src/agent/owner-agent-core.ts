@@ -994,16 +994,15 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (gated !== null) return gated;
       return this.memoryTool(input, port, call);
     }
-    if (this.dependencies.directPipelineText === false) {
-      return refusedTool(call, port.pipelineAuthorityRefusal);
-    }
     if (call.name === "school_d2l_status") {
       const args = schoolStatusOptions(parseArguments(call, ["cursor", "limit", "staleAfterMs"]));
-      const gated = await this.gateTool(input, port, call);
-      if (gated !== null) return gated;
+      // Reading evidence spends no action authority. Revocation still requires its tap.
       const evidence = await new SchoolCollectorRepository(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
         .status(args);
       return unactionedTool(call, JSON.stringify(evidence), []);
+    }
+    if (this.dependencies.directPipelineText === false) {
+      return refusedTool(call, port.pipelineAuthorityRefusal);
     }
     if (call.name === "school_collector_revoke") {
       const args = parseArguments(call, ["collectorId"]);
