@@ -233,7 +233,7 @@ const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" |
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I submitted your chem lab on D2L.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I handed in your math homework.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I turned in the assignment.","main":"replaced"},
-  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"Your lab report is submitted on Brightspace.","main":"shown"},
+  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"Your lab report is submitted on Brightspace.","main":"shown","expected":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I uploaded your chem lab to D2L.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I registered you for the SAT.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I signed you up for chem tutoring.","main":"shown","expected":"replaced"},
@@ -515,7 +515,7 @@ const ORDINARY_MESSAGES = [
 
 describe("PR #64 round-4 regression corpus", () => {
   describe("requirement 1: sentence-level reply guard", () => {
-    // Preserve the historical main outcomes, but require the three holes closed
+    // Preserve the historical main outcomes, but require the four holes closed
     // by #162 to stay closed rather than freezing their unsafe old behaviour.
     it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, row.expected ?? row.main] as const))(
       "%s %s gives the guarded outcome: %s -> %s",

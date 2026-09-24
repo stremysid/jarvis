@@ -68,12 +68,12 @@ const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
 // an unknown recipient or store is part of a worked explanation.
 const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({
   added: /^\s+(?:(?:[-+]?\d+[a-z]?|[a-z])\s+to\s+both\s+sides\b|the\s+term\s+[-+]?\d*[a-z]\b|an?\s+(?:(?:worked|stronger|email\s+validation)\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\b|an?\s+\d+\s+ms\s+timeout\b|(?:an?\s+)?error\s+handling\b)/iu,
-  applied: /^\s+the\s+(?:(?:[a-z-]+\s+){0,4}(?:rule|law|formula|theorem|method)\b|rubric(?:\s+(?:that\s+)?your\s+teacher\s+uses)?\s+to\s+(?:explain\b|(?:the|this)\s+(?:thesis|paragraph)\b))/iu,
-  called: /^\s+(?:[a-z_$][\w$]*\s*\(\s*\)|the\s+(?:parent\s+)?(?:function|constructor|method|helper)\b)/iu,
-  told: /^\s+the\s+(?:loop|function|program|compiler)\b/iu,
-  asked: /^\s+the\s+(?:loop|function|program|compiler)\b/iu,
+  applied: /^\s+the\s+(?:(?:[a-z-]+\s+){0,4}(?:rule|law|formula|theorem|method)\b|rubric(?:\s+(?:that\s+)?your\s+teacher\s+uses)?\b)/iu,
+  called: /^\s+(?:[a-z_$][\w$]*\s*\(\s*\)|the\s+(?:(?:parent\s+)?(?:function|constructor|method)|helper\s+(?:function|method))\b)/iu,
+  told: /^\s+the\s+(?:loop|function|compiler)\b/iu,
+  asked: /^\s+the\s+(?:loop|function|compiler)\b/iu,
   saved: /^\s+(?:[a-z]|(?:the\s+)?(?:result|value))\s+(?:as|in)\s+a\s+variable\b/iu,
-  "put in": /^\s+[-+]?\d+\s+for\s+[a-z]\b/iu,
+  "put in": /^\s+[-+]?\d+\s+for\s+[a-z](?=\s*(?:[,.;:!?]|$|\s+(?:and|to|into|so)\b))/iu,
 });
 const WORKED_APPLIED_FOR_YOU = /\bapplied\s+the\s+(?:[a-z-]+\s+){0,4}(?:rule|law|formula|method|theorem)\s+for\s+you\b/giu;
 const WORKED_TRANSACTION_OBJECT = /\b(?:discount|credit|code|fee|coupon)\b/iu;
@@ -81,11 +81,18 @@ const WORKED_DESTINATION = /\b(?:to|in|on|into|with)\s+(?:your|my|our|his|her|th
 const WORKED_RECIPIENT = /\bfor\s+(?:you|(?:the\s+)?\d+)\b/iu;
 const WORKED_NAMED_RECIPIENT = /\b(?:[Tt]o|[Ww]ith|[Ff]or)\s+\p{Lu}[\p{L}'’-]*\b/u;
 const WORKED_REAL_WORLD_VALUE = /\d{3}[-\s]\d{3,4}|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}:\d{2}\b|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[$£€¥%]|\b(?:cad|usd|eur)\s*\d|\b\d+\s*(?:dollars?|euros?|pounds?|percent)\b/iu;
-const WORKED_SECOND_ACTION = new RegExp(String.raw`\b(?:${ACTION_CLAIM_VERBS}|filed)\b`, "iu");
-// Unknown prepositional targets remain claims. These are explanation targets,
-// not a list of external services that can never enumerate the outside world.
-const WORKED_CONTINUATION = /^(?:(?:(?:the|a|an|this|each)\s+)?(?:both\s+sides|equations?|terms?|variables?|functions?|loops?|examples?|paragraphs?|thesis|denominators?|return\s+value|empty\s+string|two\s+points)\b|the\s+(?:Flask\s+application|application\s+essay)\s+(?:below|above|example)\b|(?:solve|differentiate|find|expand|explain|walk|print|return|infer|stop|introduce|convert)\b)/iu;
-const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
+// Both sides of the worked object must parse completely. A second verb is not
+// safe just because it is absent from an action list, nor is a noun prefix proof
+// that the rest of a destination describes the explanation.
+const WORKED_CLAIM_PREFIX = new RegExp(String.raw`^\s*(?:${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?)?$`, "iu");
+const WORKED_VALUE = String.raw`(?:[-+]?\d+[a-z]?|[a-z])`;
+const WORKED_TARGET = String.raw`(?:(?:the|a|an|this|these|each)\s+)?(?:both\s+sides(?:\s+of\s+the\s+equation)?|(?:left|right)\s+side\s+of\s+the\s+equation|two\s+(?:points|ideas)|(?:balanced\s+|combustion\s+)?equations?|terms?|variables?(?:\s+type)?|functions?|loops?|(?:request\s+)?examples?|paragraphs?|thesis|denominators?|return\s+(?:value|type)|(?:empty|input)\s+string|email\s+address|constructor|roots?|expression|brackets|answer|result|sum|volume|length|concentration|mass|reaction|argument|narrator['’]s\s+motive|character['’]s\s+choice|Flask\s+application|application\s+essay)(?:\s+(?:below|above|example))?`;
+const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\s+(?:this|the)\s+thesis\s+needs\s+evidence)|walk\s+through\s+${WORKED_TARGET}|stop\s+when\s+[a-z]\s+equals\s+(?:zero|\d+))`;
+const WORKED_CONTINUATION = new RegExp(
+  String.raw`^(?:\s+(?:below|above|recursively|twice|to\s+(?:${WORKED_OPERATION}|${WORKED_TARGET})|(?:in|on|with|of|around|between)\s+${WORKED_TARGET}|of\s+balancing\s+${WORKED_TARGET}|of\s+\d+\s+ms|explaining\s+${WORKED_TARGET}|showing\s+an\s+application\s+of\s+the\s+(?:[a-z-]+\s+){0,4}(?:rule|law|formula|theorem|method)|that\s+(?:sums|checks)\s+${WORKED_TARGET}|before\s+(?:assigning|setting)\s+${WORKED_TARGET}|named\s+[a-z_][\w]*|and\s+got\s+${WORKED_VALUE})|\s*,?\s+so\s+(?:${WORKED_VALUE}\s*=\s*${WORKED_VALUE}|the\s+roots\s+are\s+${WORKED_VALUE}\s+and\s+${WORKED_VALUE}))*\s*[.!?]?\s*$`,
+  "iu",
+);
+const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request|lab\s+report)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
 const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
 const PASSIVE_RECEIPT_COMPLETION = /\b(?:(?:fees?|payment)\b.{0,32}\b(?:is|has\s+been)\s+(?:paid|made|processed)|payment\s+was\s+made|registration\s+(?:is|was|has\s+been)\s+(?:completed|confirmed)|(?:email|message)\b.{0,48}\b(?:is|was|has\s+been|has)\s+(?:sent|gone\s+out)|(?:teacher|instructor)\s+(?:was|has\s+been)\s+told|(?:form|request)\s+is\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\s+(?:is|was|has\s+been)\s+(?:booked|scheduled))\b/giu;
 const PASSIVE_COMPLETION_PATTERNS = [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY, PASSIVE_RECEIPT_COMPLETION];
@@ -494,10 +501,8 @@ function isWorkedExplanation(sentence: string, verb: string, tail: string): bool
   const object = WORKED_OBJECTS[action]?.exec(tail)?.[0];
   if (object === undefined) return false;
   if (action === "applied" && WORKED_TRANSACTION_OBJECT.test(object)) return false;
-  // Inspect the whole sentence, including context before the verb. Removing just
-  // this verb leaves any second action visible, even without a repeated subject.
-  const context = sentence.slice(0, sentence.length - tail.length - verb.length) + tail;
-  if (WORKED_SECOND_ACTION.test(context)) return false;
+  const prefix = sentence.slice(0, sentence.length - tail.length - verb.length);
+  if (!WORKED_CLAIM_PREFIX.test(prefix)) return false;
   let remainder = tail.slice(object.length);
   let recipientScan = sentence;
   if (action === "applied" && /\b(?:rule|law|formula|theorem|method)$/iu.test(object)
@@ -507,10 +512,7 @@ function isWorkedExplanation(sentence: string, verb: string, tail: string): bool
   }
   if (WORKED_DESTINATION.test(sentence) || WORKED_RECIPIENT.test(recipientScan)
     || WORKED_NAMED_RECIPIENT.test(sentence) || WORKED_REAL_WORLD_VALUE.test(sentence)) return false;
-  for (const destination of remainder.matchAll(/\b(?:to|in|on|into|with|for|at|from)\s+/giu)) {
-    if (!WORKED_CONTINUATION.test(remainder.slice(destination.index + destination[0].length))) return false;
-  }
-  return true;
+  return WORKED_CONTINUATION.test(remainder);
 }
 
 function unsafeFirstPersonRanges(

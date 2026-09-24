@@ -2,8 +2,9 @@
 
 ## Reply-claim tutoring exemptions are deliberately conservative and partial
 
-PR #162 requires a positive worked object of the claim verb, with destination,
-recipient, real-world value and second-action vetoes. It cannot prove arbitrary
+PR #162 requires a positive worked object of the claim verb and a completely
+parsed explanation prefix and tail. Unknown words and clauses remain claims;
+destination, recipient and real-world value vetoes also remain. It cannot prove arbitrary
 natural-language action claims. The existing advice/draft exceptions remain,
 including the `asked about` exception in `allowedFirstPersonActionClaim`.
 
@@ -14,6 +15,14 @@ regression cases in `tutoring-reply-guard.test.ts`. The supported chemistry form
 use worked laws, formulas and examples. Broadening those forms requires new
 adversarial and mutation evidence; a marker anywhere in the sentence is not proof
 that an unknown recipient or store is part of an explanation.
+
+Round three also refuses bare "the program" and "the helper": those can name
+an admissions program or a person. Code examples must identify the function,
+compiler, loop, constructor or method. "I added a stronger hook to your opening
+paragraph draft below" remains conservatively refused because the possessive
+destination is outside the exemption. The review supplied six of its 34 tutoring
+sentences; five now survive, but the complete 34-sentence artifact was unavailable.
+The lab-report passive submission/upload gap reported in that review is closed.
 
 Checked on 2026-09-23 against fetched `origin/main` at
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. These are remaining code limits

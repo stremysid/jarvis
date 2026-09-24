@@ -52,6 +52,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } from "../persistence/migration.js";
+import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 const OWNER = "principal:voice-agent-owner";
@@ -265,6 +266,24 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
 }
 
 describe("the voice agent adapter", () => {
+  it("delivers every sentence of a worked explanation on an ordinary owner voice turn", async () => {
+    const provider = new FakeAgentProvider([stopped(WORKED_REPLY)]);
+    await expect(runVoiceTurn({ text: "Explain the homework step by step.", provider })).resolves.toBe(WORKED_REPLY);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question over voice: %s", async (reply) => {
+    const provider = new FakeAgentProvider([stopped(reply)]);
+    await expect(runVoiceTurn({ text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks an undeclared action after a worked object over voice", async () => {
+    const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
+    await expect(runVoiceTurn({ text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("runs a memory tool call over a call and speaks the receipt", async () => {
     const principalId = `principal:voice-pin:${serial + 1}`;
     await seedPrincipal(principalId);

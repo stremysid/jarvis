@@ -39,6 +39,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
+import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 let serial = 0;
@@ -2657,10 +2658,24 @@ describe("owner Telegram agent", () => {
 
   it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {
     const harness = await ownerHarness("tutoring-sentences");
-    const reply = "We added 5 to both sides, so x = 3. We applied the chain rule. I added a worked example below.";
+    const reply = WORKED_REPLY;
     const provider = new FakeAgentProvider([stopped(reply)]);
 
     await expect(runTurn({ harness, text: "Explain the homework step by step.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question on Telegram: %s", async (reply) => {
+    const harness = await ownerHarness("guided-question");
+    const provider = new FakeAgentProvider([stopped(reply)]);
+    await expect(runTurn({ harness, text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks an undeclared action after a worked object on Telegram", async () => {
+    const harness = await ownerHarness("worked-object-claim");
+    const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
+    await expect(runTurn({ harness, text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
     expect(provider.requests).toHaveLength(1);
   });
 
