@@ -45,10 +45,30 @@ def test_every_missing_store_ancestor_is_created_private_and_validated(
 
     def guard(path: Path) -> None:
         validated.append(path)
-        original_guard(path)
+        if os.name == "posix":
+            # The real inspection runs where it exists. On Windows its body
+            # cannot: `os.open(..., O_DIRECTORY)` is refused there. What this
+            # test asserts is *how many times* the walk calls the guard -- once
+            # per directory, not twice -- which is the defect being pinned.
+            original_guard(path)
 
     monkeypatch.setattr(Path, "mkdir", mkdir)
     monkeypatch.setattr(database, "_restrict_sqlite_directory", guard)
+    # The POSIX branch is forced so the counting assertion runs on every host.
+    # `_restrict_sqlite_directory` is a POSIX inspection -- it returns immediately
+    # on Windows, and so does not run at all on the Windows branch -- which made
+    # "once per directory, not twice" a property only the Ubuntu job could check.
+    # The Windows guard is the DACL `_make_directory_private` writes, and it is
+    # covered by `test_an_ancestor_above_the_store_root_is_created_without_the_store_dacl`
+    # and `test_the_ancestor_above_the_boundary_is_created_without_a_mode_on_windows`.
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
+    if os.name != "posix":
+        # `_restrict_sqlite_file` is the other POSIX body and cannot run on a
+        # Windows host either -- `os.geteuid` does not exist there. This test is
+        # about the *directory* guard; the file guard has its own POSIX-only
+        # tests, which run on the host where they mean something. Only the
+        # no-op is platform-dependent, so the POSIX run still exercises it.
+        monkeypatch.setattr(database, "_restrict_sqlite_file", lambda *_args, **_kwargs: None)
     previous = os.umask(0o022)
     connection = None
     try:
@@ -57,13 +77,8 @@ def test_every_missing_store_ancestor_is_created_private_and_validated(
         # opener, and every test that needs a store built has to say so.
         connection = connect(inner / "archive.sqlite3", repair_permissions=True)
         assert requested == {outer: 0o700, inner: 0o700}
+        assert validated == [outer, inner]
         if os.name == "posix":
-            # Asserted only where it does something. `_restrict_sqlite_directory`
-            # returns immediately on Windows, so its being called exactly once
-            # per directory -- which is what the duplicate call in the walk
-            # broke -- is a POSIX property, and the Windows guard is the DACL
-            # written by `_make_directory_private`.
-            assert validated == [outer, inner]
             assert {stat.S_IMODE(path.stat().st_mode) for path in (outer, inner)} == {0o700}
     finally:
         os.umask(previous)
@@ -341,22 +356,23 @@ def test_connect_refuses_an_existing_shared_parent_without_chmod(tmp_path: Path,
     assert not (parent / "archive.sqlite3").exists()
 
 
-@POSIX_ONLY
 def test_connect_applies_the_directory_guard_to_the_store_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POSIX-only, because `_restrict_sqlite_directory` is.
+    """The guard runs on the parent of the store, exactly once.
 
-    The "directory guard" is the mode inspection that refuses a group- or
-    world-readable parent -- and it returns immediately off POSIX, where the
-    equivalent guard is the DACL `_make_directory_private` writes. The duplicate
-    call that made this list `[state, state]` was in the shared walk, so the
-    once-per-directory assertion below is the one that pins the fix.
+    The POSIX branch is forced because that is where the guard lives:
+    `_restrict_sqlite_directory` returns immediately off POSIX, so without this
+    the assertion would be vacuous on Windows and the duplicate call the walk used
+    to make -- `[state, state]` rather than `[state]` -- would only be catchable on
+    the Ubuntu job. The Windows equivalent is the DACL, not a mode, and it is
+    asserted through `_make_directory_private` elsewhere.
     """
     database_path = tmp_path / "state" / "archive.sqlite3"
     guarded: list[Path] = []
     monkeypatch.setattr(database, "_restrict_sqlite_directory", guarded.append)
     monkeypatch.setattr(database, "_restrict_sqlite_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
 
     class FakeConnection:
         def execute(self, _statement: str) -> FakeConnection:
