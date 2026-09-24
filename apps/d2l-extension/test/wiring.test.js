@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { load, plain, json, root, source, fakeApi, enrollment } from "./helpers.js";
 
-test("It grants only the LDSB host and alarms and storage in Manifest V3.", () => {
+test("It grants only the LDSB host and storage in Manifest V3.", () => {
   const manifest = JSON.parse(source("manifest.json"));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ["alarms", "storage"]);
+  assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions, ["https://ldsb.elearningontario.ca/*"]);
   assert.deepEqual(manifest.content_scripts[0].matches, manifest.host_permissions);
   assert.equal(manifest.content_scripts[0].all_frames, false);
@@ -27,6 +27,27 @@ test("It contains no cookie, DOM scraping, alternate network or dynamic executio
     assert.doesNotMatch(source(file), /document\.|innerHTML|localStorage|\.cookies|XMLHttpRequest|WebSocket|sendBeacon|eval\(|new Function|console\./);
   }
   assert.doesNotMatch(source("popup.js"), /innerHTML|console\./);
+});
+
+test("It permits only the probe read fetch call across every runtime script and popup asset.", () => {
+  const runtimeFiles = readdirSync(root).filter((file) => /\.(?:[cm]?js|html|css)$/.test(file));
+  assert.ok(runtimeFiles.includes("popup.js") && runtimeFiles.includes("popup.html"));
+  const callSites = [];
+  for (const file of runtimeFiles) {
+    let text = source(file);
+    // The transport and its worker injector bind fetch without making a request.
+    // Removing only these exact expressions leaves any added API use visible.
+    if (file === "probe.js" || file === "worker.js") {
+      text = text.replace("globalThis.fetch.bind(globalThis)", "BOUND_TRANSPORT");
+    }
+    for (const match of text.matchAll(/\b(?:fetch|fetchImpl)\s*\(/g)) callSites.push({ file, call: match[0] });
+    if (file === "probe.js") text = text.replace("response = await fetchImpl(url, {", "response = await ALLOWED_READ(url, {");
+    if (file === "worker.js") text = text.replace('importScripts("probe.js", "controller.js");', "");
+    assert.doesNotMatch(text,
+      /\bfetch\b|\bfetchImpl\s*\(|\b(?:XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b|\bimportScripts\s*\(/,
+      file);
+  }
+  assert.deepEqual(callSites, [{ file: "probe.js", call: "fetchImpl(" }]);
 });
 
 test("It runs background reads only with no D2L tabs and persists shapes rather than bodies.", async () => {

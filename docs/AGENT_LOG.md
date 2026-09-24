@@ -3,6 +3,35 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
+
+Limited to Sid's post-review requests: literal LDSB host assertions for every
+route; a source scan covering every runtime script and popup HTML/CSS, permitting
+only the probe read's fetch call; removal of unused `alarms`; fixed-path,
+reviewed-SHA PowerShell loading steps; extension removal after copying; and the
+runbook's missing code-span delimiter. No collector feature or runtime API logic
+changed. The permission is now **storage only** plus the single LDSB host.
+
+Normal merge `fdc2cd05741065985e7a3d335ae106309b9988f9` includes main at
+`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Both top-insert conflicts were resolved
+by retaining the existing entries/rows. #160's capability and collector-probe
+owner requests are superseded by the single #163 row; they were not imported.
+No force-push or merge of the PR into main is authorised by this work.
+
+Observed after hardening: focused **3/0/0**; full extension suite **35 pass / 0
+fail / 0 skip**, 0 cancelled/todo; full mutation sweep **51 killed / 0 unconfirmed
+/ 0 NOT APPLIED**, each with baseline/restored **1/0/0** and two mutated **0/1/0**
+runs. H1, H9, popup HTML EventSource, remote worker import and duplicate transport
+call mutations all fail the intended named tests. The changed permission mutation
+also detects reintroducing `alarms`. State check passes for **3 carriers**;
+PowerShell loading block parses with **0 errors** but was not executed.
+[Evidence](research/2026-09-23-d2l-probe-test-evidence.md) retains both rounds.
+
+Browser/account checks remain owner-only. The same external ledger is retained;
+the real collector waits for a later round in this session.
+
+Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-23 — Codex builder: D2L GET-only shape probe, ready for independent review
 
 Built on freshly fetched `origin/main` at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`

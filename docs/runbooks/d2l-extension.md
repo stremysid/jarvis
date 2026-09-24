@@ -6,11 +6,28 @@ his account. No key, signing, push, periodic polling or Jarvis receiver is wired
 
 ## Load and run
 
-1. Obtain the reviewed `codex/d2l-probe-run` branch (or `main` after merge) in an
-   ordinary checkout or downloaded ZIP. Keep the extracted files at a stable path
-   outside `C:\javis`. No install or build command is needed.
+1. Open **PowerShell 7 (`pwsh`)**. Copy the exact 40-character commit SHA approved
+   by the reviewer for PR #163, then run the following. This creates the fixed
+   checkout `C:\Users\Sid\d2l-probe-reviewed`, outside `C:\javis`, and stops if
+   that destination already exists rather than overwriting it. No install or
+   build command is needed. Do not substitute an unreviewed latest branch head.
+
+   ```powershell
+   cd C:\Users\Sid
+   $reviewedSha = Read-Host 'Paste the reviewer-approved 40-character PR #163 commit SHA'
+   if ($reviewedSha -notmatch '^[0-9a-f]{40}$') { throw 'Expected a complete commit SHA' }
+   if (Test-Path -LiteralPath 'C:\Users\Sid\d2l-probe-reviewed') { throw 'Destination already exists; keep the existing checkout' }
+   git clone --no-checkout https://github.com/stremysid/jarvis.git C:\Users\Sid\d2l-probe-reviewed
+   if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
+   cd C:\Users\Sid\d2l-probe-reviewed
+   git checkout --detach $reviewedSha
+   if ($LASTEXITCODE -ne 0) { throw 'Reviewed commit checkout failed' }
+   if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the reviewed revision' }
+   ```
+
 2. In **Opera GX**, open `opera://extensions`, enable **Developer mode**, choose
-   **Load unpacked**, and select **`apps/d2l-extension`**, the folder containing
+   **Load unpacked**, and select
+   **`C:\Users\Sid\d2l-probe-reviewed\apps\d2l-extension`**, the folder containing
    `manifest.json`. Pin its popup if useful.
 3. Sign into LDSB yourself if necessary, then **close every tab on
    `ldsb.elearningontario.ca`** without signing out. Open the extension popup and
@@ -22,6 +39,8 @@ his account. No key, signing, push, periodic polling or Jarvis receiver is wired
    active matching tab is used, otherwise the first one returned by the browser.
 5. Click **Copy summary**, then paste that summary to the reviewer. If clipboard
    access is unavailable, the popup selects the report for **Ctrl+C**.
+6. **Remove the extension after pasting the summary:** return to
+   `opera://extensions`, find **Jarvis D2L shape probe**, and choose **Remove**.
 
 There is **one click per context**. A no-tab background experiment and an open-tab
 content experiment cannot happen simultaneously. The extension never opens,
@@ -67,7 +86,7 @@ non-string bookmark is an explicit pagination stop, not a successful empty list.
 ## Reading the summary
 
 Each row contains a **fixed route template** (no actual identifiers), HTTP status,
-and `[]`, `{}`, `list of N`, `{Objects:[...]} of N, `object`, `null`, or a redacted
+and `[]`, `{}`, `list of N`, `{Objects:[...]} of N`, `object`, `null`, or a redacted
 scalar label. Fields are aggregated across all nested objects and arrays; `set N`
 means present and non-null, and `null N` means present with a null value.
 
@@ -87,8 +106,8 @@ was session policy, timeout, CORS, connectivity or something else.
 
 ## Boundaries and collector seam
 
-The manifest grants exactly `alarms`, `storage` and the single LDSB HTTPS host.
-Alarms is reserved for the approved collector skeleton; no alarm is scheduled.
+The manifest grants exactly `storage` and the single LDSB HTTPS host.
+No alarms permission is requested; scheduling belongs to a later collector.
 No cookie, scripting, tabs, clipboard or password permission is requested.
 The browser attaches its existing session to GET requests; extension code never
 reads cookies or credentials. JSON API bodies exist transiently in memory. For

@@ -4,6 +4,14 @@ import { load, plain, json, enrollment } from "./helpers.js";
 
 const probe = load().D2LProbe;
 
+test("It pins every route to the literal LDSB HTTPS origin.", () => {
+  assert.equal(probe.HOST, "https://ldsb.elearningontario.ca");
+  for (const route of Object.keys(probe.LABELS)) {
+    assert.equal(new URL(probe.routeUrl(route, { course: 1, folder: 2 })).origin,
+      "https://ldsb.elearningontario.ca", route);
+  }
+});
+
 test("It distinguishes empty arrays, empty objects, lists and Objects envelopes.", () => {
   assert.equal(probe.summarize([]).shape, "[]");
   assert.equal(probe.summarize({}).shape, "{}");

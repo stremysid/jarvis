@@ -2,7 +2,8 @@ const spec = [];
 const add = (name, file, find, replace, testFile, testName) => spec.push({ name, file, find, replace, testFile, testName });
 const core = (name, find, replace, testName) => add(name, "probe.js", find, replace, "probe.test.js", testName);
 const wiring = (name, file, find, replace, testName) => add(name, file, find, replace, "wiring.test.js", testName);
-const manifestTest = "It grants only the LDSB host and alarms and storage in Manifest V3.";
+const manifestTest = "It grants only the LDSB host and storage in Manifest V3.";
+const networkTest = "It permits only the probe read fetch call across every runtime script and popup asset.";
 const shapeTest = "It reports nested field presence and nulls without printing values or unknown keys.";
 const shapeKinds = "It distinguishes empty arrays, empty objects, lists and Objects envelopes.";
 const injectionTest = "It refuses unknown routes and path injection before calling fetch.";
@@ -14,10 +15,15 @@ const popupSenderTest = "It accepts probe commands only from this extension popu
 const contentSenderTest = "It accepts content reads only from its extension and never from a tab sender.";
 
 wiring("manifest host scope", "manifest.json", '"host_permissions": ["https://ldsb.elearningontario.ca/*"]', '"host_permissions": ["https://*/*"]', manifestTest);
-wiring("manifest permission scope", "manifest.json", '"alarms", "storage"', '"alarms", "storage", "cookies"', manifestTest);
+wiring("manifest permission scope", "manifest.json", '"permissions": ["storage"]', '"permissions": ["storage", "alarms"]', manifestTest);
 wiring("content host scope", "manifest.json", '"matches": ["https://ldsb.elearningontario.ca/*"]', '"matches": ["https://*/*"]', manifestTest);
 wiring("content isolation", "manifest.json", '"world": "ISOLATED"', '"world": "MAIN"', manifestTest);
 wiring("connect scope", "manifest.json", 'connect-src https://ldsb.elearningontario.ca', 'connect-src *', manifestTest);
+core("H1 literal API host", 'const HOST = "https://ldsb.elearningontario.ca";', 'const HOST = "https://invalid.example";', "It pins every route to the literal LDSB HTTPS origin.");
+wiring("H9 popup fetch", "popup.js", 'const run =', 'fetch("https://invalid.example");\nconst run =', networkTest);
+wiring("popup HTML EventSource", "popup.html", '</body>', '<script>new EventSource("https://invalid.example");</script>\n</body>', networkTest);
+wiring("remote worker import", "worker.js", 'importScripts("probe.js", "controller.js");', 'importScripts("https://invalid.example/script.js");', networkTest);
+wiring("second transport fetch call", "probe.js", 'response = await fetchImpl(url, {', 'await fetchImpl(url, {});\n      response = await fetchImpl(url, {', networkTest);
 core("schema key allowlist", 'FIELDS.has(key) ? key : "<other field>"', 'key', shapeTest);
 core("scalar redaction", 'shape = "scalar (redacted)"', 'shape = String(body)', shapeKinds);
 core("null field distinction", 'child === null ? "null" : "set"', '"set"', shapeTest);

@@ -1,5 +1,34 @@
 # D2L probe local evidence — 2026-09-23
 
+## Review hardening round (latest)
+
+Normal merge `fdc2cd05741065985e7a3d335ae106309b9988f9` brought in main at
+`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`, preserving both log insertions and owner
+rows. The probe's single owner action supersedes #160's overlapping requests.
+
+| Gate | Observed result |
+|---|---|
+| Focused host, network and permission tests | **3 pass / 0 fail / 0 skip** |
+| `node --test apps/d2l-extension/test/*.test.js`, full suite once this round | **35 pass / 0 fail / 0 skip**, 0 cancelled, 0 todo |
+| `node apps/d2l-extension/test/mutate.js`, complete sweep | **51 killed / 0 unconfirmed / 0 NOT APPLIED** |
+| `node scripts/check-state.mjs` | **pass**, 3 carriers |
+| New PowerShell load block, parser only | **0 syntax errors**, not executed |
+
+All 51 mutations had **1/0/0** baseline and restored counts and **0/1/0** counts
+in each of two faulted runs. The original 46 cases below were rerun; the manifest
+permission test is now named `It grants only the LDSB host and storage in Manifest V3.`,
+and its mutation reintroduces `alarms`. These five cases were added:
+
+| Mutation | Named test | Baseline | Mutated | Confirmed | Restored |
+|---|---|---|---|---|---|
+| H1 literal API host | It pins every route to the literal LDSB HTTPS origin. | 1/0/0 | 0/1/0 | 0/1/0 | 1/0/0 |
+| H9 popup fetch | It permits only the probe read fetch call across every runtime script and popup asset. | 1/0/0 | 0/1/0 | 0/1/0 | 1/0/0 |
+| popup HTML EventSource | It permits only the probe read fetch call across every runtime script and popup asset. | 1/0/0 | 0/1/0 | 0/1/0 | 1/0/0 |
+| remote worker import | It permits only the probe read fetch call across every runtime script and popup asset. | 1/0/0 | 0/1/0 | 0/1/0 | 1/0/0 |
+| second transport fetch call | It permits only the probe read fetch call across every runtime script and popup asset. | 1/0/0 | 0/1/0 | 0/1/0 | 1/0/0 |
+
+## Initial build (historical)
+
 Builder: Codex. Base: `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. Windows PowerShell 7.6.6, Node 24.19.0.
 
 Only `apps/d2l-extension` application code changed. All fetch, browser APIs and clipboard tests are mocked. No Opera GX or real D2L test was run.
