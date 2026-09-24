@@ -3,7 +3,7 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-23 — Codex builder: guided assignment tools and voice scribe
+## 2026-09-23 — Codex builder: PR #172 guided assignment tools and voice scribe
 
 Signed: Codex, builder on `codex/guided-assignment`. Sid's approved accommodation:
 Jarvis chooses the simple questions, examples, scribing and draft order. Code
