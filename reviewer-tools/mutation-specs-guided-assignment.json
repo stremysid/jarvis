@@ -10,8 +10,8 @@
   {
     "name": "Answer principal isolation",
     "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
-    "find": "FROM guided_assignment_answers WHERE principal_id = ? AND assignment_id = ?",
-    "replace": "FROM guided_assignment_answers WHERE ? IS NOT NULL AND assignment_id = ?",
+    "find": "FROM guided_assignment_answers WHERE principal_id = ? AND assignment_id = ?\n      ORDER BY",
+    "replace": "FROM guided_assignment_answers WHERE ? IS NOT NULL AND assignment_id = ?\n      ORDER BY",
     "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
     "expect": "scopes stored work and the saved assignment catalogue to their principal"
   },
@@ -170,8 +170,8 @@
   {
     "name": "Retry keeps original answer",
     "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
-    "find": "DO UPDATE SET turn_id = excluded.turn_id",
-    "replace": "DO UPDATE SET raw = excluded.raw, scribed = excluded.scribed, step_notes = excluded.step_notes",
+    "find": "if (existing !== null) return result(call, existing, \"Your answer was already saved; the original raw words, scribed text and step notes are unchanged.\");",
+    "replace": "",
     "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
     "expect": "does not overwrite the original raw and scribed answer when a turn is retried"
   },
@@ -190,5 +190,37 @@
     "replace": "toolDefinitions: MEMORY_TOOL_DEFINITIONS,",
     "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts",
     "expect": "gives voice the same guided tools and persists a spoken answer"
-  }
+  },
+{
+  "name": "Replay principal isolation",
+  "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+  "find": "FROM guided_assignment_answers WHERE principal_id = ? AND assignment_id = ? AND turn_id = ?",
+  "replace": "FROM guided_assignment_answers WHERE ? IS NOT NULL AND assignment_id = ? AND turn_id = ?",
+  "expect": "never returns another principal's saved answer from the replay lookup",
+  "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+},
+{
+  "name": "Database update prohibition",
+  "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+  "find": "SELECT RAISE(ABORT, 'guided_assignment_answer_update_forbidden');",
+  "replace": "SELECT 1;",
+  "expect": "prevents database updates from changing saved raw words or model scribing",
+  "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+},
+{
+  "name": "Database delete prohibition",
+  "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+  "find": "SELECT RAISE(ABORT, 'guided_assignment_answer_delete_forbidden');",
+  "replace": "SELECT 1;",
+  "expect": "prevents deletion from erasing a saved answer",
+  "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+},
+{
+  "name": "Database replacement conflict",
+  "file": "apps/cloud-gateway/src/persistence/migrations/0043_guided_assignment.sql",
+  "find": "SELECT RAISE(ABORT, 'guided_assignment_answer_conflict');",
+  "replace": "SELECT 1;",
+  "expect": "blocks replacement through either answer identity independently of the delete guard",
+  "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+}
 ]

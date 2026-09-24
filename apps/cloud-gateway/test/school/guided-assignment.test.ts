@@ -289,6 +289,14 @@ describe("guided assignment tools", () => {
     expect(JSON.parse(retried.providerResult.content).data).toMatchObject({ raw: "um, original", scribed: "Original.", stepNotes: "First question." });
   });
 
+  it("never returns another principal's saved answer from the replay lookup", async () => {
+    const h = await harness(); const other = await harness(); const id = await assignment(h);
+    const saved = await run(h, "Private words.", call("guided_assignment_save", { assignmentId: id, scribed: "Private words.", stepNotes: "Why?" }));
+    await expect(service(other).execute(input(other, saved.turnId), call("guided_assignment_save", {
+      assignmentId: id, scribed: "Other words.", stepNotes: "Other question.",
+    }))).rejects.toThrow("guided_assignment_missing");
+  });
+
   it("keeps ordinary guided questions through the main honesty guard", () => {
     const prompt = "Let's take one small step. Why do you think Macbeth trusts the witches? Say it in your own words.";
     expect(guardReplyClaims(prompt)).toBe(prompt);

@@ -32,7 +32,9 @@ Sid's learning preferences with the existing memory tools.
 
 Started from freshly fetched `origin/main` at `c5310bee`. #147 was merged.
 #164 (pasted school data), #169 (collector receiver), and #162 (honesty guard)
-were still open. The code uses main's existing school facts, catch-up actions,
+were still open. The branch was subsequently rebased onto `0b63b916` when #164 merged, retaining
+both source-paste handling and guided assignment tools. #169 remained open.
+The code uses main's existing school facts, catch-up actions,
 deadlines and original retained owner-paste text. Main has no separate assignment
 instructions/rubric columns: the fact statement and retained source text are
 returned as evidence, while a separate rubric is null. An action's planned work
