@@ -243,7 +243,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         const universityRepository = new UniversityTrackerRepository(env.DB);
         const schoolModel = new SchoolCatchupModelAdapter({
           model: baseModel,
-          database: env.DB,
+          database: env.DB, // Without this, a pinned daily capacity never reaches the planner.
           repository: schoolRepository,
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",

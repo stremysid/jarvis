@@ -34,16 +34,16 @@
   {
     "name": "M05-drop-profile-without-context",
     "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "compactUniversityState, now, [], coreProfile);",
-    "replace": "compactUniversityState, now, [], null);",
+    "find": "compactUniversityState, now, [], coreProfile, coreProfileNotice);",
+    "replace": "compactUniversityState, now, [], null, coreProfileNotice);",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "saves all 25 pasted assignments"
   },
   {
     "name": "M06-drop-profile-retained-context",
     "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "retainedContext,\n        coreProfile,",
-    "replace": "retainedContext,\n        null,",
+    "find": "        coreProfile,",
+    "replace": "        null,",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "gives the planner the pinned capacity"
   },
@@ -64,68 +64,68 @@
     "expect": "gives the planner the pinned capacity"
   },
   {
-    "name": "M09-drop-profile-failure",
+    "name": "M09-put-read-failure-inside-profile",
     "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "coreProfile = \"Core profile could not be read; daily capacity is unknown. Do not guess it.\";",
-    "replace": "coreProfile = null;",
+    "find": "coreProfileNotice = \"Core profile could not be read; daily capacity is unknown. Do not guess it. Still save the supplied school work.\";",
+    "replace": "coreProfile = \"Core profile could not be read; daily capacity is unknown. Do not guess it. Still save the supplied school work.\";",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "tells the planner when the pinned capacity could not be read"
   },
   {
-    "name": "M10-drop-saved-course-summary",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "...(summary.length === 0 ? [] : [\"Saved course updates (owner-reported):\", ...summary])",
-    "replace": "...[]",
+    "name": "M10-hide-course-summary",
+    "file": "apps/cloud-gateway/src/school/school-catchup-receipt.ts",
+    "find": "const courses = saved.courses.map((course) => {",
+    "replace": "const courses = saved.courses.slice(0, 1).map((course) => {",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "reports the saved work for each course"
   },
   {
-    "name": "M11-drop-platform-receipt",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "if (update.platform !== null) facts.push",
-    "replace": "if (false) facts.push",
+    "name": "M11-drop-dedup-count",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "alreadySaved += 1;",
+    "replace": "alreadySaved += 0;",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-    "expect": "reports the saved work for each course"
+    "expect": "distinguishes already saved facts"
   },
   {
-    "name": "M12-drop-resolved-receipt",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "if (update.resolveFactIds.length > 0) facts.push",
-    "replace": "if (false) facts.push",
+    "name": "M12-drop-resolved-count",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "resolved: update.resolveFactIds.length",
+    "replace": "resolved: 0",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "reports resolved notes and completed study actions"
   },
   {
-    "name": "M13-drop-completion-receipt",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "...(plan.completeActionIds.length === 0 ? [] : [`Marked ${plan.completeActionIds.length} study actions complete.`])",
-    "replace": "...[]",
+    "name": "M13-drop-completed-count",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "completedActions: input.plan.completeActionIds.length,",
+    "replace": "completedActions: 0,",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "reports resolved notes and completed study actions"
   },
   {
     "name": "M14-use-stale-course-name",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name\n      ?? snapshot.courses.find((course) => course.courseId === courseRef)?.name",
-    "replace": "snapshot.courses.find((course) => course.courseId === courseRef)?.name\n      ?? plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "savedCourses.push({ courseId, name, insertedFacts, alreadySaved, resolved: update.resolveFactIds.length });",
+    "replace": "savedCourses.push({ courseId, name: coursesById.get(courseId)?.name ?? name, insertedFacts, alreadySaved, resolved: update.resolveFactIds.length });",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "reports resolved notes and completed study actions"
   },
   {
     "name": "M15-drop-partial-fixed-receipt",
     "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "? schoolPlanReceipt(schoolPlan, snapshot, today, false)",
+    "find": "? schoolPlanReceipt(saveResult, saved, today)",
     "replace": "? replyWithoutUnsavedSchedule(schoolPlan)",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "reports saved course notes without claiming"
   },
   {
-    "name": "M16-claim-unsaved-schedule",
-    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-    "find": "const receipt = !scheduleSaved ? PARTIAL_SCHEDULE_LINE : todayActions.length === 0",
-    "replace": "const receipt = todayActions.length === 0",
+    "name": "M16-report-proposed-actions",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "actions: scheduleFailure === null ? repaired.actions.map((action) => ({",
+    "replace": "actions: scheduleFailure === null ? input.plan.plan.map((action) => ({",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-    "expect": "reports saved course notes without claiming"
+    "expect": "lists only the three stored blocks"
   },
   {
     "name": "M17-neuter-school-claim-guard",
@@ -138,13 +138,13 @@
   {
     "name": "M18-drop-production-profile-wire",
     "file": "apps/cloud-gateway/src/index.ts",
-    "find": "const schoolModel = new SchoolCatchupModelAdapter({\n          model: baseModel,\n          database: env.DB,",
-    "replace": "const schoolModel = new SchoolCatchupModelAdapter({\n          model: baseModel,",
+    "find": "database: env.DB, // Without this, a pinned daily capacity never reaches the planner.",
+    "replace": "database: undefined, // Mutation removes the profile source.",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "wires the school planner"
   },
   {
-    "name": "M19-drop-pipeline-example",
+    "name": "M19-drop-school-example",
     "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
     "find": "pasted D2L assignment list",
     "replace": "generic request",
@@ -152,7 +152,7 @@
     "expect": "describes when each pipeline"
   },
   {
-    "name": "M20-drop-pipeline-example",
+    "name": "M20-drop-university-example",
     "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
     "find": "I finished my application draft",
     "replace": "generic request",
@@ -160,27 +160,123 @@
     "expect": "describes when each pipeline"
   },
   {
-    "name": "M21-drop-pipeline-example",
+    "name": "M21-drop-tutoring-example",
     "file": "apps/cloud-gateway/src/channels/telegram/owner-telegram-agent.ts",
     "find": "quiz me on derivatives",
     "replace": "generic request",
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "describes when each pipeline"
+  },
+  {
+    "name": "M22-neuter-university-refusal",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "this.dependencies.agentSelectedScope !== \"school\" && isUniversityExecutionRequest(input.userText)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "refuses the same paste in university scope"
+  },
+  {
+    "name": "M23-neuter-profile-byte-cap",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "encoder.encode(JSON.stringify(coreProfile)).byteLength > MAX_CORE_PROFILE_BYTES",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "omits an oversized profile"
+  },
+  {
+    "name": "M24-neuter-receipt-bound",
+    "file": "apps/cloud-gateway/src/school/school-catchup-receipt.ts",
+    "find": "if (text.length <= MAX_RECEIPT_CHARACTERS) return text;",
+    "replace": "return text;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "bounds previews for twelve maximum-sized courses"
+  },
+  {
+    "name": "M25-remove-more-saved-count",
+    "file": "apps/cloud-gateway/src/school/school-catchup-receipt.ts",
+    "find": "+ (more > 0 ? `; and ${more} more saved.` : \"\");",
+    "replace": "+ \"\";",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "keeps every course and the total visible"
+  },
+  {
+    "name": "M26-keep-Done-fragment",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (externalRanges.length > 0) safe = safe.replace(/^\\s*Done[.!]\\s*/iu, \"\");",
+    "replace": "if (false) safe = safe.replace(/^\\s*Done[.!]\\s*/iu, \"\");",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "removes the Done fragment"
+  },
+  {
+    "name": "M27-claim-new-save-on-replay",
+    "file": "apps/cloud-gateway/src/school/school-catchup-receipt.ts",
+    "find": "if (saved.replayed) return \"This school update was already saved. No new changes.\";",
+    "replace": "if (false) return \"This school update was already saved. No new changes.\";",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "distinguishes already saved facts"
+  },
+  {
+    "name": "M28-hide-total-cap-reason",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "throw new RangeError(\"school_catchup_total_fact_limit_exceeded\");",
+    "replace": "throw new RangeError(\"school_catchup_fact_limit_exceeded\");",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "names the 48 active facts in total cap"
+  },
+  {
+    "name": "M29-hide-existing-course-cap-reason",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "throw new RangeError(\"school_catchup_course_fact_limit_exceeded\");",
+    "replace": "throw new RangeError(\"school_catchup_fact_limit_exceeded\");",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "names the per-course cap when existing facts"
+  },
+  {
+    "name": "M30-hide-parsed-course-cap-reason",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "throw new RangeError(\"school_catchup_course_fact_limit_exceeded\");",
+    "replace": "throw new RangeError(\"school_catchup_fact_limit_exceeded\");",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "names the 16 active facts per course cap"
+  },
+  {
+    "name": "M31-drop-profile-budget-retry",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (baseStructuredPrompt === null && coreProfile !== null) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "omits a small profile"
+  },
+  {
+    "name": "M32-hide-repaired-block-notice",
+    "file": "apps/cloud-gateway/src/school/school-catchup-receipt.ts",
+    "find": "const adjustment = result?.partialCodes.some((code) => code.startsWith(\"partial:repaired:\"))",
+    "replace": "const adjustment = false",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "shows the stored minutes when a block was clamped"
+  },
+  {
+    "name": "M33-drop-committed-receipt",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "saved = receipt;",
+    "replace": "saved = undefined;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports the saved work for each course"
+  },
+  {
+    "name": "M34-put-omission-inside-profile",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "coreProfileNotice = \"Core profile omitted because it exceeds 8 KB; daily capacity is unknown. Do not guess it. Still save the supplied school work.\";",
+    "replace": "coreProfile = \"Core profile omitted because it exceeds 8 KB; daily capacity is unknown. Do not guess it. Still save the supplied school work.\";",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "omits an oversized profile"
+  },
+  {
+    "name": "M35-drop-inserted-fact-count",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "insertedFacts.push(statement);",
+    "replace": "void statement;",
+    "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+    "expect": "reports the saved work for each course"
   }
-  ,{
-  "name": "M22-expose-storage-kind-in-receipt",
-  "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-  "find": "update.addFacts.map((fact) => JSON.stringify(fact.statement))",
-  "replace": "update.addFacts.map((fact) => `${fact.kind}: ${JSON.stringify(fact.statement)}`)",
-  "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-  "expect": "reports the saved work for each course"
-}
-  ,{
-  "name": "M23-claim-empty-course-update",
-  "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
-  "find": "|| \"no new course notes\"",
-  "replace": "|| \"course details updated\"",
-  "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
-  "expect": "reports resolved notes and completed study actions"
-}
 ]

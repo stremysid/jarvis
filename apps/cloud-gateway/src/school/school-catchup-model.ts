@@ -2,6 +2,7 @@ import { canonicalJson, sha256Hex, type JsonValue, type Ulid } from "../../../..
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken, RetrievedContext } from "../model/model-types.js";
 import { localDate } from "../digest/digest-composer.js";
 import { composeCoreProfile, readCoreProfile } from "../memory/core-profile.js";
+import { schoolPlanReceipt } from "./school-catchup-receipt.js";
 import type { SchoolCatchupRepository } from "./school-catchup-repository.js";
 import type {
   ApplyOwnerCatchupPlanInput,
@@ -12,6 +13,7 @@ import type {
   OwnerFactAddition,
   SchoolCatchupSnapshot,
   SchoolCourseFactKind,
+  SchoolCatchupSaveReceipt,
 } from "./school-catchup-types.js";
 import { parseOwnerUniversityPlan, universityStateJson } from "../university/university-tracker-model.js";
 import {
@@ -27,6 +29,7 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const NEW_COURSE = /^new-[1-9][0-9]{0,2}$/u;
 const MAX_MODEL_JSON_CHARACTERS = 32_000;
 const MAX_STRUCTURED_PROMPT_BYTES = 48_000;
+const MAX_CORE_PROFILE_BYTES = 8_192;
 // Reserve most of the structured envelope for the current message and tracker
 // state; the total prompt cap below handles states that need more than that.
 const MAX_CONVERSATION_CONTEXT_BYTES = 16_000;
@@ -121,7 +124,7 @@ interface SchoolCatchupModelDependencies {
   readonly repository: Pick<SchoolCatchupRepository, "readSnapshot"> & {
     applyOwnerPlan(
       input: ApplyOwnerCatchupPlanInput,
-      onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+      onResult?: (result: ApplyOwnerCatchupPlanResult, receipt?: SchoolCatchupSaveReceipt) => void,
     ): Promise<void>;
   };
   readonly universityRepository?: Pick<UniversityTrackerRepository, "readSnapshot" | "applyOwnerPlan">;
@@ -328,6 +331,9 @@ function courseUpdate(
   );
   if (typeof item.courseRef !== "string" || !ULID.test(item.courseRef) && !NEW_COURSE.test(item.courseRef)) {
     throw new TypeError("school_catchup_model_course_invalid");
+  }
+  if (Array.isArray(item.addFacts) && item.addFacts.length > 16) {
+    throw new RangeError("school_catchup_course_fact_limit_exceeded");
   }
   const additions = denseArray(item.addFacts, 16, "school_catchup_model_course_invalid")
     .map((fact) => factAddition(fact, redactor));
@@ -577,7 +583,9 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
     : [];
   const all = [...secretRanges, ...externalRanges, ...brightspaceRanges];
   if (all.length === 0) return reply;
-  const safe = withoutSentenceRanges(reply, all);
+  let safe = withoutSentenceRanges(reply, all);
+  // An adjacent completion fragment cannot survive the action claim it affirmed.
+  if (externalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
   const replacement = secretRanges.length > 0
     ? SECRET_REPLACEMENT
     : externalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
@@ -708,6 +716,7 @@ function promptFor(
   now: Date | null = null,
   conversationContext: readonly RetrievedContext[] = input.context,
   coreProfile: string | null = null,
+  coreProfileNotice = "",
 ): string {
   const state = snapshot.courses.map((course) => ({
     courseId: course.courseId,
@@ -740,6 +749,7 @@ function promptFor(
 This is ordinary conversation, not a form and not a command interface. Set engaged true only when the owner message is about school catch-up, courses, missed or due work, weak topics, or is a short progress check-in that the existing course state makes clear. When engaged is false, answer normally in reply and return three empty arrays.
 
 When engaged is true:
+${coreProfileNotice}
 - Learn courses and platform names from conversation. Ask only the next useful question, never a questionnaire.
 - Keep owner-reported facts distinct from platform-confirmed facts. Do not invent platform confirmation. New facts in courseUpdates are owner-reported and must be directly supported by the current owner message.
 - courseUpdates items have exactly {"courseRef":string,"name":string|null,"platform":string|null,"addFacts":[{"kind":"missed_work"|"due_work"|"weak_area","statement":string}],"resolveFactIds":string[]}. Use an existing courseId or a unique new-N reference. A new course requires a name. Null means no change.
@@ -800,12 +810,13 @@ function boundedStructuredPrompt(
   universitySnapshot: UniversityTrackerSnapshot | null,
   now: Date,
   coreProfile: string | null,
+  coreProfileNotice: string,
 ): string | null {
   const compactVariants = universitySnapshot === null
     ? [false] as const
     : [false, true] as const;
   for (const compactUniversityState of compactVariants) {
-    const withoutContext = promptFor(input, snapshot, today, universitySnapshot, compactUniversityState, now, [], coreProfile);
+    const withoutContext = promptFor(input, snapshot, today, universitySnapshot, compactUniversityState, now, [], coreProfile, coreProfileNotice);
     if (encoder.encode(withoutContext).byteLength > MAX_STRUCTURED_PROMPT_BYTES) continue;
 
     const retainedContext = [...input.context];
@@ -824,6 +835,7 @@ function boundedStructuredPrompt(
         now,
         retainedContext,
         coreProfile,
+        coreProfileNotice,
       );
       if (encoder.encode(contextJson).byteLength <= MAX_CONVERSATION_CONTEXT_BYTES
         && encoder.encode(candidate).byteLength <= MAX_STRUCTURED_PROMPT_BYTES) return candidate;
@@ -937,6 +949,17 @@ function planSaveFailureCode(error: unknown): string {
   return "other";
 }
 
+function schoolFactCapReply(error: unknown): string | null {
+  if (!(error instanceof RangeError)) return null;
+  if (error.message === "school_catchup_course_fact_limit_exceeded") {
+    return "The school tracker allows at most 16 active facts per course. Nothing was saved from this update.";
+  }
+  if (error.message === "school_catchup_total_fact_limit_exceeded") {
+    return "The school tracker allows at most 48 active facts in total. Nothing was saved from this update.";
+  }
+  return null;
+}
+
 async function* fallbackWithSaveFailure(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
@@ -978,28 +1001,6 @@ async function* guardedOrdinaryReplyWithNotice(
     text: ordinaryReply.length === 0 ? notice : `${ordinaryReply}\n\n${notice}`,
     toolOutcome: "not_saved" as const,
   });
-}
-
-/** A fixed school receipt, used when a turn's model text must not be shown. */
-function schoolPlanReceipt(plan: OwnerCatchupPlan, snapshot: SchoolCatchupSnapshot, today: string, scheduleSaved = true): string {
-  const courseName = (courseRef: string): string =>
-    plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name
-      ?? snapshot.courses.find((course) => course.courseId === courseRef)?.name
-      ?? "a course";
-  const todayActions = [...plan.plan].filter((action) => action.localDate === today)
-    .sort((left, right) => left.sequenceRank - right.sequenceRank)
-    .map((action) => `${courseName(action.courseRef)}: ${action.text} (${action.estimatedMinutes} min)`);
-  const summary = plan.courseUpdates.map((update) => {
-    const facts = update.addFacts.map((fact) => JSON.stringify(fact.statement));
-    if (update.platform !== null) facts.push(`platform: ${JSON.stringify(update.platform)}`);
-    if (update.resolveFactIds.length > 0) facts.push(`${update.resolveFactIds.length} notes resolved`);
-    return `${courseName(update.courseRef)}: ${facts.join("; ") || "no new course notes"}`;
-  });
-  const receipt = !scheduleSaved ? PARTIAL_SCHEDULE_LINE : todayActions.length === 0
-    ? "Saved your school plan update."
-    : `Saved your school plan. Today: ${todayActions.join("; ")}.`;
-  return [receipt, ...(summary.length === 0 ? [] : ["Saved course updates (owner-reported):", ...summary]),
-    ...(plan.completeActionIds.length === 0 ? [] : [`Marked ${plan.completeActionIds.length} study actions complete.`])].join("\n");
 }
 
 /** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
@@ -1053,11 +1054,16 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     }
     const today = localDate(now, this.dependencies.timeZone);
     let coreProfile: string | null = null;
+    let coreProfileNotice = "";
     if (this.dependencies.database !== undefined) {
       try {
         coreProfile = composeCoreProfile(await readCoreProfile(this.dependencies.database, input.principalId));
+        if (encoder.encode(JSON.stringify(coreProfile)).byteLength > MAX_CORE_PROFILE_BYTES) {
+          coreProfile = null;
+          coreProfileNotice = "Core profile omitted because it exceeds 8 KB; daily capacity is unknown. Do not guess it. Still save the supplied school work.";
+        }
       } catch {
-        coreProfile = "Core profile could not be read; daily capacity is unknown. Do not guess it.";
+        coreProfileNotice = "Core profile could not be read; daily capacity is unknown. Do not guess it. Still save the supplied school work.";
       }
     }
     let snapshot: SchoolCatchupSnapshot;
@@ -1090,7 +1096,12 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     // An offer, decision or condition report is answered only with fixed text:
     // a receipt built from the stored rows, or a line saying nothing was saved.
     const offerReport = universitySnapshot !== null && isOfferUpdateReport(input.userText, universitySnapshot);
-    const baseStructuredPrompt = boundedStructuredPrompt(input, snapshot, today, universitySnapshot, now, coreProfile);
+    let baseStructuredPrompt = boundedStructuredPrompt(input, snapshot, today, universitySnapshot, now, coreProfile, coreProfileNotice);
+    // A reference block must not make an otherwise saveable assignment paste fail.
+    if (baseStructuredPrompt === null && coreProfile !== null) {
+      baseStructuredPrompt = boundedStructuredPrompt(input, snapshot, today, universitySnapshot, now, null,
+        "Core profile omitted to fit the prompt budget; daily capacity is unknown. Do not guess it. Still save the supplied school work.");
+    }
     const selectedScopeInstruction = this.dependencies.agentSelectedScope === "university"
       ? "\n\nThe owner agent selected university_update for this turn. Set schoolEngaged false. If the current owner message cannot be validated as a university update, set both engaged fields false and save nothing."
       : "";
@@ -1160,7 +1171,12 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         universityPlan = combined.university;
         reply = combined.reply;
       }
-    } catch {
+    } catch (error) {
+      const capReply = schoolFactCapReply(error);
+      if (capReply !== null) {
+        yield Object.freeze({ index: 0, text: capReply, toolOutcome: "not_saved" as const });
+        return;
+      }
       const response = payload !== null && typeof payload === "object" ? payload as Record<string, unknown> : null;
       const hasUpdates = (field: string): boolean => Array.isArray(response?.[field])
         && (response?.[field] as readonly unknown[]).length > 0;
@@ -1212,6 +1228,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     }
     if (schoolPlan.engaged) {
       let saveResult: ApplyOwnerCatchupPlanResult | undefined;
+      let saved: SchoolCatchupSaveReceipt | undefined;
       try {
         await this.dependencies.repository.applyOwnerPlan({
           principalId: input.principalId,
@@ -1220,9 +1237,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           responseHash: await sha256Hex(raw),
           plan: schoolPlan,
           now,
-        }, (result) => { saveResult = result; });
+        }, (result, receipt) => { saveResult = result; saved = receipt; });
       } catch (error) {
         console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
+        const capReply = schoolFactCapReply(error);
+        if (capReply !== null) {
+          yield Object.freeze({ index: 0, text: capReply, toolOutcome: "not_saved" as const });
+          return;
+        }
         if (offerReport) {
           yield Object.freeze({
             index: 0,
@@ -1241,7 +1263,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       }
       if (saveResult?.scheduleSaved === false) {
         const partialReply = this.dependencies.fixedActionReceipts
-          ? schoolPlanReceipt(schoolPlan, snapshot, today, false)
+          ? schoolPlanReceipt(saveResult, saved, today)
           : replyWithoutUnsavedSchedule(schoolPlan);
         yield Object.freeze({
           index: 0,
@@ -1255,7 +1277,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       if (offerReport) {
         yield Object.freeze({
           index: 0,
-          text: `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
+          text: `${schoolPlanReceipt(saveResult, saved, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
           toolOutcome: "saved" as const,
         });
         return;
@@ -1263,7 +1285,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       if (this.dependencies.fixedActionReceipts) {
         yield Object.freeze({
           index: 0,
-          text: schoolPlanReceipt(schoolPlan, snapshot, today),
+          text: schoolPlanReceipt(saveResult, saved, today),
           toolOutcome: "saved" as const,
         });
         return;

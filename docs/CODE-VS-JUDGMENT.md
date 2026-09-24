@@ -90,10 +90,14 @@ line whenever anything is dropped, so silence is never unexplained.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 10 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged. |
-| 11 | `guardReplyClaims` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions. | Claims checked against actual tool receipts. Retained here, including on school replies: allowing assignment text into the planner does not prove an email or submission occurred. |
+| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions; these language heuristics also mistake some worked explanations for actions. | `OWNER_AGENT_SYSTEM_PROMPT` and the model's `claimedActions` should carry the judgment; receipts enforce proof. #162 narrows the tutoring heuristic and retains a fallback for undeclared real actions. Its runtime change is not part of this PR. The school intake still guards claims, including a leading "Done." attached to a removed external-action claim. |
+| 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
 
-### Fixed school intake decision (`e05dff9`, school-paste change)
+Rows 10 and 11 retain the identifiers used by #160 and #162. The university
+intake finding is row 12, avoiding a second row 10 when those branches meet.
+
+### Fixed school intake decision (`SchoolCatchupModelAdapter.streamOwnerTool`, #164)
 
 `SchoolCatchupModelAdapter.streamOwnerTool` now skips `isUniversityExecutionRequest`
 only when `agentSelectedScope` is `school`. An assignment-list line such as
@@ -103,6 +107,12 @@ The `school_update` description now tells Jarvis when to select that tool;
 forwarded-text provenance checks and `guardReplyClaims` remain in place.
 Pinned daily capacity, due-date priority and stated weight are prompt guidance,
 not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
+The core-profile reference is capped at 8,192 UTF-8 bytes and omitted with a rules
+notice if it cannot fit; omission never becomes profile content. These are
+transport bounds, not a decision about which capacity the owner should choose.
+`schoolPlanReceipt` summarizes only the repository's committed result, retaining
+per-course inserted/deduplicated counts while limiting examples to fit Telegram.
+Schedule repair notices describe the existing storage ceilings, not new planning policy.
 This is a partial register, not a completed audit of school or university code.
 
 ## How to use this list
