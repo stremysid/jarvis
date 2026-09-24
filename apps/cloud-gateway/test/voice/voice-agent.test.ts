@@ -591,6 +591,26 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain("Thanks for telling me.");
   });
 
+  it("withholds a voice previous reply whose cited item id was forgotten on another call", async () => {
+    const principalId = `principal:voice-previous-cited:${serial + 1}`;
+    const fact = "My retired locker colour is cerulean.";
+    const sourceSession = `voice:previous-cited-source:${serial + 1}`;
+    const replySession = `voice:previous-cited-reply:${serial + 1}`;
+    await runVoiceTurn({ text: fact, provider: new FakeAgentProvider([stopped("Thanks for telling me.")]),
+      ownerPrincipalId: principalId, sessionId: sourceSession });
+    const itemId = await commitActiveMemoryFromVoiceTurn(principalId, sourceSession, fact);
+    await runVoiceTurn({ text: "Name only the reference.",
+      provider: new FakeAgentProvider([stopped(`The reference is item ${itemId}.`)]),
+      ownerPrincipalId: principalId, sessionId: replySession });
+    await forgetVoiceMemoryOnSession(principalId, `voice:forget-cited:${serial + 1}`, itemId, fact);
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId, sessionId: replySession });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified");
+    expect(provider.requests[0]?.systemPrompt).not.toContain(itemId);
+  });
+
   it("fails closed when the forgotten visibility query returns 129 items", async () => {
     const principalId = `principal:voice-forgotten-cap:${serial + 1}`;
     const sessionId = `voice:forgotten-cap:${serial + 1}`;
@@ -695,6 +715,58 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
     expect(provider.requests[0]?.tools).toHaveLength(0);
     expect(provider.requests[0]?.toolChoice).toBe("none");
+  });
+
+  it("withholds the previous delivered assistant reply block from a second guest voice turn", async () => {
+    const ownerPrincipalId = `principal:voice-guest-history-owner:${serial + 1}`;
+    const guestPrincipalId = `principal:voice-guest-history-guest:${serial + 1}`;
+    const sessionId = `voice:guest-history:${serial + 1}`;
+    const provider = new FakeAgentProvider([
+      stopped("A guest-only prior reply."),
+      stopped("A second guest reply."),
+    ]);
+
+    await runVoiceTurn({ text: "first", provider, ownerPrincipalId, turnPrincipalId: guestPrincipalId, sessionId });
+    await runVoiceTurn({ text: "second", provider, ownerPrincipalId, turnPrincipalId: guestPrincipalId, sessionId });
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.systemPrompt).not.toContain("Previous delivered assistant reply");
+    expect(provider.requests[1]?.systemPrompt).not.toContain("A guest-only prior reply.");
+  });
+
+  it("refuses a guest voice memory tool without writing owner or guest memory", async () => {
+    const ownerPrincipalId = `principal:voice-guest-write-owner:${serial + 1}`;
+    const guestPrincipalId = `principal:voice-guest-write-guest:${serial + 1}`;
+    const provider = new FakeAgentProvider([
+      called(tool("guest-memory", "memory_remember", {
+        fact: "The guest likes green tea.",
+        supportingExcerpt: "I like green tea.",
+        evidenceClass: "stated",
+        previousOfferExcerpt: null,
+        kind: "preference",
+        sensitivity: "normal",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runVoiceTurn({
+      text: "I like green tea.",
+      provider,
+      ownerPrincipalId,
+      turnPrincipalId: guestPrincipalId,
+    });
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[0]?.tools).toHaveLength(0);
+    expect(provider.requests[0]?.toolChoice).toBe("none");
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: expect.stringContaining("not the owner's own call"),
+    });
+    for (const principalId of [ownerPrincipalId, guestPrincipalId]) {
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?1")
+        .bind(principalId).first()).toEqual({ count: 0 });
+    }
   });
 
   it("retrieves the same canonical memory and owner history on either channel", async () => {

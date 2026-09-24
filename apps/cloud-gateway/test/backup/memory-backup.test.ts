@@ -202,11 +202,11 @@ describe("nightly verified memory backup", () => {
     expect(first.outcome).toBe("pending");
 
     await appendEvents(3);
-  expect((await finishBackup(backup, first)).outcome).toBe("verified");
+    expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
-  const manifest = await readLatestManifest();
-  expect(manifest.databaseSchemaVersion).toBe("0045_school_collector_hosts.sql");
-  expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
+    const manifest = await readLatestManifest();
+    expect(manifest.databaseSchemaVersion).toBe("0045_school_collector_hosts.sql");
+    expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({
       afterKey: 0,

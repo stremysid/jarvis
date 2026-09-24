@@ -14,7 +14,10 @@ import { readPreviousVoiceAssistant } from "../memory/voice-memory-reference.js"
 import { recordPendingTelegramMemoryReferences } from "../memory/telegram-memory-reference.js";
 import { readMemoryOwnerTurnEvidence } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
-import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
+import {
+  citedMemoryItemIds,
+  type TelegramMemoryTargetFinder,
+} from "../memory/memory-control-targets.js";
 import type {
   ModelAgentProvider,
   ModelAgentStreamProvider,
@@ -151,7 +154,9 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
         return previous === null ? null : Object.freeze({
           text: previous.text,
           eventId: previous.eventId,
-          itemIds: previous.itemIds,
+          itemIds: Object.freeze([
+            ...new Set([...previous.itemIds, ...citedMemoryItemIds(previous.text)]),
+          ]),
         });
       },
       composeReply: composeReceiptReply,
