@@ -12,6 +12,7 @@ import type {
   SchoolPlanPartialCode,
   SchoolPlanRepairRule,
   SchoolPlanValidationRule,
+  SchoolCatchupSaveReceipt,
 } from "./school-catchup-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -337,7 +338,7 @@ export class SchoolCatchupRepository {
 
   async applyOwnerPlan(
     input: ApplyOwnerCatchupPlanInput,
-    onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+    onResult?: (result: ApplyOwnerCatchupPlanResult, receipt?: SchoolCatchupSaveReceipt) => void,
   ): Promise<void> {
     const principalId = principal(input.principalId);
     const turnId = ulid(input.turnId, "school_catchup_turn_invalid");
@@ -352,7 +353,7 @@ export class SchoolCatchupRepository {
       WHERE principal_id = ?1 AND turn_id = ?2`).bind(principalId, turnId).first<ReceiptRow>();
     if (receipt !== null) {
       if (receipt.response_hash !== input.responseHash) throw new Error("school_catchup_turn_conflict");
-      onResult?.(partialResult(true, []));
+      onResult?.(partialResult(true, []), { replayed: true, courses: [], actions: [], completedActions: 0 });
       return;
     }
 
@@ -374,6 +375,8 @@ export class SchoolCatchupRepository {
       course.ownerReportedFacts.length + course.platformConfirmedFacts.length,
     ]));
     const seenCourseRefs = new Set<string>();
+    const savedCourses: SchoolCatchupSaveReceipt["courses"][number][] = [];
+    const courseNames = new Map(current.courses.map((course) => [course.courseId, course.name]));
 
     for (const update of input.plan.courseUpdates) {
       if (seenCourseRefs.has(update.courseRef)) throw new TypeError("school_catchup_course_ref_duplicate");
@@ -412,6 +415,9 @@ export class SchoolCatchupRepository {
         ? coursesById.get(courseId)?.name ?? null
         : inline(update.name, "school_catchup_course_name_invalid", 160);
       if (name === null) throw new TypeError("school_catchup_course_name_invalid");
+      courseNames.set(courseId, name);
+      const insertedFacts: string[] = [];
+      let alreadySaved = 0;
       const platform = update.platform === null
         ? coursesById.get(courseId)?.platform ?? null
         : inline(update.platform, "school_catchup_platform_invalid", 160);
@@ -455,7 +461,11 @@ export class SchoolCatchupRepository {
         const statement = inline(fact.statement, "school_catchup_fact_invalid", 512);
         const factKey = key(statement, 512, "school_catchup_fact_invalid");
         const dedupe = `${fact.kind}:${factKey}`;
-        if (knownFactKeys.has(dedupe)) continue;
+        if (knownFactKeys.has(dedupe)) {
+          alreadySaved += 1;
+          continue;
+        }
+        insertedFacts.push(statement);
         knownFactKeys.add(dedupe);
         activeFactCounts.set(courseId, (activeFactCounts.get(courseId) ?? 0) + 1);
         factInserts.push(this.database.prepare(`INSERT INTO school_course_facts (
@@ -465,13 +475,14 @@ export class SchoolCatchupRepository {
           .bind(principalId, courseId, newUlid(now), factKey, fact.kind, statement, turnId, nowIso));
       }
       if ((activeFactCounts.get(courseId) ?? 0) > MAX_ACTIVE_FACTS_PER_COURSE) {
-        throw new RangeError("school_catchup_fact_limit_exceeded");
+        throw new RangeError("school_catchup_course_fact_limit_exceeded");
       }
+      savedCourses.push({ courseId, name, insertedFacts, alreadySaved, resolved: update.resolveFactIds.length });
     }
 
     if (finalCourseIds.size > MAX_COURSES) throw new RangeError("school_catchup_course_limit_exceeded");
     if ([...activeFactCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_ACTIVE_FACTS) {
-      throw new RangeError("school_catchup_fact_limit_exceeded");
+      throw new RangeError("school_catchup_total_fact_limit_exceeded");
     }
     // D1 cap triggers see the batch in order. Every resolve must free capacity
     // before any insert tries to consume it, regardless of course order.
@@ -542,6 +553,15 @@ export class SchoolCatchupRepository {
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));
     await this.database.batch(statements);
-    onResult?.(partialResult(scheduleFailure === null, repaired.repairRules, scheduleFailure));
+    onResult?.(partialResult(scheduleFailure === null, repaired.repairRules, scheduleFailure), {
+      replayed: false,
+      courses: savedCourses,
+      actions: scheduleFailure === null ? repaired.actions.map((action) => ({
+        ...action,
+        courseRef: courseIdsByRef.get(action.courseRef) ?? action.courseRef,
+        courseName: courseNames.get(courseIdsByRef.get(action.courseRef) ?? action.courseRef as Ulid)!,
+      })) : [],
+      completedActions: input.plan.completeActionIds.length,
+    });
   }
 }
