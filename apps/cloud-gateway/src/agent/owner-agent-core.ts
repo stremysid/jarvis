@@ -5,6 +5,8 @@
  */
 
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
+import { SchoolCollectorPairing } from "../school/collector-pairing.js";
 import type { ArchiveBucket } from "../archive/archival-service.js";
 import {
   argumentsFingerprint,
@@ -970,6 +972,23 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
+    }
+    if (call.name === "school_d2l_status") {
+      const args = schoolStatusOptions(parseArguments(call, ["cursor", "limit", "staleAfterMs"]));
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      const evidence = await new SchoolCollectorRepository(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
+        .status(args);
+      return unactionedTool(call, JSON.stringify(evidence), []);
+    }
+    if (call.name === "school_collector_revoke") {
+      const args = parseArguments(call, ["collectorId"]);
+      const collectorId = safeUlid(args.collectorId);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      const changed = await new SchoolCollectorPairing(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
+        .revoke(collectorId);
+      return successfulTool(call, changed ? "School collector revoked." : "School collector was already revoked or was not found.");
     }
     const pipeline = port.pipelineModel(call);
     if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);

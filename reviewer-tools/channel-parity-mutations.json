@@ -334,5 +334,21 @@
     "replace": "CREATE TRIGGER school_study_signal_controls_insert_guard\nBEFORE INSERT ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_insert_invalid') WHERE EXISTS (\n    SELECT 1 FROM school_study_signal_controls\n    WHERE 1 = 1 AND source_key = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.control_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel IN ('telegram', 'voice')\n  ) OR NOT EXISTS (\n    SELECT 1 FROM school_study_check_in_claims claim, json_each(claim.source_keys_json) source\n    WHERE claim.principal_id = NEW.principal_id\n      AND claim.claim_id = NEW.check_in_id\n      AND source.type = 'text'\n      AND source.value = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns turn\n    JOIN school_study_check_in_claims claim\n      ON claim.principal_id = NEW.principal_id AND claim.claim_id = NEW.check_in_id\n    WHERE turn.turn_id = NEW.control_turn_id\n      AND turn.principal_id = NEW.principal_id\n      AND turn.created_at >= claim.claimed_at\n  ) OR NEW.source_key != (NEW.source_kind || ':' || NEW.source_record_id)\n    OR (NEW.source_kind = 'grade' AND NOT EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id AND observation_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'missing_work' AND NOT EXISTS (\n      SELECT 1 FROM school_missing_work_transitions\n      WHERE principal_id = NEW.principal_id AND transition_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'deadline' AND NOT EXISTS (\n      SELECT 1 FROM deadlines WHERE deadline_id = NEW.source_record_id\n    ));\nEND;",
     "testPath": "apps/cloud-gateway/test/persistence/channel-parity-migration.test.ts",
     "expect": "preserves every source and owner check while admitting voice in school_study_signal_controls_insert_guard"
+  },
+  {
+    "name": "voice-drops-new-main-collector-tool",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "toolDefinitions: OWNER_TOOL_DEFINITIONS,",
+    "replace": "toolDefinitions: OWNER_TOOL_DEFINITIONS.filter(tool => tool.name !== \"school_d2l_status\"),",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "offers tools that deep-equal Telegram and tells the model it is speaking on a call"
+  },
+  {
+    "name": "production-restore-loses-parity-migration",
+    "file": "apps/cloud-gateway/src/backup/memory-backup-restore-migrations.ts",
+    "find": "  Object.freeze({ name: \"0044_owner_channel_parity.sql\", sql: migration0044 }),\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/backup/memory-backup-restore.test.ts",
+    "expect": "downloads and hashes each verified object once before later restore steps use the durable cache"
   }
 ]

@@ -34,6 +34,7 @@ import type { StudyCheckIn } from "../school/study-coach-types.js";
 import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
+import type { D2lStatus } from "../school/collector-repository.js";
 
 /** How far ahead the digest looks for deadlines. */
 const DEADLINE_HORIZON_DAYS = 7;
@@ -73,6 +74,7 @@ export interface DigestSources {
   readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
+  readD2lStatus?(): Promise<D2lStatus>;
   readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
@@ -398,6 +400,15 @@ export async function assembleDigest(
       ), gaps),
   ]);
 
+  if (dependencies.sources.readD2lStatus !== undefined) {
+    try {
+      const d2l = await dependencies.sources.readD2lStatus();
+      if (d2l.state !== "current") gaps.push({ source: "Brightspace API", detail: `read ${d2l.state}; last good whole read ${d2l.lastGoodReadAt ?? "never"}. Undated work may exist; check school_d2l_status.` });
+      if (d2l.state === "current" && d2l.lastGoodReadUndatedItems > 0) gaps.push({ source: "Brightspace API", detail: `${d2l.lastGoodReadUndatedItems} Brightspace items have no known date; check school_d2l_status.` });
+    } catch {
+      gaps.push({ source: "Brightspace API", detail: "collector status unavailable; cannot establish what is due" });
+    }
+  }
   const unconfigured = new Set((dependencies.unconfiguredDeadlineSources ?? [])
     .map((source) => source.sourceId));
   for (const expected of dependencies.unconfiguredDeadlineSources ?? []) {
