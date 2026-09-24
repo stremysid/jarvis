@@ -59,7 +59,9 @@ def _apply(monkeypatch: pytest.MonkeyPatch, values: dict[str, str]) -> None:
 
 
 def test_a_usable_configuration_reports_ready(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(store_permissions, "_default_store_root", lambda: tmp_path)
     _apply(monkeypatch, _usable_environment(tmp_path))
@@ -69,7 +71,9 @@ def test_a_usable_configuration_reports_ready(
 
 
 def test_a_missing_name_reports_its_name_and_the_dependency_exit_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     values = _usable_environment(tmp_path)
     del values["JARVIS_ARCHIVE_PATH"]
@@ -80,7 +84,9 @@ def test_a_missing_name_reports_its_name_and_the_dependency_exit_code(
 
 
 def test_a_store_outside_the_permitted_location_gets_its_own_exit_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """One location is permitted, and a store anywhere else is refused here.
 
@@ -106,7 +112,9 @@ def test_a_store_outside_the_permitted_location_gets_its_own_exit_code(
 
 
 def test_a_store_whose_permissions_cannot_be_written_gets_the_same_exit_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The Administrators-owned store, which is the failure the code exists for.
 

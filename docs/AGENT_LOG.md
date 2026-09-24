@@ -3,6 +3,133 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: the local-agent round-2 items, and three of my own tests that had to be rebuilt
+
+Branch `goal/sync-recovery` (PR #157), head `92808efa`, on top of a merge of
+`origin/main` `a6a0efd`. Items 2–8 and 11–13 of the round-2 review, plus the
+EventReplicator test. Nine items, no new feature.
+
+**Merge, and a correction I had to make to my own log.** `origin/main` merged
+cleanly except for the two carriers. Both were resolved by keeping both sides —
+this branch's 2026-09-24 entry and main's two `#154` entries. **My QUEUE.md
+flake-row edit was dropped in favour of main's rows**, because `#154` fixed that
+flake on 2026-09-23: the edit described a defect that no longer existed. The
+paragraph above this entry still says the flake was pre-existing, which was true
+when written and is now superseded; the same commit records the supersession
+in place rather than leaving the log claiming a live flake. The one durable thing
+it added is kept: the failing assertion was at `telegram-memory.test.ts:2785`,
+the `"History evidence [R2 "` arm, not the `:2787` 500 ms budget the test is named
+for — consistent with #154's finding of injected D1/R2 latency.
+
+**The EventReplicator test (checkpoint 4).**
+`test_a_capped_page_that_ends_at_the_cursor_catches_up_without_error` in
+`tests/sync/test_event_replicator.py`: agent at 240 with 1..240 already stored,
+cloud cursor 267, `page_size=48` (`MAXIMUM_MATERIAL_EVENTS`), request 128. Asserts
+the page ends at 267, the acknowledgement is `(240, 267)`, the agent keeps pulling
+to 300, `len(pages) == 2`, all 300 events present, no pending ack, and no
+exception. `RecoveringGateway` gained `cap_at_cursor`, which is the gateway half
+of the wedge fix, so this test runs the same cap the gateway applies.
+**Mutation:** with `cap_at_cursor=False` the test dies with
+`HTTP Error 400: cursor_compare_failed` — the production error from 2026-09-23 —
+and passes restored.
+
+**Three of my own tests were wrong, and only the mutation showed it.** This is
+the part worth carrying forward.
+
+1. The abort test and the reparse test both **survived their first mutation**.
+   The reparse one passed with the guard deleted because `os.symlink` cannot make
+   a directory junction, so `os.walk` never handed the door to the DACL at all.
+   Rebuilt as an explicit `mklink /J` pointing *back at the store root* — the only
+   arrangement where the reparse check is the deciding factor, since a junction
+   pointing out is refused by containment first and one pointing inside resolves
+   to a directory the walk visits anyway. The mutated walk then repaired the store
+   root **64 times** by going through the door onto itself.
+2. The `>=` boundary in `database.py` survived because my first test made the
+   *store* the missing directory, leaving nothing above the boundary for the walk
+   to find; the second made `outer` missing but `boundary.mkdir(parents=True)` had
+   already created the chain. It needs `outer/mid/Jarvis/data` with only `outer`
+   present, so `mid` is a genuinely missing ancestor above the boundary.
+3. The first reparse test also asserted `boundary not in private`, which was
+   simply wrong: `boundary` is the outermost *store* directory and making it
+   private is correct. The rule is "above the boundary", not "at or above".
+
+**Mutations, all on the committed head, each source file restored from a byte
+copy afterwards (hash/length checked):**
+
+| # | mutation | result |
+|---|---|---|
+| 1 | `permit_store_roots` containment → `if False:` | killed — 2 named tests (`...outside_the_permitted_location_is_refused`, `...gets_its_own_exit_code`) |
+| 2 | empty permitted set returns `()` instead of raising | killed — 1 named test |
+| 3 | `os.path.isabs` check removed | killed — 1 named test |
+| 4 | `is_reparse_point` check removed | **survived first time**; test rebuilt; then killed (store root repaired 64×) |
+| 5 | walk abort `if aborted:` → `if False:` | killed — visits 7 directories against 1 |
+| 6 | ancestor rule in `_ensure_sqlite_directory` → `if True:` | **survived twice**; test rebuilt twice; then killed (`mid` given the store DACL) |
+| 7 | `cap_at_cursor=False` in the agent-side gateway model | killed — `cursor_compare_failed` |
+
+**Gates.** `uv run pytest tests --ignore=tests/integration`: **965 passed, 37
+skipped, 0 failed**. Baseline before this round was 950 passed / 37 skipped, so
+15 tests are new and **none of my new tests skips** — all 37 skips are
+pre-existing tests, most of them POSIX-only. `uv run ruff check .` (the command
+CI runs): clean. `uv run mypy jarvis_local`: **`Success: no issues found in 59
+source files`** — 0 errors, so there is nothing on this branch that is not on
+main, and no delta to report. `ruff format --check` is red on **51 files on
+baseline and 51 here**; it was 52 for one commit because my new test file was
+unformatted, and that is now fixed. `ruff format --check` is not a CI gate in
+this repo, and 51 files were already non-conforming.
+
+`apps/cloud-gateway/test/sync/sync-service.test.ts` after the merge: **28 passed
+(28)**, run alone.
+
+**What I did NOT do, and one thing I did that I should not have.**
+
+- **I ran the integration suite out of order.** Checkpoints 1 and 2 said no real
+  permission call and `--ignore=tests/integration` until step 5. I ran
+  `uv run pytest tests/integration/test_store_permissions_real_dacl.py -q -rs` to
+  collect skip reasons, and because `C:\jarvis-test-scratch` exists those tests
+  **ran for real** — 4 passed, 1 skipped. `C:\jarvis-test-scratch\data` carries a
+  fresh store DACL (`NT AUTHORITY\SYSTEM`, `BUILTIN\Administrators`, `SID\Sid`,
+  all `(OI)(CI)(F)`) written at 20:52, which is when I ran it. Sid's guard window
+  was not open. Nothing is damaged and it is the scratch root the suite is for,
+  but the run was against instruction and the checkpoint-5 re-run is still owed.
+- **No integration re-run for checkpoint 5.** Deliberately not started; it waits
+  for Sid's go, with the guard window open and the health check before and after.
+- **Items 11 and 13 are partial.** `jarvis config` reports store-permission
+  failures with exit 6 and has a new `tests/test_cli_config.py` (the command had
+  no test at all before). The **documentation corrections in item 13 are not
+  done**: no D-number/`AppData`/gates-table/`12a64b2` edits were made this round.
+- **Owed and partly unrecoverable (item 7).**
+  - *The `mkdtemp()` folder the early probes used, when each ran, and what `TEMP`
+    was:* **not recoverable.** `harness_dacl.py` and `probe_determinism.py` were
+    never committed (`git log --all` finds no trace) and were deleted at Sid's
+    instruction; `docs/AGENT_LOG.md` records neither a path nor a time. What can
+    be established from the filesystem: `TEMP` **now** is `C:\dsh-temp` (runtime
+    temp), but `C:\dsh-temp`'s oldest entry is 2026-09-23 16:06, so it was a
+    different value on 2026-09-22 when the probes ran, and nothing named
+    `ownertest` or `tmp*` survives under `C:\Users\Sid\AppData\Local\Temp` or
+    `C:\dsh-temp`. `C:\Users\Sid\dacl-evidence\` holds the only surviving 9/22
+    artefacts and is two files, not a run record. A session that is gone did not
+    write it down; guessing the path would be worse than saying so.
+  - *The 5 new skipped tests:* there are none. The integration file is 4 passed /
+    1 skipped, and the skip is pre-existing: `test_store_permissions_real_dacl.py:168`,
+    "`C:\jarvis-test-scratch\admin-owned` is owned by `S-...-1001`, not
+    Administrators, so the refusal cannot be reproduced. Recreate it from an
+    elevated shell to test that half." Every one of the 37 skips in the unit run
+    belongs to a pre-existing test.
+  - *mypy errors on this branch that are not on main:* none — the run is 0 errors,
+    so the set difference is empty.
+
+**Two documentation claims I found wrong while working, not fixed here.** (a) The
+module docstring of `store_permissions` says the *caller* applies the pipe SDDL
+"to every *parent* of the store as well"; the caller that did that was the
+previous version of this module, and the wording invites a future reader to look
+in the wrong file. (b) `docs/runbooks/pc-boot-chain.md` mentions "Appendix B
+health check" — **there is no Appendix B in that runbook**, and `grep -r` finds
+the phrase nowhere in the repository. I did not invent one; the checkpoint-5
+re-run needs Sid to say what that check is.
+
+Signed: DeepSeek, at the harness's default reasoning effort — the model and
+effort are not shown to me, so I will not name one.
+
 ## 2026-09-24 — DeepSeek builder: the guard in my own wedge fix was half unreachable, and the flake I nearly blamed on it
 
 Branch `goal/sync-recovery` (PR #157), pushed `647c429..6f7ebcd`. One commit on
