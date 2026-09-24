@@ -3,6 +3,12 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #168 final #164 integration
+
+Signed: Codex, builder. Normally merged A's final `4eddb684daa89439fbccde08f68c9d992e95e65b` as `3f78729f`, carrying main's newly merged #164 after the once-only full gate. The only conflict was this log; both complete histories remain. Deadline, shared core and school source are identical to A; the Telegram adapter retains only B's three reminder additions. Backup/migration code is unchanged from the passing 590-test gate.
+
+Final affected integration gate: **497 passed / 0 failed / 0 skipped, 27 files**, including deadlines, school, reminders, owner-pipeline integration and classification. Source types passed with 0 diagnostics; test types remain 143 existing diagnostics with none in the new/changed paths. State passed all 3 carriers and FACTS/links/size/BLOCKS, 0 warnings; diff passed. Full-run evidence remains **5,270/2/0 before #164**, followed by whole-file isolated passes of **71/0/0** (Hermes) and **70/0/0** (meaning-search). No second full run was performed, honoring the explicit once-only instruction; no exact-final-tree full-suite claim is made. Mutation evidence remains A's 40 carried probes plus B's 1 confirmed reminder-specific gate probe on unchanged core code. Owner-only rollout/acceptance steps and the 0041-before-deploy requirement remain in OWNER-ACTIONS. No live/production or PC permissions action occurred.
+
 ## 2026-09-24 — Codex builder: #168 carries #166 round 1
 
 Signed: Codex, builder. Normally merged PR #166 head `50d5fe913898f70c9794b5385dcea0652bd9ea2b` into the existing reminder branch as `21dc779`, then added the reminder-specific argument-tier refusal regression in `e459a40`. #168 remains stacked on A and targets main. No force push. Deadline source and the shared core are byte-identical to A; Telegram retains the three reminder additions (import, tool definitions, dispatch alternative), and the fixture retains its callback call factory alongside A's timestamp/zone seams.
