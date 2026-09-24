@@ -5,8 +5,10 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-23 — DeepSeek builder: #161 review correction round
 
-Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. Corrections only;
-no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
+Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. The model version
+and reasoning-effort setting are **not exposed to this session** — no `DSH_*`
+variable carries them — so this entry names neither rather than guessing.
+Corrections only; no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
 
 **Corrections applied** (all 12):
 1. §"Why this exists": the claim that **#160** assumes HTML parsing is deleted. #160's design is API-first (`9092950:docs/plan/2026-09-23-d2l-access-design.md`, Recommendation and "What changes for P2": "prefer … APIs to DOM"); only the P2 brief assumed HTML, and it is PARKED.
