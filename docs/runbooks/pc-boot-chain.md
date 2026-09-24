@@ -133,10 +133,10 @@ action_execute      C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_x6
 action_arguments    -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\w\pcc\ops\jarvis-boot.ps1"
 ```
 
-`action_execute` is the WindowsApps alias for `pwsh`, and it is the same path
-`Get-Command pwsh` resolves to. It is an App Execution Alias rather than a real
-file; that is what a Store-installed PowerShell looks like and Task Scheduler
-launches it.
+`action_execute` is the real executable inside the installed PowerShell Store
+package, and it is the same path `Get-Command pwsh` resolved to in this check.
+The separate App Execution Alias is `%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`;
+it is not the package executable shown here.
 
 ### Install (elevated)
 
