@@ -106,8 +106,14 @@ only way the new default could redden the Ubuntu job without reddening this one 
 and the two that did
 (`test_store_and_live_wal_files_ignore_a_permissive_umask`,
 `test_connect_refuses_an_existing_shared_parent_without_chmod`) were fixed above.
-**CI is still the authority on whether the Ubuntu job is green**; nothing here
-claims to have observed it.
+**CI is the authority on whether the Ubuntu job is green**, and it was then
+observed: run `35955982040` at `9890bcda` finished **success**, with
+`local-agent (ubuntu-latest)` **987 passed, 29 skipped** in 18.9 s (it was
+`9 failed, 968 passed, 30 skipped` at `6838a1f1`) and
+`local-agent (windows-latest)` **981 passed, 35 skipped** in 1 m 20 s (it was
+`1 failed, 964 passed, 42 skipped`). All nine jobs passed, so the Ubuntu job is
+green for the first time on this branch — and this is the only Linux execution
+this round has behind it.
 
 `memory/compatibility_gate.py:VectorIndex.open` is **decided, explicitly: left at
 the default**. It is a diagnostic with no production caller, it writes a
@@ -200,6 +206,7 @@ and the OWNER-ACTIONS date line is this round's `2026-09-24`.
 | `uv run mypy jarvis_local` | `Success: no issues found in 59 source files` |
 | `apps/cloud-gateway/test/sync/sync-service.test.ts`, run alone, after the merge | **28 passed (28)** |
 | `node scripts/check-state.mjs` | passed — 3 carriers and the FACTS register, STATE.md within budget, links resolve, BLOCKS present |
+| CI `35955982040` at `9890bcda`, all nine jobs | **success** — `local-agent (ubuntu-latest)` **987 passed, 29 skipped**, `local-agent (windows-latest)` **981 passed, 35 skipped** |
 
 The skip count moves between runs by one or two and that is the machine, not the
 code: `test_the_walk_skips_a_reparse_point_instead_of_granting_it_access` skips
