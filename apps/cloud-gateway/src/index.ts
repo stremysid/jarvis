@@ -316,6 +316,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           // Retrieval happens after construction. The adapter resolves the
           // remaining arrival-anchored budget when its stream actually starts.
           turnReceivedAt: accepted.receivedAt,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         });
       }
 

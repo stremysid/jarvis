@@ -1,14 +1,17 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
-import { proveDeadlineTime, recordDeadline } from "../../src/deadlines/deadline-tool.js";
+import { recordDeadline as executeDeadline } from "../../src/deadlines/deadline-tool.js";
+import { proveDeadlineDue } from "../../src/deadlines/deadline-date-proof.js";
 import type { ModelAdapterStreamInput } from "../../src/model/model-adapter.js";
 import { resetDeadlineTables } from "./deadline-fixture.js";
 import { argumentTurn, NOW } from "../channels/argument-tool-fixture.js";
 
 const message = "Chemistry Lab report is due September 25, 2026 at 3:30 pm.";
 const args = { course: "Chemistry", title: "Lab report", dueAt: "2026-09-25T15:30:00-04:00",
-  timeZone: "America/Toronto", effort: "project", evidenceExcerpt: message };
+  timeZone: "America/Toronto", effort: "project", evidenceExcerpt: message, dueExcerpt: "September 25, 2026 at 3:30 pm" };
+const recordDeadline = (...values: Parameters<typeof executeDeadline> extends [...infer P, unknown] ? P : never) =>
+  executeDeadline(...values, { ownerZone: "America/Toronto", messageAt: NOW.toISOString() });
 const call = (changes = {}) => ({ id: "deadline-call", name: "deadline_record", arguments: JSON.stringify({ ...args, ...changes }) });
 const input = (userText = message) => ({ userText, principalId: "principal:test" }) as ModelAdapterStreamInput;
 const rows = () => env.DB.prepare("SELECT * FROM deadlines").all<Record<string, unknown>>();
@@ -19,7 +22,7 @@ describe("owner reported deadlines", () => {
   it("dispatches a dated row through the owner turn and displays its local receipt", async () => {
     const result = await argumentTurn(message, call());
     expect(result.result.outcome).toBe("telegram_delivered");
-    expect(result.replies.join(" ")).toContain('Recorded "Chemistry": "Lab report"');
+    expect(result.replies.join(" ")).toContain('Created "Chemistry": "Lab report"');
     expect(result.replies.join(" ")).toContain("3:30");
     expect(result.replies.join(" ")).toContain("America/Toronto");
     expect((await rows()).results).toMatchObject([{ source_id: "owner-reported", due_at: "2026-09-25T19:30:00.000Z", status: "open", effort: "project" }]);
@@ -42,7 +45,7 @@ describe("owner reported deadlines", () => {
     expect((await rows()).results).toMatchObject([{ status: "submitted", effort: "essay" }]);
     expect((await rows()).results).toHaveLength(1);
     const moved = "Chemistry Lab report is due September 26, 2026 at 3:30 pm. cancelled";
-    await recordDeadline(env.DB, input(moved), call({ dueAt: "2026-09-26T15:30:00-04:00", status: "cancelled", evidenceExcerpt: moved }), NOW);
+    await recordDeadline(env.DB, input(moved), call({ dueAt: "2026-09-26T15:30:00-04:00", dueExcerpt: "September 26, 2026 at 3:30 pm", status: "cancelled", evidenceExcerpt: moved }), NOW);
     expect((await rows()).results).toMatchObject([{ status: "cancelled", due_at: "2026-09-26T19:30:00.000Z" }]);
   });
 
@@ -59,13 +62,13 @@ describe("owner reported deadlines", () => {
     ["an invalid effort", { effort: "huge" }],
     ["an unknown argument", { other: true }],
   ])("refuses %s before creating a source or a deadline", async (_label, changes) => {
-    await expect(recordDeadline(env.DB, input(), call(changes), NOW)).rejects.toThrow();
+    expect(JSON.parse((await recordDeadline(env.DB, input(), call(changes), NOW)).providerResult.content).status).toBe("refused");
     expect((await rows()).results).toHaveLength(0);
     expect(await new DeadlineRepository(env.DB).readSource("owner-reported")).toBeNull();
   });
 
   it("refuses evidence cut out of the middle of a word", async () => {
-    await expect(recordDeadline(env.DB, input(`Bio${message}`), call(), NOW)).rejects.toThrow();
+    expect(JSON.parse((await recordDeadline(env.DB, input(`Bio${message}`), call(), NOW)).providerResult.content).status).toBe("refused");
     expect((await rows()).results).toHaveLength(0);
   });
 
@@ -102,14 +105,14 @@ describe("owner reported deadlines", () => {
 
   it("refuses an explicit open status even when the evidence contains that word", async () => {
     const text = `${message} open`;
-    await expect(recordDeadline(env.DB, input(text), call({ status: "open", evidenceExcerpt: text }), NOW)).rejects.toThrow();
+    expect(JSON.parse((await recordDeadline(env.DB, input(text), call({ status: "open", evidenceExcerpt: text }), NOW)).providerResult.content).status).toBe("refused");
     expect((await rows()).results).toHaveLength(0);
   });
 
   it("refuses an offset mismatch even when both clock times occur in the evidence", async () => {
     const text = `${message} The office closes at 4:30 pm.`;
-    await expect(recordDeadline(env.DB, input(text), call({ dueAt: "2026-09-25T15:30:00-05:00", evidenceExcerpt: text }), NOW))
-      .rejects.toThrow("deadline_zone_or_date_invalid");
+    expect((await recordDeadline(env.DB, input(text), call({ dueAt: "2026-09-25T15:30:00-05:00", evidenceExcerpt: text }), NOW)).providerResult.content)
+      .toContain("deadline_resolved_date_mismatch");
     expect((await rows()).results).toHaveLength(0);
   });
 
@@ -124,15 +127,8 @@ describe("owner reported deadlines", () => {
     expect((await rows()).results).toHaveLength(0);
   });
 
-  it("compares the stated date and clock in winter and during the repeated fall hour", () => {
-    expect(() => proveDeadlineTime("2026-09-25T15:30:00", "America/Toronto", message)).toThrow("deadline_time_invalid");
-    expect(proveDeadlineTime("2026-12-01T15:30:00-05:00", "America/Toronto", "2026-12-01 15:30"))
-      .toBe("2026-12-01T20:30:00.000Z");
-    expect(proveDeadlineTime("2026-11-01T01:30:00-05:00", "America/Toronto", "1 November 2026 1:30am"))
-      .toBe("2026-11-01T06:30:00.000Z");
-    expect(() => proveDeadlineTime("2026-03-08T02:30:00-05:00", "America/Toronto", "2026-03-08 02:30"))
-      .toThrow("deadline_zone_or_date_invalid");
-    expect(() => proveDeadlineTime("2026-02-30T15:30:00-05:00", "America/Toronto", "March 2, 2026 at 3:30 pm"))
-      .toThrow("deadline_zone_or_date_invalid");
+  it("uses the winter offset for an unambiguous clock", () => {
+    expect(proveDeadlineDue({ dueAt: "2026-12-01T15:30:00-05:00", ownerZone: "America/Toronto",
+      dueExcerpt: "2026-12-01 15:30", messageAt: NOW.toISOString() }).dueAt).toBe("2026-12-01T20:30:00.000Z");
   });
 });

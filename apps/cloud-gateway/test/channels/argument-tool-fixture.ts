@@ -17,6 +17,7 @@ let serial = 8_000_000;
 
 export async function argumentTurn(text: string, call: ModelFunctionCall, options: {
   direct?: boolean; durableDirect?: boolean; pipeline?: boolean; gate?: ToolAutonomyGateContract;
+  timeZone?: string; messageAt?: Date; processingAt?: Date;
 } = {}) {
   await applyMemoryIngressMigration();
   const principalId = `principal:argument:${newUlid()}`;
@@ -40,7 +41,8 @@ export async function argumentTurn(text: string, call: ModelFunctionCall, option
   const model = new OwnerTelegramAgentAdapter({
     database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: principalId, authorityText: text,
     directOwnerText: options.direct ?? true, directPipelineText: options.pipeline ?? true,
-    autonomy: options.gate ?? await testToolGate(env.DB), now: () => NOW,
+    autonomy: options.gate ?? await testToolGate(env.DB), now: () => options.processingAt ?? NOW,
+    ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }), turnReceivedAt: (options.messageAt ?? NOW).toISOString(),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
     schoolModel: fallback, universityModel: fallback, studyCoachModel: fallback,
@@ -52,11 +54,11 @@ export async function argumentTurn(text: string, call: ModelFunctionCall, option
     } },
   });
   const service = new DefaultConversationService({
-    repository, model, context: { async retrieve() { return []; } }, redactor: new Redactor(), now: () => NOW,
+    repository, model, context: { async retrieve() { return []; } }, redactor: new Redactor(), now: () => options.messageAt ?? NOW,
     dispatcher: new DefaultOutboxDispatcher({ repository, identityResolver: new D1TelegramIdentityResolver(env.DB),
       channels: new Map([["telegram", { async sendMessage(input: TelegramSendMessageInput) {
         replies.push(input.text); return { providerMessageId: "123" };
-      } }]]), circuitBreaker: new ProviderCircuitBreaker(), now: () => NOW }),
+      } }]]), circuitBreaker: new ProviderCircuitBreaker(), now: () => options.processingAt ?? options.messageAt ?? NOW }),
   });
   const turnId = newUlid();
   const result = await service.handleTurn({ sessionId: `telegram:${subject}`, principalId, turnId,
