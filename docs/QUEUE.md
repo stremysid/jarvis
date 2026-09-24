@@ -3,8 +3,8 @@
 What is in flight, who owns the next action, and what it blocks. Regenerate this
 file rather than appending to it. Owner-only actions live in [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
 
-Last regenerated: 2026-09-24, after #166 merged at 20:14 UTC, from the harness's
-round-2 snapshot and repository history. Heads below are that observation, not a claim
+Last regenerated: 2026-09-24, about 21:30 UTC, from the harness's
+round-3 snapshot and repository history. Heads below are that observation, not a claim
 about a later head. Query `git log --oneline origin/main -1` before starting work.
 
 **Local load rule:** only focused test files on Sid's PC; full package and workspace
@@ -14,14 +14,23 @@ suites run in GitHub Actions. See [the recorded rule](voice-streaming.md#round-2
 
 | PR | State / observed head | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#174](https://github.com/stremysid/jarvis/pull/174) channel parity | **awaiting-review**, round 4 running; `1b0b0e9` | Merge main's #166 and add `deadline_record` / `OWNER_ARGUMENT_TOOL_DEFINITIONS` to shared `OWNER_TOOL_DEFINITIONS`; obtain independent review of the resulting head | builder, then reviewer | #168 refresh; Phases 1, 2 and 5 | Round 3: New-1…New-6 fixed, one low (L2 below). Migration `0044`; fixes the guest-call privacy leak, live until merge and deploy. Scratch `0044` after `0045`: orchestrator-reported PASS, not independently re-run; [record](reviews/2026-09-24-scratch-d1-rehearsal.md) |
+| [#174](https://github.com/stremysid/jarvis/pull/174) channel parity | **awaiting-review**, round-5 integration review in progress; `codex/channel-parity`, `0e458a6` | During integration review, retain #166's `deadline_record` / `OWNER_ARGUMENT_TOOL_DEFINITIONS` in shared `OWNER_TOOL_DEFINITIONS`; when next merging main, integrate #182's three-argument `confirmationReference` and obtain independent review of the resulting head | builder, then reviewer | #168 refresh; Phases 1, 2 and 5 | Round 3: New-1…New-6 fixed, one low (L2 below). Migration `0044`; fixes the guest-call privacy leak, live until merge and deploy. Scratch `0044` after `0045`: orchestrator-reported PASS, not independently re-run; [record](reviews/2026-09-24-scratch-d1-rehearsal.md) |
 | [#168](https://github.com/stremysid/jarvis/pull/168) owner reminders | **blocked / stale**; `d2142167` | After #174 merges, run the builder round resolving conflicts, renumber `0041` above main's maximum, then request review; #166 has merged | builder | owner reminders | Eight conflicts were reported in the 19:40 UTC snapshot; not recounted here. Renumbering is decided in [OWNER-ACTIONS](OWNER-ACTIONS.md#done--kept-so-they-are-not-asked-for-again); check the migration set again before choosing a number |
-| [#177](https://github.com/stremysid/jarvis/pull/177) docs stale-fixes | **cleared; merging after a log-only main merge**; `e0631a8` or later per harness | Complete the log-only main merge and check the resulting head before merge | reviewer | tonight's production runbook | Corrects the scratch runbook, deploy.md and REVIEWER-MANUAL |
+| [#179](https://github.com/stremysid/jarvis/pull/179) state carriers | **round 3 in progress**; round 2 cleared at `f7fa19a` | After this docs round, harness stages and commits the merge resolution and refresh, then obtains review of the resulting head | harness, then reviewer | current carrier evidence | This branch, `claude/friendly-hawking-qjcyia`; N1 and the supplied 21:30 UTC snapshot are this round's scope |
+| [#180](https://github.com/stremysid/jarvis/pull/180) test lows | **reviewed and cleared**; `620a754` | Merge when the one-time re-run of the failed CI jobs is green | harness / reviewer | low-severity regression coverage | Only cloud-gateway tests, one label string and the log changed; [round 1 at `f70b30d`](https://github.com/stremysid/jarvis/pull/180#issuecomment-5821919784): ready to merge, 0 High/Medium/Low, 7/7 mutants killed; [harness cleared the log-only main-merge head `620a754`](https://github.com/stremysid/jarvis/pull/180#issuecomment-5822247250). CI on that head failed local-agent (ubuntu-latest), where `test_node.py`'s real-socket retry test raced the 0.1 s retry wait, and hermes-runtime suite (windows), where `canonical-closure-review3.test.mjs:51` hit Vitest's default 5 s timeout; both are unrelated to #180 and passing on main; [one-time failed-job re-run pending](https://github.com/stremysid/jarvis/pull/180#issuecomment-5822281153) |
+| [#181](https://github.com/stremysid/jarvis/pull/181) Telegram body timeout | **review approved; CI pending**; `e069e11` | When CI completes, check the cleared merge head's result before merge | harness / reviewer | Telegram body timeout fix | Harness cleared the log/KNOWN_ISSUES-only merge head |
+| [#183](https://github.com/stremysid/jarvis/pull/183) redaction gaps | **round-1 review requested changes**; `5f67c27` | In the builder round, correct ordinary-speech over-redaction and resolve the red workspace suite, then request review | builder, then reviewer | Phase 5 | The rules over-redact ordinary speech such as "the code is due Friday"; CI's workspace suite is red |
+| [#184](https://github.com/stremysid/jarvis/pull/184) call-session fixes | **round-1 review in progress**; `e786602` | During round 1, complete the independent review at the observed head | reviewer | call-session fixes | Harness snapshot as of about 21:30 UTC |
 | [#122](https://github.com/stremysid/jarvis/pull/122) memory redesign spec | **awaiting-owner**, unchanged | When Sid has consulted the DeepSeek builder, confirm whether this is still the Phase 2 plan, then refresh before merge | Sid | none | The 2026-09-23 row records a 2026-09-19 head, only an AGENT_LOG conflict against `f9472d1`, and seven intervening memory commits. Those are historical checks, not a fresh conflict count |
 
 #178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
-Both have left the open-PR table. Production application, deployment and device
-acceptance remain separate actions in [OWNER-ACTIONS](OWNER-ACTIONS.md).
+#177 merged as `5548c38`; #182 merged as `a20f055` at about 21:20 UTC on 2026-09-24.
+Both newly merged PRs are not deployed and have left the open-PR table. #182 closes
+T3/B1 changed-outcome denial and B2 tool binding; [compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24).
+At the harness's about 21:30 UTC snapshot, production is unchanged: Worker `7e027a1f…`
+at `a6a0efd`, D1 at `0038`. Sid plans to apply the pending migrations and deploy tonight
+from the home PC; this is planned, not done. Production application, deployment and
+device acceptance remain separate actions in [OWNER-ACTIONS](OWNER-ACTIONS.md).
 
 ## Work with no pull request yet
 
@@ -30,6 +39,7 @@ observations were not repeated by this docs builder.
 
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
+| `codex/local-agent-retry-wait-flake` | **new harness PR being built; covers both flaky tests** | Make `test_node.py`'s real-socket retry test deterministic and address the hermes-runtime per-test timeout, then request independent review; the local-agent test raced `QUARANTINE_RETRY_WAIT_SECONDS = 0.1` on CI, and `canonical-closure-review3.test.mjs:51` hit Vitest's default 5 s timeout on Windows | harness, then reviewer | CI reliability |
 | #166 round-7 X: vertical-break coverage | **open low** | In a focused follow-up, pin `\v`, `\f`, U+2029 and bare `\r` normalization in `deadline-tool.ts`; [review](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515) | builder | deadline evidence regression coverage |
 | #166 round-7 Y: apostrophe exemption coverage | **open low** | In a focused follow-up, pin the straight/curly apostrophe exemption in the soft-separator rule. Existing filler coverage does not prove that exemption; [review](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515) | builder | deadline evidence regression coverage |
 | #166 round-7 Z: hard separators refuse filler-only gaps | **awaiting-owner** | When Sid answers the neutral [OWNER-ACTIONS question](OWNER-ACTIONS.md#waiting-on-sid), carry the decision forward. `[.!?;]` currently refuses "Chem lab report. It's due Friday at 3pm"; [review](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515) | Sid, then builder | any change to cross-sentence deadline evidence |
@@ -52,8 +62,6 @@ observations were not repeated by this docs builder.
 | Memory explain/forget/restore receipts can reintroduce withheld text | **live defect** | In Phase 2, use the service's sanitized receipt rather than independently read text in `owner-agent-core.ts`; [known issue](../KNOWN_ISSUES.md#memory-and-archive) | builder | Phase 2 |
 | Suppression predicates remain duplicated outside the retriever | **open** | In Phase 2, review two projection uses in `memory-repository.ts` and migration `0016`'s view; retriever and control finder already share `suppression-clauses.ts` | builder | Phase 2 |
 | T1/T2: `channel_identities` insert and `capability_tiers` update/delete guards | **not started** | In a separate migration PR, add missing guards after checking main and every open PR for the next number. Main's maximum is `0045` at this observation; `0044` is on #174 | builder | Phase 2 |
-| T3: `tool-gate.ts` returns literal permit after its second evaluation | **not started** | In a follow-up, deny if the second evaluation differs from the confirmation-required outcome. Simply using `verdictFor(confirmed)` would refuse valid confirmed tier-3 calls | builder | first tier-3 hand |
-| B2: confirmations bind capability and arguments, not tool | **open** | In a follow-up, bind tool identity while preserving cross-channel use. `confirmationReference` is still `capability:argumentsHash`; #159 added single-use/expiry without tool binding | builder | first tier-3 hand |
 | Watchdog alerting secrets are undeclared | **not started** | In a follow-up, make missing alerting bindings a deploy-time refusal; `apps/watchdog/wrangler.toml` still declares no required secrets | builder | Phase 7 |
 | Telegram provider clears its abort timer before the body read | **not started** | In a follow-up, keep the timer armed through `response.json()` in `telegram-provider.ts` | builder | none |
 | Vault sync stops at the first 64 examined notes | **not started** | In Phase 7, persist progress through `vault/reconciliation.py`; unchanged notes count toward `documents_examined` | builder | Phase 7 |

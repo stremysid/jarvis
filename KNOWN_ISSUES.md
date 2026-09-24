@@ -1,5 +1,25 @@
 # Known issues
 
+## Tier-3 confirmations issued before tool binding (2026-09-24)
+
+#182 changes confirmation references from
+`capability:argumentsHash` to a JSON tuple of tool name, capability and argument
+hash. A previously issued confirmation cannot prove its tool name and deliberately
+does not match the new gateway, even if the owner answers its pending button after
+deployment. The old answer remains recorded but is not consumed or upgraded.
+The owner must ask for the action again and tap the newly issued confirmation.
+There is no compatibility fallback or migration in this change.
+
+A changed second autonomy outcome denies that attempt, even when the new outcome
+is `permitted`. Its receipt names the change and says the tap was spent. The
+claim is not refunded. Migration `0039` and its atomic single-use consumption
+remain required; [the existing rollout](docs/reviews/2026-09-23-tier3-tap.md)
+still applies. The [#182 review](https://github.com/stremysid/jarvis/pull/182#issuecomment-5822209807)
+records the harness's focused set at 472/472 and the independent review's full
+suite at 6683/6683 with 5/5 mutants killed. #182 merged at `a20f055` and is not
+deployed; what remains is the deploy, plus a fresh tap for any tier-3 confirmation
+pending at deploy.
+
 ## Owner voice streaming acceptance (PR #171, 2026-09-24)
 
 Live DeepSeek tool-call streaming and phone latency remain unverified. The
