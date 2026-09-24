@@ -77,7 +77,7 @@
     "find": "claim.receiptIds.every((id) => toolsByReceipt.has(id))",
     "replace": "claim.receiptIds.some((id) => toolsByReceipt.has(id))",
     "testPath": "apps/cloud-gateway/test/agent/receipted-tool-claims.test.ts",
-    "expect": "a valid receipt mixed with an unknown receipt"
+    "expect": "a current and an unknown receipt"
   },
   {
     "name": "Unknown receipt ids cannot become sentence proof",

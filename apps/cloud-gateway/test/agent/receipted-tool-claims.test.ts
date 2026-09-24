@@ -18,7 +18,7 @@ describe("sentence receipt proof", () => {
   it.each([
     { reason: "no receipt", receiptIds: [] },
     { reason: "a stale receipt", receiptIds: ["receipt:previous-turn"] },
-    { reason: "a valid receipt mixed with an unknown receipt", receiptIds: [executed.receiptId!, "receipt:invented"] },
+    { reason: "a current and an unknown receipt", receiptIds: [executed.receiptId!, "receipt:invented"] },
   ])("does not prove a sentence with $reason", ({ receiptIds }) => {
     expect(receiptedToolClaims({ reply: sentence, claimedActions: [{ sentence, receiptIds }] }, [executed])).toEqual([]);
   });
