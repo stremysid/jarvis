@@ -28,11 +28,18 @@ that principal cannot be created without changing the machine. It is denied by
 the same DACL through the same access check that demonstrably refuses anonymous
 -- but it was reasoned, not measured.
 
-One trap is worth naming: the obvious SDDL for "the owner" is `OW`, and it
-does not work. `OW` is CREATOR OWNER, a placeholder that is only substituted
-when a descriptor is inherited; applied directly it stays literal and matches
-nobody at access-check time, producing a pipe its owner cannot open. The
-resolved user SID is used instead.
+One trap is worth naming: the obvious SDDL for "the owner" is `OW`, and this
+module does not use it. `OW` is OWNER RIGHTS (S-1-3-4), not CREATOR OWNER --
+`CO` is the placeholder substituted at inheritance time, and `OW` is a real,
+resolvable SID that access checks evaluate. `store_permissions` does rely on
+`OW` behaving that way, because the CVE-2024-4030 DACL that Python's
+`mkdir(mode=0o700)` applies is built on it.
+
+The `OW` note here originally called it CREATOR OWNER and said it "matches
+nobody at access-check time", and neither half was measured on this machine.
+The resolved user SID is used on the pipe regardless, which is correct and
+needs no change: a pipe is created once by a known process and has nothing to
+inherit into.
 
 The second pressure is trust. A request that arrives on the channel is data.
 It is not a method name, and it must not be used as one -- the command is

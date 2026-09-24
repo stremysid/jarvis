@@ -152,6 +152,46 @@ export class SyncService {
     return this.continuePage(verified, consumerName, now);
   }
 
+  /**
+   * The furthest sequence a page may reach for this pull.
+   *
+   * Normally this is `latest`. The exception is a page that would **straddle the
+   * consumer cursor**, and only that.
+   *
+   * A catching-up device asks for 128 (`DEFAULT_PAGE_SIZE`) and the gateway
+   * materializes at most 48, so a device holding 240 can be offered 240->288
+   * while its cursor stands at 267. That page is neither a replay (267 < 288)
+   * nor a cursor match (267 !== 240), so the acknowledgement is refused, the
+   * device re-pulls the identical range, and it is refused identically. A
+   * permanent wedge, reached with nothing actually failing.
+   *
+   * Ending the straddling page **at the cursor** removes it: the device stores
+   * 240->267 and stages an acknowledgement whose `throughSequence` equals the
+   * cursor, which the already-covered branch accepts as a replay.
+   *
+   * The condition is `cursor > after`, and the strictness is load-bearing: a
+   * brand-new cursor is 0 and a new device pulls from 0, so capping when they are
+   * equal would serve the device an empty page forever and bootstrap would never
+   * start.
+   *
+   * There is deliberately no second bound for "the cursor is further ahead than
+   * one page". That case needs no help: this returns `Math.min(latest, cursor)`,
+   * but `readMaterial` materializes at most `MAXIMUM_MATERIAL_EVENTS` (48) from
+   * `after` whatever this returns, so once `cursor >= after + pageSize` the page
+   * is the same 48 either way. A second bound would read as a meaningful guard
+   * and be unreachable, which is worse than not having one.
+   */
+  private async pageUpperBound(
+    verified: VerifiedDeviceRequest<SyncEventsPullBodyV1>,
+    consumerName: string,
+    latest: number,
+  ): Promise<number> {
+    const after = verified.body.afterSequence;
+    const cursor = await this.repository.readCursor(consumerName);
+    if (cursor > after) return Math.min(latest, cursor);
+    return latest;
+  }
+
   async acknowledgeDurableReceipt(
     request: SignedRequestV1,
     body: SyncEventsAckBodyV1,
@@ -197,7 +237,31 @@ export class SyncService {
     if (!await this.repository.isCurrentDevice(verified)) throw new Error("sync_device_state_changed");
     const currentSnapshot = await this.repository.readSnapshotById(verified.body.snapshotId);
     this.validateFirstAck(currentSnapshot, verified, consumerName, now);
-    if (await this.repository.readCursor(consumerName) !== verified.body.expectedCurrent) throw new Error("cursor_compare_failed");
+    const currentCursor = await this.repository.readCursor(consumerName);
+    // An acknowledgement for a range the cursor already covers, accepted as a
+    // replay. This is the reinstall case, and it is not hypothetical: a device
+    // that acknowledged through 267 and then lost its archive pulls from 0,
+    // commits 0→48, and acknowledges with `expectedCurrent: 0`. The cursor is
+    // still 267, so `acknowledgeSnapshot` matches no row and the comparison
+    // below refuses. The device re-pulls the same range and acknowledges the
+    // same way, forever -- this is a stable state, not a transient race.
+    //
+    // Accepting the range as covered is the only answer that needs neither a
+    // migration nor a hand-edit of production, and it is also the honest one:
+    // the cursor reached 267 because this device acknowledged a superset, so no
+    // event below `throughSequence` is invisible to it.
+    //
+    // What it gives up, stated rather than implied: an acknowledgement stops
+    // being proof that *this* archive durably stored the range. The device
+    // asserts it and the cloud cannot check it -- but it cannot check it for a
+    // first-time acknowledgement either, since the cursor is the device's own
+    // position in both cases. What is preserved is the direction: this branch
+    // requires `throughSequence <= cursor`, so an acknowledgement reaching it
+    // cannot move a cursor forward, and therefore cannot move one backwards.
+    if (currentCursor >= verified.body.throughSequence) {
+      return Object.freeze({ schemaVersion: "1.0", currentSequence: currentCursor, replayed: true });
+    }
+    if (currentCursor !== verified.body.expectedCurrent) throw new Error("cursor_compare_failed");
     throw new Error("sync_snapshot_state_changed");
   }
 
@@ -206,9 +270,12 @@ export class SyncService {
     consumerName: string,
     now: Date,
   ): Promise<SyncEventsPageV1> {
-    const upper = await this.deps.events.latestSequence();
-    if (!nonNegativeSequence(upper)) throw new Error("event_sequence_invalid");
-    if (verified.body.afterSequence > upper) throw new Error("sync_after_sequence_ahead");
+    const latest = await this.deps.events.latestSequence();
+    if (!nonNegativeSequence(latest)) throw new Error("event_sequence_invalid");
+    if (verified.body.afterSequence > latest) throw new Error("sync_after_sequence_ahead");
+    // Pages stop at the consumer cursor when the device is behind it, so the
+    // acknowledgement it stages cannot straddle the cursor. See `pageUpperBound`.
+    const upper = await this.pageUpperBound(verified, consumerName, latest);
     const material = await this.readMaterial(verified.body.afterSequence, verified.body.pageSize, upper);
     const snapshotId = this.newSnapshotId();
     const snapshotToken = await this.snapshotToken(snapshotId);
@@ -216,6 +283,11 @@ export class SyncService {
     const expiresAt = new Date(now.valueOf() + SNAPSHOT_LIFETIME_MS).toISOString();
     const created = await this.repository.createSyncSnapshot({
       snapshotId, verified, consumerName, rootSnapshotId: snapshotId, inputTokenHash: null,
+      // `upper`, not the latest sequence: this is the bound the page was read
+      // against, and `pageFromStored` re-derives `hasMore` from it and checks
+      // `throughSequence <= root_upper_sequence`. Storing the true latest would
+      // make a cursor-capped snapshot fail its own validation on replay, because
+      // its stored range would end below the bound it claims.
       outputTokenHash, materialHash: verified.bodyHash, rootUpperSequence: upper,
       fromSequence: material.fromSequence, throughSequence: material.throughSequence,
       boundaryStartEventId: material.boundaryStartEventId, boundaryEndEventId: material.boundaryEndEventId,
@@ -243,7 +315,12 @@ export class SyncService {
     const existing = await this.repository.readSnapshotByInputToken(inputTokenHash);
     if (existing !== null) return this.replayContinuation(existing, verified, consumerName, now);
 
-    const material = await this.readMaterial(verified.body.afterSequence, verified.body.pageSize, parent.root_upper_sequence);
+    // The cap applies on continuation too, and it must: a page that stops at the
+    // cursor can still report `hasMore`, so the device may come back with a
+    // continuation token rather than a fresh root pull. Left uncapped here, that
+    // path would hand it the straddling page the cap exists to prevent.
+    const upper = await this.pageUpperBound(verified, consumerName, parent.root_upper_sequence);
+    const material = await this.readMaterial(verified.body.afterSequence, verified.body.pageSize, upper);
     const snapshotId = this.newSnapshotId();
     const snapshotToken = await this.snapshotToken(snapshotId);
     const outputTokenHash = await this.tokenHash(snapshotToken);
