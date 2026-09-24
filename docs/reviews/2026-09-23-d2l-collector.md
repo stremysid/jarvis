@@ -4,6 +4,8 @@ Local Windows / PowerShell checks, 2026-09-23 EDT (logs continue into 2026-09-24
 
 ## Revision and gates
 
+Publication refresh: rebased onto main `6249ab13f0611e80b1332a002b73a67479498dac` after #156/#163 merged. The only conflict was the shared agent log; both complete blocks were retained. `git diff 540558d46c3f90db94e2551101ceba74be3124ce HEAD -- apps/cloud-gateway packages/contracts` was empty, proving the tested gateway/contracts files unchanged. No additional package suite was run. State check passed again for all three carriers.
+
 Started from freshly fetched main `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`; refreshed onto `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f` after #154 merged. The rebase preserved both OWNER-ACTIONS additions. Final executable feature code is `e5332f86dcedd67ebfc2a5705f7cb57ad31900ad`; later edits are documentation, corrected test expectations and a type-only Request annotation. Only cloud-gateway was changed as a package.
 
 | Gate | Observed result |
