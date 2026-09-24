@@ -11,6 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  d2l-extension:
+    name: D2L extension (mocked, windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node --test apps/d2l-extension/test/*.test.js
+
   deployment-scripts:
     name: deployment scripts (windows)
     runs-on: windows-latest
