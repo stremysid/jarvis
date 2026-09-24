@@ -1,5 +1,14 @@
 # Credentialed voice smoke gate
 
+Use PowerShell 7.3+ from the repository root. Before any authorized Wrangler
+step below, initialize the same explicit target as [deploy.md](deploy.md):
+
+```powershell
+$PSNativeCommandArgumentPassing = 'Standard'
+$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
+```
+
 This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 passed max review, merged and deployed as gateway `28109492` after migration 0015. The merged owner runtime now requires the [spoken passphrase step-up](../superpowers/specs/2026-09-14-owner-call-passphrase-design.md), but that boundary does not protect production until its reviewed migrations and Worker revision are rolled out and an owner verifier is generated. Calling remains disabled until those steps, the Twilio configuration and the owner's explicit outbound activation are complete. The live command still needs an injected driver and an enrolled-operator evidence query.
 
 ## Offline developer workflow
@@ -7,15 +16,15 @@ This runbook covers the R1 fake calling gate and the separate live-evidence cont
 Run the fake calling matrix and its typecheck, then the focused live-evidence contract tests:
 
 ```powershell
-pnpm test:voice-access
-pnpm typecheck:voice-access
-pnpm test:voice-smoke
+pnpm.cmd test:voice-access
+pnpm.cmd typecheck:voice-access
+pnpm.cmd test:voice-smoke
 ```
 
 Confirm the default command is non-live and skipped:
 
 ```powershell
-pnpm smoke:voice -- --scenario inbound
+pnpm.cmd smoke:voice -- --scenario inbound
 ```
 
 The command must return `{"status":"skipped","reason":"live_execution_not_authorized"}`. It performs no network request, CLI call, evidence write, provider mutation, or paid action.
@@ -23,14 +32,14 @@ The command must return `{"status":"skipped","reason":"live_execution_not_author
 The release gate runs its own failure-propagation tests, the fake calling matrix, and only then audits the seven fixed files under `tests/acceptance/live/evidence/`:
 
 ```powershell
-pnpm release:voice-gate
+pnpm.cmd release:voice-gate
 ```
 
 A failed fake gate stops the sequence before the evidence audit. Missing, duplicate, malformed, unsafe, non-passed, or mixed-commit evidence also exits nonzero. All seven scenarios must carry the same exact `commitSha`. The evidence audit proves internal evidence-set coherence only; the later release layer must compare that SHA with the deployed release candidate. A fake pass or skipped developer smoke never satisfies live acceptance.
 
 ## Fake acceptance coverage and limits
 
-`pnpm test:voice-access` uses the checked-in test selection in `scripts/voice-release-gate.mjs`:
+`pnpm.cmd test:voice-access` uses the checked-in test selection in `scripts/voice-release-gate.mjs`:
 
 | Requirement | Evidence exercised locally |
 |---|---|
@@ -163,7 +172,7 @@ The owner can set each binding using the existing interactive Wrangler flow
 from the reviewed checkout, for example:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler secret put CAPACITY_D1_BUDGET_BYTES
+& node $wrangler secret put CAPACITY_D1_BUDGET_BYTES --config $gateway --env ''
 ```
 
 Repeat for each binding name with the chosen value. Production also needs the
@@ -214,8 +223,8 @@ After applying the approved migration set and before deploying the gateway,
 verify the exact 0015 schema objects:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT type, name FROM sqlite_master WHERE (type = 'table' AND name IN ('capacity_alert_crossings', 'outbound_runtime_controls')) OR (type = 'index' AND name = 'outbound_attempts_policy_day') OR (type = 'trigger' AND name IN ('outbound_attempts_terminal_evidence', 'outbound_status_retains_terminal_evidence', 'outbound_event_retains_terminal_evidence', 'outbound_attempts_start_ready', 'outbound_attempts_admission')) ORDER BY type, name;"
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT count(*) AS provider_terminal_at_columns FROM pragma_table_info('outbound_call_attempts') WHERE name = 'provider_terminal_at';"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "SELECT type, name FROM sqlite_master WHERE (type = 'table' AND name IN ('capacity_alert_crossings', 'outbound_runtime_controls')) OR (type = 'index' AND name = 'outbound_attempts_policy_day') OR (type = 'trigger' AND name IN ('outbound_attempts_terminal_evidence', 'outbound_status_retains_terminal_evidence', 'outbound_event_retains_terminal_evidence', 'outbound_attempts_start_ready', 'outbound_attempts_admission')) ORDER BY type, name;"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "SELECT count(*) AS provider_terminal_at_columns FROM pragma_table_info('outbound_call_attempts') WHERE name = 'provider_terminal_at';"
 ```
 
 Expect exactly eight `sqlite_master` rows: the two named tables, one named
@@ -226,7 +235,7 @@ use different migration splitters.
 Then inspect the default-disabled state:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT singleton_id, enabled, quiet_starts_at, quiet_ends_at FROM outbound_runtime_controls;"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "SELECT singleton_id, enabled, quiet_starts_at, quiet_ends_at FROM outbound_runtime_controls;"
 ```
 
 Expect one row, `singleton_id = 1`, `enabled = 0`, and both quiet bounds NULL.
@@ -240,7 +249,7 @@ live activation step after configuration, max review and smoke authorization.
 The owner can stop new outbound admission with:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_runtime_controls SET enabled = 0 WHERE singleton_id = 1;"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "UPDATE outbound_runtime_controls SET enabled = 0 WHERE singleton_id = 1;"
 ```
 
 This does not cancel a call already admitted or prevent terminal callbacks and
@@ -271,8 +280,8 @@ These are call-admission counts, not measured charges or spending reservations.
 Use the reviewed attempt id in these commands; never infer one from timing:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT attempt_id, provider_dispatch_state, provider_dispatch_claimed_at, provider_dispatch_resolved_at, provider_call_sid, provider_terminal_at FROM outbound_call_attempts WHERE attempt_id = '<ATTEMPT_ID>';"
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_call_attempts SET provider_dispatch_state = 'rejected', provider_failure_code = 'provider_permanent_failure', provider_failure_category = 'invalid_request', retry_eligible = 0, provider_dispatch_resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE attempt_id = '<ATTEMPT_ID>' AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown') AND provider_call_sid IS NULL AND relay_call_sid IS NULL AND provider_terminal_at IS NULL;"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "SELECT attempt_id, provider_dispatch_state, provider_dispatch_claimed_at, provider_dispatch_resolved_at, provider_call_sid, provider_terminal_at FROM outbound_call_attempts WHERE attempt_id = '<ATTEMPT_ID>';"
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command "UPDATE outbound_call_attempts SET provider_dispatch_state = 'rejected', provider_failure_code = 'provider_permanent_failure', provider_failure_category = 'invalid_request', retry_eligible = 0, provider_dispatch_resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE attempt_id = '<ATTEMPT_ID>' AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown') AND provider_call_sid IS NULL AND relay_call_sid IS NULL AND provider_terminal_at IS NULL;"
 ```
 
 The second command is authorized only after Twilio definitively confirms no
@@ -382,14 +391,14 @@ These fields validate Task 5 only. They do not assert route wiring, call-session
 
 ## Operator sequence and rollback boundary
 
-With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the seven required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation. The current store has no retained failed-attempt ledger, so a failed paid scenario remains a stop-and-review event rather than permission to retry until one run passes.
+With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the seven required redacted records; then run `pnpm.cmd release:voice-gate` before release-manifest aggregation. The current store has no retained failed-attempt ledger, so a failed paid scenario remains a stop-and-review event rather than permission to retry until one run passes.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 
 Remove only generated voice evidence with:
 
 ```powershell
-pnpm clean:voice-smoke-evidence
+pnpm.cmd clean:voice-smoke-evidence
 ```
 
 The cleanup command is local and explicit. It removes only the seven scenario JSON files; it does not touch credentials, provider state, deployments, databases, or unrelated operator notes.

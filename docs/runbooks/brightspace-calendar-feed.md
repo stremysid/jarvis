@@ -5,8 +5,9 @@
 > **Sid's board (LDSB "Minds Online" Brightspace) has NO Calendar tool and no
 > personal iCal export.** He said so on 2026-09-16 after being asked for the
 > link: *"i thought i went over this, there is no calnder in d2l"*. It was
-> already recorded in `docs/plan/2026-08-jarvis-expansion-plan.md`, and PRs #49
-> and #51 built the feature anyway.
+> already recorded in the expansion plan (deleted by
+> [#131](https://github.com/stremysid/jarvis/pull/131)), and PRs #49 and #51
+> built the feature anyway. The current register is [FACTS.md](../FACTS.md).
 >
 > **Never ask Sid for a D2L calendar or feed URL.**
 >
@@ -26,9 +27,8 @@
 > live behind authentication. **There is no working automated D2L route for this
 > board.** Do not propose one without new evidence from the board.
 >
-> The live route is now the **PC reading D2L directly while logged in** — see the
-> PC-controls brief. That is Phase 4/5 work, because it needs a machine that can
-> act, not a cloud worker.
+> The replacement route is the **browser collector on the PC and laptop** — see
+> [the collector runbook](d2l-extension.md) for its rollout and acceptance limits.
 >
 > Still current from this banner: the calendar tool does not exist, and the
 > ingestion code below is kept because its failure codes are real and would be
@@ -136,7 +136,7 @@ names a successful refresh time in the configured owner timezone, a fixed
 failure code with the timestamped last-known snapshot, or the timestamped
 snapshot used during the cooldown. It makes no feed request while the URL is
 absent or the source is disabled. The first production load still needs the
-runtime-duration acceptance recorded in `KNOWN_ISSUES.md`.
+runtime-duration acceptance recorded in [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md).
 
 Source-health meanings are fixed codes and never contain the private URL or
 response body:

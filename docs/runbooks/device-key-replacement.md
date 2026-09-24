@@ -10,8 +10,8 @@ generating the local key do not change production. Inserting the replacement
 and revoking the old device are two separate owner-approved actions. Do not run
 either write while reviewing this document.
 
-Until the runbook PR merges, read this file and its two SQL files from the PR
-branch rather than `main`. The procedure adds no migration and deploys no code.
+This runbook and its two SQL operation files are on `main` (verified at
+`c66c3870`). The procedure adds no migration and deploys no code.
 Cloudflare documents `wrangler d1 execute --file` for SQL files and advises
 removing explicit `BEGIN TRANSACTION` and `COMMIT` statements because the D1
 execution path manages the statements. The operation files therefore contain

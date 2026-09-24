@@ -1,11 +1,11 @@
 > **Superseded - read this before using this document.** Its remaining work
-> should not be executed as written. [the roadmap](../plan/2026-09-03-jarvis-roadmap.md)
-> section 6 records the disposition:
+> should not be executed as written. Use [the current roadmap](../../plan/2026-09-19-jarvis-roadmap.md).
+> Historical disposition:
 >
 > The device-hosted memory service, T9 named-pipe on the laptop, is historical. R2 is cloud-available. T10 remains the R0 scripts and runbook scope.
 >
-> Kept rather than deleted, as section 6 instructs. Current state is
-> [docs/STATE.md](../STATE.md); what is in flight is [docs/QUEUE.md](../QUEUE.md).
+> Current state is [docs/STATE.md](../../STATE.md); what is in flight is
+> [docs/QUEUE.md](../../QUEUE.md). The older roadmap was deleted by [#131](https://github.com/stremysid/jarvis/pull/131).
 
 # Jarvis Telegram, Local Memory, and Release Implementation Plan
 
