@@ -57,6 +57,11 @@ each with `OrgUnit` (`Id`, `Type{Id,Code,Name}`, `Name`, `Code`, `HomeUrl`,
 `ImageUrl`) and `Access` (`IsActive`, `StartDate`, `EndDate`, `CanAccess`,
 `ClasslistRoleName`, `LISRoles`, `LastAccessed`).
 
+**The list is paged and this account needs more than one page.** The owner run
+([owner run](2026-09-23-d2l-probe-owner-run.md)) returned 50 items with
+`HasMoreItems` set, so a reader that takes the first page sees a fraction of the
+enrolments. Paginate.
+
 Observed org-unit types: `1 Organization`, `3 Course Offering`, `4 Group`,
 `467 School`.
 
@@ -69,6 +74,14 @@ Observed org-unit types: `1 Organization`, `3 Course Offering`, `4 Group`,
   Offering id" is wrong, and a first pass at this report made exactly that error.
 * **`CanAccess` is per-row, and inactive courses are still listed.** A sync that
   filters on `IsActive` alone will attempt courses it cannot open.
+
+**Also from the owner run, and not covered by a subsection of its own:** the
+work-to-do routes **wrap** their payload. `myItems` returns an `{Objects: …}`
+envelope, not a bare array, and both `myItems/due` and `overdueItems` returned
+`{Objects:[]}` for **every** course
+([owner run](2026-09-23-d2l-probe-owner-run.md)). That establishes the returned
+shape only — why they were empty is not established, and a reader that expects an
+array on these routes fails on the first call.
 
 ### 2.2 Assignment definitions and rubrics — readable
 
@@ -86,13 +99,18 @@ per-cell descriptor text. That is far more than a deadline reader needs.
 
 ### 2.3 TRAP — assignment `DueDate` is often null
 
-In the observed payload **most** assignments' `DueDate` was `null`, including ones
-that plainly had deadlines, while the enclosing **module** carried
-`StartDateTime` / `EndDateTime`. It is not null for all of them: Sid's report of
-the probe run records a `DueDate` on **13 of 42** dropbox folders, in one course
-(owner report, not yet in a committed evidence file — see §6). So the field must
-be read when present, with the **module `EndDateTime`** and the folder's own
-`Availability` dates used as fallbacks when it is null.
+In the owner's probe run ([owner run](2026-09-23-d2l-probe-owner-run.md)),
+`DueDate` was set on **13 of 42** dropbox folders in one course, null on the other
+29, null on all 3 in a second course and null on all 140 in the large unit. The
+topic-level dates were empty too — `EndDateTime` and `StartDateTime` were null
+on every topic — and `myItems`, `myItems/due` and `overdueItems` carried no dates
+at all. That run counted topic fields and did **not** count module-level dates
+separately, so whether the enclosing module carries them is **UNVERIFIED** by it,
+not refuted. So the field must be read when present, with the **module
+`EndDateTime`** and the folder's own `Availability` dates used as fallbacks when it
+is null — and on this account both fallbacks came back empty. Most work therefore
+has to be treated as **"exists, no date in D2L"**, with the date coming from Sid or
+the teacher.
 
 A deadline reader keyed on the obvious field alone reports almost nothing, and
 does so *silently* — an empty list is indistinguishable from "nothing is due".
@@ -129,12 +147,13 @@ GET /d2l/api/le/1.82/<orgUnitId>/grades/values/myGradeValues/
 | Response | Meaning |
 |---|---|
 | `200 []` | permitted, empty list — this student has no grade values yet |
-| `403 {"Errors":[{"Message":"Not Authorized"}]}` | refused — see §2.8 |
+| `403`, **non-JSON body** | refused (non-course org units; [owner run](2026-09-23-d2l-probe-owner-run.md)) — see §2.8 |
 
 Sid had no grades at that point, and said so independently of the response.
 **Unproven:** the populated shape has not been seen. A first real grade will
 show it. The route returns the student's own `GradeValue` **list**, so an empty
-result is `[]` and not an empty object — see the provenance note in §6.
+result is `[]` and not an empty object — observed in the
+[owner run](2026-09-23-d2l-probe-owner-run.md).
 
 ### 2.6 Own submission status — the student route, empty
 
@@ -150,8 +169,13 @@ GET /d2l/api/le/1.82/<orgUnitId>/dropbox/folders/<folderId>/submissions/mysubmis
 all-users submissions route"*). An earlier draft of this document read the
 all-users route; that reading is withdrawn along with the route.
 
-The probe run returned `200 []` — an empty list, not an object, and not an
-`EntityDropbox`. D2L's reference describes `EntityDropbox` (which carries
+The probe run ([owner run](2026-09-23-d2l-probe-owner-run.md)) returned `200 []`
+— an empty list, not an object, and not an `EntityDropbox` — on **184** calls (41
+in one course, 3 in another and 140 in the large unit), plus **one**
+`403 {"Errors":…}` on a single folder. That `403` is a **refusal**: record it and
+never read it as "not submitted".
+
+D2L's reference describes `EntityDropbox` (which carries
 `Status`, with `0 Unsubmitted / 1 Submitted / 2 Draft / 3 Published`) as existing
 *"once they've made a submission"*. An empty list is **not** evidence that
 nothing was submitted, and reading it as "unsubmitted" was drawn from the wrong
@@ -159,7 +183,8 @@ route. **That reading is deleted.**
 
 **This is unproven either way.** It needs one positive case: a folder where the
 entity *has* submitted, returning a `Status`. Sid has no submissions this year,
-and his past-semester courses report `CanAccess: false`, so the confirming case
+and his past-semester courses are reported to carry `CanAccess: false`
+(**unverified** — that is not in the owner run), so the confirming case
 may not be available at all. **Do not read an empty `mysubmissions/` list as
 "unsubmitted", and do not build a missing-work feature on it.**
 
@@ -186,8 +211,13 @@ Same session, same host, same moment as the `200`s above.
 
 **This is the most important single result in the document.** It establishes
 that a valid, fully authenticated identity is not sufficient — authorisation is
-checked **per route**. It also supplies the exact error shape a refusal takes,
-which is what makes §2.5's "empty is not refused" reading possible.
+checked **per route**. It also shows that a refusal's **body depends on the
+route**, which is what makes §2.5's "empty is not refused" reading possible
+without assuming one shape everywhere: `dropbox/folders/` and one
+`mysubmissions/` call answered `403 {"Errors":[{"Message":…}]}`, while
+`myGradeValues/` and `content/toc` answered `403` with a **non-JSON** body
+([owner run](2026-09-23-d2l-probe-owner-run.md)). **Key a refusal on the status,
+not the body.**
 
 Its practical consequence: a borrowed OAuth token getting `403` on
 `dropbox/folders/` is a live possibility, not a theoretical one.
@@ -283,7 +313,7 @@ submittable text is outside it.
 | Why do most folders lack a `DueDate`? | Determines how much a deadline reader can rely on the field | A folder on another board, or a term with populated dates |
 | What does a populated `myGradeValues` look like? | Field names for a grades display | One real grade |
 | Do any of these routes accept an OAuth token? | Only relevant if the token route is revived | A token, which §2.9 makes unobtainable |
-| Does the in-page fetch work from an extension context? | The recommended transport | The merged GET-only probe ([#163](https://github.com/stremysid/jarvis/pull/163)) run by Sid; its live results are still awaited |
+| Does the in-page fetch work from an extension context? | The recommended transport | The merged GET-only probe ([#163](https://github.com/stremysid/jarvis/pull/163)); its **in-tab (content-script) pass ran on 2026-09-23** ([owner run](2026-09-23-d2l-probe-owner-run.md)), so fetching in-page with the session present is **proven**. The tabs-closed (background service-worker) pass has **not** been run, so a read with no tab open is still UNTESTED |
 
 ---
 
@@ -316,17 +346,17 @@ field names only.
   LDSB, and received no credential or session cookie.
 * The verbatim payloads from these calls are **not** retained in the repository;
   they contained personal and academic third-party content.
-* **The live figures — `200 []` on the student `mysubmissions/` and
-  `myGradeValues/` routes, and a `DueDate` on 13 of 42 folders — are UNVERIFIED
-  against any file in this repository.** They come from Sid's report of the probe
-  run on 2026-09-23 and are relayed in the collector work:
+* **The live figures now have a committed source.** `200 []` on the student
+  `mysubmissions/` and `myGradeValues/` routes, a `DueDate` on 13 of 42 folders,
+  the non-JSON `403` bodies and the `{Objects}` envelopes all come from Sid's
+  in-tab probe run on 2026-09-23, recorded shape-only in
+  [`2026-09-23-d2l-probe-owner-run.md`](2026-09-23-d2l-probe-owner-run.md).
   [#170](https://github.com/stremysid/jarvis/pull/170) (`codex/d2l-collector`)
-  carries the committed copy in `docs/research/2026-09-23-d2l-collector-contract-gaps.md`,
-  which is not on `main` yet. The document named as the probe evidence,
+  relays `200 []` and the `{Objects}` envelope, but carries **no 13-of-42
+  figure**. The document named as the probe evidence,
   `docs/research/2026-09-23-d2l-probe-test-evidence.md` on `main`, records
   **mocked local tests only** — it says "No Opera GX or real D2L test was run" and
-  that live access awaits the owner action. Committing the probe summary is what
-  would settle these.
+  that live access awaits the owner action.
 * D2L's own semantics for `-1` in §2.4 and for `EntityDropbox` in §2.6 come from
   the dropbox reference at <https://docs.valence.desire2learn.com/res/dropbox.html>
   (September 2026 edition).
