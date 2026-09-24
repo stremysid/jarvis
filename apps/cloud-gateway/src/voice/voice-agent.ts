@@ -25,6 +25,7 @@ import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../agent/owner-argument-tools.js";
+import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
@@ -123,7 +124,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     const adapter = this;
     return Object.freeze({
       channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
-      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS],
+      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:

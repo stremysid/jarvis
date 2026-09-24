@@ -74,6 +74,10 @@ import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
+import { SchoolCollectorRepository } from "./school/collector-repository.js";
+import { SchoolCollectorPairing } from "./school/collector-pairing.js";
+import { SCHOOL_PAIR_ORIGIN } from "./school/collector-protocol.js";
+import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
 import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
@@ -495,6 +499,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
               to: new Date(clock.now().getTime() + withinDays * 86_400_000),
             }),
           readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources(),
+          readD2lStatus: () => new SchoolCollectorRepository(env.DB, principalId, () => clock.now()).status({ limit: 1 }),
           readSchoolObservations: async () => {
             const now = new Date(clock.now().getTime());
             return new SchoolObservationRepository(env.DB).readDigestSnapshot({
@@ -655,6 +660,14 @@ export async function answerFromTap(
       && result.standing.answeredByIdentityId === identity.identityId
       ? await decisionRepository.readItem(callback.decisionId)
       : null;
+    const schoolPair = result.outcome === "recorded" ? result.routing.origin === SCHOOL_PAIR_ORIGIN
+      : standingItem?.origin === SCHOOL_PAIR_ORIGIN;
+    if (schoolPair && env.OWNER_PRINCIPAL_ID === tap.principalId) {
+      const activated = await new SchoolCollectorPairing(env.DB, tap.principalId, () => new Date())
+        .activateFromDecision(callback.decisionId, identity.identityId);
+      if (send !== null) await send(tap.chatId, activated ? "School collector activated." : "No collector was activated by this tap.");
+      return;
+    }
     const forget = confirmedTelegramForgetRoute(result, identity.identityId, tap.principalId, standingItem);
     if (forget !== null) {
       const itemIds = forget.originReference.split(",");
@@ -789,6 +802,7 @@ ${COMMAND_HELP}`));
     if (isOwnerPhoneEnrollmentPath(pathname)) return handleOwnerPhoneEnrollmentRequest(request, env);
     if (isOwnerPassphrasePath(pathname)) return handleOwnerPassphraseRequest(request, env);
     if (isSyncPath(pathname)) return handleSyncRequest(request, env);
+    if (isSchoolPath(pathname)) return handleSchoolRequest(request, env);
 
     if (isVoicePath(request)) return handleProductionVoiceRequest(request, env);
     return notImplemented();
