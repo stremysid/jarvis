@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { vi } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
@@ -12,6 +13,21 @@ import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
 import type { ModelAgentCompletionInput, ModelFunctionCall } from "../../src/providers/provider-types.js";
 
 export const VOICE_NOW = new Date("2026-09-23T14:00:00.000Z");
+
+// The real turn row is immutable. Alter the proof's read-back, otherwise a
+// setup UPDATE throws before the model dispatches and the refusal test lies.
+export async function withMismatchedVoiceOwnerTurn<T>(run: () => Promise<T>): Promise<T> {
+  const prepare = env.DB.prepare.bind(env.DB);
+  const spy = vi.spyOn(env.DB, "prepare").mockImplementation(sql => {
+    const statement = prepare(sql);
+    if (!sql.includes("FROM conversation_turns turn")) return statement;
+    return { bind: (...values: unknown[]) => {
+      const bound = statement.bind(...values);
+      return { first: async () => ({ ...await bound.first<Record<string, unknown>>(), channel: "telegram" }) };
+    } } as D1PreparedStatement;
+  });
+  try { return await run(); } finally { spy.mockRestore(); }
+}
 
 export async function voiceArgumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {

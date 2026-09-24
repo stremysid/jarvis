@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { voiceArgumentTurn } from "../channels/voice-argument-fixture.js";
+import { voiceArgumentTurn, withMismatchedVoiceOwnerTurn } from "../channels/voice-argument-fixture.js";
 import { resetDeadlineTables } from "./deadline-fixture.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../../src/channels/telegram/owner-telegram-agent.js";
@@ -44,10 +44,8 @@ describe("deadline voice parity", () => {
   });
 
   it("refuses a voice deadline if the durable turn channel disagrees with the call", async () => {
-    await voiceArgumentTurn(text, async (input) => {
-      await env.DB.prepare("UPDATE conversation_turns SET channel = 'telegram' WHERE turn_id = ?").bind(input.correlationId).run();
-      return call;
-    }, options);
+    const turn = await withMismatchedVoiceOwnerTurn(() => voiceArgumentTurn(text, call, options));
+    expect(JSON.parse(turn.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
     expect(await rows()).toEqual([]);
   });
 });
