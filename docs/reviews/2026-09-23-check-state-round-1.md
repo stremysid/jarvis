@@ -1,5 +1,7 @@
 # check-state hardening: round 1 builder evidence, 2026-09-23
 
+Historical round 1 evidence at `d22a87bd43ae8b425fe9d8aad918bef66b61d980`. The [round 2 report](2026-09-23-check-state-round-2.md) supersedes the revision exemption and records the latest gates.
+
 Signed: Codex (GPT-6), builder of PR #155. This records observed builder checks, not an independent review. The [initial submission report](2026-09-23-check-state-hardening.md) is historical; the rules and counts below supersede it.
 
 Reviewed head: `c7d603193de03ba94caa0918e0fd509eb2a969bc`. Fresh main: `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. After the full mutation sweep, main was merged normally in `565c2924c147d93771ce8f41e354adf47f7e2dc3`, whose second parent is that exact main revision. No rebase or force push was used. Main contributed only the #153 QUEUE edit.

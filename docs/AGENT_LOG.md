@@ -5,6 +5,43 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
 
+Signed: Codex (GPT-6), builder. **PR #155, round 2.** Reviewed head:
+`d22a87bd43ae8b425fe9d8aad918bef66b61d980`.
+
+All four revision bypasses and the uppercase false positive reproduced on the
+unchanged reviewed checker: expanded baseline **111 passed / 14 failed / 0 skipped**.
+No reported finding was false. SHA matching is now lowercase only. An exemption
+requires an all-decimal word with an adjacent run marker outside a URL, or an
+immediate `/actions/runs/` path inside one. Commit/tree/blob URLs and query/fragment
+lookalikes cannot conceal a revision. The arbitrary-URL fixture now fails; the
+decimal Actions run URL and marked IDs around it pass. The first and final focused
+runs each passed **125 / 0 / 0**.
+
+The [round 2 evidence](reviews/2026-09-23-check-state-round-2.md) records the exact
+before/after cases and mutation evidence. The initial full sweep was **117 killed,
+1 survived, 0 not applied, 0 invalid**. The surviving marker-boundary fixture needed
+a later unmarked decimal revision, since a hex-letter revision is rejected by the
+new decimal guard independently. That named mutation now fails twice and passes
+after restoration. No checker change was needed for this coverage correction.
+
+Final full sweep: **118 killed, 0 survived, 0 not applied, 0 invalid**. Every named
+mutant failed twice and passed after byte-identical restoration. A fresh fetch
+still found main at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`; the normal merge command
+reported already up to date, with main already present through round 1's merge.
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings** and
+no carrier row needing correction. Three Node syntax checks passed.
+
+Final full scripts suite: **152 passed / 0 failed / 0 skipped**. Root `pnpm test`:
+**5,461 / 0 / 0 across 209 passing files**, exit 0, with no file rerun needed.
+Whitespace, preservation of every other agent-log entry, and main ancestry each
+passed; three blob comparisons confirm the tested files stayed unchanged.
+No owner-only action arose. No product package, parallel-builder file, migration,
+production state or secret changed. Hosted CI and the next independent review are
+not claimed. Next: the assigned reviewer assesses round 2 after the new head is
+pushed. The worktree is removed after publication; the external ledger is retained.
+
+### Round 1 evidence (historical)
+
 Signed: Codex (GPT-6), builder. **PR #155, round 1 fixes.** Reviewed head:
 `c7d603193de03ba94caa0918e0fd509eb2a969bc`. Main
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` was merged normally into this branch in
