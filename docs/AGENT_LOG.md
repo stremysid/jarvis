@@ -3,6 +3,47 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — PR #177 round 2: requested wording and snippet fixes
+
+Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
+
+Addressed the owner's relay of [Claude's review of `8a36583`](https://github.com/stremysid/jarvis/pull/177#issuecomment-5820079627).
+`origin/main` is now `b16e9be3` (#176); it was not merged into this branch.
+The harness owns integration. Results in the requested order:
+
+1. `docs/runbooks/migration-scratch-proof.md`: step 5 parses unique filenames
+   from `$ListText` in displayed order, rejects an empty result, checks each
+   repository file and prints the counted set for the apply confirmation.
+2. The preamble retains the parsed production inventory. After candidate
+   receipts, step 5 requires every production-pending filename in both the
+   candidate set and scratch receipts. A passing run meets the OWNER-ACTIONS
+   scratch rehearsal requirement; the synthetic-seed limit remains explicit.
+   Step 10 links the rollout rows, requires their production preconditions and
+   calls for a fresh run and fresh review if the approved pending set changes.
+3. Post-apply listing now rejects remaining filenames even on exit zero.
+   Step 2 initializes native argument mode and the gateway path. Step 6 names
+   its same-session dependency and refuses an absent or empty candidate set.
+4. `docs/runbooks/deploy.md`: step 3 requires a list reporting no pending
+   migrations, not merely absence of the previously reviewed files.
+5. `reviewer-tools/REVIEWER-MANUAL.md`: restored the auto-merge prohibition,
+   replaced the two watcher instructions with re-listing PR heads and CI,
+   clarified the HANDOFF status and required a fresh detached posting worktree.
+6. This log corrects the prior artifact rows to say supplied to the harness,
+   not committed. `.codex-commit-msg.txt` and `.codex-pr-body.md` are supplied
+   again for this round, with the revised rehearsal description.
+
+Validation: `node scripts/check-state.mjs` passed with the existing FACTS
+line 62 warning about unverified Opera GX/Durham behavior.
+`node --test scripts/test/prepare-d1-scratch-baseline.test.mjs` passed, exit 0.
+`git diff --check` passed. PowerShell snippets were reviewed statically; no
+Wrangler or production command ran. Only the four named documentation files
+and two harness artifacts changed. No carriers, code, tests or SQL changed,
+and no Git write command ran.
+
+Next: when the harness collects this round, use the supplied artifacts and
+handle the main update; when the revised head is ready, return it for independent
+review of these six dispositions.
+
 ## 2026-09-24 — Documentation staleness pass at `c66c3870`
 
 Signed: **Codex GPT-6 Astra, headless cloud docs builder, codex/docs-stale-fixes**.
@@ -61,8 +102,8 @@ files and an explicit future DROP review caveat.
 | `reviewer-tools/REVIEWER-MANUAL.md` | Correct repository, CI and carrier pointers, limit merge authority to the OWNER-ACTIONS delegation and replace obsolete shell examples. |
 | `reviewer-tools/GATE-TOOLS.md` | Replace the unsubstantiated example placeholder with “not written yet”, locate the scripts on main and normalize command shims. |
 | `docs/AGENT_LOG.md` | Record this evidence, limitations and carrier handoff at the top. |
-| `.codex-commit-msg.txt` | Supply the harness commit message without making a commit. |
-| `.codex-pr-body.md` | Supply the review description without publishing a PR. |
+| `.codex-commit-msg.txt` | Supplied to the harness, not committed: commit message. |
+| `.codex-pr-body.md` | Supplied to the harness, not committed: PR description. |
 
 **Skipped or deliberately bounded:** no requested item was silently dropped.
 The gate worked example was not fabricated: no attributable output was found in

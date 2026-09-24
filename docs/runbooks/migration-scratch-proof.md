@@ -9,11 +9,17 @@ same PowerShell 7.3+ session throughout, with native empty arguments preserved:
 $PSNativeCommandArgumentPassing = 'Standard'
 $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
 $gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
-& node $wrangler d1 migrations list jarvis --remote --config $gateway --env ''
+$ProductionListOutput = & node $wrangler d1 migrations list jarvis --remote --config $gateway --env '' 2>&1
+$ProductionListExit = $LASTEXITCODE
+$ProductionListText = $ProductionListOutput -join "`n"
+$ProductionListOutput | Write-Host
+if ($ProductionListExit -ne 0) { throw "Production migration list failed." }
+$ProductionMigrations = @([regex]::Matches($ProductionListText, '\b\d{4}_[A-Za-z0-9_-]+\.sql\b') | ForEach-Object { $_.Value } | Select-Object -Unique)
 ```
 
 Record the reviewed commit and this exact production pending inventory before
-creating scratch. Stop if listing fails. [STATE.md](../STATE.md#production)
+creating scratch. Keep `$ProductionMigrations` in this PowerShell session for
+step 5's coverage check. Stop if listing fails. [STATE.md](../STATE.md#production)
 last records production through `0038`, but a dated observation is not today's
 pending set. Reconcile the list with the reviewed
 [migration files](../../apps/cloud-gateway/src/persistence/migrations/).
@@ -31,9 +37,11 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    because they work on remote D1. This proof does not reproduce production's
    data volume or its real row contents, and it does not authorize production
    bindings or a deployment. Scratch and production can have different pending
-   sets. This fresh replay is not proof of an upgrade from today's production
-   schema: that needs a separately reviewed baseline and seed matching the
-   observed production state, plus the pending migrations' own preconditions.
+   sets; step 5 proves that every production-pending file is included and has a
+   scratch receipt. A passing run is the scratch rehearsal required by the
+   [OWNER-ACTIONS rollout rows](../OWNER-ACTIONS.md#waiting-on-sid). The synthetic
+   seed does not reproduce production's real rows or volume; each pending
+   migration's production preconditions still apply before the production write.
 
 2. **Name, confirm, and create the throwaway database and external config.**
    Choose a new name containing `scratch`; never reuse an existing database.
@@ -43,7 +51,9 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
 
    ```powershell
    cd C:\path\to\jarvis
+   $PSNativeCommandArgumentPassing = 'Standard'
    $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+   $gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
    $ScratchDatabase = Read-Host "New throwaway D1 name containing 'scratch'"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch and contain only letters, digits, underscores or hyphens." }
    Write-Host "TARGET: $ScratchDatabase is disposable scratch, not production."
@@ -185,8 +195,8 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    is required: Wrangler ignores the repository config's `migrations_dir` for
    a database that config does not declare. Use that external config for every
    scratch command; the gateway config remains for production listing only
-   after scratch creation. Copy the filenames from Wrangler's scratch list,
-   in displayed order, into the prompt below. Compare the entire list, including
+   after scratch creation. Parse the filenames from Wrangler's scratch list,
+   retaining unique names in displayed order. Compare the entire list, including
    its count, with the repository and the apply prompt. Wrangler asks for `y/n`
    confirmation. Answer `y`
    only if its prompt names the confirmed scratch database and lists exactly
@@ -205,11 +215,12 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    $ListText = $ListOutput -join "`n"
    $ListOutput | Write-Host
    if ($ListExit -ne 0) { throw "Scratch migration list failed." }
-   $CandidateMigrations = @((Read-Host 'Exact pending filenames from this list, comma-separated').Split(',') | ForEach-Object { $_.Trim() })
+   $CandidateMigrations = @([regex]::Matches($ListText, '\b\d{4}_[A-Za-z0-9_-]+\.sql\b') | ForEach-Object { $_.Value } | Select-Object -Unique)
    $CandidateCount = $CandidateMigrations.Count
+   if ($CandidateCount -eq 0) { throw "No pending scratch migration filenames were parsed. Stop here." }
+   if (-not (Test-Path variable:ProductionMigrations)) { throw "Run the production inventory preamble in this PowerShell session first." }
    foreach ($Migration in $CandidateMigrations) {
-     if ($Migration -notmatch '^\d{4}_[A-Za-z0-9_-]+\.sql$' -or -not (Test-Path -LiteralPath (Join-Path $MigrationRoot $Migration) -PathType Leaf)) { throw "Pending filename is not a repository migration." }
-     if ($ListText -notmatch [regex]::Escape($Migration)) { throw "Expected pending scratch migration was not listed: $Migration" }
+     if (-not (Test-Path -LiteralPath (Join-Path $MigrationRoot $Migration) -PathType Leaf)) { throw "Pending filename is not a repository migration: $Migration" }
    }
    Write-Host "SCRATCH PENDING SET ($CandidateCount files): $($CandidateMigrations -join ', ')"
    Write-Host "At Wrangler's y/n prompt, confirm the scratch database name and the entire SCRATCH PENDING SET; otherwise answer n and stop."
@@ -226,13 +237,22 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
      if ($AppliedText -notmatch [regex]::Escape($Migration)) { throw "Missing scratch receipt: $Migration" }
    }
    Write-Host "SCRATCH MIGRATIONS OK: $CandidateCount/$CandidateCount candidate receipts present in filename order."
-   & node $wrangler d1 migrations list $ScratchDatabase --remote --config $ScratchConfig --env ''
-   if ($LASTEXITCODE -ne 0) { throw "Scratch post-apply list failed." }
+   $ScratchReceiptNames = @([regex]::Matches($AppliedText, '\b\d{4}_[A-Za-z0-9_-]+\.sql\b') | ForEach-Object { $_.Value } | Select-Object -Unique)
+   foreach ($Migration in $ProductionMigrations) {
+     if ($CandidateMigrations -cnotcontains $Migration) { throw "Production-pending migration was not rehearsed: $Migration" }
+     if ($ScratchReceiptNames -cnotcontains $Migration) { throw "Production-pending migration has no scratch receipt: $Migration" }
+   }
+   Write-Host "PRODUCTION PENDING COVERAGE OK: $($ProductionMigrations.Count) files rehearsed with scratch receipts."
+   $PostApplyListOutput = & node $wrangler d1 migrations list $ScratchDatabase --remote --config $ScratchConfig --env '' 2>&1
+   $PostApplyListExit = $LASTEXITCODE
+   $PostApplyListText = $PostApplyListOutput -join "`n"
+   $PostApplyListOutput | Write-Host
+   if ($PostApplyListExit -ne 0) { throw "Scratch post-apply list failed." }
+   if ([regex]::Matches($PostApplyListText, '\b\d{4}_[A-Za-z0-9_-]+\.sql\b').Count -ne 0) { throw "Scratch migrations remain pending. Stop here." }
    ```
 
    Expect Wrangler to apply exactly the listed files and then report no pending
-   migrations. If the initial list is empty, stop before the filename prompt
-   and record that there is no candidate set to rehearse. The
+   migrations. An empty parsed initial set is a stop, not a passing rehearsal. The
    final `SCRATCH MIGRATIONS OK` numerator and denominator must both equal the
    observed file count. Reconcile any duplicate number or numbering gap with
    the reviewed repository and current work before applying; an absent file
@@ -247,7 +267,8 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    before using this name inventory: at `c66c3870` the drops are followed by
    recreation, but a future removal would need the expected list adjusted.
    A set without triggers still needs its other migration acceptance checks.
-   In **PowerShell 7**:
+   This step depends on step 5's `$CandidateMigrations` in the same PowerShell
+   session and fails closed if that inventory is absent or empty. In **PowerShell 7**:
 
    ```powershell
    cd C:\path\to\jarvis
@@ -256,6 +277,7 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
    $MigrationRoot = 'apps/cloud-gateway/src/persistence/migrations'
+   if (-not (Test-Path variable:CandidateMigrations) -or @($CandidateMigrations).Count -eq 0) { throw "Run step 5 in this PowerShell session before the trigger proof." }
    $MigrationFiles = @($CandidateMigrations | Sort-Object | ForEach-Object { Join-Path $MigrationRoot $_ })
    if ($MigrationFiles.Count -eq 0) { throw "No repository candidate migrations were found." }
    $ExpectedTriggers = @(foreach ($MigrationFile in $MigrationFiles) {
@@ -366,7 +388,7 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
    Wrangler asks for confirmation during deletion; answer `y` only for the
    displayed scratch name. Keep the commit SHA, UTC time, scratch name,
    helper baseline line, production and scratch pending inventories and
-   receipt-count lines, dynamic trigger-count line, seed marker, four
+   receipt-count and production-coverage lines, dynamic trigger-count line, seed marker, four
    unique-guard lines, preserved-row line, CASE rejection and both deletion
    lines in the protected rollout record. Do not record account identifiers or
    credentials.
@@ -379,8 +401,11 @@ Do not infer pending files from a numeric range or assume a numbering gap is res
     selected subset. Re-list production and reconcile every pending filename
     with the production inventory recorded at the start and the reviewed
     rollout. Do not substitute scratch's pending set: its helper baseline is
-    different. Any change to the approved production set requires fresh review
-    and the corresponding upgrade rehearsal before application.
+    different. Before applying, run each pending migration's production
+    preconditions from its [OWNER-ACTIONS rollout row](../OWNER-ACTIONS.md#waiting-on-sid):
+    the guided-assignment, single-use tier-3 tap and D2L receiver rows where
+    applicable. Any change to the approved production set requires a fresh run
+    of this runbook and fresh review before application.
 
 11. **Stop cleanly on any failure.** If scratch fails partway, earlier
     statements and migrations remain applied. Record the failed filename,

@@ -1,6 +1,6 @@
 # Jarvis reviewer operating manual
 
-This is the reviewer operating manual, first written 2026-09-15 and corrected against `main` at `c66c3870` on 2026-09-24. Read [STATE](../docs/STATE.md), [QUEUE](../docs/QUEUE.md) and [OWNER-ACTIONS](../docs/OWNER-ACTIONS.md) for current state and ownership; the old HANDOFF files are removed. This file describes the review loop and methods.
+This is the reviewer operating manual, first written 2026-09-15 and corrected against `main` at `c66c3870` on 2026-09-24. Read [STATE](../docs/STATE.md), [QUEUE](../docs/QUEUE.md) and [OWNER-ACTIONS](../docs/OWNER-ACTIONS.md) for current state and ownership; the old HANDOFF files are superseded and not on main. This file describes the review loop and methods.
 
 ---
 
@@ -13,7 +13,7 @@ There are four parties. Only Sid is a person.
 | **Sid** | The owner of Jarvis. Uses a Windows 11 home PC and laptop, and an iPhone 16. Recovering from wisdom-teeth surgery, with poor eyesight; skims. Wants to *use* Jarvis, not learn its internals. | Delegates merges only for PRs the reviewer cleared, at the exact reviewed head (OWNER-ACTIONS row below). Copies messages between chats by hand. Does every production action: deploys, migration applies, secrets, Twilio, device keys. Makes money and outcome-level product decisions. | Reads long technical text. Answers design questions. |
 | **Calling chat** | A Codex (GPT) chat. Signs AGENT_LOG entries "GPT-6 Codex". Sid calls it **"main"** or **"calling"**. | Builds R1 calling. Right now: the owner passphrase in 3 PRs. | Merges, deploys. |
 | **Memory chat** | A Codex (GPT) chat. Signs "GPT-5 Codex". Sid calls it **"r2"** or **"memory"**. | Builds R2 cloud memory. | Merges, deploys. |
-| **Reviewer (you)** | Claude Opus 5 in the Claude Code desktop app. | Independently verifies PRs, records verdicts, and merges only PRs it has cleared at the exact reviewed head, under the delegation below. Keeps Sid's status page and writes paste messages for the builders. | Clearing its own work, pushing directly to `main`, deploying, applying migrations, touching secrets, or placing live calls. Reviewer-authored changes need the independent pass required by [AGENTS.md](../AGENTS.md#a-reviewer-authored-pr-gets-an-independent-pass-before-it-merges). |
+| **Reviewer (you)** | Claude Opus 5 in the Claude Code desktop app. | Independently verifies PRs, records verdicts, and merges only PRs it has cleared at the exact reviewed head, under the delegation below. Keeps Sid's status page and writes paste messages for the builders. | Clearing its own work, pushing directly to `main`, enabling auto-merge, deploying, applying migrations, touching secrets, or placing live calls. Reviewer-authored changes need the independent pass required by [AGENTS.md](../AGENTS.md#a-reviewer-authored-pr-gets-an-independent-pass-before-it-merges). |
 
 Why the reviewer is a different vendor: `docs/BUILDING.md` says the same model must never build and review the same work. R1 (calling) reviews run at **max**, and so does any PR with a migration that will touch live data. R2 reviews are normally xhigh, but #39 carries migration 0016, so it is reviewed at max.
 
@@ -51,7 +51,7 @@ reviewed head. This does not delegate production actions or self-review.
 10. **After a merge, confirm `main` matches what you reviewed:** `git fetch origin` then `git diff --quiet <reviewed head> origin/main && echo identical`. If the reviewed branch had since merged main, compare against that merge commit.
     - Then, **unprompted**, give Sid the next paste message for that chat: what it should build next.
     - Sid should never have to ask "what's next". Something must always be moving, unless it's blocked on him.
-11. **Restart the watcher.**
+11. **Re-list PR heads and CI.**
 
 **Two PR branches, one AGENT_LOG file.** Both chats prepend entries, so conflicts in AGENT_LOG are normal. Resolve them by keeping every entry, newest first (`agentlog-union.mjs`). Codex usually merges main into its own branch.
 
@@ -206,7 +206,7 @@ Finding IDs:
   - Insert below the rules section; the newest entry goes first.
   - Never edit another session's entry. If your own posted entry is wrong, post a **correction entry**.
   - Never include credentials, PINs, phone numbers, account identifiers or tokens.
-- **How to post:** use PowerShell 7 in the reviewer's isolated worktree. Fetch
+- **How to post:** use PowerShell 7 from a fresh detached worktree at `origin/<branch>`. Fetch
   and verify the branch head against the reviewed head, insert the entry with
   `agentlog-insert.mjs`, and commit only that entry under the configured review
   identity. Check the diff before pushing; do not discard a dirty worktree.
@@ -269,7 +269,7 @@ listing is an observation, not a background watcher.
 3. Read `CLAUDE.md`, `AGENTS.md`, `docs/BUILDING.md` and `docs/FACTS.md` on `origin/main`; repository records take precedence over private memory.
 4. Run `git fetch origin` and `gh pr list`. For each open PR branch, read the newest AGENT_LOG entries.
 5. Read the status page with `Artifact` `read`.
-6. Act on the current queue, start the watcher, and tell Sid whether anything needs him.
+6. Act on the current queue, re-list PR heads and CI, and tell Sid whether anything needs him.
 
 ## 9. When context runs out (Sid says "make the handoff")
 

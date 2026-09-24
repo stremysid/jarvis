@@ -187,9 +187,8 @@ migrations.
    ```
 
    Stop on a nonzero exit. Earlier successful migrations remain applied
-   if a later migration fails. List again and confirm no migration from the
-   reviewed pending inventory remains; never deploy after an unresolved
-   migration failure.
+   if a later migration fails. List again and confirm the list reports no pending
+   migrations; never deploy after an unresolved migration failure.
 4. Verify the capability settings above, including the watchdog's separate
    bot. Publish each Worker with its own confirmation:
 
