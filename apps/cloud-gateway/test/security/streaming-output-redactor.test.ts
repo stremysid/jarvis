@@ -28,6 +28,8 @@ function runSplit(raw: string, split: number) {
 describe("voice sentence release after unsplit redaction", () => {
   it.each([
     ['The file has password = "alpha. bravo charlie" inside. Continue safely.', "bravo charlie"],
+    ['The file has password = "alpha. bravo charlie. trailing\\escape" inside. Continue safely.', "bravo charlie"],
+    ["The file has password = 'alpha. bravo charlie. trailing\\escape' inside. Continue safely.", "bravo charlie"],
     ["The header is Authorization: Digest a1b2c3. d4e5f6g7h8 secret.", "d4e5f6g7h8"],
     ['A safe sentence. password = "alpha. bravo charlie" stays private.', "bravo charlie"],
     ["A safe sentence. Authorization: Digest a1b2c3. d4e5f6g7h8\nContinue safely.", "d4e5f6g7h8"],
@@ -41,8 +43,8 @@ describe("voice sentence release after unsplit redaction", () => {
       let heard = "";
       for (const [index, text] of [raw.slice(0, split), raw.slice(split)].entries()) {
         heard += redactor.push(token(index, text)).map((part) => part.text).join("");
-        expect(canonical.text.startsWith(heard), `split ${split}`).toBe(true);
         expect(heard).not.toContain(secret);
+        expect(canonical.text.startsWith(heard), `split ${split}`).toBe(true);
       }
       expect(redactor.complete().text).toBe(canonical.text);
       heard += redactor.drain().map((part) => part.text).join("");

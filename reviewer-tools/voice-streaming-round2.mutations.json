@@ -1,5 +1,21 @@
 [
   {
+    "name": "R2-H2-double-quoted-escape",
+    "file": "packages/contracts/src/calls.ts",
+    "find": "(?:\"|\\\\(?=\\r?\\n|$)|(?=\\r?\\n|$))",
+    "replace": "(?:\"|(?=\\r?\\n|$))",
+    "testPath": "packages/contracts/test/call-redaction.test.ts",
+    "expect": "redacts an unfinished double-quoted credential when it ends on an escape"
+  },
+  {
+    "name": "R2-H2-single-quoted-escape",
+    "file": "packages/contracts/src/calls.ts",
+    "find": "(?:'|\\\\(?=\\r?\\n|$)|(?=\\r?\\n|$))",
+    "replace": "(?:'|(?=\\r?\\n|$))",
+    "testPath": "packages/contracts/test/call-redaction.test.ts",
+    "expect": "redacts an unfinished single-quoted credential when it ends on an escape"
+  },
+  {
     "name": "R2-H1-model-declaration",
     "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
     "find": "const checked = unsupported ? UNRECEIPTED_VOICE_ACTION",
