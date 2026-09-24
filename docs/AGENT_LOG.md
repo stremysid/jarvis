@@ -66,6 +66,26 @@ All four sibling reply assertions in `owner-telegram-pipelines.integration.test.
 
 **Phase 1b merge (#175).** After Phase 1 was committed as `c8d2e26` with 6,437/6,437 tests passing, preserved 0043, #174's 0044 and #175's 0045 in numeric order across the restore registry, both complete migration fixtures and the remote-D1 inventory; retained 0044's nineteen-trigger pins and #175's 0045 migration coverage; advanced the backup manifest head to 0045; and retained both sides of this log. The source and voice-acceptance typechecks pass; the test typecheck retains its 143 unrelated diagnostics and names no conflicted test; `check-state` and staged/unstaged `diff --check` pass. No New-1 through New-6 review fix was started.
 
+### Round 3 fixes
+
+Phase 2 started only after the harness committed and pushed both normal merges and reported 6,466/6,466 tests passing on the 228-file merged tree.
+
+1. **New-1 — previous-reply forgetting.** `previousAssistant()` now returns the reply's own verified item references. Voice carries the settled `memoryItemIds`; Telegram validates the staged ids and unions them with ids cited in delivered text. Those durable references, exact forgotten-text restatement and suppression of either the assistant event or its paired owner event decide visibility. `findControlTargets({ operation: "explain" })` is retained only for the zero-or-one id list shown to the model. The three isolation cases forget on a different session/call and run on both channels: `withholds a Telegram previous reply when one of two committed item ids was forgotten on another session`, `withholds a Telegram previous reply that exactly restates a memory forgotten on another session`, `withholds a Telegram previous reply whose owner turn was forgotten on another session`, and their three `voice`/`call` counterparts. `withholds a Telegram previous reply whose cited item id was forgotten on another session` separately pins Telegram's citation arm. The unreferenced-paraphrase limit is recorded in KNOWN_ISSUES; the lexical matcher was not widened.
+2. **New-2 — guest prompt.** Non-owner turns receive a short authenticated-guest prompt stating that the guest is not Sid, has no tools and has no owner memory. Voice guests retain only spoken formatting rules. They do not receive the owner's `/decisions` instructions or `[[claim]]` protocol: a guest has no tool or receipt that could make such a marker valid, while the sentence guard still rejects false completion claims. The new Telegram test is `gives a Telegram guest a guest prompt and no tools on its honesty rewrite`; `withholds Sid's profile, owner call prompt, and owner tools from a guest prompt` now pins the streaming voice wording and all owner-prompt exclusions.
+3. **New-3 — surviving mutants.** The honesty rewrite reuses the already-gated `toolDefinitions`, and the Telegram guest rewrite test requires no tools on both provider calls (N9). `fails closed when the forgotten visibility query returns 129 items` pins the 128-item fail-closed boundary (N14). `offers the complete Telegram catalogue, including memory and guided assignment tools, on a call` now requires the sentence that spoken yes does not confirm a model-inferred memory (N16).
+4. **New-4 — version-row cliff.** Both forgotten-item queries join `memory_item_state.current_version_id`, so historical versions do not spend the item cap. `counts only the current version of each forgotten item against the visibility cap` covers the previous-reply behavior; the parameterized `joins only the current version for previous owner reply` and `joins only the current version for retrieved history` assertions pin both SQL arms.
+5. **New-5 — decision attribution.** DECISIONS now labels everything below Sid's quoted channel-parity sentence in that section as a builder note awaiting review. The quote is the only content attributed to Sid.
+6. **New-6 — recall after eviction.** `uses default composition for two socket turns across real eviction` now requires the seeded canonical fact in `modelBodies[1]` as well as the recalled first-turn text.
+
+The harness should run these focused files before the normal full suite:
+
+- `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts`
+- `apps/cloud-gateway/test/voice/voice-agent.test.ts`
+- `apps/cloud-gateway/test/memory/suppression-predicate-parity.test.ts`
+- `tests/acceptance/fake/voice-production-socket.test.ts`
+
+Direct source typecheck and `tests/acceptance/tsconfig.voice.json` are clean. The gateway test typecheck retains its documented 143 unrelated diagnostics and names none of the three changed gateway test files. `node scripts/check-state.mjs` passes with the existing FACTS line-62 re-verification warning, and `git diff --check` passes. Vitest and the full suite remain for the harness. No deployment, migration, real call, secret or external state was touched. Coordination for unmerged #166 and #168 is unchanged, and #171's token prefix, sentence redaction and per-sentence proof code was not altered.
+
 ## 2026-09-24 — Codex builder: channel-parity publication after the PC-load pause
 
 Signed: Codex, `codex/channel-parity`, isolated worktree `C:\w\channel-parity`.

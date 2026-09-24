@@ -181,6 +181,7 @@ describe("production voice through the real DO stub and socket", () => {
       stream: true, tool_choice: "auto", thinking: { type: "disabled" },
     });
     expect(JSON.stringify(modelBodies[0])).toContain(canonicalFact);
+    expect(JSON.stringify(modelBodies[1])).toContain(canonicalFact);
     expect(JSON.stringify(modelBodies[1])).toContain("What is my canonical voice marker?");
     expect(call.closes).toEqual([]);
   }, 15_000);

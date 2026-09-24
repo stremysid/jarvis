@@ -432,7 +432,7 @@ function conversationText(value: unknown): string {
   return safeText(payload.text, MAX_QUERY_BYTES, "telegram_memory_reference_invalid");
 }
 
-async function stagedMemoryItemIds(input: Readonly<{
+export async function stagedMemoryItemIds(input: Readonly<{
   envelopeJson: string;
   eventId: Ulid;
   turnId: Ulid;
@@ -496,7 +496,7 @@ async function deliveredAssistantText(input: Readonly<{
   return conversationText(envelope.payload);
 }
 
-function citedMemoryItemIds(text: string): readonly Ulid[] {
+export function citedMemoryItemIds(text: string): readonly Ulid[] {
   const itemIds: Ulid[] = [];
   for (const match of text.matchAll(/\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu)) {
     const itemId = safeUlid(match[1]);

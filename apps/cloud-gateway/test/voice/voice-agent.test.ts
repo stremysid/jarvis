@@ -49,6 +49,7 @@ import {
 import type { MeaningSearchReader } from "../../src/memory/meaning-search.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import { CORE_PROFILE_PREFIX } from "../../src/memory/core-profile.js";
+import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
 import type { RetrievedContext } from "../../src/model/model-types.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import type {
@@ -134,14 +135,26 @@ async function activeMemory(principalId: string, text: string): Promise<Ulid> {
   // The turn really says the fact: the repository checks that the stored
   // excerpt is a substring of the durable user event, so a fixture whose turn
   // said something else is refused rather than stored.
+  const sessionId = `voice:memory-source:${serial + 1}`;
   await runVoiceTurn({
     text,
     provider: new FakeAgentProvider([stopped("Noted.")]),
     ownerPrincipalId: principalId,
+    sessionId,
   });
-  const source = await env.DB.prepare(`SELECT event_id, sequence, occurred_at FROM events
-    WHERE subject_id = ?1 AND event_type = 'conversation.user_committed'
-    ORDER BY sequence DESC LIMIT 1`).bind(principalId).first<{
+  return commitActiveMemoryFromVoiceTurn(principalId, sessionId, text);
+}
+
+async function commitActiveMemoryFromVoiceTurn(
+  principalId: string,
+  sessionId: string,
+  text: string,
+): Promise<Ulid> {
+  const source = await env.DB.prepare(`SELECT owner.event_id, owner.sequence, owner.occurred_at
+    FROM conversation_turns turn
+    JOIN events owner ON owner.event_id = turn.user_event_id
+    WHERE turn.principal_id = ?1 AND turn.session_id = ?2 AND turn.channel = 'voice'
+    ORDER BY owner.sequence DESC LIMIT 1`).bind(principalId, sessionId).first<{
       event_id: string;
       sequence: number;
       occurred_at: string;
@@ -219,6 +232,8 @@ interface RunVoiceTurnInput {
   readonly memorySearch?: MeaningSearchReader;
   /** The call this turn belongs to. Each turn is its own call unless a test says otherwise. */
   readonly sessionId?: string;
+  readonly committedItemIds?: readonly Ulid[];
+  readonly agentDatabase?: D1Database;
 }
 
 async function seedPrincipalOnce(principalId: string): Promise<void> {
@@ -235,7 +250,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
   const repository = new ConversationRepository(env.DB, events);
   const model = new OwnerVoiceAgentAdapter({
     provider: input.provider,
-    database: env.DB,
+    database: input.agentDatabase ?? env.DB,
     archive: env.ARCHIVE,
     ownerPrincipalId: input.ownerPrincipalId ?? OWNER,
     targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
@@ -251,6 +266,9 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
   });
   const sessionId = input.sessionId ?? `voice:call:${serial}`;
   const turnId = newUlid();
+  if (input.committedItemIds !== undefined) {
+    recordPendingTelegramMemoryReferences(turnId, input.committedItemIds);
+  }
   const pieces: string[] = [];
   // The real delivery helper, not a stand-in: it is what refuses a stream whose
   // pieces do not equal the finished text. Its `finish` returns the minted
@@ -285,6 +303,57 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
   });
   if (result.outcome !== "voice_sent") throw new Error(`voice_turn_not_sent:${result.outcome}`);
   return pieces.join("");
+}
+
+async function forgetVoiceMemoryOnSession(
+  principalId: string,
+  sessionId: string,
+  itemId: Ulid,
+  text: string,
+): Promise<void> {
+  await runVoiceTurn({
+    text: "forget the saved memory",
+    sessionId,
+    ownerPrincipalId: principalId,
+    context: [memoryContext(text, itemId)],
+    provider: new FakeAgentProvider([
+      called(tool(`forget-${newUlid()}`, "memory_forget", {
+        itemIds: [itemId], supportingExcerpt: "forget the saved memory",
+      })),
+      stopped("Okay."),
+    ]),
+  });
+}
+
+function databaseWithForgottenQueryRows(
+  rows: readonly Readonly<{ item_id: Ulid; text: string }>[],
+  requireCurrentVersion = false,
+): D1Database {
+  return new Proxy(env.DB as unknown as object, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (sql: string) => {
+          if (sql.includes("state.lifecycle_state = 'forgotten'")
+            && sql.includes("SELECT state.item_id, version.text")) {
+            const selected = !requireCurrentVersion
+              || sql.includes("version.version_id = state.current_version_id")
+              ? rows
+              : Array.from({ length: 129 }, (_value, index) => Object.freeze({
+                item_id: newUlid(), text: `Historical version ${index}.`,
+              }));
+            const statement = {
+              bind: () => statement,
+              all: async () => ({ results: selected }),
+            };
+            return statement;
+          }
+          return (target as D1Database).prepare(sql);
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
+    },
+  }) as D1Database;
 }
 
 describe("the voice agent adapter", () => {
@@ -466,6 +535,106 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain(itemId);
   });
 
+  it("withholds a voice previous reply when one of two committed item ids was forgotten on another call", async () => {
+    const principalId = `principal:voice-previous-id:${serial + 1}`;
+    const fact = "My retired locker colour is ultramarine.";
+    const otherFact = "My retired bus route colour is ochre.";
+    const itemId = await activeMemory(principalId, fact);
+    const otherItemId = await activeMemory(principalId, otherFact);
+    const replySession = `voice:previous-id:${serial + 1}`;
+    await runVoiceTurn({
+      text: "Give me a neutral acknowledgement.",
+      provider: new FakeAgentProvider([stopped("A neutral reference reply.")]),
+      ownerPrincipalId: principalId,
+      sessionId: replySession,
+      committedItemIds: [itemId, otherItemId],
+    });
+    await forgetVoiceMemoryOnSession(principalId, `voice:forget-id:${serial + 1}`, itemId, fact);
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId, sessionId: replySession });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("A neutral reference reply.");
+    expect(provider.requests[0]?.systemPrompt).not.toContain(itemId);
+  });
+
+  it("withholds a voice previous reply that exactly restates a memory forgotten on another call", async () => {
+    const principalId = `principal:voice-previous-restatement:${serial + 1}`;
+    const fact = "My retired locker colour is vermilion.";
+    const itemId = await activeMemory(principalId, fact);
+    const replySession = `voice:previous-restatement:${serial + 1}`;
+    await runVoiceTurn({ text: "What did I say?", provider: new FakeAgentProvider([stopped(fact)]),
+      ownerPrincipalId: principalId, sessionId: replySession });
+    await forgetVoiceMemoryOnSession(principalId, `voice:forget-restatement:${serial + 1}`, itemId, fact);
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId, sessionId: replySession });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified");
+    expect(provider.requests[0]?.systemPrompt).not.toContain(fact);
+  });
+
+  it("withholds a voice previous reply whose owner turn was forgotten on another call", async () => {
+    const principalId = `principal:voice-previous-owner:${serial + 1}`;
+    const fact = "My retired locker colour is chartreuse.";
+    const replySession = `voice:previous-owner:${serial + 1}`;
+    await runVoiceTurn({ text: fact, provider: new FakeAgentProvider([stopped("Thanks for telling me.")]),
+      ownerPrincipalId: principalId, sessionId: replySession });
+    const itemId = await commitActiveMemoryFromVoiceTurn(principalId, replySession, fact);
+    await forgetVoiceMemoryOnSession(principalId, `voice:forget-owner:${serial + 1}`, itemId, fact);
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId, sessionId: replySession });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("Thanks for telling me.");
+  });
+
+  it("fails closed when the forgotten visibility query returns 129 items", async () => {
+    const principalId = `principal:voice-forgotten-cap:${serial + 1}`;
+    const sessionId = `voice:forgotten-cap:${serial + 1}`;
+    await runVoiceTurn({ text: "first", provider: new FakeAgentProvider([stopped("A prior reply.")]),
+      ownerPrincipalId: principalId, sessionId });
+    const rows = Array.from({ length: 129 }, (_value, index) => Object.freeze({
+      item_id: newUlid(), text: `Forgotten memory ${index}.`,
+    }));
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({
+      text: "second",
+      provider,
+      ownerPrincipalId: principalId,
+      sessionId,
+      agentDatabase: databaseWithForgottenQueryRows(rows),
+    });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("A prior reply.");
+  });
+
+  it("counts only the current version of each forgotten item against the visibility cap", async () => {
+    const principalId = `principal:voice-forgotten-versions:${serial + 1}`;
+    const sessionId = `voice:forgotten-versions:${serial + 1}`;
+    await runVoiceTurn({ text: "first", provider: new FakeAgentProvider([stopped("A visible prior reply.")]),
+      ownerPrincipalId: principalId, sessionId });
+    const provider = new FakeAgentProvider([stopped("Hello.")]);
+
+    await runVoiceTurn({
+      text: "second",
+      provider,
+      ownerPrincipalId: principalId,
+      sessionId,
+      agentDatabase: databaseWithForgottenQueryRows(
+        [Object.freeze({ item_id: newUlid(), text: "An unrelated forgotten memory." })],
+        true,
+      ),
+    });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("A visible prior reply.");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("could not be verified");
+  });
+
   it("states when the previous voice reply cannot be verified", async () => {
     const principalId = `principal:voice-previous-invalid:${serial + 1}`;
     const sessionId = `voice:previous-invalid:${serial + 1}`;
@@ -514,6 +683,16 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain(CORE_PROFILE_PREFIX);
     expect(provider.requests[0]?.systemPrompt).not.toContain(fact);
     expect(provider.requests[0]?.systemPrompt).not.toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(provider.requests[0]?.systemPrompt).toContain("authenticated guest");
+    expect(provider.requests[0]?.systemPrompt).toContain("The guest is not Sid");
+    expect(provider.requests[0]?.systemPrompt).toContain("no access to Sid's owner memory");
+    expect(provider.requests[0]?.systemPrompt).toContain("Everything you return is spoken aloud");
+    expect(provider.requests[0]?.systemPrompt).toContain("no lists, no headings, no markdown, and no emoji");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("Sid's private assistant");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("Infer what Sid means");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("speaking with Sid");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("/decisions");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
     expect(provider.requests[0]?.tools).toHaveLength(0);
     expect(provider.requests[0]?.toolChoice).toBe("none");
   });
@@ -906,6 +1085,7 @@ describe("the voice agent adapter", () => {
     const request = provider.requests[0];
     expect(request?.systemPrompt).toContain("You are speaking with Sid on a phone call.");
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));

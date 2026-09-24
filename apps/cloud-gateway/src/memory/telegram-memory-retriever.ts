@@ -1615,7 +1615,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           FROM memory_item_state state
           JOIN memory_item_versions version
             ON version.principal_id = state.principal_id
-            AND version.item_id = state.item_id
+            AND version.version_id = state.current_version_id
           WHERE state.principal_id = ?1 AND state.lifecycle_state = 'forgotten'
           ORDER BY state.item_id ASC
           LIMIT ?${forgottenLimitParameter}

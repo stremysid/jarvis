@@ -1,10 +1,12 @@
 # Decisions
 
-## The phone and Telegram are the same Jarvis (2026-09-23, Sid)
+## The phone and Telegram are the same Jarvis (2026-09-23; Sid quote, builder note awaiting review)
 
 Approved at about 23:05 EDT for `channel-parity`:
 
 > THE ONLY difference between call and telegram is the method of communication, THAT'S IT.
+
+**Builder note — awaiting review. Everything below Sid's quote in this section is builder-written, not a decision Sid approved.**
 
 Jarvis chooses intent and action; code supplies tools, connectors, source proof and enforced gates. Both owner adapters import one tool catalogue and construct the same pipelines. The prompt core, pinned profile, canonical retrieval and receipt/honesty policy are shared. The small voice prompt describes speech and confirmation surfaces.
 

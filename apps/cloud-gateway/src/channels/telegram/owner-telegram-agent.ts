@@ -21,7 +21,11 @@ import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../../memory/memory-types.js";
-import type { TelegramMemoryTargetFinder } from "../../memory/memory-control-targets.js";
+import {
+  citedMemoryItemIds,
+  stagedMemoryItemIds,
+  type TelegramMemoryTargetFinder,
+} from "../../memory/memory-control-targets.js";
 import type {
   ModelAgentProvider,
   ModelFunctionCall,
@@ -73,7 +77,9 @@ export interface OwnerTelegramAgentDependencies {
 
 interface PreviousAssistantRow {
   readonly turn_id: unknown;
+  readonly user_event_id: unknown;
   readonly staged_event_id: unknown;
+  readonly staged_envelope_json: unknown;
   readonly delivered_event_id: unknown;
   readonly delivered_envelope_json: unknown;
   readonly provider_message_id: unknown;
@@ -83,6 +89,7 @@ interface PreviousAssistantEvidence {
   readonly text: string;
   readonly providerMessageId: string;
   readonly eventId: Ulid;
+  readonly itemIds: readonly Ulid[];
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -163,7 +170,11 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await adapter.previousAssistant(turnInput);
-        return previous === null ? null : Object.freeze({ text: previous.text, eventId: previous.eventId });
+        return previous === null ? null : Object.freeze({
+          text: previous.text,
+          eventId: previous.eventId,
+          itemIds: previous.itemIds,
+        });
       },
       composeReply: composeReceiptReply,
     });
@@ -182,7 +193,9 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     input: Readonly<ModelAdapterStreamInput>,
   ): Promise<PreviousAssistantEvidence | null> {
     const row = await this.telegram.database.prepare(`SELECT previous.turn_id,
-        delivery.staged_event_id, previous.delivered_assistant_event_id AS delivered_event_id,
+        previous.user_event_id, delivery.staged_event_id,
+        staged.envelope_json AS staged_envelope_json,
+        previous.delivered_assistant_event_id AS delivered_event_id,
         delivered.envelope_json AS delivered_envelope_json,
         delivery.provider_message_id AS provider_message_id
       FROM conversation_turns current
@@ -192,13 +205,16 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         AND previous.channel = 'telegram'
       JOIN events previous_user ON previous_user.event_id = previous.user_event_id
       JOIN conversation_deliveries delivery ON delivery.delivery_id = previous.staged_delivery_id
+      JOIN events staged ON staged.event_id = delivery.staged_event_id
       JOIN events delivered ON delivered.event_id = previous.delivered_assistant_event_id
       WHERE current.turn_id = ? AND current.principal_id = ? AND current.channel = 'telegram'
         AND previous.state = 'delivered' AND previous_user.sequence < current_user.sequence
       ORDER BY previous_user.sequence DESC LIMIT 1`)
       .bind(input.correlationId, input.principalId).first<PreviousAssistantRow>();
-    if (row === null || typeof row.delivered_envelope_json !== "string") return null;
+    if (row === null || typeof row.staged_envelope_json !== "string"
+      || typeof row.delivered_envelope_json !== "string") return null;
     const turnId = safeUlid(row.turn_id);
+    const userEventId = safeUlid(row.user_event_id);
     const stagedEventId = safeUlid(row.staged_event_id);
     const deliveredEventId = safeUlid(row.delivered_event_id);
     let decoded: unknown;
@@ -216,10 +232,19 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     const payload = envelope.payload as Record<string, unknown>;
     if (payload.schemaCode !== 1 || payload.channelCode !== 2 || payload.sensitivityCode !== 1
       || payload.historyEligible !== true) throw new TypeError("owner_agent_previous_reply_invalid");
+    const text = safeText(payload.text, 65_536);
+    const stagedIds = await stagedMemoryItemIds({
+      envelopeJson: row.staged_envelope_json,
+      eventId: stagedEventId,
+      turnId,
+      userEventId,
+      principalId: input.principalId,
+    });
     return Object.freeze({
-      text: safeText(payload.text, 65_536),
+      text,
       providerMessageId: safeText(row.provider_message_id, 128),
       eventId: deliveredEventId,
+      itemIds: Object.freeze([...new Set([...stagedIds, ...citedMemoryItemIds(text)])]),
     });
   }
 

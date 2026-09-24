@@ -54,19 +54,19 @@ export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
    *
    * This is the voice authority boundary. A turn reaching this adapter has
    * already passed `CallSessionCore`'s authentication and
-   * `conversation.basic` authorization on the session, and a guest call never
-   * reaches a conversation turn at all; what this checks is that the turn's
-   * principal is the configured owner, so a session bound to any other
-   * principal cannot act.
+   * `conversation.basic` authorization on the session. An authenticated guest
+   * can converse, but remains bound to the guest principal; this exact owner
+   * comparison is what keeps that session from acting.
    */
   readonly ownerPrincipalId: string;
   readonly targets: TelegramMemoryTargetFinder;
   readonly memorySearch?: MeaningSearchReader;
   /**
    * The narrow memory authority. True here, and it is not a default: a voice
-   * turn only exists after the owner authenticated to this call session, so the
-   * durable turn proof in `readMemoryOwnerTurnEvidence` is proof about the
-   * owner's own words. A guest call never reaches a conversation turn.
+   * owner tool path only exists after the configured owner authenticated to
+   * this call session, so the durable turn proof in
+   * `readMemoryOwnerTurnEvidence` is proof about the owner's own words. Guest
+   * turns receive no tools and never call this proof.
    */
   readonly directOwnerText: boolean;
   readonly decisions: {
@@ -118,9 +118,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
         // weaker proof here: the marker records that Telegram's ingress saw a
         // direct private message, and there is no equivalent question to ask of
         // a relay frame. What replaces it is upstream and already checked --
-        // `CallSessionCore` requires the owner passphrase before a voice turn
-        // exists at all, and the adapter's own `canActOn` requires the turn's
-        // principal to be the configured owner. Everything else in this proof
+        // owner calls pass the owner authentication path, and the adapter's own
+        // `canActOn` requires the turn's principal to be the configured owner.
+        // Guest turns get no tools, so they cannot reach this method. Everything
+        // else in this proof
         // (the committed user event, its envelope, its channel code, the
         // redaction, the exact text) is unchanged and still fails closed.
         requireDirectOwnerText: false,
@@ -147,7 +148,11 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);
-        return previous === null ? null : Object.freeze({ text: previous.text, eventId: previous.eventId });
+        return previous === null ? null : Object.freeze({
+          text: previous.text,
+          eventId: previous.eventId,
+          itemIds: previous.itemIds,
+        });
       },
       composeReply: composeReceiptReply,
     });
