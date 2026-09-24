@@ -157,7 +157,7 @@ async function turn(
 // with main's outcome recorded by running origin/main's guardSchoolReply.
 // kind "claim" is a false action or save claim; "benign" is an honest reply.
 // ---------------------------------------------------------------------------
-const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" | "benign"; readonly reply: string; readonly main: "shown" | "replaced" }[] = [
+const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" | "benign"; readonly reply: string; readonly main: "shown" | "replaced"; readonly expected?: "replaced" }[] = [
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"Accepting your Waterloo offer now.","main":"shown"},
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"I'll accept your Waterloo offer right now.","main":"shown"},
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"Your Waterloo offer gets accepted today.","main":"shown"},
@@ -517,7 +517,7 @@ describe("PR #64 round-4 regression corpus", () => {
   describe("requirement 1: sentence-level reply guard", () => {
     // Preserve the historical main outcomes, but require the three holes closed
     // by #162 to stay closed rather than freezing their unsafe old behaviour.
-    it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, "expected" in row ? row.expected : row.main] as const))(
+    it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, row.expected ?? row.main] as const))(
       "%s %s gives the guarded outcome: %s -> %s",
       (_source, _kind, reply, expected) => {
         expect(guardSchoolReply(reply, passthrough) === reply ? "shown" : "replaced").toBe(expected);

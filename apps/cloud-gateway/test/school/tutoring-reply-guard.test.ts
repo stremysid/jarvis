@@ -109,7 +109,7 @@ describe("tutoring reply claims", () => {
     "I called this species the conjugate base.",
     "We've saved the extra significant figures for the final calculation.",
     "We called the repeated image a motif.",
-  ])("requires a positive worked marker before exempting the formerly allowed sentence: %s", (reply) => {
+  ])("keeps an unsupported object guarded despite teaching language: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(ACTION_REPLACEMENT);
   });
   // The revised object contract deliberately refuses these broader metaphors.

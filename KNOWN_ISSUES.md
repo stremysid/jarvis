@@ -1,5 +1,20 @@
 # Known issues
 
+## Reply-claim tutoring exemptions are deliberately conservative and partial
+
+PR #162 requires a positive worked object of the claim verb, with destination,
+recipient, real-world value and second-action vetoes. It cannot prove arbitrary
+natural-language action claims. The existing advice/draft exceptions remain,
+including the `asked about` exception in `allowedFirstPersonActionClaim`.
+
+Eighteen earlier PR tutoring fixtures now deliberately produce a refusal because
+their objects fall outside the requested grammar: for example, saving rounding
+until later, sharing a denominator, and adding oxygen atoms. They remain named
+regression cases in `tutoring-reply-guard.test.ts`. The supported chemistry forms
+use worked laws, formulas and examples. Broadening those forms requires new
+adversarial and mutation evidence; a marker anywhere in the sentence is not proof
+that an unknown recipient or store is part of an explanation.
+
 ## Local Workers tests do not enforce every production runtime limit
 
 The local Workers test pool permits crypto parameters that production workerd
