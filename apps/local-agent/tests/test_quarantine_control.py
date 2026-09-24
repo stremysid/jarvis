@@ -165,8 +165,9 @@ def quarantined_fact(runtime: NodeRuntime) -> str:
 
 @pytest.mark.parametrize("quarantined", [False, True])
 def test_the_sleeping_built_node_only_runs_cloud_work_after_a_successful_retry(
-    tmp_path: Path, quarantined: bool,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quarantined: bool,
 ) -> None:
+    monkeypatch.setattr("jarvis_local.node.QUARANTINE_RETRY_WAIT_SECONDS", 1.0)
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
     opener = EmptyCycleOpener()
