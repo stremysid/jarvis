@@ -142,3 +142,10 @@ a general hazard rather than a `memory_pin` one: the same shape can hide the nex
 
 Last verified against the code: 2026-09-21, at `0611803`. Coverage is partial — see the top
 of this file.
+
+## School collector findings, 2026-09-23 (still a partial register)
+
+| Symbol | Decision in code | Surface it should move to |
+|---|---|---|
+| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
+| `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |

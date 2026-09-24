@@ -23,6 +23,7 @@ import {
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
+import { SCHOOL_COLLECTOR_TOOLS } from "../../school/collector-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -51,6 +52,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
+  ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",
     description: "Run the validated school catch-up pipeline for Sid's current message and conversation context.",

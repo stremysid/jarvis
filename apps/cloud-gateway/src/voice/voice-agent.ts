@@ -24,6 +24,7 @@ import {
 import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
+import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
@@ -124,7 +125,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       // The nine memory tools. Phase 5's `call_place`, `pin_verify`,
       // `guest_create` and `guest_revoke` do not exist yet; when they do they
       // belong beside `MEMORY_TOOL_DEFINITIONS`, not here.
-      toolDefinitions: MEMORY_TOOL_DEFINITIONS,
+      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:
