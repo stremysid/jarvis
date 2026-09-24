@@ -49,22 +49,25 @@ share a CMUdict pronunciation.
    substitute. Record the scratch command, failure text, and cleanup result in
    the rollout evidence before applying any production migration.
 
-   In **PowerShell 7**, from the repository root, use the scratch D1 database
+   In **PowerShell 7.3+**, from the repository root, use the scratch D1 database
    name Sid has already created:
 
    ```powershell
    Set-Location C:\path\to\jarvis
+   $PSNativeCommandArgumentPassing = 'Standard'
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+   $gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
    $ScratchDatabase = Read-Host "Non-production scratch D1 database name"
    $SetupSql = "DROP TRIGGER IF EXISTS pr40_guard_probe_insert; DROP TABLE IF EXISTS pr40_guard_probe; CREATE TABLE pr40_guard_probe (id TEXT PRIMARY KEY, alternate TEXT NOT NULL UNIQUE) STRICT, WITHOUT ROWID; CREATE TRIGGER pr40_guard_probe_insert BEFORE INSERT ON pr40_guard_probe WHEN EXISTS (SELECT 1 FROM pr40_guard_probe WHERE id = NEW.id) OR EXISTS (SELECT 1 FROM pr40_guard_probe WHERE alternate = NEW.alternate) BEGIN SELECT RAISE(ABORT, 'pr40_guard_probe_rejected'); END; INSERT INTO pr40_guard_probe (id, alternate) VALUES ('first', 'one');"
-   pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --command $SetupSql
+   & node $wrangler d1 execute $ScratchDatabase --remote --config $gateway --env '' --command $SetupSql
    if ($LASTEXITCODE -ne 0) { throw "Scratch D1 setup failed." }
 
-   $FirstGuard = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --command "INSERT INTO pr40_guard_probe (id, alternate) VALUES ('first', 'two');" 2>&1
+   $FirstGuard = & node $wrangler d1 execute $ScratchDatabase --remote --config $gateway --env '' --command "INSERT INTO pr40_guard_probe (id, alternate) VALUES ('first', 'two');" 2>&1
    if ($LASTEXITCODE -eq 0 -or ($FirstGuard -join "`n") -notmatch "pr40_guard_probe_rejected") { throw "Scratch D1 existing-key guard was not proven." }
-   $SecondGuard = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --command "INSERT INTO pr40_guard_probe (id, alternate) VALUES ('second', 'one');" 2>&1
+   $SecondGuard = & node $wrangler d1 execute $ScratchDatabase --remote --config $gateway --env '' --command "INSERT INTO pr40_guard_probe (id, alternate) VALUES ('second', 'one');" 2>&1
    if ($LASTEXITCODE -eq 0 -or ($SecondGuard -join "`n") -notmatch "pr40_guard_probe_rejected") { throw "Scratch D1 alternate-key guard was not proven." }
 
-   pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --command "DROP TRIGGER pr40_guard_probe_insert; DROP TABLE pr40_guard_probe;"
+   & node $wrangler d1 execute $ScratchDatabase --remote --config $gateway --env '' --command "DROP TRIGGER pr40_guard_probe_insert; DROP TABLE pr40_guard_probe;"
    if ($LASTEXITCODE -ne 0) { throw "Scratch D1 cleanup failed." }
    ```
 2. From a protected PowerShell session with transcription off, create a random

@@ -1,5 +1,24 @@
 # Collector / receiver contract findings
 
+> **Superseded in part by [#175](https://github.com/stremysid/jarvis/pull/175), merged 2026-09-24 as [`c66c3870`](https://github.com/stremysid/jarvis/commit/c66c38709a9774e32546bfd7cbd7766995278a71):** the receiver fixes below are on main; extension integration and live rollout remain unverified.
+
+Disposition at that merge, checked against the [receiver review](../reviews/2026-09-24-d2l-receiver-fix.md)
+and merged code. The original findings below remain a record of #169:
+
+| Original gap | Status after #175 |
+|---|---|
+| LDSB-only host; news/quizzes rejected | Closed in the receiver: both hosts and those routes are accepted. News stays raw evidence; explicit quiz dates can project. |
+| myItems envelope; empty student submissions | Closed in the receiver: `{Objects,Next}` and `200 []` are accepted. Empty submissions remain unknown. |
+| Course source IDs omit host | Closed by host-qualified sources and migration `0045`, preserving existing LDSB deadline identities. |
+| No host-only failure envelope | Closed in the receiver with `course:null` and an empty manifest; extension emission remains to be built. |
+| Complete optional-tool 404 fails a course | Closed in the receiver; the extension still needs its `normalEvidence` classification updated. |
+| Pairing proof consumed before delivery | Closed for retries of the same proof before expiry; delivery can still repeat after an ambiguous send. |
+| Body/depth/structure limits | Unchanged bounds, not a closed gap. Oversized reads must remain explicit failures. |
+
+The extension's compatibility hold remains in `apps/d2l-extension/protocol.js`.
+No receiver merge alone proves deployment, migration application, Opera GX
+background access, Durham federation or complete school ingestion.
+
 Receiver inspected: PR #169, `codex/d2l-ingest-run` at
 `dfc284e6780b243f1b010e5434fa7f8e450a6b26`, the authority Sid specified for this
 round. Its fix round changes refusal mapping but not the upload contract.

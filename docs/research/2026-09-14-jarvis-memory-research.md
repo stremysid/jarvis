@@ -1,5 +1,7 @@
 # Jarvis memory research (2026-09-14)
 
+> **Superseded in part by merged [#125](https://github.com/stremysid/jarvis/pull/125) and [#129](https://github.com/stremysid/jarvis/pull/129):** the D1 memory rebuild is on main and [the current roadmap](../plan/2026-09-19-jarvis-roadmap.md#the-model) records Flash as the chosen model; the implementation and model questions below are historical.
+
 Reviewer-commissioned research: Claude Opus 5, read-only. The full report is
 below. A separate fact-check is in
 `2026-09-14-jarvis-memory-research-factcheck.md`. Nothing in this document
