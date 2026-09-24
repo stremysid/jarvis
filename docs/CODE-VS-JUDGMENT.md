@@ -58,6 +58,13 @@ they do not grant code permission to choose study priorities or reminder wording
 `DEFAULT_LEAD_MINUTES[effort]` supplies the existing ingestion lead-window contract, with effort
 chosen by the model, so owner-reported rows reach `listReminderDue` like collected rows.
 
+## Owner reminder contract (#168 review round 1)
+
+| Symbol | Decision or bounded proof rule | Model-visible surface |
+|---|---|---|
+| `executeReminderTool` | Sid's review explicitly bounds scheduling to now minus five minutes through now plus 400 days, inclusive. The adapter supplies its clock and the same `DIGEST_TIMEZONE` owner zone used by deadline_record. Code refuses an out-of-range proposal without substituting another time. | `reminder_schedule` names both bounds and where the model gets the current instant/zone. Receipts include local time, daylight/standard zone name and UTC. The model still chooses whether, when and what to send. |
+| `OwnerReminderSender.run` | Sid's review sets a ten-row due batch per drain, using the existing quiet rule and verified owner identity once per batch. Authentication/rate-limit refusals retry; invalid requests become rejected; uncertain delivery stays fenced. | The schedule description discloses batching/quiet delays. `reminder_list` distinguishes rejected/not delivered from failed/may have arrived. This is delivery plumbing, not a code-chosen study priority. |
+
 ## The list
 
 Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision

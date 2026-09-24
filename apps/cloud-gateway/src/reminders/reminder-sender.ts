@@ -12,16 +12,17 @@ export class OwnerReminderSender {
     private readonly clock: { now(): Date }) {}
 
   async run(): Promise<number> {
-    const at = this.clock.now().toISOString();
+    const now = this.clock.now();
+    const at = now.toISOString();
     const rows = await this.database.prepare(`SELECT * FROM owner_reminders
-      WHERE principal = ? AND status = 'pending' AND due_at <= ? ORDER BY due_at, id`)
+      WHERE principal = ? AND status = 'pending' AND due_at <= ? ORDER BY due_at, id LIMIT 10`)
       .bind(this.principal, at).all<OwnerReminder>();
     const quiet = new QuietWindowService({ repository: new DeadlineRepository(this.database) });
+    if (rows.results.length === 0 || await quiet.isSuppressed(now, "deadline_reminder")) return 0;
+    const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(this.principal);
+    if (chatId === null) throw new Error("owner_reminder_identity_unavailable");
     let sent = 0;
     for (const row of rows.results) {
-      if (await quiet.isSuppressed(this.clock.now(), "deadline_reminder")) continue;
-      const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(this.principal);
-      if (chatId === null) throw new Error("owner_reminder_identity_unavailable");
       // Persist the fence before the request: a crash, expired outer lease or
       // lost acknowledgement must never make an uncertain send eligible again.
       const claimed = await this.database.prepare(`UPDATE owner_reminders
@@ -33,10 +34,15 @@ export class OwnerReminderSender {
       try {
         result = await this.telegram.sendMessage({ chatId, text: row.text, idempotencyKey: `owner-reminder:${row.id}` });
       } catch (error) {
-        // Only an explicit rate-limit refusal proves Telegram did not accept
-        // the message. Timeouts and post-send D1 failures retain the fence.
-        if (snapshotProviderFailure(error)?.category === "rate_limited") {
+        // Received refusals prove non-delivery. Unknown transport outcomes keep
+        // the fence, because retrying those could duplicate a message.
+        const failure = snapshotProviderFailure(error);
+        if (failure?.category === "rate_limited" || failure?.category === "authentication") {
           await this.database.prepare(`UPDATE owner_reminders SET status = 'pending'
+            WHERE id = ? AND principal = ? AND status = 'failed' AND attempts = ?`)
+            .bind(row.id, this.principal, claimed.attempts).run();
+        } else if (failure?.category === "invalid_request") {
+          await this.database.prepare(`UPDATE owner_reminders SET status = 'rejected'
             WHERE id = ? AND principal = ? AND status = 'failed' AND attempts = ?`)
             .bind(row.id, this.principal, claimed.attempts).run();
         }

@@ -1,13 +1,14 @@
-import { parseArguments, successfulTool, type ExecutedTool } from "../agent/owner-agent-core.js";
+import { parseArguments, refusedTool, successfulTool, type ExecutedTool } from "../agent/owner-agent-core.js";
+import { requireInstant } from "../deadlines/deadline-types.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
-import { OwnerReminderRepository } from "./owner-reminders.js";
+import { OwnerReminderRepository, OwnerReminderWriteUnconfirmedError } from "./owner-reminders.js";
 
 export const REMINDER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  { name: "reminder_schedule", description: "Schedule a Telegram message to Sid. You choose at and the exact text from his needs and context; code chooses neither. at is an explicit UTC instant YYYY-MM-DDTHH:mm:ss.sssZ. A five-minute job delivers it at or after that time, subject to the existing non-urgent quiet windows. Do not claim exact-minute delivery. Repeating the same at and text in one turn returns the original reminder. Use deadline_record separately for an assignment's due date.",
+  { name: "reminder_schedule", description: "Schedule a Telegram message to Sid. You choose at and the exact text from his needs and context; code chooses neither. The channel prompt supplies the current UTC instant and Sid's owner zone. at is an explicit UTC instant YYYY-MM-DDTHH:mm:ss.sssZ, from five minutes before now through 400 days ahead inclusive. A five-minute job delivers up to ten due messages per run at or after their times, subject to the existing non-urgent quiet windows. Do not claim exact-minute delivery. Repeating the same at and text in one turn returns the original reminder. Use deadline_record separately for an assignment's due date.",
     parameters: { type: "object", additionalProperties: false, required: ["at", "text"],
       properties: { at: { type: "string" }, text: { type: "string", minLength: 1, maxLength: 4096 } } } },
-  { name: "reminder_list", description: "List Sid's reminders, including IDs, exact text, due instants, status and attempts. A failed reminder has unconfirmed delivery or may currently be sending: it may have arrived. Check with Sid before scheduling a replacement; never infer that failed means it was not sent.",
+  { name: "reminder_list", description: "List Sid's reminders, including IDs, exact text, due instants, status and attempts. A rejected reminder was not delivered and will not retry. Authentication and rate-limit refusals stay pending for retry. A failed reminder has unconfirmed delivery or may currently be sending: it may have arrived. Check with Sid before scheduling a replacement; never infer that failed means it was not sent.",
     parameters: { type: "object", additionalProperties: false, properties: {} } },
   { name: "reminder_cancel", description: "Cancel a pending reminder by its listed ID. Once dispatch has started it cannot be cancelled; report the tool's actual result.",
     parameters: { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string" } } } },
@@ -18,18 +19,32 @@ export function isReminderTool(name: string): boolean {
 }
 
 export async function executeReminderTool(database: D1Database, input: Readonly<ModelAdapterStreamInput>,
-  call: ModelFunctionCall): Promise<ExecutedTool> {
+  call: ModelFunctionCall, now: Date, ownerZone: string): Promise<ExecutedTool> {
   const repository = new OwnerReminderRepository(database);
   switch (call.name) {
     case "reminder_schedule": {
       const args = parseArguments(call, ["at", "text"]);
-      const row = await repository.schedule(input.principalId, input.correlationId, args.at, args.text);
-      return successfulTool(call, `Reminder ${row.id}: ${row.status}, due ${row.due_at}, text ${JSON.stringify(row.text)}. Quiet windows may delay delivery.`);
+      const at = requireInstant(args.at, "owner_reminder_at");
+      const due = Date.parse(at);
+      if (due < now.getTime() - 5 * 60_000) return refusedTool(call, "owner_reminder_at_past: choose a time no earlier than five minutes before the current instant. Nothing changed.");
+      if (due > now.getTime() + 400 * 86_400_000) return refusedTool(call, "owner_reminder_at_too_far: choose a time within 400 days of the current instant. Nothing changed.");
+      // Format before writing so a bad zone cannot turn a saved row into a false refusal.
+      const localDue = new Intl.DateTimeFormat("en-CA", { timeZone: ownerZone,
+        dateStyle: "medium", timeStyle: "long" }).format(new Date(at));
+      try {
+        const row = await repository.schedule(input.principalId, input.correlationId, at, args.text);
+        return successfulTool(call, `Reminder ${row.id}: ${row.status}, due ${localDue} (${ownerZone}; UTC ${row.due_at}), text ${JSON.stringify(row.text)}. Quiet windows may delay delivery.`);
+      } catch (error) {
+        if (error instanceof OwnerReminderWriteUnconfirmedError) return refusedTool(call,
+          "owner_reminder_write_unconfirmed: the reminder may have been saved. Check reminder_list before scheduling it again.");
+        throw error;
+      }
     }
     case "reminder_list": {
       parseArguments(call, []);
       const rows = (await repository.list(input.principalId)).map(({ id, due_at, text, status, sent_at, attempts }) =>
-        ({ id, at: due_at, text, status, sentAt: sent_at, attempts }));
+        ({ id, at: due_at, text, status, sentAt: sent_at, attempts,
+          ...(status === "rejected" ? { delivery: "not delivered" } : {}) }));
       return successfulTool(call, `Reminders: ${JSON.stringify(rows)}`);
     }
     case "reminder_cancel": {

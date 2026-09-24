@@ -6,10 +6,14 @@ export interface OwnerReminder {
   readonly principal: string;
   readonly due_at: string;
   readonly text: string;
-  readonly status: "pending" | "sent" | "cancelled" | "failed";
+  readonly status: "pending" | "sent" | "cancelled" | "failed" | "rejected";
   readonly created_turn_id: string;
   readonly sent_at: string | null;
   readonly attempts: number;
+}
+
+export class OwnerReminderWriteUnconfirmedError extends Error {
+  constructor() { super("owner_reminder_write_unconfirmed"); }
 }
 
 export class OwnerReminderRepository {
@@ -26,9 +30,15 @@ export class OwnerReminderRepository {
       .bind(id, principal, dueAt, message, turnId).run();
     // Exact replay is idempotent, without limiting how many distinct reminders
     // the model can choose in one turn.
-    const row = await this.database.prepare("SELECT * FROM owner_reminders WHERE principal = ? AND created_turn_id = ? AND due_at = ? AND text = ?")
-      .bind(principal, turnId, dueAt, message).first<OwnerReminder>();
-    if (row === null) throw new Error("owner_reminder_write_unconfirmed");
+    let row: OwnerReminder | null;
+    try {
+      row = await this.database.prepare("SELECT * FROM owner_reminders WHERE principal = ? AND created_turn_id = ? AND due_at = ? AND text = ?")
+        .bind(principal, turnId, dueAt, message).first<OwnerReminder>();
+    } catch {
+      // INSERT already committed. A failed read cannot prove that nothing changed.
+      throw new OwnerReminderWriteUnconfirmedError();
+    }
+    if (row === null) throw new OwnerReminderWriteUnconfirmedError();
     return row;
   }
 

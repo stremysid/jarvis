@@ -145,8 +145,10 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
 
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
+    const ownerZone = adapter.telegram.timeZone ?? "America/Toronto";
+    const now = () => adapter.telegram.now?.() ?? new Date();
     return Object.freeze({
-      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
+      channelPrompt: `Owner time zone: ${ownerZone}. Current instant: ${now().toISOString()}. Message arrival: ${adapter.telegram.turnReceivedAt ?? now().toISOString()}. Resolve deadline dates from this message, not a later processing time. Use the current instant and owner zone when choosing reminder times.`,
       toolDefinitions: OWNER_TELEGRAM_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -195,10 +197,10 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       argumentTool: (call: ModelFunctionCall) => call.name === "deadline_record"
         ? async () => {
           const turn = await readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null });
-          return recordDeadline(adapter.telegram.database, input, call, adapter.telegram.now?.() ?? new Date(),
-            { ownerZone: adapter.telegram.timeZone ?? "America/Toronto", messageAt: turn.occurredAt });
+          return recordDeadline(adapter.telegram.database, input, call, now(),
+            { ownerZone, messageAt: turn.occurredAt });
         }
-        : isReminderTool(call.name) ? () => executeReminderTool(adapter.telegram.database, input, call)
+        : isReminderTool(call.name) ? () => executeReminderTool(adapter.telegram.database, input, call, now(), ownerZone)
         : null,
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>

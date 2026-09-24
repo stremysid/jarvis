@@ -97,6 +97,6 @@ describe("owner reminder tools", () => {
 
   it("refuses an unknown reminder tool rather than choosing an operation", async () => {
     await expect(executeReminderTool(env.DB, { principalId: "test" } as ModelAdapterStreamInput,
-      reminderCall("reminder_unknown"))).rejects.toThrow("owner_reminder_tool_unknown");
+      reminderCall("reminder_unknown"), NOW, "America/Toronto")).rejects.toThrow("owner_reminder_tool_unknown");
   });
 });
