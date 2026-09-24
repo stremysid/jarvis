@@ -169,15 +169,17 @@ export class SyncService {
    * 240->267 and stages an acknowledgement whose `throughSequence` equals the
    * cursor, which the already-covered branch accepts as a replay.
    *
-   * The condition is a strict straddle -- `after < cursor < after + pageSize` --
-   * and the two bounds are both load-bearing:
+   * The condition is `cursor > after`, and the strictness is load-bearing: a
+   * brand-new cursor is 0 and a new device pulls from 0, so capping when they are
+   * equal would serve the device an empty page forever and bootstrap would never
+   * start.
    *
-   * - **`cursor > after`** keeps a fresh device working. A brand-new cursor is 0
-   *   and a new device pulls from 0, so an unconditional cap at the cursor would
-   *   serve it an empty page forever and bootstrap would never start.
-   * - **`cursor < after + pageSize`** keeps a device that is merely *behind* from
-   *   being throttled to the cursor. It walks forward at its own pace, and only
-   *   the one page that would cross the cursor is shortened.
+   * There is deliberately no second bound for "the cursor is further ahead than
+   * one page". That case needs no help: this returns `Math.min(latest, cursor)`,
+   * but `readMaterial` materializes at most `MAXIMUM_MATERIAL_EVENTS` (48) from
+   * `after` whatever this returns, so once `cursor >= after + pageSize` the page
+   * is the same 48 either way. A second bound would read as a meaningful guard
+   * and be unreachable, which is worse than not having one.
    */
   private async pageUpperBound(
     verified: VerifiedDeviceRequest<SyncEventsPullBodyV1>,
@@ -186,7 +188,7 @@ export class SyncService {
   ): Promise<number> {
     const after = verified.body.afterSequence;
     const cursor = await this.repository.readCursor(consumerName);
-    if (cursor > after && cursor < after + verified.body.pageSize) return Math.min(latest, cursor);
+    if (cursor > after) return Math.min(latest, cursor);
     return latest;
   }
 

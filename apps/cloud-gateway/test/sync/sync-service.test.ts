@@ -452,23 +452,70 @@ describe("SyncService", () => {
     expect(await cursor()).toBe(300);
   });
 
-  it("does not shorten a page for a device that is merely behind the cursor", async () => {
-    // The cap must fire only for a page that would *cross* the cursor. A device
-    // walking toward it at its own pace must keep getting full pages, or catching
-    // up would be throttled to a crawl.
-    await append(300);
-    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 267 WHERE consumer_name = ?")
+  it("resumes full pages once it is no longer behind the cursor", async () => {
+    // A page is shortened only when the cursor lies *inside* the range it asks
+    // for. These pages start at or past the cursor, so `cursor > after` is false
+    // and they are full. This pins that the cap is not applied unconditionally,
+    // which would throttle a device that is merely behind to one page per cursor
+    // advance -- a live-lock rather than a wedge, and green in every other test.
+    //
+    // 80 events, so the full pages asserted below have material to run past the
+    // cursor: with only the cursor's 53 the last page legitimately ends short and
+    // the assertion would be testing the fixture, not the guard.
+    await append(80);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 53 WHERE consumer_name = ?")
       .bind(`device:${primary.deviceId}`).run();
-    const page = await pull(pullBody(48, 128));
-    expect(page).toMatchObject({ fromSequence: 48, toSequence: 96 });
-    expect(page.toSequence).toBeLessThan(267); // untouched by the cursor
+
+    const shortened = await pull(pullBody(48, 10));
+    expect(shortened.toSequence).toBe(53); // ends at the cursor
+    expect(shortened.events).toHaveLength(5);
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: shortened.snapshotId, expectedCurrent: 48, throughSequence: 53 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 53, replayed: true });
+    expect(await cursor()).toBe(53);
+
+    // Past the cursor, so no cap: a full page.
+    const full = await pull(pullBody(53, 10));
+    expect(full.toSequence).toBe(63);
+    expect(full.events).toHaveLength(10);
+
+    // And it stays full on the pages after that.
+    const next = await pull(pullBody(63, 10));
+    expect(next.toSequence).toBe(73);
+    expect(next.events).toHaveLength(10);
+  });
+
+  it("caps a page at a cursor that sits inside the range it asks for", async () => {
+    // The wedge case at its smallest: the requested range *contains* the cursor.
+    // The page must stop at 25, not run on to the 48 the materializer would
+    // otherwise return -- `throughSequence` 48 is a range the cursor only partly
+    // covers, so the acknowledgement would be refused and the device would re-pull
+    // the identical range forever. `Math.min(latest, cursor)` against a cursor
+    // inside the window is the whole of that fix, and no other test here puts the
+    // cursor strictly inside the requested range.
+    //
+    // The cursor is at 25 rather than 60 because the materializer takes at most 48
+    // whatever the guard returns, so a cursor beyond 48 would be capped by that
+    // first and this test would pass with the guard removed.
+    await append(100);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 25 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+
+    const page = await pull(pullBody(0, 100));
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 25 });
+    expect(page.events).toHaveLength(25);
+
+    // And the acknowledgement is accepted, because the range now ends exactly at
+    // the cursor rather than straddling it.
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 0, throughSequence: 25 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 25, replayed: true });
+    expect(await cursor()).toBe(25);
   });
 
   it("does not cap a fresh device that pulls from zero", async () => {
     // A brand-new cursor is 0 and a new device pulls from 0. An unconditional cap
     // at the cursor would serve it an empty page forever and bootstrap would never
-    // start -- which is why the condition is a strict straddle, not `after <
-    // cursor`.
+    // start -- which is why the comparison is strictly `cursor > after`, not
+    // `cursor >= after`.
     await append(10);
     expect(await cursor()).toBe(0);
     const page = await pull(pullBody(0, 128));
