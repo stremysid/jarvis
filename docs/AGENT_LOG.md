@@ -3,6 +3,12 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 corrects a false-green voice refusal fixture
+
+Signed: Codex, builder. While proving B's voice path, removing its durable-turn check survived. A diagnostic assertion established **0 passed / 1 failed / 10 skipped** with `conversation_turn_immutable`: the old setup UPDATE threw before tool dispatch. A used the same flawed setup. Replaced it with a shared test-only read-back mismatch and required a real refused tool result in the second model request. No production source changed. The corrected A voice file passed **6/0/0** before and after mutation. Two additional probes (remove the actual durable row-channel guard; disable the test mismatch seam) each killed that named test twice and restored both files byte-identically. Test types remain 143 existing diagnostics, none in the corrected files.
+
+Fresh main `54c1b67b80421e540161714e666cec1b81e3f189` added only owner-probe documentation and was normally merged as `522b5e0f`. A's once-only full result above/below remains **5348/1/0**, followed by its isolated **70/0/0**, before this test-only correction; no new full run or production change is claimed. A now has the original 15 confirmed probes, 2 integration rechecks and these 2 follow-ups. B carries this correction and re-proves its previously surviving guard. No live or production action. External `deadline-r2-durable-*` and `reminder-r2-durable-repro.log` preserve the evidence.
+
 ## 2026-09-24 — Codex builder: #166 round 2 publication gates
 
 Signed: Codex, builder. Normal merge `863371ac` includes fresh main `29fbfcd6` (#169) and retains the collector tools alongside the shared deadline tools in both adapters. Both log histories remain. A final fetch still found this main head and no published channel-parity branch. #168 receives this A head next and adds its reminders to the shared argument catalogue/dispatcher.
