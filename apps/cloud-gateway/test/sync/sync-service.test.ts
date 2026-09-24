@@ -361,6 +361,168 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT acknowledged_at FROM sync_snapshots WHERE snapshot_id = ?").bind(page.snapshotId).first<{ acknowledged_at: string | null }>())?.acknowledged_at).toBe(initialNow.toISOString());
   });
 
+  it("accepts an acknowledgement for a range the cursor already covers and leaves the cursor where it was", async () => {
+    // A reinstalled device: the cloud cursor is at 100 from an archive that no
+    // longer exists, and the fresh archive has pulled only 0→40. Refusing this
+    // is what wedged the PC agent at 267 on 2026-09-23 -- the device re-pulls
+    // the same range and acknowledges the same way on every cycle, forever.
+    await append(100);
+    // The cursor the dead archive left behind. Nothing in the gateway moves it
+    // here: this is the state the read-only production queries found, 267 on
+    // 2026-09-22 and a fresh archive at 0 the next day.
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 100 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+    const fresh = await pull(pullBody(0, 40));
+    expect(fresh).toMatchObject({ fromSequence: 0, toSequence: 40 });
+
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: fresh.snapshotId, expectedCurrent: 0, throughSequence: 40 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 100, replayed: true });
+    expect(await cursor()).toBe(100);
+    // No receipt is written, because nothing was applied. A receipt claiming
+    // current 40 is exactly what would roll a real client's position backwards.
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE receipt_kind = 'snapshot'").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("catches a fresh archive up to an ahead cursor one page at a time and never passes it", async () => {
+    // The whole recovery, through the interface the agent actually drives.
+    await append(100);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 100 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+    let localCursor = 0;
+    const seen: number[] = [];
+    for (let cycle = 0; cycle < 10 && localCursor < 100; cycle += 1) {
+      const page = await pull(pullBody(localCursor, 10));
+      seen.push(page.toSequence);
+      const receipt = await acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: localCursor, throughSequence: page.toSequence });
+      // The device's local cursor follows its own archive, not the cloud's.
+      localCursor = page.toSequence;
+      expect(receipt.currentSequence).toBeGreaterThanOrEqual(localCursor);
+      expect(await cursor()).toBe(100);
+    }
+    expect(seen).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+    expect(localCursor).toBe(100);
+  });
+
+  it("refuses an acknowledgement for a range the cursor only partly covers", async () => {
+    // The replay acceptance must not become a general amnesty. A device whose
+    // page runs 40→50 meets a cursor standing at 45: the range is not covered
+    // past 45, so the ack must not apply. Without this the guard could be
+    // widened to "any stale ack is fine" and nothing would notice.
+    await append(50);
+    const page = await pull(pullBody(0, 40));
+    const next = await pull(pullBody(40, 10, page.snapshotToken));
+    expect(next).toMatchObject({ fromSequence: 40, toSequence: 50 });
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 45 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: next.snapshotId, expectedCurrent: 40, throughSequence: 50 }))
+      .rejects.toThrow("cursor_compare_failed");
+    expect(await cursor()).toBe(45);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE receipt_kind = 'snapshot'").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("ends a page that would straddle the cursor at the cursor, so the acknowledgement is accepted", async () => {
+    // The agent asks for 128 (DEFAULT_PAGE_SIZE) and the gateway materializes at
+    // most 48 (MAXIMUM_MATERIAL_EVENTS), so a catching-up device can be offered a
+    // page that *contains* the cursor. This test used to assert the resulting
+    // wedge: 240 -> 288 against a cursor of 267 is neither a replay (267 < 288)
+    // nor a cursor match (267 !== 240), so the acknowledgement was refused and the
+    // device re-pulled the identical range forever.
+    //
+    // The page now stops at the cursor, so what the device stores is 240 -> 267
+    // and what it acknowledges has `throughSequence === cursor`, which the
+    // already-covered branch accepts.
+    await append(300);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 267 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+    const page = await pull(pullBody(240, 128)); // what the agent actually asks for
+    expect(page).toMatchObject({ fromSequence: 240, toSequence: 267 });
+    expect(page.events).toHaveLength(27);
+
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 240, throughSequence: 267 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 267, replayed: true });
+    expect(await cursor()).toBe(267);
+
+    // And the device then advances normally: the next page starts exactly at the
+    // cursor, so it is a cursor match and applies.
+    const next = await pull(pullBody(267, 128));
+    expect(next).toMatchObject({ fromSequence: 267, toSequence: 300 });
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: next.snapshotId, expectedCurrent: 267, throughSequence: 300 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 300, replayed: false });
+    expect(await cursor()).toBe(300);
+  });
+
+  it("resumes full pages once it is no longer behind the cursor", async () => {
+    // A page is shortened only when the cursor lies *inside* the range it asks
+    // for. These pages start at or past the cursor, so `cursor > after` is false
+    // and they are full. This pins that the cap is not applied unconditionally,
+    // which would throttle a device that is merely behind to one page per cursor
+    // advance -- a live-lock rather than a wedge, and green in every other test.
+    //
+    // 80 events, so the full pages asserted below have material to run past the
+    // cursor: with only the cursor's 53 the last page legitimately ends short and
+    // the assertion would be testing the fixture, not the guard.
+    await append(80);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 53 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+
+    const shortened = await pull(pullBody(48, 10));
+    expect(shortened.toSequence).toBe(53); // ends at the cursor
+    expect(shortened.events).toHaveLength(5);
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: shortened.snapshotId, expectedCurrent: 48, throughSequence: 53 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 53, replayed: true });
+    expect(await cursor()).toBe(53);
+
+    // Past the cursor, so no cap: a full page.
+    const full = await pull(pullBody(53, 10));
+    expect(full.toSequence).toBe(63);
+    expect(full.events).toHaveLength(10);
+
+    // And it stays full on the pages after that.
+    const next = await pull(pullBody(63, 10));
+    expect(next.toSequence).toBe(73);
+    expect(next.events).toHaveLength(10);
+  });
+
+  it("caps a page at a cursor that sits inside the range it asks for", async () => {
+    // The wedge case at its smallest: the requested range *contains* the cursor.
+    // The page must stop at 25, not run on to the 48 the materializer would
+    // otherwise return -- `throughSequence` 48 is a range the cursor only partly
+    // covers, so the acknowledgement would be refused and the device would re-pull
+    // the identical range forever. `Math.min(latest, cursor)` against a cursor
+    // inside the window is the whole of that fix, and no other test here puts the
+    // cursor strictly inside the requested range.
+    //
+    // The cursor is at 25 rather than 60 because the materializer takes at most 48
+    // whatever the guard returns, so a cursor beyond 48 would be capped by that
+    // first and this test would pass with the guard removed.
+    await append(100);
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 25 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+
+    const page = await pull(pullBody(0, 100));
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 25 });
+    expect(page.events).toHaveLength(25);
+
+    // And the acknowledgement is accepted, because the range now ends exactly at
+    // the cursor rather than straddling it.
+    await expect(acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 0, throughSequence: 25 }))
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 25, replayed: true });
+    expect(await cursor()).toBe(25);
+  });
+
+  it("does not cap a fresh device that pulls from zero", async () => {
+    // A brand-new cursor is 0 and a new device pulls from 0. An unconditional cap
+    // at the cursor would serve it an empty page forever and bootstrap would never
+    // start -- which is why the comparison is strictly `cursor > after`, not
+    // `cursor >= after`.
+    await append(10);
+    expect(await cursor()).toBe(0);
+    const page = await pull(pullBody(0, 128));
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 10 });
+    expect(page.events).toHaveLength(10);
+  });
+
   it("aborts a direct acknowledgement with a stale expected current without changing the cursor", async () => {
     await append(1);
     const page = await pull(pullBody(0, 1));
@@ -475,14 +637,18 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE snapshot_id = ?").bind(page.snapshotId).first<{ count: number }>())?.count).toBe(1);
   });
 
-  it("rejects boundary mismatches, stale cursors, and first-time ACKs at exact expiry", async () => {
+  it("rejects boundary mismatches and first-time ACKs at exact expiry, and treats a covered stale cursor as a replay", async () => {
     await append(2);
     const boundaryPage = await pull(pullBody(0, 2));
     await expect(acknowledge({ schemaVersion: "1.0", snapshotId: boundaryPage.snapshotId, expectedCurrent: 0, throughSequence: 1 }))
       .rejects.toThrow("snapshot_boundary_mismatch");
+    // This assertion used to be `cursor_compare_failed`, and it is the one the
+    // recovery design changes on purpose: a cursor at 2 covers a page ending at
+    // 2, so the ack is a replay rather than a refusal. The cursor must not move.
     await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 2 WHERE consumer_name = ?").bind(`device:${primary.deviceId}`).run();
     await expect(acknowledge({ schemaVersion: "1.0", snapshotId: boundaryPage.snapshotId, expectedCurrent: 0, throughSequence: 2 }))
-      .rejects.toThrow("cursor_compare_failed");
+      .resolves.toEqual({ schemaVersion: "1.0", currentSequence: 2, replayed: true });
+    expect(await cursor()).toBe(2);
     await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 0 WHERE consumer_name = ?").bind(`device:${primary.deviceId}`).run();
     const expiry = await env.DB.prepare("SELECT expires_at FROM sync_snapshots WHERE snapshot_id = ?").bind(boundaryPage.snapshotId).first<{ expires_at: string }>();
     if (expiry === null) throw new Error("missing snapshot fixture");

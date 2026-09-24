@@ -24,6 +24,20 @@ destination is outside the exemption. The review supplied six of its 34 tutoring
 sentences; five now survive, but the complete 34-sentence artifact was unavailable.
 The lab-report passive submission/upload gap reported in that review is closed.
 
+Round four leaves two measured gaps in this interim backstop:
+
+- **F1:** A claim in the next sentence or on the next line after an exempted
+  worked sentence gets no "I can't confirm that action" notice. The veto is
+  sentence-scoped. Main at least flagged these.
+- **F2:** The held-out corpus has 22 claim shapes missed at both this branch's
+  head and main: passive nouns not on the list, contractions, unlisted verbs, a
+  subject that is not directly before the verb, and unlisted adverbs.
+
+There will be no further regex or word-list round. The planned replacement is a
+model-declared `{ sentence, toolNames }` claim checked against this turn's
+receipts. The plumbing from #172 is on main now. When that replacement lands,
+CODE-VS-JUDGMENT row 11 is deleted.
+
 Checked on 2026-09-23 against fetched `origin/main` at
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. These are remaining code limits
 or explicitly unverified acceptance requirements, not a claim about today's

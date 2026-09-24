@@ -174,10 +174,22 @@ def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepositor
 
     The archive forbids every UPDATE; memory must permit state transitions
     while protecting content and provenance.
+
+    The store root each one may change permissions inside is its own parent
+    directory as configured -- the archive's store and memory's store are
+    separate directories, and the boundary has to be the configured one rather
+    than something derived from the path being changed, or the guard in
+    `store_permissions` would accept anything.
+
+    **This is the one caller that passes `repair_permissions=True`.** Every
+    opener defaults to False so that opening a store can never rewrite a
+    permission by accident, and this is the path `jarvis serve` runs -- it starts
+    a service that owns these directories and is the only thing that can repair
+    a tree created by an elevated process the old way.
     """
-    archive = ArchiveRepository.open(archive_path)
+    archive = ArchiveRepository.open(archive_path, store_root=archive_path.parent, repair_permissions=True)
     try:
-        facts = FactRepository.open(memory_path)
+        facts = FactRepository.open(memory_path, store_root=memory_path.parent, repair_permissions=True)
     except BaseException:
         archive.close()
         raise
