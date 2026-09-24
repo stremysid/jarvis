@@ -40,6 +40,7 @@ repository is the only thing every session reads.**
 
 | Fact | How we know | Observed | Still true? |
 |---|---|---|---|
+| School catch-up is Sid's top priority; he plans to paste D2L assignment lists directly into Telegram | Sid's school-paste builder brief, 2026-09-23; owner-reported intent | 2026-09-23 | yes |
 | The school account is **Microsoft 365**; it cannot reach `console.cloud.google.com`, so Google Classroom OAuth credentials cannot be obtained | Sid stated it directly; a reviewer session had walked him through the setup a second time before recording it | 2026-09-17 | yes |
 | Consequence: **Classroom has no usable route.** The REST client is wired but credential-blocked; no Classroom handling exists in the email parser; the notification-email route was proposed, not built | Code read at `5a8acf3`; `GOOGLE_CLASSROOM_EMAIL_FROM_DOMAINS` occurs zero times in `src` | 2026-09-18 | yes |
 | LDSB Brightspace exposes **no calendar or iCal feed**, so `BRIGHTSPACE_ICAL_URL` has no value to hold. **Never ask him for one** | `KNOWN_ISSUES.md`; the board's configuration | 2026-09-15 | yes |

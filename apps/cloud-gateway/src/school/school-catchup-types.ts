@@ -105,3 +105,17 @@ export interface ApplyOwnerCatchupPlanResult {
   /** Fixed codes safe for logs. No model text or database error is carried here. */
   readonly partialCodes: readonly SchoolPlanPartialCode[];
 }
+
+/** Commit evidence, kept separate from the model's proposed plan. */
+export interface SchoolCatchupSaveReceipt {
+  readonly replayed: boolean;
+  readonly courses: readonly {
+    readonly courseId: Ulid;
+    readonly name: string;
+    readonly insertedFacts: readonly string[];
+    readonly alreadySaved: number;
+    readonly resolved: number;
+  }[];
+  readonly actions: readonly (CatchupPlanAction & { readonly courseName: string })[];
+  readonly completedActions: number;
+}
