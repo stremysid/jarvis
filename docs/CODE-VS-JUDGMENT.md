@@ -90,7 +90,7 @@ line whenever anything is dropped, so silence is never unexplained.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 10 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe an external action rather than a worked explanation. The tutoring fix narrows neutral verbs and inclusive "we" to sentences naming an external target, but this remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` now says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the existing fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a positive explanation marker in the same sentence and rejects people and storage/reservation objects. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
 
 ## How to use this list
 

@@ -11,12 +11,12 @@ describe("tutoring reply claims", () => {
     "Applied the chain rule for you.",
     "We've applied the quadratic formula, so the roots are 2 and 3.",
     "We put in x = 3 and checked that both sides equal 11.",
-    "We called the unknown concentration c.",
-    "We saved the rounding until the final step.",
+    "We called the unknown concentration the variable c.",
+    "We saved the rounding until the final step below.",
     "We shared the denominator across the two fractions.",
     "We asked what happens when x approaches zero.",
-    "We requested a counterexample in the proof.",
-    "We scheduled a pause between the two practice questions.",
+    "We requested a counterexample for the theorem.",
+    "We scheduled a pause between the two examples below.",
     "We booked the last paragraph for the opposing view.",
   ])("keeps the complete maths explanation: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(reply);
@@ -26,8 +26,8 @@ describe("tutoring reply claims", () => {
     "We added two oxygen atoms to balance the equation.",
     "We applied the mole ratio to convert hydrogen into water.",
     "I added the charges on both sides, and each total is zero.",
-    "I called this species the conjugate base.",
-    "We've saved the extra significant figures for the final calculation.",
+    "I called this species the conjugate base in the example below.",
+    "We've saved the extra significant figures for the final calculation below.",
     "Jarvis applied conservation of mass to explain the balanced equation.",
   ])("keeps the complete chemistry explanation: %s", (reply) => {
     expect(guardReplyClaims(reply)).toBe(reply);
@@ -37,7 +37,7 @@ describe("tutoring reply claims", () => {
     "I added a worked example below.",
     "I've added a transition between the two ideas below.",
     "I applied the rubric to explain why this thesis needs evidence.",
-    "We called the repeated image a motif.",
+    "We called the repeated image in the paragraph a motif.",
     "I told the story in chronological order in this example.",
     "I asked a rhetorical question in the opening line below.",
     "I saved the strongest argument for the conclusion below.",
@@ -114,5 +114,17 @@ describe("tutoring reply claims", () => {
 
   it("keeps singular first-person scheduling claims subject to the existing guard", () => {
     expect(guardReplyClaims("I scheduled it.")).toBe(ACTION_REPLACEMENT);
+  });
+
+  it.each([
+    "We called the unknown concentration c.",
+    "We saved the rounding until the final step.",
+    "We requested a counterexample in the proof.",
+    "We scheduled a pause between the two practice questions.",
+    "I called this species the conjugate base.",
+    "We've saved the extra significant figures for the final calculation.",
+    "We called the repeated image a motif.",
+  ])("requires a positive worked marker before exempting the formerly allowed sentence: %s", (reply) => {
+    expect(guardReplyClaims(reply)).toBe(ACTION_REPLACEMENT);
   });
 });
