@@ -17,6 +17,140 @@ Mutation evidence: **14 unique faults killed on their named tests and confirmed 
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
 
+## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
+
+Signed: Codex (GPT-6), builder. **PR #155, round 2.** Reviewed head:
+`d22a87bd43ae8b425fe9d8aad918bef66b61d980`.
+
+All four revision bypasses and the uppercase false positive reproduced on the
+unchanged reviewed checker: expanded baseline **111 passed / 14 failed / 0 skipped**.
+No reported finding was false. SHA matching is now lowercase only. An exemption
+requires an all-decimal word with an adjacent run marker outside a URL, or an
+immediate `/actions/runs/` path inside one. Commit/tree/blob URLs and query/fragment
+lookalikes cannot conceal a revision. The arbitrary-URL fixture now fails; the
+decimal Actions run URL and marked IDs around it pass. The first and final focused
+runs each passed **125 / 0 / 0**.
+
+The [round 2 evidence](reviews/2026-09-23-check-state-round-2.md) records the exact
+before/after cases and mutation evidence. The initial full sweep was **117 killed,
+1 survived, 0 not applied, 0 invalid**. The surviving marker-boundary fixture needed
+a later unmarked decimal revision, since a hex-letter revision is rejected by the
+new decimal guard independently. That named mutation now fails twice and passes
+after restoration. No checker change was needed for this coverage correction.
+
+Final full sweep: **118 killed, 0 survived, 0 not applied, 0 invalid**. Every named
+mutant failed twice and passed after byte-identical restoration. A fresh fetch
+still found main at `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`; the normal merge command
+reported already up to date, with main already present through round 1's merge.
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings** and
+no carrier row needing correction. Three Node syntax checks passed.
+
+Final full scripts suite: **152 passed / 0 failed / 0 skipped**. Before #154, root `pnpm test`:
+**5,461 / 0 / 0 across 209 passing files**, exit 0, with no file rerun needed.
+Whitespace, preservation of every other agent-log entry, and main ancestry each
+passed; three blob comparisons confirm the tested files stayed unchanged.
+No owner-only action arose. No product package, parallel-builder file, migration,
+production state or secret changed. Hosted CI and the next independent review are
+not claimed. Before publication, main advanced to `a6a0efd` (#154). The normal merge
+`38de971055019c06b2d62a64c9eeb483e8690dc3` retains both log histories byte for byte.
+The carriers still pass with **0 warnings**; tested checker files are unchanged.
+The workspace rerun on that merged tree passed **5,467 / 0 / 0 across 209 files**,
+exit 0, 282.81 s. No failed-file rerun was needed.
+Next: the assigned reviewer assesses round 2 after the new head is
+pushed. The worktree is removed after publication; the external ledger is retained.
+
+### Round 1 evidence (historical)
+
+Signed: Codex (GPT-6), builder. **PR #155, round 1 fixes.** Reviewed head:
+`c7d603193de03ba94caa0918e0fd509eb2a969bc`. Main
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d` was merged normally into this branch in
+`565c2924c147d93771ce8f41e354adf47f7e2dc3`, after the full mutation sweep.
+
+Every round 1 review finding reproduced; none was false. Before source changes,
+the expanded suite was **68 passed / 34 failed / 0 skipped**. All six requested
+anchor/query mutants applied and survived the original 57-test suite, then died
+under their new fixtures. The [initial submission evidence](reviews/2026-09-23-check-state-hardening.md)
+is historical; [round 1 evidence](reviews/2026-09-23-check-state-round-1.md) records
+the current rules, crafted inputs, all development counts and remaining limits.
+
+Restored the whole-visible-line SHA rule with individual run-ID/URL exemptions;
+kept nested list text visible; bounded inline code and bracket labels to a
+paragraph; rejected pipe-led register rows after a gap. Warnings now aggregate
+once per file with a count and first line, retaining plain per-row detail. Status
+must start with yes to avoid a warning. Empty claims, the additional placeholder
+sources and dates more than one UTC day ahead fail. Footnotes and nested labels
+are handled, and all six anchor/query transformations have mutation fixtures.
+
+Observed final gates: checker **109 passed / 0 failed / 0 skipped**; full scripts
+**136 / 0 / 0**; root `pnpm test` **5,461 / 0 / 0 in 209 passing files**, exit 0.
+The first scripts attempt was **129 / 1 / 0** because it started alongside offline
+installation and could not import TOML. After installation, the unchanged file
+passed alone **7 / 0 / 0**, followed by the green full run. This was a command-order
+error, not a known-flake claim. Three Node syntax checks passed; runner controls
+were **3 / 0 / 0**. The staged whitespace check passed, and a byte comparison
+confirmed every other agent-log entry is preserved.
+
+Mutations: **107 killed, 0 survived, 0 not applied, 0 invalid**; every named test
+failed twice and passed after byte-identical restoration. The first new sweep
+was **105 killed / 2 survived**; a redundant escape check and an incomplete warning
+count assertion were corrected, and both mutants now die.
+
+The merged carriers pass `node scripts/check-state.mjs` with **0 warnings**.
+**No row violates a new rule, and no newly detected lie is claimed.** No row needed
+repair; FACTS prose describes the new rules. At 2026-10-25 the real carriers emit
+**4 annotations and 41 plain detail lines**, down from 41 annotations. CI keeps
+the explicit Windows and Linux fixture steps added in the initial submission.
+Hosted CI, Linux execution and GitHub's annotation rendering are not claimed here.
+
+No sync-recovery builder file, migration, production state or secret was touched.
+No owner-only action arose. No merge of this PR into main or deployment is
+authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
+the worktree is removed after the updated PR is published. Next: assigned automated
+and independent reviewers assess #155 when its new head is pushed.
+## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
+
+Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
+
+Corrects review of `26d0fec`: the agent used to consume a tap before memory
+and channel refusal checks. Both dispatch branches now finish those checks
+before the consuming gate. Voice's unsupported pipeline refusal leaves a
+Telegram tap unspent and writes no audit with that decision id. A later
+permitted Telegram turn claims it once. Audit/tool failures after dispatch
+still do not refund approval. Binding remains principal + capability + exact
+argument fingerprint, with no channel or call-session restriction.
+
+**Migration allocation correction from Sid:** `0039` was never reserved for
+an abandoned builder. This PR renames its migration from `0040` to `0039`;
+`0040` is assigned to D2L collector keys and `0041` to owner reminders. The
+older entry below preserves the instructions known then, not current ownership.
+Backup/restore imports, all three test lists, inventory/manifest expectations,
+rollout tests and current docs use `0039`. The migration remains additive;
+migration first is preferred, code first refuses tier 3 until schema exists.
+
+Agent regressions use real adapters, conversation service and local D1, with
+synthetic providers. They cover all four refusal checks, voice refusal then
+one later execution, both branch gates, and no refund after tool failure.
+The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
+consumeStandingDecision. Before the main merge, focused suites: 238 passed,
+0 failed, 0 skipped.
+Mutations: 10 killed twice, none survived or invalid; restored suites total
+102 passed, 0 failed, 0 skipped. Source types pass; after main's callback-test
+fix, test types retain 143 prior diagnostics in 31 files with none added.
+State checks: 3 passed. The initial fixture
+failures and named mutations are in [the review document](reviews/2026-09-23-tier3-tap.md).
+For full-suite counts on the final published head, see [PR #159](https://github.com/stremysid/jarvis/pull/159)
+and `C:\Users\Sid\codex-ledgers\tier3-round1-merged-full-gateway.json` beside the ledger.
+
+Normal merges initially reported already up to date at a666097. Main advanced
+before push to a6a0efd (#154), which was merged normally with both sides of
+the AGENT_LOG and OWNER-ACTIONS conflicts retained. Its fix covers the existing
+archived-memory test that failed in the pre-merge full run (5,132/1/0) and first
+isolated rerun (71/1/0). A main control and matched PR rerun both passed 72/0/0;
+the original occurrence's cause was not established. All earlier evidence is
+retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
+the final merge commit runs the full gateway suite. No force
+push, merge into main, deployment, real database operation, real provider call
+or local-agent test. Owner rollout remains in OWNER-ACTIONS.
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
 Limited to Sid's post-review requests: literal LDSB host assertions for every
@@ -213,6 +347,41 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
+
+Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
+adds a durable consumption row keyed by decision. One SQL insert checks binding
+and TTL while claiming the tap; only the winner proceeds. No call/session scope
+was added. The original answer is immutable, and consumed marks are backed up.
+
+Premise corrections: the old lookup already had a ten-minute TTL (inclusive,
+against `resolved_at`); replay was inside that window. `0001` replay was repaired
+in `8a977a1`, and the runbook says fresh remote replay works; not re-proven remotely
+here. Main has `0001`–`0035` and `0038`, PR #96 has `0036`, `0037` stays empty and
+Sid reserves `0039` for the sync builder. Final pre-push check covered every file
+page of #96, #122, #154, #155, #156, #157 and #158; none adds `0040`.
+Main remained `a666097`. Recheck every open PR before merge.
+
+Observed so far: focused gate/migration/backup suites **120 passed, 0 failed,
+0 skipped, 7 files**; source typecheck passed. Test typecheck reports 144 errors
+in 32 files, including four existing ULID fixture errors in the backup/restore
+file this change touches; none occur in the new gate or rollout tests.
+All 12 guard mutations failed their named test twice and restored to 14/14 green
+after each, with byte-identical restoration: 12 killed and zero survivors,
+unapplied or invalid mutations. Full gateway: **5,125 passed, 0 failed,
+0 skipped, 192 files**. `node scripts/check-state.mjs`: exit 0, 3 carriers.
+No flaky rerun was needed. Earlier fixture-only failures and all mutation names
+are recorded in the linked evidence, not silently omitted.
+See [design, rollout and evidence](reviews/2026-09-23-tier3-tap.md).
+
+Migration first is preferred. Code first refuses tier-3 while the new table is
+missing; old readers still work after the additive migration. Owner remote
+rehearsal, rollout and a fresh-tap acceptance check are in `OWNER-ACTIONS.md`.
+No production, secret, remote database, real tool side effect or PC permission
+operation was performed. The requested incident report was absent; the task's
+explicit PC restrictions were followed. No parallel builder's owned files changed.
+
+— Codex, builder (not reviewer)
 
 ## 2026-09-22 — Claude builder: #147's cross-call "yes", then #147 → #144 → #146, and where the suppression check points now
 
