@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Reference owner gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (input.principalId === this.dependencies.ownerPrincipalId && this.dependencies.directOwnerText) {",
+    "replace": "if (this.dependencies.directOwnerText) {",
+    "expect": "refuses another principal before reading any assignment work",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  },
+  {
+    "name": "Reference direct-turn gate",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (input.principalId === this.dependencies.ownerPrincipalId && this.dependencies.directOwnerText) {",
+    "replace": "if (input.principalId === this.dependencies.ownerPrincipalId) {",
+    "expect": "refuses an untrusted current turn even when it names a guided tool",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  },
+  {
+    "name": "Reference fact scope",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "WHERE f.principal_id = ?1",
+    "replace": "WHERE ?1 IS NOT NULL",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  },
+  {
+    "name": "Reference plan scope",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "WHERE a.principal_id = ?1",
+    "replace": "WHERE ?1 IS NOT NULL",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  },
+  {
+    "name": "Reference saved-work scope",
+    "file": "apps/cloud-gateway/src/school/guided-assignment.ts",
+    "find": "FROM guided_assignment_answers WHERE principal_id = ?1",
+    "replace": "FROM guided_assignment_answers WHERE ?1 IS NOT NULL",
+    "expect": "scopes stored work and the saved assignment catalogue to their principal",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  },
+  {
+    "name": "Cross-turn assignment references",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const references = await readGuidedAssignmentReferences(this.dependencies.database, input.principalId);",
+    "replace": "const references: unknown[] = [];",
+    "expect": "saves two Telegram answers verbatim beside exactly the model supplied scribing",
+    "testPath": "apps/cloud-gateway/test/school/guided-assignment.test.ts"
+  }
+]
