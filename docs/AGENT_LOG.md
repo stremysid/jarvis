@@ -1,3 +1,58 @@
+## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+Owner voice now streams plain text through the existing redactor, checks each
+sentence against receipts known at that moment, and speaks code-owned tool
+receipts before the follow-up. Telegram keeps its JSON reply, claimedActions
+and rewrite call. Voice replaces those with exact receipt wording plus bounded
+sentence-local recognizers; an unsupported recognized action becomes
+"I can't confirm that action." These are lexical checks, not proof of every
+English paraphrase. See [the design and complete evidence](voice-streaming.md)
+and the new KNOWN_ISSUES entry.
+
+Verified #147 at bde0a9b14a531b628dcb579a46c914b7df2f0f3b. Two timing
+clarifications: the 20-second loop timer starts after the profile read, and the
+output redactor releases lines, requiring a newline after each checked sentence.
+The restored eight-second provider deadline counts meaningful text/tool deltas,
+not necessarily a complete spoken sentence. Live phone latency is unmeasured.
+
+Normally merged origin/main c5310bee after the interrupted builder process.
+#159's claim-before-body gate placement is unchanged. Updated its voice mock
+and pinned pending taps, claim before a refused memory body, replay rejection,
+and preservation of an unsupported pipeline tap for Telegram. No assignment
+tools were added; codex/guided-assignment owns those. No sync-recovery or
+store-permissions source was edited by this PR, and it adds no migration.
+
+Offline fixtures follow DeepSeek's documented indexed tool-call fragments,
+terminal reason and [DONE]. They are not live captures. No live API, phone call,
+secret, paid action, production operation, remote migration, merge into main or
+deployment was performed. The first live check is in OWNER-ACTIONS.md. The
+supplied Downloads incident report was absent; no local-agent or PC-setting
+code ran.
+
+Evidence on implementation 54aa73a:
+- Full workspace: 214 files, 5,580 passed / 0 failed / 0 skipped (186.07 s).
+  Gateway: 195 files, 5,227/0/0; contracts: 5 files, 77/0/0;
+  acceptance: 14 files, 276/0/0. No flaky-file rerun needed.
+- Restored focused: 4 files, 102/0/0. The production composition pin remains
+  present and passes in the full suite.
+- 54 mutations killed twice on named tests: 51 in the merged sweep plus 3
+  supplemental parser checks. Zero survivors, wrong-test kills, unconfirmed,
+  not-applied or invalid cases. Byte restoration verified (5 files, then 1).
+  The earlier killed process stopped after 11 kills and is not a complete gate.
+- Gateway source types pass. Non-gating test types report 143 diagnostics;
+  none in the new streaming files or updated tap fixture. State check passes
+  three carriers plus FACTS with zero warnings.
+
+The two intermediate 3-failure fixture runs and all other observed counts are
+in voice-streaming.md. Mutation cases are committed in
+reviewer-tools/voice-streaming.mutations.json; named assertion logs and the full
+JSON report are beside C:\Users\Sid\codex-ledgers\voice-streaming.md.
+Independent automated and adversarial review follow; this builder does not merge.
+
+---
+
 # Agent log
 
 A mailbox between the sessions building Jarvis. Sid asked for it on

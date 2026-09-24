@@ -81,11 +81,72 @@ the partial [code-versus-judgment register](CODE-VS-JUDGMENT.md).
 
 ## Validation
 
-Exact final gate and mutation results are recorded in this PR and its signed
-`AGENT_LOG.md` entry. Offline tests cover first-sentence delivery before a held
+Mutation evidence: **54 killed on their named tests, each confirmed twice;
+0 survived, 0 wrong-test kills, 0 unconfirmed, 0 not applied, 0 invalid**.
+The merged sweep killed 51 and proved five source files byte-identical after
+restoration; a supplemental three-case parser sweep proved one file restored.
+The earlier process-killed sweep stopped after 11 kills and is not counted as
+a completed gate. The reproducible cases are in
+[`reviewer-tools/voice-streaming.mutations.json`](../reviewer-tools/voice-streaming.mutations.json).
+The builder used a local copy of `reviewer-tools/mutate.ps1` that targets the
+named test for mutant runs, retains full-file clean baselines, captures assertion
+output, and validates the temporary backup path before cleanup.
+
+Observed restored focused suite: **4 files, 102 passed, 0 failed, 0 skipped**.
+Gateway source typecheck passes. The separate, non-gating test typecheck reports
+143 diagnostics; none is in the new streaming files or updated tap fixture.
+`node scripts/check-state.mjs` passes: three carriers plus FACTS, zero warnings.
+The final full-suite result is recorded below and in the signed `AGENT_LOG.md`
+entry. Offline tests cover first-sentence delivery before a held
 stream ends, suppression before and after a real memory receipt, a fragmented
 mid-stream call executing once, failure after commit, incomplete and malformed
 tool streams, deadlines and cleanup, and the retained production composition pin.
+
+Full workspace run on implementation `54aa73a`: **214 files, 5,580 passed,
+0 failed, 0 skipped** (186.07 seconds). No flaky-file rerun was needed.
+
+| Package | Files | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|
+| Cloud gateway | 195 | 5,227 | 0 | 0 |
+| Contracts | 5 | 77 | 0 | 0 |
+| Acceptance | 14 | 276 | 0 | 0 |
+
+Commands, from the checkout in PowerShell:
+
+```powershell
+pnpm.cmd exec vitest --config vitest.workspace.ts run
+pnpm.cmd --filter @jarvis/cloud-gateway typecheck
+pnpm.cmd --filter @jarvis/cloud-gateway typecheck:tests
+node scripts/check-state.mjs
+```
+
+Earlier observed runs are retained here rather than silently replacing failures
+with the final green run. All counts are pass/fail/skip; logs are beside the
+external ledger `C:\Users\Sid\codex-ledgers\voice-streaming.md`.
+
+| Run / log suffix | Files | Pass / fail / skip |
+|---|---:|---:|
+| Original related baseline / `base` | 3 | 195 / 0 / 0 |
+| First new focused / `focused` | 2 | 37 / 0 / 0 |
+| Remember fixture failure / `focused2` | 4 | 132 / 3 / 0 |
+| Corrected remember fixtures / `focused3` | 4 | 135 / 0 / 0 |
+| Composition and production sockets / `composition` | 4 | 190 / 0 / 0 |
+| Provider / `provider` | 1 | 40 / 0 / 0 |
+| Guard and cancellation / `pre-mutation` | 3 | 88 / 0 / 0 |
+| Mutation baseline / `mutbase` | 2 | 64 / 0 / 0 |
+| Optional opener arguments / `provider-final` | 1 | 43 / 0 / 0 |
+| Merged tap fixture failure / `merged-focused` | 4 | 98 / 3 / 0 |
+| Corrected tap fixture / `merged-focused2` | 4 | 101 / 0 / 0 |
+| Extra parser baseline / `extra-baseline` | 1 | 44 / 0 / 0 |
+| Restored source / `restored` | 4 | 102 / 0 / 0 |
+
+The three original failures were remember fixtures missing the required
+`previousOfferExcerpt: null`. The three merged failures were the tap test mock
+treating the initial empty `toolResults` array as a follow-up. Correcting those
+fixtures made the same tests pass without product workarounds. Before the main
+merge, the non-gating test typecheck reported 144 diagnostics; afterward it
+reports 143. Source typechecking initially caught a missing `TextDecoder`
+option, which was corrected before the implementation commit.
 
 No live API, phone call, production data, secret, remote migration, merge into
 main or deployment was used. Local D1 fixtures apply test migrations. No
