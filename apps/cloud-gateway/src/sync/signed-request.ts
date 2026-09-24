@@ -229,7 +229,7 @@ function boundedStrictJsonCopy(value: unknown): JsonValue {
   return strictJsonCopy(value);
 }
 
-function decodeCanonicalRawBody(rawBody: Uint8Array): JsonValue {
+export function decodeCanonicalRawBody(rawBody: Uint8Array): JsonValue {
   if (!(rawBody instanceof Uint8Array)) throw new TypeError("signed_body_invalid");
   if (rawBody.byteLength > MAXIMUM_SIGNED_BODY_BYTES) throw new TypeError("signed_body_invalid");
   let text: string;
@@ -251,7 +251,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function validateRequest(value: unknown): SignedRequestV1 {
+export function validateRequest(value: unknown): SignedRequestV1 {
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError("signed_request_invalid");
   const keys = Reflect.ownKeys(value);
   if (keys.length !== REQUEST_FIELDS.length || keys.some((key) => typeof key !== "string" || !REQUEST_FIELD_SET.has(key))) throw new TypeError("signed_request_invalid");
@@ -268,7 +268,7 @@ function validateRequest(value: unknown): SignedRequestV1 {
   return result as unknown as SignedRequestV1;
 }
 
-function signatureText(request: SignedRequestV1, method: "GET" | "POST", path: string): Uint8Array {
+export function signatureText(request: SignedRequestV1, method: "GET" | "POST", path: string): Uint8Array {
   return encoder.encode([method, path, request.deviceId, request.principalId, request.audience, request.issuedAt, request.nonce, request.bodyHash].join("\n"));
 }
 
