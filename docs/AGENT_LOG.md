@@ -3,6 +3,37 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
+
+Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
+
+Corrects review of `26d0fec`: the agent used to consume a tap before memory
+and channel refusal checks. Both dispatch branches now finish those checks
+before the consuming gate. Voice's unsupported pipeline refusal leaves a
+Telegram tap unspent and writes no audit with that decision id. A later
+permitted Telegram turn claims it once. Audit/tool failures after dispatch
+still do not refund approval. Binding remains principal + capability + exact
+argument fingerprint, with no channel or call-session restriction.
+
+**Migration allocation correction from Sid:** `0039` was never reserved for
+an abandoned builder. This PR renames its migration from `0040` to `0039`;
+`0040` is assigned to D2L collector keys and `0041` to owner reminders. The
+older entry below preserves the instructions known then, not current ownership.
+Backup/restore imports, all three test lists, inventory/manifest expectations,
+rollout tests and current docs use `0039`. The migration remains additive;
+migration first is preferred, code first refuses tier 3 until schema exists.
+
+Agent regressions use real adapters, conversation service and local D1, with
+synthetic providers. They cover all four refusal checks, voice refusal then
+one later execution, both branch gates, and no refund after tool failure.
+The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
+consumeStandingDecision. Focused tests, mutations and full-suite evidence are
+being finalized in [the review document](reviews/2026-09-23-tier3-tap.md).
+
+Normal merge of freshly fetched origin/main reported already up to date at
+a666097. No force push, merge into main, deployment, real database operation,
+real provider call or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+
 ## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
 
 Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`

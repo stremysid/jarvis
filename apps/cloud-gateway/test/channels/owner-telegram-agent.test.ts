@@ -2725,24 +2725,25 @@ describe("the capability tier gate in tool dispatch", () => {
     // tier-1 tools that the gate permits either way -- which is exactly how the
     // original defect survived: the service was correct and unreferenced.
     const harness = await ownerHarness("tier3-refusal");
+    await testToolGate(env.DB);
+    await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
+    const school = new ReceiptModel("The pipeline ran.");
     const provider = new FakeAgentProvider([
-      called(tool("email-1", "send_email", {
-        to: "supplier@example.com",
-        body: "the order is confirmed",
-      })),
-      stopped("I need your confirmation before I send that."),
+      called(tool("school-tier3", "school_update", {})),
+      stopped("I need your confirmation before I run that."),
     ]);
 
     const reply = await runTurn({
       harness,
-      text: "email the supplier that the order is confirmed",
-      provider,
+      text: "update the school tracker",
+      provider, school,
     });
 
     // A tier-3 capability always needs the owner's tap, and the receipt says so
-    // rather than claiming the mail went out.
+    // rather than claiming the pipeline ran.
     expect(reply).toContain("needs your tap");
-    expect(reply).toContain("contact.third_party");
+    expect(reply).toContain("school.track");
+    expect(school.inputs).toHaveLength(0);
 
     const { results } = await env.DB.prepare(
       `SELECT origin, origin_reference FROM decision_items WHERE origin = 'autonomy-tier3-tool'`,
@@ -2750,25 +2751,27 @@ describe("the capability tier gate in tool dispatch", () => {
     expect(results).toHaveLength(1);
     // The question is bound to the capability and a fingerprint of the exact
     // arguments, so the tap authorizes this action and not a later one.
-    expect(results[0]?.origin_reference).toContain("contact.third_party:");
+    expect(results[0]?.origin_reference).toContain("school.track:");
   });
 
   it("records the refusal in the audit ledger with the outcome that caused it", async () => {
     const harness = await ownerHarness("tier3-audit");
+    await testToolGate(env.DB);
+    await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
     const provider = new FakeAgentProvider([
-      called(tool("email-2", "send_email", { to: "a@example.com", body: "x" })),
+      called(tool("school-audit", "school_update", {})),
       stopped("Waiting on your confirmation."),
     ]);
 
-    await runTurn({ harness, text: "email a@example.com", provider });
+    await runTurn({ harness, text: "update the school tracker", provider });
 
     const { results } = await env.DB.prepare(
       `SELECT capability, tier, outcome FROM autonomy_evaluations
-       WHERE capability = 'contact.third_party' ORDER BY rowid ASC`,
-    ).all<{ capability: string; tier: number; outcome: string }>();
+       WHERE capability = 'school.track' AND principal_id = ? ORDER BY rowid ASC`,
+    ).bind(harness.principalId).all<{ capability: string; tier: number; outcome: string }>();
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]).toMatchObject({
-      capability: "contact.third_party",
+      capability: "school.track",
       tier: 3,
       outcome: "requires_confirmation",
     });

@@ -50,7 +50,7 @@
   },
   {
     "name": "race-unique-key",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "decision_id TEXT NOT NULL PRIMARY KEY REFERENCES",
     "replace": "decision_id TEXT NOT NULL REFERENCES",
     "expect": "allows exactly one of two concurrent executions",
@@ -58,7 +58,7 @@
   },
   {
     "name": "immutable-update",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "BEFORE UPDATE ON tool_confirmation_consumptions\nBEGIN",
     "replace": "BEFORE UPDATE ON tool_confirmation_consumptions\nWHEN 0\nBEGIN",
     "expect": "refuses to erase or rewrite a consumed mark",
@@ -66,7 +66,7 @@
   },
   {
     "name": "immutable-delete",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "BEFORE DELETE ON tool_confirmation_consumptions\nBEGIN",
     "replace": "BEFORE DELETE ON tool_confirmation_consumptions\nWHEN 0\nBEGIN",
     "expect": "refuses to erase or rewrite a consumed mark",
@@ -74,7 +74,7 @@
   },
   {
     "name": "timestamp-format",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', consumed_at) IS consumed_at)",
     "replace": "CHECK (1)",
     "expect": "requires a real response and a canonical nonnull",
@@ -82,7 +82,7 @@
   },
   {
     "name": "decision-nonnull",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "decision_id TEXT NOT NULL PRIMARY KEY",
     "replace": "decision_id TEXT PRIMARY KEY",
     "expect": "requires a real response and a canonical nonnull",
@@ -90,7 +90,7 @@
   },
   {
     "name": "timestamp-nonnull",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": "consumed_at TEXT NOT NULL CHECK",
     "replace": "consumed_at TEXT CHECK",
     "expect": "requires a real response and a canonical nonnull",
@@ -98,7 +98,7 @@
   },
   {
     "name": "response-foreign-key",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0040_tool_confirmation_consumptions.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
     "find": " REFERENCES decision_responses(decision_id) ON DELETE RESTRICT",
     "replace": "",
     "expect": "requires a real response and a canonical nonnull",

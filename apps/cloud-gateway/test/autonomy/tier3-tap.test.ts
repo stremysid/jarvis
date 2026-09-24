@@ -58,6 +58,12 @@ async function consumption(decisionId: string) {
 describe("single-use tier-3 taps", () => {
   beforeAll(applyNewestRuntimeMigration, 120_000);
 
+  it("describes tap expiry using the configured confirmation lifetime", async () => {
+    const h = await harness();
+    const result = await h.gate().evaluateToolCall(h.request);
+    expect(result.receipt).toContain(`valid once for ${CONFIRMATION_TTL_MS / 60_000} minutes`);
+  });
+
   it("authorizes exactly one execution and explains why a second attempt needs a new tap", async () => {
     const h = await harness();
     const decisionId = await h.tap();

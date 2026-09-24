@@ -8,7 +8,7 @@ import {
 import { ToolAutonomyGate } from "../../src/autonomy/tool-gate.js";
 import { DecisionRepository } from "../../src/decisions/decision-repository.js";
 import { DecisionService } from "../../src/decisions/decision-service.js";
-import migration from "../../src/persistence/migrations/0040_tool_confirmation_consumptions.sql?raw";
+import migration from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
 import { applyFoundationMigration, splitMigration } from "./migration.js";
 
 describe("the additive confirmation migration", () => {
@@ -46,7 +46,7 @@ describe("the additive confirmation migration", () => {
 
     const responseBefore = await env.DB.prepare("SELECT * FROM decision_responses WHERE decision_id = ?")
       .bind(item.decisionId).first();
-    await applyD1Migrations(env.DB, [{ name: "0040_tool_confirmation_consumptions.sql", queries: splitMigration(migration) }]);
+    await applyD1Migrations(env.DB, [{ name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(migration) }]);
     // The pre-deploy SELECT still resolves the existing tap against unchanged
     // answer tables. Old code ignores the new table until the gateway deploy.
     const oldReader = await env.DB.prepare(`SELECT item.decision_id
