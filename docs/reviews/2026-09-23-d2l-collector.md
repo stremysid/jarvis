@@ -1,5 +1,7 @@
 # D2L collector receiving-end evidence
 
+Historical build evidence. For the merged-main fixes and current gate results, see [review round 1](2026-09-23-d2l-collector-round-1.md).
+
 Local Windows / PowerShell checks, 2026-09-23 EDT (logs continue into 2026-09-24 UTC). Signed: Codex GPT-6 builder. No real school requests, Telegram delivery, database migration, deployment or local-agent test ran. No PC permissions, services, registry or scheduled tasks were changed.
 
 ## Revision and gates

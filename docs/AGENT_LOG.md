@@ -3,6 +3,18 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex GPT-6 builder: #169 review round 1
+
+Signed: Codex GPT-6, cloud receiver builder, 2026-09-23 EDT. Read all of [review comment 5806221250](https://github.com/stremysid/jarvis/pull/169#issuecomment-5806221250) before changes. Merged fresh main `c92078b964cf9a8ce22ee8494714da332e4f553b` normally in `ff3ae31`, preserving 0039 before 0040 and backup schema 0040. No rebase or force-push in this round. Final executable changes are `72094aea19dac430b309ccc564099d8569933eb1`.
+
+The merged revoke test reproduced the untapped revocation. Both school tools now validate arguments before the autonomy gate; invalid calls leave a tap unspent. Complete per-tool 403s stay evidence and do not fail reads. Refusals and both read aggregates are bounded; a separate last-good query preserves success through a failure streak. Current digests name undated work. The database-only non-Telegram activation test kills the review's surviving S5 mutation. Pairing quotas are per principal, and activation uses the key's qualified expiry. A separate probe also caught null successful submission containers being marked good; unfamiliar containers now fail while 403s stay normal. **No upload route, signature semantics, pairing payload or batch wire format changed.**
+
+Observed final gates: full cloud package once **5192 passed / 0 failed / 0 skipped**, 196 files; collector **52/0/0**. **103 distinct mutations killed**, 118 attempts including 15 affected mapping rechecks, zero survivors/unapplied/invalid/unconfirmed/wrong-test outcomes. Each named mutant failed twice and passed after restoration; sweeps restored 10 files and 1 file byte-identically. Source typecheck exit 0, zero diagnostics. Test typecheck remains red: **143 diagnostics outside collector files, zero inside**. Reproduction counts and complete named evidence are in [round 1 evidence](reviews/2026-09-23-d2l-collector-round-1.md).
+
+Remaining gaps are explicit in [KNOWN_ISSUES](../KNOWN_ISSUES.md#school-collector-retention-and-public-pairing-remain-bounded-only-in-part): unpruned pending keys/nonces, public exhaustion of Sid's own pairing budget, course retirement and duplicate-tap wording. No production, real DB, live provider, secret, permissions, services, tasks, registry or local-agent operation occurred; the incident file was absent. The ledger and gate logs remain outside the repository at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
+
+Next, **when this fix head is pushed**: automated and independent adversarial re-review. **After independent clearance and authorized rollout**: owner acceptance on both devices, as already listed in OWNER-ACTIONS. Remove only this clean worktree after publication, retaining the ledger.
+
 ## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
 
 Signed: Codex (GPT-6), builder. **PR #155, round 2.** Reviewed head:
