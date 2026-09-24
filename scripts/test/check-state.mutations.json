@@ -1,0 +1,710 @@
+[
+  {
+    "name": "utc-calendar-age",
+    "find": "Math.floor(Date.now() / DAY) * DAY",
+    "replace": "Date.now()",
+    "test": "does not warn until a date is more than thirty calendar days old"
+  },
+  {
+    "name": "terminal-newline",
+    "find": "  if (lines.at(-1) === '') lines.pop();",
+    "replace": "",
+    "test": "counts a terminal newline as the end of line one hundred fifty"
+  },
+  {
+    "name": "fence-opener",
+    "find": "    if (marker) { fence = marker[1]; code = false; return blank(line); }",
+    "replace": "",
+    "test": "ignores code fences and indented code when checking links"
+  },
+  {
+    "name": "fence-closer",
+    "find": "      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;",
+    "replace": "",
+    "test": "checks real links following a closed fence"
+  },
+  {
+    "name": "indented-code",
+    "find": "if (code) return blank(line);",
+    "replace": "if (false) return blank(line);",
+    "test": "ignores code fences and indented code when checking links"
+  },
+  {
+    "name": "inline-code",
+    "find": "    .map((paragraph) => paragraph.replace(/(?<![`\\\\])(`+)(?!`)[\\s\\S]*?(?<!`)\\1(?!`)/gu, blank)).join('');",
+    "replace": "    .map((paragraph) => paragraph).join('');",
+    "test": "ignores link syntax inside inline code"
+  },
+  {
+    "name": "pipe-in-code",
+    "find": "const visible = withoutInlineCode(line);",
+    "replace": "const visible = line;",
+    "test": "accepts a backticked pipe inside a fact cell"
+  },
+  {
+    "name": "escaped-pipe",
+    "find": "visible[i] === '|' && !escaped(visible, i)",
+    "replace": "visible[i] === '|'",
+    "test": "accepts escaped pipes and multiple-backtick code spans"
+  },
+  {
+    "name": "leading-pipe",
+    "find": "  if (visible.trimStart().startsWith('|')) cells.shift();",
+    "replace": "",
+    "test": "accepts the unchanged valid fixture without warnings"
+  },
+  {
+    "name": "trailing-pipe",
+    "find": "  if (cells.at(-1) === '') cells.pop();",
+    "replace": "",
+    "test": "accepts the unchanged valid fixture without warnings"
+  },
+  {
+    "name": "register-presence",
+    "find": "  if (section < 0) { failures.push(`${FACTS}: no 'The register' section.`); return; }",
+    "replace": "  if (section < 0) return;",
+    "test": "rejects a missing register table or a changed register header"
+  },
+  {
+    "name": "register-end",
+    "find": "const stop = end < 0 ? lines.length : end;",
+    "replace": "const stop = lines.length;",
+    "test": "stops the register at the next section even without a blank line"
+  },
+  {
+    "name": "header-section-boundary",
+    "find": "while (first < stop &&",
+    "replace": "while (first < lines.length &&",
+    "test": "does not borrow a register table from a later section"
+  },
+  {
+    "name": "register-header",
+    "find": "    failures.push(`${FACTS}: the register needs its four-column header and separator.`);",
+    "replace": "",
+    "test": "rejects a missing register table or a changed register header"
+  },
+  {
+    "name": "separator-validation",
+    "find": "separator.some((cell) => !/^:?-{3,}:?$/u.test(cell))",
+    "replace": "false",
+    "test": "rejects a missing table separator"
+  },
+  {
+    "name": "table-end",
+    "find": "tableEnded = true;",
+    "replace": "tableEnded = false;",
+    "test": "rejects a register row appended after a blank line"
+  },
+  {
+    "name": "short-row",
+    "find": "    if (cells.length !== 4) { failures.push(`${at}: a register row must have 4 cells, found ${cells.length}.`); continue; }",
+    "replace": "    if (cells.length !== 4) continue;",
+    "test": "rejects a three-cell fact row instead of silently dropping it"
+  },
+  {
+    "name": "extra-cell",
+    "find": "    if (cells.length !== 4) { failures.push(`${at}: a register row must have 4 cells, found ${cells.length}.`); continue; }",
+    "replace": "    if (cells.length !== 4) continue;",
+    "test": "rejects a fifth fact cell instead of discarding its evidence"
+  },
+  {
+    "name": "real-calendar-date",
+    "find": " && new Date(timestamp).toISOString().slice(0, 10) === value",
+    "replace": "",
+    "test": "rejects an observation date that overflows February"
+  },
+  {
+    "name": "finite-calendar-date",
+    "find": "Number.isFinite(timestamp) && new Date",
+    "replace": "true && new Date",
+    "test": "rejects an impossible observation date"
+  },
+  {
+    "name": "observation-date",
+    "find": "    if (!Number.isFinite(timestamp)) failures.push(`${at}: the Observed cell is not a real YYYY-MM-DD date.`);",
+    "replace": "",
+    "test": "rejects a non-ISO observation date"
+  },
+  {
+    "name": "source-required",
+    "find": "    if (/^(?:TODO|TBD|N\\/A|none|[-—–?])?$/iu.test(plainCell(source))) failures.push(`${at}: no source. A placeholder is not evidence.`);",
+    "replace": "",
+    "test": "checks an indented fact row for a missing source"
+  },
+  {
+    "name": "todo-source",
+    "find": "TODO|",
+    "replace": "",
+    "test": "rejects TODO as a fact source"
+  },
+  {
+    "name": "dash-source",
+    "find": "[-—–?]",
+    "replace": "[—–?]",
+    "test": "rejects a dash as a fact source"
+  },
+  {
+    "name": "unset-status",
+    "find": "!plainCell(stillTrue).toLowerCase().startsWith('yes')",
+    "replace": "false",
+    "test": "lists an unset Still true cell as a warning"
+  },
+  {
+    "name": "no-status",
+    "find": "!plainCell(stillTrue).toLowerCase().startsWith('yes')",
+    "replace": "false",
+    "test": "lists a no Still true cell as a warning"
+  },
+  {
+    "name": "unknown-status",
+    "find": "!plainCell(stillTrue).toLowerCase().startsWith('yes')",
+    "replace": "false",
+    "test": "warns for unknown and unconfirmed facts"
+  },
+  {
+    "name": "old-fact-warning",
+    "find": " || today - timestamp > 30 * DAY",
+    "replace": "",
+    "test": "annotates an old fact as a warning without failing the check"
+  },
+  {
+    "name": "annotation",
+    "find": "::warning file=",
+    "replace": "warning file=",
+    "test": "annotates an old fact as a warning without failing the check"
+  },
+  {
+    "name": "annotation-no-row-text",
+    "find": "first affected line ${rows[0].line}.",
+    "replace": "first affected line ${rows[0].line}. ${rows[0].message}",
+    "test": "keeps row text out of warning annotations"
+  },
+  {
+    "name": "angle-destination",
+    "find": "  if (text[0] === '<') return /^<([^>\\n]*)>/u.exec(text)?.[1];",
+    "replace": "",
+    "test": "accepts real anchors and spaced paths with optional link titles"
+  },
+  {
+    "name": "destination-escapes",
+    "find": "    if (escaped(text, end)) continue;",
+    "replace": "",
+    "test": "accepts escaped parentheses in destinations"
+  },
+  {
+    "name": "open-parenthesis",
+    "find": "    if (char === '(') depth++;",
+    "replace": "",
+    "test": "checks percent-encoded paths and balanced parentheses"
+  },
+  {
+    "name": "close-parenthesis",
+    "find": "    if (char === ')') { if (depth === 0) break; depth--; }",
+    "replace": "    if (char === ')') break;",
+    "test": "checks percent-encoded paths and balanced parentheses"
+  },
+  {
+    "name": "destination-whitespace",
+    "find": "    if (/\\s/u.test(char) && depth === 0) break;",
+    "replace": "",
+    "test": "accepts real anchors and spaced paths with optional link titles"
+  },
+  {
+    "name": "first-reference",
+    "find": "if (!definitions.has(labelKey(label))) definitions.set",
+    "replace": "definitions.set",
+    "test": "uses the first reference definition and normalizes its label"
+  },
+  {
+    "name": "reference-label-normalization",
+    "find": "const labelKey = (label) => label.trim().replace(/\\s+/gu, ' ').toLowerCase();",
+    "replace": "const labelKey = (label) => label;",
+    "test": "resolves normalized reference labels before checking their destinations"
+  },
+  {
+    "name": "escaped-link",
+    "find": " || escaped(body, index)",
+    "replace": "",
+    "test": "ignores escaped links and external URLs"
+  },
+  {
+    "name": "reference-destination",
+    "find": "definitions.get(labelKey(reference?.label || label.label))",
+    "replace": "undefined",
+    "test": "checks a reference-style link destination"
+  },
+  {
+    "name": "undefined-reference",
+    "find": "if (target !== undefined) links.push",
+    "replace": "links.push",
+    "test": "ignores escaped links and external URLs"
+  },
+  {
+    "name": "exact-path-case",
+    "find": "!readdirSync(current).includes(part)",
+    "replace": "!readdirSync(current).some((name) => name.toLowerCase() === part.toLowerCase())",
+    "test": "rejects a wrong-case path even on Windows"
+  },
+  {
+    "name": "duplicate-heading",
+    "find": "      while (anchors.has(slug)) slug = `${base}-${++suffix}`;",
+    "replace": "",
+    "test": "accepts duplicate headings setext headings and explicit HTML anchors"
+  },
+  {
+    "name": "explicit-anchor",
+    "find": "    for (const match of withoutInlineCode(line).matchAll(/<(?:a|[a-z][a-z0-9]*)\\b[^>]*\\b(?:id|name)=[\"']([^\"']+)[\"']/giu)) anchors.add(match[1]);",
+    "replace": "",
+    "test": "accepts duplicate headings setext headings and explicit HTML anchors"
+  },
+  {
+    "name": "anchor-code-exclusion",
+    "find": "withoutInlineCode(line).matchAll",
+    "replace": "line.matchAll",
+    "test": "does not create an HTML anchor from inline code"
+  },
+  {
+    "name": "external-link",
+    "find": "    if (/^[a-z][a-z0-9+.-]*:/iu.test(target) || target.startsWith('//')) continue;",
+    "replace": "",
+    "test": "ignores escaped links and external URLs"
+  },
+  {
+    "name": "link-target-exists",
+    "find": "if (!existsSync(path) || !exactPath(path))",
+    "replace": "if (false)",
+    "test": "checks links in the facts register"
+  },
+  {
+    "name": "link-anchor-exists",
+    "find": "if (anchor && /\\.md$/iu.test(path)",
+    "replace": "if (false && /\\.md$/iu.test(path)",
+    "test": "rejects an absent same-file anchor"
+  },
+  {
+    "name": "malformed-link",
+    "find": "      failures.push(`${at}: cannot resolve link ${target} (${error.code ?? error.name}).`);",
+    "replace": "",
+    "test": "reports malformed URL escapes as link failures"
+  },
+  {
+    "name": "facts-links",
+    "find": "  checkLinks(file, text);",
+    "replace": "",
+    "test": "checks links in the facts register"
+  },
+  {
+    "name": "carrier-required",
+    "find": "  if (!existsSync(path)) { failures.push(`${file}: missing. The state carriers are not optional.`); continue; }",
+    "replace": "  if (!existsSync(path)) continue;",
+    "test": "retains missing-carrier and missing-BLOCKS failures"
+  },
+  {
+    "name": "regeneration-date",
+    "find": "if (!Number.isFinite(timestamp)) failures.push(`${file}:",
+    "replace": "if (false) failures.push(`${file}:",
+    "test": "rejects a malformed regeneration date"
+  },
+  {
+    "name": "regeneration-age",
+    "find": "else if (today - timestamp > 30 * DAY)",
+    "replace": "else if (false)",
+    "test": "warns when a carrier was last regenerated more than thirty days ago"
+  },
+  {
+    "name": "state-budget",
+    "find": "if (lines.length > STATE_LINE_BUDGET)",
+    "replace": "if (false)",
+    "test": "rejects a genuinely over-budget state file"
+  },
+  {
+    "name": "revision-line",
+    "find": "if (namesRevision(line))",
+    "replace": "if (false)",
+    "test": "rejects an explicit current revision including an all-digit sha"
+  },
+  {
+    "name": "reverse-revision",
+    "find": "if (namesRevision(line))",
+    "replace": "if (false)",
+    "test": "rejects a revision before parenthesized origin main"
+  },
+  {
+    "name": "blocks-column",
+    "find": "  if (file === 'docs/QUEUE.md' && !/\\|\\s*BLOCKS\\s*\\|/u.test(prose(text))) failures.push(`${file}: no BLOCKS column. Without it the priority rule stops being mechanical.`);",
+    "replace": "",
+    "test": "retains missing-carrier and missing-BLOCKS failures"
+  },
+  {
+    "name": "failure-exit",
+    "find": "process.exit(1);",
+    "replace": "process.exit(0);",
+    "test": "rejects a three-cell fact row instead of silently dropping it"
+  },
+  {
+    "name": "anchor-space",
+    "find": ".replace(/ /gu, '-')",
+    "replace": ".replace(/ +/gu, '-')",
+    "test": "preserves both spaces around removed punctuation in an anchor"
+  },
+  {
+    "name": "anchor-html",
+    "find": ".replace(/<[^>]*>/gu, '')",
+    "replace": "",
+    "test": "strips HTML tags from a heading anchor"
+  },
+  {
+    "name": "anchor-link-text",
+    "find": ".replace(/\\[([^\\]]+)\\]\\([^)]*\\)/gu, '$1')",
+    "replace": "",
+    "test": "uses the visible link text in a heading anchor"
+  },
+  {
+    "name": "anchor-connector",
+    "find": "\\p{Pc}",
+    "replace": "",
+    "test": "preserves underscores in a heading anchor"
+  },
+  {
+    "name": "anchor-decode",
+    "find": "decodeURIComponent(target.slice(hash + 1))",
+    "replace": "target.slice(hash + 1)",
+    "test": "decodes a percent-encoded Unicode anchor"
+  },
+  {
+    "name": "link-query",
+    "find": ".split('?')[0]",
+    "replace": "",
+    "test": "strips the query before resolving a local link"
+  },
+  {
+    "name": "list-bullet-visible",
+    "find": "indentedCode && !list && listIndent === undefined",
+    "replace": "indentedCode",
+    "test": "checks a revision in a four-space bullet"
+  },
+  {
+    "name": "list-continuation-visible",
+    "find": " && listIndent === undefined",
+    "replace": "",
+    "test": "checks an indented list continuation after a blank line"
+  },
+  {
+    "name": "list-dedent",
+    "find": "listIndent = undefined;",
+    "replace": "listIndent = listIndent;",
+    "test": "recognizes an indented code block after a list has ended"
+  },
+  {
+    "name": "indented-code-start",
+    "find": "(previousBlank || code)",
+    "replace": "true",
+    "test": "checks an indented paragraph continuation without a blank line"
+  },
+  {
+    "name": "indented-code-continuation",
+    "find": "(previousBlank || code)",
+    "replace": "previousBlank",
+    "test": "recognizes an indented code block after a list has ended"
+  },
+  {
+    "name": "physical-blank-line",
+    "find": "const previousBlank = index === 0 || !lines[index - 1].trim();",
+    "replace": "const previousBlank = true;",
+    "test": "does not create indented code merely because a fence followed a blank line"
+  },
+  {
+    "name": "paragraph-code-boundary",
+    "find": "text.split(/(\\r?\\n[ \\t]*\\r?\\n)/u)",
+    "replace": "[text]",
+    "test": "does not pair an unmatched backtick across a paragraph boundary"
+  },
+  {
+    "name": "register-gap-rejection",
+    "find": "      if (/^\\s*\\|/u.test(lines[index])) failures.push(`${FACTS}:${index + 1}: register row after the table ended. Remove the blank gap or move it to another section.`);",
+    "replace": "",
+    "test": "rejects a register row appended after a blank line"
+  },
+  {
+    "name": "indented-row-after-gap",
+    "find": "/^\\s*\\|/u.test(lines[index])",
+    "replace": "/^\\|/u.test(lines[index])",
+    "test": "rejects an indented register row after intervening prose"
+  },
+  {
+    "name": "only-table-rows-after-gap",
+    "find": "/^\\s*\\|/u.test(lines[index])",
+    "replace": "lines[index].includes('|')",
+    "test": "permits prose with a pipe after the register table"
+  },
+  {
+    "name": "warning-group-retains-rows",
+    "find": "if (!warnings.has(file)) warnings.set",
+    "replace": "warnings.set",
+    "test": "emits one warning per file with a count and the first affected line"
+  },
+  {
+    "name": "warning-group-count",
+    "find": "${rows.length} item(s)",
+    "replace": "1 item(s)",
+    "test": "emits one warning per file with a count and the first affected line"
+  },
+  {
+    "name": "warning-group-first-line",
+    "find": "    console.warn(`::warning file=${file},line=${rows[0].line}::${rows.length} item(s) need re-verification; first affected line ${rows[0].line}.`);",
+    "replace": "    console.warn(`::warning file=${file},line=${rows.at(-1).line}::${rows.length} item(s) need re-verification; first affected line ${rows.at(-1).line}.`);",
+    "test": "emits one warning per file with a count and the first affected line"
+  },
+  {
+    "name": "bounded-warning-annotations",
+    "find": "    for (const row of rows) console.log(`  ${file}:${row.line}: ${row.message.replace(/[\\r\\n]/gu, ' ')}`);",
+    "replace": "    for (const row of rows) console.warn(\"::warning::extra\");\n    for (const row of rows) console.log(`  ${file}:${row.line}: ${row.message.replace(/[\\r\\n]/gu, ' ')}`);",
+    "test": "emits one warning per file with a count and the first affected line"
+  },
+  {
+    "name": "warning-details-no-newline",
+    "find": ".replace(/[\\r\\n]/gu, ' ')",
+    "replace": "",
+    "test": "keeps control characters inside prefixed warning detail lines"
+  },
+  {
+    "name": "warning-flush",
+    "find": "emitWarnings();",
+    "replace": "",
+    "test": "emits one warning per file with a count and the first affected line"
+  },
+  {
+    "name": "yes-with-explanation",
+    "find": "!plainCell(stillTrue).toLowerCase().startsWith('yes')",
+    "replace": "plainCell(stillTrue).toLowerCase() !== 'yes'",
+    "test": "accepts a Still true cell starting with yes and an explanation"
+  },
+  {
+    "name": "status-unverified",
+    "find": "!plainCell(stillTrue).toLowerCase().startsWith('yes')",
+    "replace": "false",
+    "test": "warns when Still true starts with unverified"
+  },
+  {
+    "name": "formatted-cell",
+    "find": "const plainCell = (cell) => cell.replace(/[`*_]/gu, '').trim();",
+    "replace": "const plainCell = (cell) => cell.trim();",
+    "test": "accepts a Still true cell starting with yes and an explanation"
+  },
+  {
+    "name": "fact-not-empty",
+    "find": "    if (!plainCell(fact)) failures.push(`${at}: the Fact cell is empty.`);",
+    "replace": "",
+    "test": "rejects an empty Fact cell"
+  },
+  {
+    "name": "source-em-dash",
+    "find": "[-—–?]",
+    "replace": "[-–?]",
+    "test": "rejects — as a placeholder fact source"
+  },
+  {
+    "name": "source-en-dash",
+    "find": "[-—–?]",
+    "replace": "[-—?]",
+    "test": "rejects – as a placeholder fact source"
+  },
+  {
+    "name": "source-tbd",
+    "find": "TBD|",
+    "replace": "",
+    "test": "rejects TBD as a placeholder fact source"
+  },
+  {
+    "name": "source-na",
+    "find": "N\\/A|",
+    "replace": "",
+    "test": "rejects N/A as a placeholder fact source"
+  },
+  {
+    "name": "source-question",
+    "find": "[-—–?]",
+    "replace": "[-—–]",
+    "test": "rejects ? as a placeholder fact source"
+  },
+  {
+    "name": "source-none",
+    "find": "none|",
+    "replace": "",
+    "test": "rejects none as a placeholder fact source"
+  },
+  {
+    "name": "observation-not-future",
+    "find": "    if (timestamp > today + DAY) failures.push(`${at}: the Observed date is more than one UTC day ahead of today.`);",
+    "replace": "",
+    "test": "rejects an observation more than one UTC day ahead"
+  },
+  {
+    "name": "regeneration-not-future",
+    "find": "  if (timestamp > today + DAY) failures.push(`${file}:${generatedLine + 1}: Last regenerated date is more than one UTC day ahead of today.`);",
+    "replace": "",
+    "test": "rejects a regeneration date more than one UTC day ahead"
+  },
+  {
+    "name": "observation-tomorrow-allowed",
+    "find": "    if (timestamp > today + DAY) failures.push(`${at}: the Observed date is more than one UTC day ahead of today.`);",
+    "replace": "    if (timestamp >= today + DAY) failures.push(`${at}: the Observed date is more than one UTC day ahead of today.`);",
+    "test": "allows an observation and regeneration stamp one UTC day ahead"
+  },
+  {
+    "name": "regeneration-tomorrow-allowed",
+    "find": "  if (timestamp > today + DAY) failures.push(`${file}:${generatedLine + 1}: Last regenerated date is more than one UTC day ahead of today.`);",
+    "replace": "  if (timestamp >= today + DAY) failures.push(`${file}:${generatedLine + 1}: Last regenerated date is more than one UTC day ahead of today.`);",
+    "test": "allows an observation and regeneration stamp one UTC day ahead"
+  },
+  {
+    "name": "footnote-not-reference",
+    "find": "    if (label.trim().startsWith('^')) return whole;",
+    "replace": "",
+    "test": "does not interpret a footnote definition as a link destination"
+  },
+  {
+    "name": "footnote-body-links",
+    "find": "if (label.trim().startsWith('^')) return whole;",
+    "replace": "if (label.trim().startsWith('^')) return blank(whole);",
+    "test": "still checks a Markdown link inside a footnote body"
+  },
+  {
+    "name": "nested-brackets",
+    "find": "if (text[index] === '[') depth++;",
+    "replace": "if (text[index] === '[') depth = 1;",
+    "test": "checks a link whose label contains nested brackets"
+  },
+  {
+    "name": "bracket-escapes",
+    "find": "    if (escaped(text, index)) continue;",
+    "replace": "",
+    "test": "ignores an escaped opening bracket inside a link label"
+  },
+  {
+    "name": "bracket-paragraph-boundary",
+    "find": "    if (text[index] === '\\n' && /^[ \\t]*\\r?\\n/u.test(text.slice(index + 1))) return;",
+    "replace": "",
+    "test": "does not join bracket labels across a paragraph boundary"
+  },
+  {
+    "name": "unfinished-bracket",
+    "find": "    if (!label) continue;",
+    "replace": "",
+    "test": "permits an unfinished bracket in ordinary prose"
+  },
+  {
+    "name": "explicit-reference",
+    "find": "const reference = body[after] === '[' ? bracketLabel(body, after) : undefined;",
+    "replace": "const reference = undefined;",
+    "test": "uses an explicit reference instead of a shortcut with the same link text"
+  },
+  {
+    "name": "origin-ref-required",
+    "find": "  if (!line.includes('origin/main')) return false;",
+    "replace": "",
+    "test": "permits a revision on a line without origin main"
+  },
+  {
+    "name": "marked-run-token",
+    "find": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))",
+    "replace": "false",
+    "test": "exempts only the marked run tokens and URL tokens on a revision line"
+  },
+  {
+    "name": "run-exemption-not-line",
+    "find": "else if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) continue;",
+    "replace": "else if (/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))) return false;",
+    "test": "exempts only the marked run tokens and URL tokens on a revision line"
+  },
+  {
+    "name": "run-marker-boundary",
+    "find": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*$/iu.test(line.slice(0, word.index))",
+    "replace": "/(?:\\brun(?:\\s+id)?(?:\\s+|:\\s*)|\\bruns\\/|#)[\\s`*_]*/iu.test(line.slice(0, word.index))",
+    "test": "exempts only the marked run tokens and URL tokens on a revision line"
+  },
+  {
+    "name": "url-token",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "false",
+    "test": "exempts only the marked run tokens and URL tokens on a revision line"
+  },
+  {
+    "name": "url-exemption-not-line",
+    "find": "if (/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))) continue;",
+    "replace": "if (/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))) return false;",
+    "test": "exempts only the marked run tokens and URL tokens on a revision line"
+  },
+  {
+    "name": "sha-word-scan",
+    "find": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/gu)) {",
+    "replace": "  for (const word of line.matchAll(/NEVER_A_HEX_WORD/gu)) {",
+    "test": "rejects a parenthesized revision after origin main"
+  },
+  {
+    "name": "decimal-run-marker",
+    "find": "/^[0-9]+$/u.test(word[0])",
+    "replace": "/^[0-9a-f]+$/u.test(word[0])",
+    "test": "rejects a hexadecimal revision after a hash marker"
+  },
+  {
+    "name": "decimal-run-url",
+    "find": "/^[0-9]+$/u.test(word[0])",
+    "replace": "/^[0-9a-f]+$/u.test(word[0])",
+    "test": "rejects a hexadecimal revision in an actions run URL"
+  },
+  {
+    "name": "lowercase-sha",
+    "find": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/gu)) {",
+    "replace": "  for (const word of line.matchAll(/\\b[0-9a-f]{7,40}\\b/giu)) {",
+    "test": "does not mistake an uppercase word for a lowercase Git revision"
+  },
+  {
+    "name": "url-start-boundary",
+    "find": "word.index >= url.index && word.index < url.index + url[0].length",
+    "replace": "word.index < url.index + url[0].length",
+    "test": "keeps marked decimal runs outside a URL separate from its path"
+  },
+  {
+    "name": "url-end-boundary",
+    "find": "word.index >= url.index && word.index < url.index + url[0].length",
+    "replace": "word.index >= url.index",
+    "test": "keeps marked decimal runs outside a URL separate from its path"
+  },
+  {
+    "name": "url-marker-isolation",
+    "find": "if (url) {",
+    "replace": "if (false) {",
+    "test": "rejects a decimal token in a URL with a nonactions runs path"
+  },
+  {
+    "name": "actions-run-path",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a decimal token in a URL with a nonactions runs path"
+  },
+  {
+    "name": "run-url-query",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a run path appearing only in a URL query"
+  },
+  {
+    "name": "run-url-fragment",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a run path appearing only in a URL fragment"
+  },
+  {
+    "name": "immediate-run-segment",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\//iu.test(url[0].slice(0, word.index - url.index))",
+    "test": "rejects a decimal token outside the immediate actions run segment"
+  },
+  {
+    "name": "numeric-commit-url",
+    "find": "/^(?:[a-z][a-z0-9+.-]*:)?\\/\\/[^/?#]+\\/(?:[^?#]*\\/)?actions\\/runs\\/$/iu.test(url[0].slice(0, word.index - url.index))",
+    "replace": "true",
+    "test": "rejects a decimal revision in a commit URL"
+  }
+]
