@@ -180,6 +180,7 @@ describe("school assignment pastes", () => {
       for (const fact of course.addFacts) expect(line).toContain(JSON.stringify(fact.statement));
     }
     expect(result.text).not.toContain("I emailed");
+    expect(result.text).not.toContain("due_work");
   });
 
   it("reports saved course notes without claiming today's tasks when the schedule was rejected", async () => {
@@ -242,7 +243,7 @@ describe("school assignment pastes", () => {
     const result = await collect(adapter.streamOwnerTool(turn));
     expect(result.text).toContain("Chemistry 12: 1 notes resolved");
     expect(result.text).toContain("Marked 1 study actions complete.");
-    expect(result.text).toContain("English: course details updated");
+    expect(result.text).toContain("English: no new course notes");
     expect(result.text).not.toContain("platform: null");
     const saved = await h.repository.readSnapshot(h.principalId, TODAY);
     expect(saved.courses.find((course) => course.name === "Chemistry 12")?.recentResolvedFacts).toHaveLength(1);
@@ -259,7 +260,7 @@ describe("school assignment pastes", () => {
   });
 
   it("wires the school planner to the production core-profile database", () => {
-    const sources = import.meta.glob<string>("../../src/index.ts", { query: "?raw", import: "default", eager: true });
+    const sources = import.meta.glob("../../src/index.ts", { query: "?raw", import: "default", eager: true });
     expect(sources["../../src/index.ts"]).toMatch(/const schoolModel = new SchoolCatchupModelAdapter\(\{\s*model: baseModel,\s*database: env.DB,/u);
   });
 });

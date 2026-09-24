@@ -990,10 +990,10 @@ function schoolPlanReceipt(plan: OwnerCatchupPlan, snapshot: SchoolCatchupSnapsh
     .sort((left, right) => left.sequenceRank - right.sequenceRank)
     .map((action) => `${courseName(action.courseRef)}: ${action.text} (${action.estimatedMinutes} min)`);
   const summary = plan.courseUpdates.map((update) => {
-    const facts = update.addFacts.map((fact) => `${fact.kind}: ${JSON.stringify(fact.statement)}`);
+    const facts = update.addFacts.map((fact) => JSON.stringify(fact.statement));
     if (update.platform !== null) facts.push(`platform: ${JSON.stringify(update.platform)}`);
     if (update.resolveFactIds.length > 0) facts.push(`${update.resolveFactIds.length} notes resolved`);
-    return `${courseName(update.courseRef)}: ${facts.join("; ") || "course details updated"}`;
+    return `${courseName(update.courseRef)}: ${facts.join("; ") || "no new course notes"}`;
   });
   const receipt = !scheduleSaved ? PARTIAL_SCHEDULE_LINE : todayActions.length === 0
     ? "Saved your school plan update."

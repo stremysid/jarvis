@@ -167,4 +167,20 @@
     "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
     "expect": "describes when each pipeline"
   }
+  ,{
+  "name": "M22-expose-storage-kind-in-receipt",
+  "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+  "find": "update.addFacts.map((fact) => JSON.stringify(fact.statement))",
+  "replace": "update.addFacts.map((fact) => `${fact.kind}: ${JSON.stringify(fact.statement)}`)",
+  "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+  "expect": "reports the saved work for each course"
+}
+  ,{
+  "name": "M23-claim-empty-course-update",
+  "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+  "find": "|| \"no new course notes\"",
+  "replace": "|| \"course details updated\"",
+  "testPath": "apps/cloud-gateway/test/school/school-paste.test.ts",
+  "expect": "reports resolved notes and completed study actions"
+}
 ]
