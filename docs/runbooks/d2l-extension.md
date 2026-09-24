@@ -1,9 +1,17 @@
 # Jarvis D2L collector — Opera GX, Windows 11
 
-**Code review can proceed; complete school ingestion still needs receiver changes.**
-The gateway is pinned. Current full batches are retained locally because #169
-does not yet accept Durham or news/quizzes. Resolve [the receiver findings](../research/2026-09-23-d2l-collector-contract-gaps.md)
-before the owner rollout below. A green local suite is not live acceptance.
+**Receiver compatibility merged; extension follow-up and owner rollout remain.**
+[#175](https://github.com/stremysid/jarvis/pull/175) merged on 2026-09-24 as
+`c66c3870`. The receiver accepts Durham, news/quizzes, the observed myItems
+envelope and empty submission arrays, complete optional-tool 404s, and host-only
+failures. It preserves the board hostname in evidence and deadline sources and
+makes pairing proof/notification retryable. See [the receiver review](../reviews/2026-09-24-d2l-receiver-fix.md).
+The extension still holds full batches under its #169 compatibility check;
+it needs the hold updated, host-only failures emitted and complete 404s recognized.
+Migration `0045`, the matching gateway rollout and two-board owner acceptance
+remain separate gates. The [contract findings](../research/2026-09-23-d2l-collector-contract-gaps.md)
+distinguish merged receiver fixes from that unfinished integration.
+A green local suite is not live acceptance.
 This round replaces the shape probe with the collector. Sid approved the account
 reads and D2L terms risk on 2026-09-23. Builders never load it or access his account.
 
@@ -67,8 +75,9 @@ needed, then opens the saved hop in a background tab and retries Durham once.
 If that fails, sign in on LDSB and click the course link on its homepage once.
 Directly opening a Durham course URL restoring federation remains unverified.
 The popup and pushed course failures report the failed renewal. If no course has
-ever been discovered, the current receiver cannot accept a host-only failure;
-that limitation is a blocker in the findings document, not a successful empty read.
+ever been discovered, the extension still reports the failure locally. #175 adds
+a receiver envelope for that case, but the extension does not emit it yet; this
+is not a successful empty read.
 
 ## What is collected
 
