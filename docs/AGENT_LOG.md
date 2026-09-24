@@ -27,8 +27,13 @@ Agent regressions use real adapters, conversation service and local D1, with
 synthetic providers. They cover all four refusal checks, voice refusal then
 one later execution, both branch gates, and no refund after tool failure.
 The receipt derives its duration from CONFIRMATION_TTL_MS; DECISIONS names
-consumeStandingDecision. Focused tests, mutations and full-suite evidence are
-being finalized in [the review document](reviews/2026-09-23-tier3-tap.md).
+consumeStandingDecision. Focused suites: 238 passed, 0 failed, 0 skipped.
+Mutations: 10 killed twice, none survived or invalid; restored suites total
+102 passed, 0 failed, 0 skipped. Source types pass; test types retain exactly
+144 prior diagnostics in 32 files. State checks: 3 passed. The initial fixture
+failures and named mutations are in [the review document](reviews/2026-09-23-tier3-tap.md).
+For full-suite counts on the final published head, see [PR #159](https://github.com/stremysid/jarvis/pull/159)
+and `C:\Users\Sid\codex-ledgers\tier3-round1-full-gateway.json` beside the ledger.
 
 Normal merge of freshly fetched origin/main reported already up to date at
 a666097. No force push, merge into main, deployment, real database operation,
