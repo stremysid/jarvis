@@ -3,6 +3,98 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: call-session relay fixes, harness execution pending
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/call-session-fixes
+
+Built from a clean checkout with HEAD and `origin/main` both at `f5ba9a8`.
+The three salvage findings were rechecked against that source before editing.
+Confirmation is by reading, not a runtime reproduction; no falsifier was
+established. The code contains no prompt queue. Provider event scheduling,
+transcript arrival latency and audible playback remain unmeasured.
+
+| Item | Result |
+|---|---|
+| Overlapping final prompt | Confirmed: the core threw a generic `turn_in_progress` and the DO catch closed with 1011. The core now throws an internal typed condition with the same message, preserving the existing core tests. The DO catches only that type and drops the overlapping prompt with no queue or second model call. Unexpected errors still close, including an unrelated error with the same message. |
+| Third bad guest candidate | Confirmed: the terminating decision only transitioned to `rejected`; speech and closure waited for nothing that could deliver them. Both this path and authentication-budget exhaustion now send a fixed neutral final text frame and close with 1008. The close runs even if sending fails. No candidate enters speech or logs. |
+| Owner speech just after verification | Confirmed: `guard` returned null without inspecting the text. It now applies `ownerPassphraseFragmentWordCount`, allowing ordinary speech such as `Stop` while keeping passphrase-shaped text suppressed. Every null result from this guard sends a neutral reply. Later fragment/repeat rules stay in place. The judgment register records the partial correction and leaves model-prompt disclosure open. |
+
+All new tests live in
+`apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts`. The harness
+imports the existing migration and voice-access helpers, uses real authentication
+and conversation services with a fake model, and drives `webSocketMessage` through
+the real socket relay adapter. New test names (ten cases across seven declarations):
+
+- `drops an overlapping prompt without closing the relay or starting another model turn`
+- `closes the relay for an unexpected error even when its message is %s`
+  (`unexpected_capacity_failure`, `turn_in_progress`)
+- `sends a final rejection frame and closes after the third bad guest candidate`
+- `closes a rejected guest relay even when sending the rejection fails`
+- `passes ordinary owner speech %s to the model within the guard window`
+  (`Stop`, `What comes next?`)
+- `keeps a passphrase repeat out of the model within the guard window and speaks a neutral reply`
+- `speaks a neutral reply for each suppressed passphrase fragment at %i milliseconds`
+  (1000, 2500)
+
+One existing acceptance input in
+`tests/acceptance/fake/voice-owner-passphrase-security.test.ts` explicitly demanded
+that ordinary speech inside the guard be lost. Changed that input to its existing
+synthetic passphrase, retaining its no-model/no-transcript security assertions.
+No new test was added there. The four files reserved for #174 are untouched.
+
+Verification here: source `tsc --noEmit -p apps/cloud-gateway` passed. Test
+typechecking reports 143 existing diagnostics, none in the new file or changed
+runtime source. `git diff --check` passed. `node scripts/check-state.mjs` passed
+with one pre-existing FACTS re-verification warning about background collector
+access. No Vitest, pnpm or mutation execution was attempted under the harness
+rules, so there is no runtime pass count and no mutation claim.
+
+Next actions, with timing:
+
+1. **When the harness takes this worktree:** run
+   `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-guest-access.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts`.
+2. **After the focused run passes:** perform the isolated mutations listed in
+   `.codex-pr-body.md` (typed overlap handling, same-message fault handling, guest
+   speech/close and budget rejection, unconditional guard, passphrase leakage,
+   neutral suppression reply), restoring and rerunning focused tests afterwards.
+3. **When the harness opens the PR:** run the full suite in GitHub Actions and
+   record results. Claude reviews this calling change at max effort on its exact
+   head after those results, per BUILDING. Live playback and event timing are
+   still unverified, not implied by synthetic frame assertions.
+
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness. Git was
+read-only throughout. No push, merge, deploy, migration application, secret
+access, live call or Linux runbook step; no migration added.
+
+**Harness round 2.** Owner-reported round-1 results: 25 files, **606 passed,
+1 failed**, source tsc 0 and check-state passed. The overlap test failed before
+its first prompt: `beforeEach` stopped at 0018, but owner verification reads
+`owner_call_step_up_disabled_rejections`, created by 0021. Its `afterEach` cleanup
+installs 0021 through `clearVoiceAccessFixture` → `clearOwnerCallStepUpDataForTest`,
+explaining the other nine passes. Setup now imports and awaits the existing
+`applyVoiceOwnerDeliveryMigration`; the overlap assertions and runtime fix are
+unchanged. No new migration or schema workaround.
+
+The old acceptance input stays changed because finding 3 and Sid's explicit
+brief require ordinary speech within two seconds to reach the conversation.
+Its original no-model assertion for `This final arrives inside the repeat guard.`
+required the exact speech-loss defect being fixed. The acceptance test retains
+its no-model/no-transcript assertions for the synthetic passphrase. Added
+`passes the ordinary utterance formerly dropped by the guard to the conversation`
+using that exact ordinary sentence at +1000 ms, and
+`suppresses a passphrase split after word %i across two finals inside the guard window`
+for splits after word 1 and word 2, at +500/+1500 ms. Each split final must reach
+neither conversation nor model and must receive a neutral reply. All three new
+cases are in `call-session-relay-fixes.test.ts` (now thirteen cases total).
+
+Round-2 local checks: source tsc 0; test tsc still 143 existing diagnostics,
+none in the new test or runtime file; check-state passed with the same FACTS
+warning; diff check clean. Runtime and mutation reruns remain unavailable here.
+**When the harness resumes:** run the new file alone in a fresh worker first,
+then the same voice and fake acceptance directories, using the commands in
+`.codex-pr-body.md`; retain the mutation and independent-review steps above.
+Handoff files updated. Nothing staged and no Git writes.
+
 ## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.

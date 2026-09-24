@@ -661,6 +661,12 @@ export interface OwnerStepUpAlarmPort {
   clear(): Promise<void>;
 }
 
+class TurnInProgressError extends Error {
+  constructor() {
+    super("turn_in_progress");
+  }
+}
+
 /**
  * Dependency-independent portion of the per-call state machine.
  * Conversation streaming and the Durable Object wrapper are added only after
@@ -1123,7 +1129,7 @@ export class CallSessionCore {
     const status = await this.#ownerStepUp.repeatStatus(this.#session.sessionId, observedAt);
     if (status === "guard") {
       this.#clearOwnerRepeatFragments();
-      return null;
+      return ownerPassphraseFragmentWordCount(text) === null ? text : null;
     }
     // `spent` means this call's step-up text was already repeated once and the
     // repeat-check row exists. Returning `text` here handed the repeated
@@ -1417,12 +1423,15 @@ export class CallSessionCore {
     const promptText = this.#authority?.kind === "owner"
       ? await this.#guardOwnerRepeat(event.text, this.#now())
       : event.text;
-    if (promptText === null) return;
+    if (promptText === null) {
+      await this.#relay.sendNeutralText("I'm ready for your request.");
+      return;
+    }
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
     if (Array.from(promptText).length > 8_000 || encoder.encode(promptText).byteLength > 65_536) {
       throw new Error("turn_too_large");
     }
-    if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
+    if (this.#activeTurnAbort !== null) throw new TurnInProgressError();
     if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
       const draft = parseOwnerAccessIntent(promptText);
       if (draft !== null) {
@@ -1555,12 +1564,12 @@ export class CallSessionCore {
         });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "authentication_budget_exhausted") throw error;
-        await this.#transition("rejected", observedAt);
+        await this.#rejectGuest(observedAt);
         return;
       }
       if (result.proof === null) {
         const decision = evaluatePinAttempt({ failedAttempts: result.attemptOrdinal - 1, pinMatches: false });
-        if (decision.terminateCall) await this.#transition("rejected", observedAt);
+        if (decision.terminateCall) await this.#rejectGuest(observedAt);
         return;
       }
       this.#authority = await this.#authorityService.mintGuest({
@@ -1579,6 +1588,16 @@ export class CallSessionCore {
     } finally {
       candidate.fill(0);
       this.#guestPin.clear();
+    }
+  }
+
+  async #rejectGuest(observedAt: Date): Promise<void> {
+    await this.#transition("rejected", observedAt);
+    try {
+      await this.#relay.sendNeutralText("I couldn't verify access. Goodbye.");
+    } finally {
+      // A failed final send must still release the rejected caller's relay.
+      this.#relay.close(1008);
     }
   }
 
@@ -2083,7 +2102,9 @@ export class CallSession extends DurableObject<Env> {
         return;
       }
       await resolved.core.handleRelayEvent(event);
-    } catch {
+    } catch (error) {
+      // There is no prompt queue. Drop overlap without ending the current call.
+      if (error instanceof TurnInProgressError) return;
       if (!this.#policyClosedSockets.has(socket)) {
         closeSocket(socket, 1011, "relay processing failed");
       }
