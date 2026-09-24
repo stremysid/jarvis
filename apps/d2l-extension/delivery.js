@@ -1,6 +1,12 @@
 import { canonical, courseBody, createKey, publicKeyBase64, sign, post, uploadBlock } from "./protocol.js";
 
+export const QUEUE_PER_COURSE = 2;
+export const QUEUE_MAX_BYTES = 1024 * 1024;
+export const FLUSH_ATTEMPTS = 8;
+const queueBytes = (queue) => new TextEncoder().encode(JSON.stringify(queue)).length;
+
 export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
+  let pending = [];
   async function signed(path, body, identity, pair) {
     return send(path, body, await sign(path, body, pair, identity, clock(), cryptoImpl));
   }
@@ -44,27 +50,48 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
   async function enqueue(batch) {
     const entry = courseBody(batch);
     entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;
-    const queue = await store.get("queue") ?? [];
-    await store.set("queue", [...queue, { ...entry, readId: batch.readId, host: batch.host, courseId: batch.course.id }]);
+    pending.push({ ...entry, readId: batch.readId, host: batch.host, courseId: batch.course.id });
     return entry;
   }
-  async function flush() {
-    const identity = await store.get("pairing");
-    const queue = await store.get("queue") ?? [];
-    if (!identity || identity.status !== "active") return { queued: queue.length, error: "pairing-required" };
-    const keys = await store.get("keys");
-    let blocked = false;
-    for (const entry of [...queue]) {
-      if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }
-      try {
-        // The body stays byte-identical on retry; the signature gets a new nonce.
-        const receipt = await signed("/school/observations", entry.body, identity, keys);
-        if (!receipt.batchId || !["good", "failed"].includes(receipt.outcome)) throw new Error("invalid-receipt");
-      } catch { continue; }
-      queue.splice(queue.indexOf(entry), 1);
-      await store.set("queue", queue);
+  async function flush(sendPending = true) {
+    const combined = [...(await store.get("queue") ?? []), ...pending];
+    const counts = new Map();
+    // New reads supersede old reads of the same course, on the same board only.
+    // Bound old queues too, so upgrading after an outage cannot preserve growth.
+    const queue = combined.toReversed().filter((entry) => {
+      const key = JSON.stringify([entry.host, entry.courseId]);
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      return count <= QUEUE_PER_COURSE;
+    }).reverse();
+    let bytes = queueBytes(queue);
+    while (bytes > QUEUE_MAX_BYTES) {
+      bytes -= queueBytes(queue.shift()) + (queue.length ? 1 : 0);
     }
-    return { queued: queue.length, error: blocked ? "receiver-contract-incompatible" : queue.length ? "push-refused-or-unavailable" : null };
+    const evicted = combined.length - queue.length;
+    const identity = await store.get("pairing");
+    let blocked = false;
+    let attempts = 0;
+    if (sendPending && identity?.status === "active") {
+      const keys = await store.get("keys");
+      for (const entry of [...queue]) {
+        if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }
+        if (attempts >= FLUSH_ATTEMPTS) break;
+        attempts += 1;
+        try {
+          // The body stays byte-identical on retry; the signature gets a new nonce.
+          const receipt = await signed("/school/observations", entry.body, identity, keys);
+          if (!receipt.batchId || !["good", "failed"].includes(receipt.outcome)) throw new Error("invalid-receipt");
+        } catch { continue; }
+        queue.splice(queue.indexOf(entry), 1);
+      }
+    }
+    // One atomic replacement per run avoids rewriting every preceding course.
+    // Keep pending reads until commit succeeds so a failed write can be retried.
+    await store.set("queue", queue);
+    pending = [];
+    return { queued: queue.length, evicted, error: !sendPending ? "read-interrupted" : identity?.status !== "active" ? "pairing-required"
+      : blocked ? "receiver-contract-incompatible" : queue.length ? "push-refused-or-unavailable" : null };
   }
   return { pair, prove, status, enqueue, flush };
 }

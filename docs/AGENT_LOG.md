@@ -3,6 +3,47 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
+
+Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
+Read the complete [independent review](https://github.com/stremysid/jarvis/issues/comments/5807404294).
+Normal merge `520afacb` brings main `29fbfcd698f4ac7de947f076e43d0098e6bcc296`
+(#169). Both log histories and the receiver rollout action are retained; the
+duplicate collector pairing action is reconciled into our existing owner row.
+
+The queue now retains the newest two batches per host/course, at most 1 MiB of
+serialized UTF-8 entries, with `queue-evicted-N` in the popup. Enqueue accumulates
+in memory; one queue commit ends the run, including a caught interruption. Flush
+attempts at most eight uploads. This bounds the reviewed week-long outage to
+32 retained batches and reports 2,656 evictions for 2,688 simulated reads. A worker
+killed before commit still requires a fresh read; Opera lifecycle behavior is
+unverified. Failed commits retain pending data for retry in the current worker.
+
+Complete LDSB tool 403s no longer open fallback tabs. A course-level quiz-refusal
+test counts zero tab creations. GET assertions inject a POST argument, and a
+directly stored bad hop is revalidated at use. The mixed-queue test preserves
+held Durham evidence after successful LDSB delivery and kills the reviewer's
+exact deletion mutant. The orientation-name exclusion is removed: Jarvis receives
+every structurally eligible offering and judges relevance. Runbook additions cover
+removal, the verified Jarvis revocation tool, literal PowerShell cleanup, Node
+version and Sid's setup-only Durham example. Nothing was loaded or removed on
+Sid's actual browser, and no real revocation/deletion command was run.
+
+Final local gates: extension **50 pass / 0 fail / 0 skip**, 0 cancelled/todo;
+mutations **135 killed / 0 unconfirmed / 0 NOT APPLIED**; runtime syntax
+**10 pass / 0 fail**; runbook **3 PowerShell blocks / 0 parse errors / 0 executed**;
+state **3 carriers plus FACTS pass / 0 failures / 1 advisory** for unverified
+background/federation behavior. Focused tests were 10/0/0. Two initial multiline
+mutations were NOT APPLIED because of mixed line endings; after normalization
+both were applied and killed, before the complete 135-case sweep. See
+[round 2 evidence](research/2026-09-24-d2l-collector-round2.md).
+
+At the post-items-1–6 and final-gate checks, `codex/d2l-receiver-fix` had no open
+PR. Sid explicitly directed shipping these fixes in that case. The current
+receiver compatibility holds remain; inspect the receiver-fix PR when it opens,
+then update the wire contract/tests and remove holds it makes obsolete. No
+receiver changes, migration, production/secret or PC settings operation occurred.
+
 ## 2026-09-23 — Codex builder: #170 gateway pinned, receiver compatibility verified
 
 Signed: Codex, builder, `codex/d2l-collector` in `C:\w\d2l-collector`.

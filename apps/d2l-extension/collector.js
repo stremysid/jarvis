@@ -9,7 +9,7 @@ export function supported(body) {
 }
 export function offering(item) {
   return item?.Access?.CanAccess === true && item.Access.IsActive === true
-    && item.OrgUnit?.Type?.Id === 3 && item.OrgUnit.Name !== "DCE D2L BrightSpace Orientation";
+    && item.OrgUnit?.Type?.Id === 3;
 }
 export async function collectHost({ host, request, store, emit, clock, readId }) {
   const startedAt = clock();

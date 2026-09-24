@@ -18,7 +18,7 @@ test("It pins both literal D2L origins and every generated route to their allowl
 });
 test("It hard-codes credentialed GET and refuses login HTML, redirects, and invalid JSON.", async () => {
   let options;
-  const ok = await D2L.read(D2L.HOSTS[0], "versions", {}, async (_, init) => { options = init; return json([]); });
+  const ok = await D2L.read(D2L.HOSTS[0], "versions", { method: "POST" }, async (_, init) => { options = init; return json([]); });
   assert.equal(ok.complete, true);
   assert.equal(options.method, "GET"); assert.equal(options.credentials, "include");
   assert.equal(options.redirect, "manual"); assert.equal(options.cache, "no-store");
@@ -35,11 +35,13 @@ test("It hard-codes credentialed GET and refuses login HTML, redirects, and inva
   const refusal = await D2L.read(D2L.HOSTS[0], "submissions", { course: 1, folder: 2 }, async () => json({ Errors: [] }, 403));
   assert.equal(refusal.status, 403); assert.equal(refusal.complete, true); assert.deepEqual(refusal.body, { Errors: [] });
 });
-test("It accepts only active accessible course offerings and excludes the Durham orientation.", () => {
+test("It reads active accessible course offerings without judging their names.", () => {
   assert.equal(offering(course()), true);
+  const orientation = course(); orientation.OrgUnit.Name = "DCE D2L BrightSpace Orientation";
+  assert.equal(offering(orientation), true);
   for (const change of [
     (c) => { c.Access.CanAccess = false; }, (c) => { c.Access.IsActive = false; },
-    (c) => { c.OrgUnit.Type.Id = 4; }, (c) => { c.OrgUnit.Name = "DCE D2L BrightSpace Orientation"; },
+    (c) => { c.OrgUnit.Type.Id = 4; },
   ]) { const value = course(); change(value); assert.equal(offering(value), false); }
 });
 test("It requires both observed API versions and pushes version loss as failed course evidence.", async () => {
@@ -139,7 +141,7 @@ test("It falls back to an isolated LDSB tab and closes only tabs it created.", a
   for (const existing of [false, true]) {
     const f = fakeApi();
     if (existing) f.api.tabs.query = async () => [{ id: 7 }];
-    const session = sessions({ ...f, sleep: async () => {}, fetchImpl: async () => json({}, 403) });
+    const session = sessions({ ...f, sleep: async () => {}, fetchImpl: async () => json({}, 401) });
     assert.equal((await session.request(D2L.HOSTS[0], "enrollments")).complete, true);
     assert.equal(f.events.filter(([type]) => type === "remove").length, existing ? 0 : 1);
     const message = f.events.find(([type]) => type === "message");
@@ -173,6 +175,18 @@ test("It rejects hop URLs outside the two approved origins and URLs with credent
   assert.equal(validateHop(`${D2L.HOSTS[1]}/d2l/home/1`), `${D2L.HOSTS[1]}/d2l/home/1`);
   for (const value of ["https://evil.invalid", "javascript:1", "https://user@ldsb.elearningontario.ca/hop", "http://durham.elearningontario.ca"]) assert.throws(() => validateHop(value));
 });
+test("It reads a course with refused LDSB quizzes without opening a fallback tab.", async () => {
+  const f = fakeApi(); const collected = fixture();
+  const session = sessions({ ...f, sleep: async () => {}, fetchImpl: async (url) =>
+    url.endsWith("/quizzes/") ? json({ Errors: [] }, 403) : json(url.endsWith("/versions/") ? versions
+      : url.includes("myenrollments") ? page() : []) });
+  const summary = await collectHost({ ...collected, request: session.request });
+  assert.equal(f.events.filter(([type]) => type === "create").length, 0);
+  assert.equal(summary.courses[0].refused, 1);
+  assert.equal(summary.courses[0].read, 5);
+  const quiz = collected.batches[0].routes.find((route) => route.route.endsWith("/quizzes/"));
+  assert.deepEqual(quiz.body, { Errors: [] }); assert.equal(quiz.complete, true); assert.equal(quiz.status, 403);
+});
 test("It marks an unfinished tool page incomplete instead of claiming the first page is everything.", async () => {
   for (const body of [{ Objects: [], Next: "untrusted-next-url" }, { Items: [], PagingInfo: { HasMoreItems: true } }]) {
     const f = fixture();
@@ -184,7 +198,7 @@ test("It marks an unfinished tool page incomplete instead of claiming the first 
 test("It records failed tab creation and bounds retries when the content listener never arrives.", async () => {
   const f = fakeApi(); let sends = 0;
   f.api.tabs.sendMessage = async () => { sends += 1; throw Error("Synthetic listener unavailable"); };
-  const make = () => sessions({ ...f, sleep: async () => {}, fetchImpl: async () => json({}, 403) });
+  const make = () => sessions({ ...f, sleep: async () => {}, fetchImpl: async () => json({}, 401) });
   assert.equal((await make().request(D2L.HOSTS[0], "enrollments")).error, "session-expired");
   assert.equal(sends, 15);
   assert.equal(f.events.filter(([type]) => type === "remove").length, 1);

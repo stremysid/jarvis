@@ -36,10 +36,12 @@ export function controller({ api, store, clock = () => new Date().toISOString(),
       else {
         try { status.pairing = await push.status(); }
         catch { status.pairing = { status: "unavailable-or-refused" }; }
-        status.delivery = await push.flush();
       }
     } catch { status.error = "collector-interrupted-or-storage-unavailable"; }
     finally {
+      try {
+        if (!backgroundOnly) status.delivery = await push.flush(!status.error);
+      } catch { status.error = "collector-interrupted-or-storage-unavailable"; }
       busy = false;
       await publish({ ...status, running: false });
     }

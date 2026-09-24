@@ -8,6 +8,7 @@ export function format(status = {}) {
     for (const course of host.courses) lines.push(`${course.name}: ${course.read} tools read, ${course.refused} refused${course.error ? `; ${course.error}` : ""}`);
   }
   if (status.delivery) lines.push("", `Batches waiting: ${status.delivery.queued}`, status.delivery.error ?? "Push queue delivered.");
+  if (status.delivery?.evicted) lines.push(`queue-evicted-${status.delivery.evicted}`);
   if (status.backgroundTest) {
     lines.push("", `Background test: ${status.backgroundTest.at}`);
     for (const host of status.backgroundTest.hosts) lines.push(`${host.host}: HTTP ${host.status}; ${host.error ?? "JSON read succeeded"}`);

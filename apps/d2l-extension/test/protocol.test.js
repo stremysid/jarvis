@@ -178,11 +178,13 @@ test("It retains incompatible board and tool evidence without sending an invalid
     { ...batch(), routes: [{ ...batch().routes[0], route: "/d2l/api/le/1.82/2/content/toc" }] },
   ];
   for (const value of cases) {
+    await store.set("queue", []);
     const entry = await client.enqueue(value);
     assert.equal(entry.error, value.host === "durham.elearningontario.ca" ? "receiver-contract-host-unsupported" : "receiver-contract-route-unsupported");
     assert.deepEqual(JSON.parse(entry.body), value);
+    assert.equal((await client.flush()).error, "receiver-contract-incompatible");
+    assert.equal((await store.get("queue")).length, 1);
   }
-  assert.equal((await client.flush()).error, "receiver-contract-incompatible"); assert.equal(sends, 0);
-  assert.equal((await store.get("queue")).length, cases.length);
+  assert.equal(sends, 0);
   assert.equal(uploadBlock(batch()), null);
 });

@@ -18,6 +18,13 @@ all current full course batches are held because they include news/quizzes; Durh
 also requires a host allowlist change. The reviewer must relay the receiver items
 below to #169 before claiming working school ingestion.
 
+Round 2 bounds that waiting queue to the newest two batches per host/course and
+1 MiB of serialized UTF-8 entries. Evictions are reported as `queue-evicted-N` in
+the popup. A flush makes at most eight upload attempts and commits the queue once.
+Old held evidence can therefore be explicitly superseded or evicted, not retained
+without limit. The separately owned receiver-fix PR must be inspected when open
+before removing any compatibility hold.
+
 | Finding | Source on #169 | Consequence / required receiver decision |
 |---|---|---|
 | Only `ldsb.elearningontario.ca` is accepted | `collector-protocol.ts`, `SCHOOL_HOST` / `parseSchoolBatch` | Durham cannot be relabeled as LDSB. Accept and persist both literal hosts. |

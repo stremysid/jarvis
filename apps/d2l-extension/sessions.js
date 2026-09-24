@@ -48,6 +48,7 @@ export function sessions({ api, fetchImpl, hop = "", sleep = (ms) => new Promise
     contexts[host] = "background";
     if (!needsSession(result) || backgroundOnly) return result;
     if (host === HOSTS[0]) {
+      if (result.error !== "session-expired") return result;
       contexts[host] = "content";
       return inTab(host, route, args);
     }

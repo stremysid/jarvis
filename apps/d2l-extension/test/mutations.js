@@ -16,6 +16,7 @@ collector("Required org-unit CSV", "probe.js", '?orgUnitIdsCSV=<course>', '?wron
 collector("Enrollment bookmark query", "probe.js", 'url.searchParams.set("bookmark", args.bookmark)', 'url.searchParams.set("wrong", args.bookmark)', pin);
 for (const [name, find, replace] of [
   ["Hard-coded GET", 'method: "GET"', 'method: "POST"'],
+  ["GET ignores caller method", 'method: "GET"', 'method: args.method ?? "GET"'],
   ["D2L session credentials", 'credentials: "include"', 'credentials: "omit"'],
   ["D2L manual redirects", 'redirect: "manual"', 'redirect: "follow"'],
   ["D2L no cache", 'cache: "no-store"', 'cache: "default"'],
@@ -28,8 +29,9 @@ for (const [name, find, replace] of [
   ["JSON refusals stay complete", 'return { status: response.status, complete: true, body };', 'return { status: response.status, complete: response.status === 200, body };'],
   ["Network failure", 'catch { return failed(0, "network-or-timeout"); }', 'catch { return { status: 200, complete: true, body: [] }; }'],
 ]) collector(name, "probe.js", find, replace, read);
-const offerings = "It accepts only active accessible course offerings and excludes the Durham orientation.";
-for (const [name, find] of [["Accessible course", 'item?.Access?.CanAccess === true'], ["Active course", 'item.Access.IsActive === true'], ["Course offering type", 'item.OrgUnit?.Type?.Id === 3'], ["Orientation exclusion", 'item.OrgUnit.Name !== "DCE D2L BrightSpace Orientation"']]) collector(name, "collector.js", find, 'true', offerings);
+const offerings = "It reads active accessible course offerings without judging their names.";
+for (const [name, find] of [["Accessible course", 'item?.Access?.CanAccess === true'], ["Active course", 'item.Access.IsActive === true'], ["Course offering type", 'item.OrgUnit?.Type?.Id === 3']]) collector(name, "collector.js", find, 'true', offerings);
+collector("Orientation travels as evidence", "collector.js", 'item.OrgUnit?.Type?.Id === 3', 'item.OrgUnit?.Type?.Id === 3 && item.OrgUnit.Name !== "DCE D2L BrightSpace Orientation"', offerings);
 collector("Pinned LP and LE versions", "collector.js", '[["lp", "1.43"], ["le", "1.82"]]', '[["lp", "1.43"]]', "It requires both observed API versions and pushes version loss as failed course evidence.");
 collector("Missing version failure", "collector.js", '!supported(versions.body)', 'false', "It requires both observed API versions and pushes version loss as failed course evidence.");
 collector("Version read failure", "collector.js", '!versions.complete', 'false', "It refuses malformed enrollment manifests and never invents a course after a first-run login failure.");
@@ -45,7 +47,8 @@ collector("Last good read requires normal evidence", "collector.js", 'summaries.
 collector("Cached folders do not hide refusal", "collector.js", 'if (fresh) await store.set(key, folders.body);', 'await store.set(key, folders.body);', "It keeps cached folder IDs without relabeling a failed listing as fresh evidence.");
 collector("Request throttle", "sessions.js", '1000 - (now() - lastRequest)', '0', "It spaces actual requests by one second and leaves the background test free of fallback tabs.");
 collector("Background test never falls back", "sessions.js", ' || backgroundOnly', '', "It spaces actual requests by one second and leaves the background test free of fallback tabs.");
-collector("Refusals trigger fallback", "probe.js", ' || result.status === 403', '', "It falls back to an isolated LDSB tab and closes only tabs it created.");
+collector("Durham refusals trigger one renewal", "probe.js", ' || result.status === 403', '', "It renews Durham only after LDSB is live and retries once through the stored hop.");
+collector("LDSB tool refusals never open tabs", "sessions.js", 'if (result.error !== "session-expired") return result;', '', "It reads a course with refused LDSB quizzes without opening a fallback tab.");
 collector("Close only collector-created tabs", "sessions.js", 'if (owned) await api.tabs.remove(owned.id).catch(() => {});', 'await api.tabs.remove(owned?.id ?? 7).catch(() => {});', "It falls back to an isolated LDSB tab and closes only tabs it created.");
 collector("Durham renewal only once", "sessions.js", 'if (renewed.has(host)) return result;', '', "It renews Durham only after LDSB is live and retries once through the stored hop.");
 collector("LDSB first", "sessions.js", 'if (!await ldsbLive()) return failed(result.status, "ldsb-session-required");', '', "It reports failed federation and never attempts Durham login without a live LDSB session.");
@@ -88,7 +91,7 @@ protocol("Pairing response contract", "delivery.js", '!["collectorId", "principa
 protocol("Pairing status contract", "delivery.js", '!["pending", "active"].includes(result.status)', 'false', pairing);
 protocol("Existing key preservation", "delivery.js", 'existing && (existing.approved || existing.status === "active" || existing.expiresAt > clock())', 'false', "It persists the key before pairing and proves only the server-issued challenge.");
 protocol("Persist before public pairing", "delivery.js", 'await store.set("keys", keys);', '', "It persists the key before pairing and proves only the server-issued challenge.");
-protocol("Active key before push", "delivery.js", '!identity || identity.status !== "active"', '!identity', "It requires active pairing and a valid receipt before removing queued evidence.");
+protocol("Active key before push", "delivery.js", 'sendPending && identity?.status === "active"', 'sendPending && identity', "It requires active pairing and a valid receipt before removing queued evidence.");
 protocol("Receipt before dequeue", "delivery.js", '!receipt.batchId || !["good", "failed"].includes(receipt.outcome)', 'false', "It requires active pairing and a valid receipt before removing queued evidence.");
 protocol("Keep failed queue entries", "delivery.js", '} catch { continue; }', '} catch { /* fault: discard */ }', "It retains failed batches across restarts and retries identical bytes with fresh nonces.");
 
@@ -137,4 +140,27 @@ protocol("Receiver gate before sending", "delivery.js", 'if (uploadBlock(JSON.pa
 protocol("Receiver mismatch is visible", "delivery.js", 'entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;', '', incompatible);
 protocol("Actual receiver signature witness", "protocol.js", '["POST", path, envelope.deviceId', '["POST", "/wrong", envelope.deviceId', "It passes extension bytes and signatures through the pinned receiver verifier and batch parser.");
 rows.at(-1).testFile = "receiver-contract.test.js";
+const queue = (name, file, find, replace, testName) => add(name, file, find, replace, "queue.test.js", testName);
+const bounded = "It bounds a week of unavailable delivery to the newest two reads of each board and course.";
+queue("Queue course retention", "delivery.js", 'count <= QUEUE_PER_COURSE', 'true', bounded);
+queue("Queue identity includes host", "delivery.js", '[entry.host, entry.courseId]', '[entry.courseId]', bounded);
+queue("Queue retains newest reads", "delivery.js", 'combined.toReversed()', 'combined', bounded);
+queue("Queue enqueues without writes", "delivery.js", 'return entry;', 'await store.set("queue", pending); return entry;', bounded);
+queue("Queue commit exists", "delivery.js", 'await store.set("queue", queue);', '', bounded);
+const bytes = "It bounds serialized queue bytes and exposes every eviction in the popup.";
+queue("Queue byte ceiling", "delivery.js", 'bytes > QUEUE_MAX_BYTES', 'false', bytes);
+queue("Queue bytes include UTF8", "delivery.js", 'new TextEncoder().encode(JSON.stringify(queue)).length', 'JSON.stringify(queue).length', bytes);
+queue("Queue eviction count", "delivery.js", 'combined.length - queue.length', '0', bytes);
+queue("Popup reports evictions", "popup.js", 'if (status.delivery?.evicted)', 'if (false)', bytes);
+const attempts = "It limits each flush to eight attempts and commits the queue once for success or refusal.";
+queue("Queue attempt ceiling", "delivery.js", 'attempts >= FLUSH_ATTEMPTS', 'false', attempts);
+queue("Queue attempts include refusals", "delivery.js", 'attempts += 1;', '', attempts);
+queue("Queue persists only once", "delivery.js", 'queue.splice(queue.indexOf(entry), 1);', 'queue.splice(queue.indexOf(entry), 1); await store.set("queue", queue);', attempts);
+const retain = "It retains pending evidence if the single queue commit fails and retries it without duplication.";
+queue("Queue clears pending after commit", "delivery.js", 'await store.set("queue", queue);\n    pending = [];', 'pending = [];\n    await store.set("queue", queue);', retain);
+queue("Queue clears committed pending", "delivery.js", 'pending = [];\n    return', 'return', retain);
+queue("Mixed held evidence survives success", "delivery.js", 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }', 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; queue.splice(queue.indexOf(entry),1); continue; }', "It retains held Durham evidence when a mixed queue delivers an LDSB batch.");
+queue("Interrupted reads persist", "controller.js", 'if (!backgroundOnly) status.delivery = await push.flush(!status.error);', 'if (!backgroundOnly && !status.error) status.delivery = await push.flush(!status.error);', "It commits collected evidence once when a later host interrupts the run without uploading it.");
+queue("Interrupted flush does not upload", "delivery.js", 'sendPending && identity?.status', 'identity?.status', "It commits collected evidence once when a later host interrupts the run without uploading it.");
+queue("Stored hop revalidated at use", "sessions.js", 'validateHop(hop)', 'hop', "It revalidates a hop loaded directly from settings before creating any tab for it.");
 export default rows;

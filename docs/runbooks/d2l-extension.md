@@ -38,8 +38,12 @@ if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the 
    **My Courses in Other Boards**. There is no separate Durham login step.
 3. Open the collector popup's **Setup / pairing**. Name this device (Home PC or
    Laptop). Paste the Durham hop URL once, then select **Save and pair**. The URL
-   is stored locally, never in the repository or a batch. Setup accepts an HTTPS
+   is stored locally and never sent in a batch. Setup accepts an HTTPS
    URL starting on either of the two approved D2L hosts, without URL credentials.
+   Sid's supplied course-link example is
+   `https://durham.elearningontario.ca/d2l/home/29725166`. Paste it at setup;
+   it is not a runtime default. Whether opening this direct course URL restores
+   federation remains an owner-run check.
 4. Match the popup's pairing code to Jarvis's Telegram approval request and
    approve it there. Select **Check pairing and retry push** until it says active.
    Each device has its own non-extractable key and pairing. The receiver's pairing
@@ -70,7 +74,8 @@ that limitation is a blocker in the findings document, not a successful empty re
 
 LP 1.43 enrollments are paginated. API versions are checked once per host per sync;
 missing LP 1.43 or LE 1.82 fails loudly. Only `CanAccess && IsActive` course
-offerings are read. The preloaded **DCE D2L BrightSpace Orientation** unit is skipped.
+offerings are read, including **DCE D2L BrightSpace Orientation** if it meets those
+structural conditions. Jarvis judges the meaning and relevance of the evidence.
 Per course, LE 1.82 reads myItems with orgUnitIdsCSV, toc, dropbox/folders, each
 folder's student `submissions/mysubmissions/`, myGradeValues, news and quizzes.
 Empty due/overdue routes are not used. API requests are spaced about one second
@@ -93,10 +98,40 @@ code or evaluation is used. Only the extension popup accesses its own DOM.
 Keys and queued canonical batches persist in extension-origin IndexedDB; raw API
 bodies never enter popup storage. Retries preserve the exact body bytes and use a
 fresh signature/nonce. A refused batch stays queued while other courses are tried.
+The queue retains the newest **two** batches per host/course and at most **1 MiB**
+of serialized UTF-8 entries, evicting the oldest entries when necessary.
+`queue-evicted-<count>` in the popup reports every eviction in that run, including
+superseded reads. One flush attempts at most **eight** uploads, each with the
+existing 15-second request timeout. Held entries do not consume upload attempts.
+The queue is committed once at the end of a run, including a caught interruption;
+new evidence from a worker killed before that commit must be read again. A lost
+receipt or termination before the queue commit can cause a repeated batch.
 Course bodies at or above 64 KiB, or exceeding the receiver's structure limits,
 become explicit compact failure batches, never truncated successes. There is no
-chunking contract to invent. A storage failure is surfaced; no quota-increasing
-permission is requested. There is no automatic deletion of undelivered evidence.
+chunking contract to invent. The 1 MiB application cap does not reserve disk space;
+browser quota or disk failures are surfaced. No quota-increasing permission is
+requested. Removal of superseded evidence and byte-cap evictions are explicit
+storage bounds authorised by Sid, not judgments about course relevance.
+
+## Remove the collector
+
+1. On each device, open `opera://extensions`, find **Jarvis D2L collector**, and
+   choose **Remove**. This removes that extension's local key, settings and queue.
+2. Ask Jarvis: **"Show my D2L collector devices, then revoke the collector for
+   [the device label I paired]."** Jarvis can identify the device through
+   `school_d2l_status` and use `school_collector_revoke`. Confirm the exact device
+   in its owner approval tap, then ask for status to check that it is revoked.
+   These tools exist in merged #169; their deployment/live operation was not
+   verified by this builder. Removing the extension alone does not revoke its
+   server record. No database command is needed in this runbook.
+3. After removal, delete only the collector checkout. In **PowerShell 7 (`pwsh`)**,
+   verify that the literal directory is the checkout created above and contains
+   no files you need, then run:
+
+   ```powershell
+   cd C:\
+   Remove-Item -LiteralPath 'C:\w\jarvis-d2l-collector' -Recurse -Force
+   ```
 
 ## Local verification
 
@@ -104,6 +139,7 @@ Use PowerShell 7 and Node 24.19.0 or later in the Node 24 line:
 
 ```powershell
 cd C:\w\jarvis-d2l-collector
+node --version
 node --test apps/d2l-extension/test/*.test.js
 node apps/d2l-extension/test/mutate.js
 node scripts/check-state.mjs
