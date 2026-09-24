@@ -35,19 +35,26 @@ async function harness() {
   const gate = (authority: AutonomyServiceContract = service) => new ToolAutonomyGate(
     authority, new D1ToolConfirmationStore(env.DB, now),
   );
-  async function tap(optionKey = "confirm", capability = CAPABILITY): Promise<string> {
+  async function raise(reference: string): Promise<string> {
     const item = await decisions.raise({
       principalId, origin: TIER3_TOOL_ORIGIN,
-      originReference: confirmationReference(capability, await argumentsFingerprint(request.arguments)),
+      originReference: reference,
       urgency: "normal", question: "Run this synthetic action?",
       choices: [{ key: "confirm", label: "Confirm" }, { key: "cancel", label: "Cancel" }],
     });
     await decisions.markDelivered(item.decisionId);
-    const answer = await decisions.answer({ decisionId: item.decisionId, answeredByIdentityId: identityId, optionKey });
-    expect(answer.outcome).toBe("recorded");
     return item.decisionId;
   }
-  return { gate, service, tap, request, now, advance: (ms: number) => { clock = new Date(TAP_AT.getTime() + ms); } };
+  async function answer(decisionId: string, optionKey = "confirm"): Promise<void> {
+    expect((await decisions.answer({ decisionId, answeredByIdentityId: identityId, optionKey })).outcome)
+      .toBe("recorded");
+  }
+  async function tap(optionKey = "confirm", capability = CAPABILITY): Promise<string> {
+    const id = await raise(confirmationReference(request.toolName, capability, await argumentsFingerprint(request.arguments)));
+    await answer(id, optionKey);
+    return id;
+  }
+  return { gate, service, tap, raise, answer, request, now, advance: (ms: number) => { clock = new Date(TAP_AT.getTime() + ms); } };
 }
 
 async function consumption(decisionId: string) {
@@ -79,6 +86,82 @@ describe("single-use tier-3 taps", () => {
     expect(repeated.receipt).toContain("already used or expired");
     expect(executions).toBe(1);
     expect(await consumption(decisionId)).toEqual({ consumed_at: TAP_AT.toISOString() });
+  });
+
+  it.each([
+    { tier: 1, outcome: "permitted" },
+    { tier: 2, outcome: "withheld_shadow" },
+    { tier: null, outcome: "denied_unknown_capability" },
+  ] as const)("denies a confirmed call when a registry change makes the second outcome $outcome", async ({ tier, outcome }) => {
+    const h = await harness();
+    const decisionId = await h.tap();
+    const readRegistryRow = () => env.DB.prepare(
+      "SELECT tier, description, updated_at FROM capability_tiers WHERE capability = ?",
+    ).bind(CAPABILITY).first<{ tier: number; description: string; updated_at: string }>();
+    const original = await readRegistryRow();
+    if (original === null) throw new Error("fixture_missing_capability_row");
+    expect(original.tier).toBe(3);
+    const changing: AutonomyServiceContract = { evaluate: async (input) => {
+      const evaluated = await h.service.evaluate(input);
+      if (input.decisionId === null) {
+        expect(evaluated).toMatchObject({ tier: 3, outcome: "requires_confirmation" });
+        // Both evaluations use the real repository. The mutation occurs after
+        // the first read and audit, before the confirmation and second read.
+        if (tier === null) {
+          await env.DB.prepare("DELETE FROM capability_tiers WHERE capability = ?").bind(CAPABILITY).run();
+        } else {
+          await env.DB.prepare("UPDATE capability_tiers SET tier = ? WHERE capability = ?").bind(tier, CAPABILITY).run();
+        }
+      }
+      return evaluated;
+    } };
+    try {
+      const result = await h.gate(changing).evaluateToolCall(h.request);
+      expect(result).toMatchObject({ verdict: "deny", confirmedBy: null, evaluation: { tier, outcome, decisionId: null } });
+      expect(result.receipt).toContain(`safety outcome changed from requires_confirmation to ${outcome}`);
+      expect(result.receipt).toContain("Nothing happened");
+      expect(result.receipt).toContain("tap was spent");
+      expect(result.receipt).not.toContain("Allowed");
+      expect(result.receipt).toContain(`autonomy ${result.evaluation.evaluationId}`);
+      expect(result.receipt).toContain(`capability=${CAPABILITY}`);
+      expect(result.receipt).toContain(tier === null ? "unclassified" : `tier ${tier}`);
+      expect(result.receipt).toContain(`outcome=${outcome}`);
+      const audits = await env.DB.prepare(`SELECT outcome, decision_id FROM autonomy_evaluations
+        WHERE principal_id = ? ORDER BY evaluated_at, rowid`).bind(h.request.principalId).all();
+      expect(audits.results).toEqual([
+        { outcome: "requires_confirmation", decision_id: null },
+        { outcome, decision_id: null },
+      ]);
+      expect(await consumption(decisionId)).toEqual({ consumed_at: TAP_AT.toISOString() });
+    } finally {
+      // D1 state survives between tests in this file. Restore even when an
+      // assertion fails, including when this case deleted the registry row.
+      await env.DB.prepare(`INSERT INTO capability_tiers (capability, tier, description, updated_at)
+        VALUES (?, ?, ?, ?) ON CONFLICT(capability) DO UPDATE SET
+        tier = excluded.tier, description = excluded.description, updated_at = excluded.updated_at`)
+        .bind(CAPABILITY, original.tier, original.description, original.updated_at).run();
+    }
+    expect(await readRegistryRow()).toEqual(original);
+  });
+
+  it.each(["pending", "answered"] as const)("requires a fresh tap for a legacy confirmation that was %s at deployment", async (state) => {
+    const h = await harness();
+    const hash = await argumentsFingerprint(h.request.arguments);
+    // Written in the pre-change format, without calling the new encoder.
+    const legacyReference = `${CAPABILITY}:${hash}`;
+    expect(confirmationReference(h.request.toolName, CAPABILITY, hash)).not.toBe(legacyReference);
+    const oldDecision = await h.raise(legacyReference);
+    if (state === "answered") await h.answer(oldDecision);
+    expect((await h.gate().evaluateToolCall(h.request)).verdict).toBe("confirm");
+    if (state === "pending") await h.answer(oldDecision);
+    expect(await h.gate().evaluateToolCall(h.request)).toMatchObject({ verdict: "confirm", confirmedBy: null });
+    expect(await consumption(oldDecision)).toBeNull();
+
+    const freshDecision = await h.tap();
+    expect(await h.gate().evaluateToolCall(h.request)).toMatchObject({ verdict: "permit", confirmedBy: freshDecision });
+    expect((await h.gate().evaluateToolCall(h.request)).verdict).toBe("confirm");
+    expect(await consumption(freshDecision)).toEqual({ consumed_at: TAP_AT.toISOString() });
+    expect(await consumption(oldDecision)).toBeNull();
   });
 
   it.each([CONFIRMATION_TTL_MS, CONFIRMATION_TTL_MS + 1])(

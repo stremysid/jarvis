@@ -7,9 +7,9 @@
  * wants. A separate consumption row preserves that immutable answer.
  *
  * What the confirmation is bound to matters more than where it is stored. It
- * binds the capability AND a canonical hash of the arguments, not just the
- * capability:
+ * binds the tool name, capability and a canonical hash of the arguments:
  *
+ *  - tool name, so tools that share a capability cannot spend each other's tap.
  *  - capability, so confirming "warm up the car" cannot authorize "unlock the
  *    car" -- `vehicle.precondition` and `vehicle.unlock` are different tiers
  *    and a steered model must not be able to slide from one to the other.
@@ -47,6 +47,7 @@ export const TIER3_CONFIRM_OPTION = "confirm";
 
 export interface StandingConfirmationLookup {
   readonly principalId: string;
+  readonly toolName: string;
   readonly capability: string;
   readonly argumentsHash: string;
 }
@@ -58,16 +59,14 @@ export interface ToolConfirmationStoreContract {
 
 /**
  * The value written to `decision_items.origin_reference`, and the value looked
- * up again on the next turn. `origin_reference` is unbounded TEXT, so the only
- * constraint on its shape is that this function and the query agree.
+ * up again on the next turn. Issuance and consumption must use the same tuple.
  *
- * The two halves are separated by a colon and neither half contains one: a
- * capability key is dotted lowercase, and the hash is lowercase hex. A delimiter
- * that could appear inside either half would let a crafted capability name
- * collide with a different hash.
+ * JSON keeps the field boundaries unambiguous even if a name contains a
+ * delimiter. Old capability:hash references deliberately do not match: they
+ * cannot prove which tool the owner approved, so the owner must tap again.
  */
-export function confirmationReference(capability: string, argumentsHash: string): string {
-  return `${capability}:${argumentsHash}`;
+export function confirmationReference(toolName: string, capability: string, argumentsHash: string): string {
+  return JSON.stringify([toolName, capability, argumentsHash]);
 }
 
 /**
@@ -126,7 +125,7 @@ export class D1ToolConfirmationStore implements ToolConfirmationStoreContract {
       .bind(
         lookup.principalId,
         TIER3_TOOL_ORIGIN,
-        confirmationReference(lookup.capability, lookup.argumentsHash),
+        confirmationReference(lookup.toolName, lookup.capability, lookup.argumentsHash),
         TIER3_CONFIRM_OPTION,
         notBefore,
         consumedAt,
