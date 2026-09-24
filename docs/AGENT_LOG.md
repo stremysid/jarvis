@@ -3,6 +3,19 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex GPT-6 builder: retire closed school sources from digest health
+
+Branch `codex/digest-retire`, freshly based on `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Signed: Codex GPT-6, builder.
+
+- `RETIRED_DIGEST_HEALTH_SOURCES` in `digest-job.ts` explicitly retires the three fixed health names for D2L notification email and Classroom deadlines/observations. It filters final gaps only, so missing-row/configuration and failed/stale paths agree while existing deadlines, grades, source rows and ingestion remain intact. Other Brightspace sources and shared repository failures remain visible. No migration, database write, or parallel builder-owned implementation change.
+- FACTS' 2026-09-17/18 Classroom rows and 2026-09-21 D2L-email row confirm the retirement premise. Both `/digest` and scheduled digest reach this assembler. Fixed health names avoid retiring the shared `brightspace` kind or trusting source-provided labels. This is the owner's explicit retirement choice, not a relevance judgment inferred by code.
+- Focused tests: initial **61 passed / 1 failed / 0 skipped**; corrected the old two-gap expectation in Brightspace truncation, then that file passed **18/0/0**. Gateway production typecheck passed with zero diagnostics.
+- Mutation on code/test commit `0db138a297ef`: `reviewer-tools/mutate.ps1` removed the final exclusion after a green baseline. **1 killed, confirmed twice; 0 survived / wrong-test / unconfirmed / not applied / invalid.** Named killer: `excludes retired sources while a live failing source still appears in the daily digest`; the retro variant also failed. The tool listed 12 newly failing tests on the first mutation run. Restoration was byte-identical; the restored digest file passed **37/0/0**.
+- Final gates: full gateway suite run once, **5,117 passed / 0 failed / 0 skipped**, **190 files passed**, 235.05 s. `node scripts/check-state.mjs` passed for all **3 carriers**; `git diff --check` passed. No unrelated failure or flake rerun.
+- Not independently verified: the reported live deployment/digest output (production access forbidden), and the unpublished `codex/d2l-ingest-run` branch (not in initial fetched branches/open PRs; design/probe #160/#163 were visible). The prompt contradicts itself about 0039 allocation; this task uses no number. The supplied Downloads incident report was absent; no local-agent tests or host-administration code ran. No merge, deploy, real migration or live provider/Telegram operation. Owner follow-up is in OWNER-ACTIONS.
+
+Next: automated and independent review at the pushed head; owner deployment and live digest checks only after clearance and merge.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#154](https://github.com/stremysid/jarvis/pull/154) round 1 restores the critical-path guard
 
 **The callback fix is unchanged from reviewed head `28c9463`.** This round corrects the missing archived-memory latency guard, normally merges `a666097` (#153), and updates the stale state carriers. It supersedes the preceding entry's paused-clock test design; that earlier design let a candidate-before-history serialization mutation survive.
