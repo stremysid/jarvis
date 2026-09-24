@@ -71,4 +71,10 @@ describe("proof of a deadline due phrase", () => {
   it("refuses an offsetless resolved instant even when its wall clock matches", () => {
     expect(() => proof("Friday at 3pm", "2026-09-25T15:00:00")).toThrow("deadline_invalid_time");
   });
+  it("refuses an end of day on a local date removed by a zone transition", () => {
+    expect(() => proof("2011-12-30", "2011-12-30", { ownerZone: "Pacific/Apia" })).toThrow("deadline_ambiguous_date");
+  });
+  it("requires an ambiguous clock to remain date-only even when an offset could choose a side", () => {
+    expect(() => proof("2026-11-01 01:30", "2026-11-01T01:30:00-05:00")).toThrow("deadline_ambiguous_date");
+  });
 });

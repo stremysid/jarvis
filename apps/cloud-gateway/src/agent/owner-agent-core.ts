@@ -1001,6 +1001,8 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     if (argumentTool != null) {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
       await this.memoryOwnerTurn(input, port, null);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
       return argumentTool();
     }
     const pipeline = port.pipelineModel(call);

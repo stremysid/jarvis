@@ -93,7 +93,7 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     const externalId = match?.external_id ?? await identity(input.principalId, courseKey(course), normalize(title));
     const result = await repository.upsert({ sourceId: "owner-reported", externalId,
       course: match?.course ?? course, title: match?.title ?? title, dueAt: proof.dueAt,
-      effort, ...(status === undefined ? {} : { status }), leadMinutes: DEFAULT_LEAD_MINUTES[effort], now });
+      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes: DEFAULT_LEAD_MINUTES[effort], now });
     const local = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: context.ownerZone, dateStyle: "full", timeStyle: "short" }).format(new Date(at));
     const action = result.outcome === "created" ? "Created" : result.outcome === "unchanged" ? "Unchanged" : "Updated";
     const previous = result.previous !== null && result.previous.dueAt !== result.deadline.dueAt

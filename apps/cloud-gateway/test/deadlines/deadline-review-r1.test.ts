@@ -49,11 +49,26 @@ describe("deadline review regression proofs", () => {
     expect((await rows()).results).toHaveLength(0);
   });
 
+  it("refuses an invented due excerpt even inside a grounded evidence excerpt", async () => {
+    const result = await recordDeadline(env.DB, input(message), call({ dueExcerpt: "September 26, 2026 at 3:30 pm",
+      dueAt: "2026-09-26T15:30:00-04:00" }), now);
+    expect(result.providerResult.content).toContain("deadline_evidence_not_in_message");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
+  it("refuses a due excerpt too long to be one short date expression", async () => {
+    const dueExcerpt = "September 25, 2026" + " ".repeat(161) + "at 3:30 pm";
+    const text = `Chemistry Lab report is due ${dueExcerpt}`;
+    const result = await recordDeadline(env.DB, input(text), call({ evidenceExcerpt: text, dueExcerpt }), now);
+    expect(result.providerResult.content).toContain("deadline_input_invalid");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
   it("refuses to borrow the Physics clock for the Chemistry deadline", async () => {
     const text = "Chem due September 25, 2026. Physics quiz October 2, 2026 at 9:00 am";
     for (const dueExcerpt of ["September 25, 2026", "October 2, 2026 at 9:00 am", "September 25, 2026 at 9:00 am"]) {
       const result = await recordDeadline(env.DB, input(text), call({ course: "Chem", title: "Chem", evidenceExcerpt: text,
-        dueExcerpt, dueAt: "2026-09-25T09:00:00-04:00" }), now);
+        dueExcerpt, dueAt: dueExcerpt.startsWith("October") ? "2026-10-02T09:00:00-04:00" : "2026-09-25T09:00:00-04:00" }), now);
       expect(JSON.parse(result.providerResult.content).status).toBe("refused");
       expect((await rows()).results).toHaveLength(0);
     }
@@ -76,6 +91,13 @@ describe("deadline review regression proofs", () => {
       await recordDeadline(env.DB, input(text), call({ status, evidenceExcerpt: text }), now);
       expect((await rows()).results[0]?.status).toBe(expected);
     });
+
+  it("refuses an unsupported status even when a different accepted status is in evidence", async () => {
+    const text = `${message} submitted`;
+    const result = await recordDeadline(env.DB, input(text), call({ evidenceExcerpt: text, status: "open" }), now);
+    expect(result.providerResult.content).toContain("deadline_status_not_proved");
+    expect((await rows()).results).toHaveLength(0);
+  });
 
   it("distinguishes creation, unchanged mentions, status updates and a moved due time", async () => {
     expect((await recordDeadline(env.DB, input(message), call(), now)).receipt).toMatch(/^Created /u);
@@ -125,6 +147,44 @@ describe("deadline review regression proofs", () => {
     expect(result.providerResult.content).toContain("deadline_ambiguous_match");
     expect(result.providerResult.content).toContain("Lab report");
     expect((await rows()).results).toHaveLength(1);
+  });
+
+  it("asks which row is intended when two legacy rows already normalise identically", async () => {
+    const repo = new DeadlineRepository(env.DB);
+    await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
+    for (const course of ["Chem", "Chemistry"]) await repo.upsert({ sourceId: "owner-reported",
+      externalId: await sha256Hex(canonicalJson({ principal: input(message).principalId, course, title: "Lab report" })),
+      course, title: "Lab report", dueAt: "2026-09-25T19:30:00.000Z", effort: "project", leadMinutes: 0, now });
+    const result = await recordDeadline(env.DB, input(message), call(), now);
+    expect(result.providerResult.content).toContain("deadline_ambiguous_match");
+    expect((await rows()).results).toHaveLength(2);
+  });
+
+  it("retries metadata when another writer changes the due time after the row is read", async () => {
+    const repo = new DeadlineRepository(env.DB);
+    await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
+    const entry = { sourceId: "owner-reported", externalId: "metadata-race", course: "Chemistry", title: "Lab report",
+      dueAt: "2026-09-25T19:30:00.000Z", effort: "project" as const, leadMinutes: 0, now };
+    await repo.upsert(entry);
+    let inject = true;
+    const database = new Proxy(env.DB, { get(target, key) {
+      if (key === "prepare") return (sql: string) => {
+        const statement = target.prepare(sql);
+        if (!sql.includes("SET status = coalesce")) return statement;
+        return { bind(...values: unknown[]) { const bound = statement.bind(...values); return {
+          async first() {
+            if (inject) { inject = false; await repo.upsert({ ...entry, dueAt: "2026-09-26T19:30:00.000Z" }); }
+            return bound.first();
+          },
+        }; } };
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const result = await new DeadlineRepository(database).upsert({ ...entry, status: "submitted" });
+    expect(result.outcome).toBe("revised");
+    expect(result.previous?.dueAt).toBe("2026-09-26T19:30:00.000Z");
+    expect(result.deadline).toMatchObject({ dueAt: entry.dueAt, status: "submitted" });
   });
 
   it("does not match another principal's otherwise identical assignment", async () => {
