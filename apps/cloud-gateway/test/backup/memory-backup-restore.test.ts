@@ -768,12 +768,12 @@ describe("verified memory backup restore", () => {
       VALUES ('identity:backup-tap', 'principal:owner', 'telegram', 'synthetic-backup-tap', 'active', ?, ?)`)
       .bind(timestamp, timestamp).run();
     const lookup = {
-      principalId: "principal:owner", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
+      principalId: "principal:owner", toolName: "send_email", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
     };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => instant });
     const item = await decisions.raise({
       principalId: lookup.principalId, origin: TIER3_TOOL_ORIGIN,
-      originReference: confirmationReference(lookup.capability, lookup.argumentsHash),
+      originReference: confirmationReference(lookup.toolName, lookup.capability, lookup.argumentsHash),
       urgency: "normal", question: "Run the backup fixture?", choices: [{ key: "confirm", label: "Confirm" }],
     });
     await decisions.markDelivered(item.decisionId);
