@@ -31,8 +31,8 @@ Probe v0.1.0 at 295fadc, in-tab (content-script) mode. Background mode: **not ru
 **What this settles:**
 1. **mysubmissions (the student route) returns a JSON ARRAY.** An empty `[]` on a 200 is consistent with "nothing submitted", which matches Sid: 0 assignments done. A positive case is still needed to confirm the populated shape. A 403 on a single folder means a refusal: record it, never treat it as "not submitted".
 2. **Grades return `[]` arrays** in real courses, and 403 non-JSON in non-course units. No grades are posted yet.
-3. **Due dates are SPARSE.** Only the folder DueDate carries dates (13 folders in one course). Topic EndDateTime, myItems dates, myItems/due and overdueItems are all empty. #161's claim that the dates live on modules does NOT hold for this account.
+3. **Due dates are SPARSE in what was returned.** The only dates returned in the reported fields were folder DueDate values (13 of 42 folders, in one course). The toc counts above are for topics (EndDateTime/StartDateTime); the probe aggregates field counts and did not count module-level dates separately, so **module dates are UNVERIFIED** by this run. myItems dates, myItems/due and overdueItems returned nothing.
    - **Jarvis must treat most work as "exists, no date in D2L"**, and get dates from Sid or teachers.
-   - The mapper uses the folder DueDate first; module or topic dates are just a fallback, and are empty here.
-4. **D2L's overdue and due lists are useless here,** because they depend on dates teachers didn't set.
-5. **The request volume was high** (about 500 requests). The real collector must filter to course offerings, throttle to about 1 request per second, and cache folder lists.
+   - The mapper should use the folder DueDate first; module or topic dates are a fallback, and topic dates were empty in this run.
+4. **myItems/due and overdueItems returned `{Objects:[]}` for every course.** That establishes the returned shape only; the reason they were empty is UNVERIFIED.
+5. **The request volume was high** (approximately 500 requests; this summary does not establish an exact total). The real collector must filter to course offerings, throttle to about 1 request per second, and cache folder lists.
