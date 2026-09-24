@@ -143,6 +143,11 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    // 0044 replaces triggers owned by the school, university and study schemas
+    // (0020, 0022, 0023, 0024, 0029 and 0030). This deliberately narrow memory
+    // fixture has not installed those tables or triggers, so applying 0044 here
+    // would make its first DROP fail rather than exercise memory ingress. The
+    // current-schema and full-schema fixtures below both apply 0044.
   ]);
   await memoryIngressMigrated;
 }

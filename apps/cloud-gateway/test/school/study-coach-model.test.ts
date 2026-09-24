@@ -194,6 +194,24 @@ describe("StudyCoachModelAdapter", () => {
     expect(practice.inputs).toHaveLength(0);
   });
 
+  it("does not save a study-coach preference from a non-owner principal", async () => {
+    const principalId = "principal:study-model-non-owner-save";
+    await env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?1, 'human', 'active', 'Study guest', ?2, ?2)`)
+      .bind(principalId, NOW.toISOString()).run();
+    const turnId = await addTurn(principalId, "turn off coursework check-ins");
+    const fallback = new FakeModel(["ordinary reply"]);
+
+    await expect(collect(adapter("principal:study-model-owner", fallback, new FakeModel([])).stream(
+      input(principalId, turnId, "turn off coursework check-ins"),
+    ))).resolves.toBe("ordinary reply");
+
+    expect(fallback.inputs).toHaveLength(1);
+    await expect(env.DB.prepare(`SELECT COUNT(*) AS count FROM school_study_preferences
+      WHERE principal_id = ?1`).bind(principalId).first()).resolves.toEqual({ count: 0 });
+  });
+
   it("keeps forwarded or quoted control text on the ordinary conversation path", async () => {
     const principalId = "principal:study-model-forwarded";
     const fallback = new FakeModel(["ordinary reply"]);

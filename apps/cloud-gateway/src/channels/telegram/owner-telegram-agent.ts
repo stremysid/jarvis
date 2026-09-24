@@ -82,6 +82,7 @@ interface PreviousAssistantRow {
 interface PreviousAssistantEvidence {
   readonly text: string;
   readonly providerMessageId: string;
+  readonly eventId: Ulid;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -152,7 +153,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
           replyMarkup: buildDecisionKeyboard(decision),
         }));
       },
-      inferredConfirmation: "tap" as const,
+      inferredMemoryConfirmationRefusal: "",
       confirmationSurfaceRefusal: "",
       replyTargetsLatestAssistant: (turnInput: Readonly<ModelAdapterStreamInput>) =>
         adapter.replyTargetsLatestAssistant(turnInput),
@@ -160,8 +161,10 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
-      previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
-        (await adapter.previousAssistant(turnInput))?.text ?? null,
+      previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
+        const previous = await adapter.previousAssistant(turnInput);
+        return previous === null ? null : Object.freeze({ text: previous.text, eventId: previous.eventId });
+      },
       composeReply: composeReceiptReply,
     });
   }
@@ -216,6 +219,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     return Object.freeze({
       text: safeText(payload.text, 65_536),
       providerMessageId: safeText(row.provider_message_id, 128),
+      eventId: deliveredEventId,
     });
   }
 

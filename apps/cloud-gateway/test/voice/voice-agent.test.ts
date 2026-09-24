@@ -48,6 +48,7 @@ import {
 } from "../../src/memory/memory-control-targets.js";
 import type { MeaningSearchReader } from "../../src/memory/meaning-search.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import { CORE_PROFILE_PREFIX } from "../../src/memory/core-profile.js";
 import type { RetrievedContext } from "../../src/model/model-types.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import type {
@@ -290,22 +291,41 @@ describe("the voice agent adapter", () => {
     return item!.item_id;
   }
 
-  it("confirms a staged model memory from a spoken yes on the same call with the real target finder", async () => {
+  it("keeps a staged model memory proposed after spoken yes and points to the shared decision queue", async () => {
     const principalId = `principal:voice-confirm:${serial + 1}`;
     const sessionId = `voice:confirm:${serial + 1}`;
     const itemId = await offerProposedMemory(principalId, sessionId);
     const provider = new FakeAgentProvider([
       called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
-      stopped("Here is the result."),
+      stopped("Use the decision queue."),
     ]);
     const reply = await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId, sessionId });
     expect(provider.requests[0]?.systemPrompt).toContain('Should I remember exactly');
     expect(provider.requests[0]?.systemPrompt).toContain(itemId);
-    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "completed" });
-    expect(reply).toContain("Confirmed 1 proposed memory");
-    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId)).resolves.toMatchObject({
-      lifecycle: { state: "active" }, version: { basis: "confirmed", uncertain: false },
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({
+      status: "pending_confirmation",
+      receipt: expect.stringContaining("Open /decisions in Telegram"),
     });
+    expect(reply).toContain("Open /decisions in Telegram");
+    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId)).resolves.toMatchObject({
+      lifecycle: { state: "proposed" }, version: { basis: "inferred", origin: "model", uncertain: true },
+    });
+  });
+
+  it("refuses non-affirmative wording as confirmation on the same call", async () => {
+    const principalId = `principal:voice-confirm-wording:${serial + 1}`;
+    const sessionId = `voice:confirm-wording:${serial + 1}`;
+    const itemId = await offerProposedMemory(principalId, sessionId);
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-wording", "memory_confirm", { itemId, supportingExcerpt: "maybe later" })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runVoiceTurn({ text: "maybe later", provider, ownerPrincipalId: principalId, sessionId });
+
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "refused" });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
   });
 
   it("refuses a spoken yes on another call even when the proposed memory is in context", async () => {
@@ -379,10 +399,104 @@ describe("the voice agent adapter", () => {
     const id = newUlid();
     expect(readVoiceReplyPayload({ ...base, memoryItemIds: [id] }).itemIds).toEqual([id]);
     for (const payload of [
-      { ...base, channelCode: 2 }, { ...base, memoryItemIds: [] },
+      { ...base, channelCode: 2 }, { ...base, historyEligible: true }, { ...base, memoryItemIds: [] },
       { ...base, memoryItemIds: ["invalid"] }, { ...base, memoryItemIds: [id, id] },
       { ...base, memoryItemIds: "invalid" }, { ...base, memoryItemIds: Array.from({ length: 9 }, () => newUlid()) },
     ]) expect(() => readVoiceReplyPayload(payload)).toThrow("owner_agent_previous_reply_invalid");
+  });
+
+  it("keeps every settled voice assistant reply out of general history", async () => {
+    const principalId = `principal:voice-history-ineligible:${serial + 1}`;
+    await runVoiceTurn({
+      text: "hello",
+      provider: new FakeAgentProvider([stopped("A settled reply.")]),
+      ownerPrincipalId: principalId,
+    });
+    const row = await env.DB.prepare(`SELECT envelope_json FROM events
+      WHERE subject_id = ?1 AND event_type = 'conversation.assistant_sent'
+      ORDER BY sequence DESC LIMIT 1`).bind(principalId).first<{ envelope_json: string }>();
+    expect(JSON.parse(row!.envelope_json).payload).toMatchObject({
+      channelCode: 1,
+      historyEligible: false,
+      text: "A settled reply.",
+    });
+  });
+
+  it("omits a forgotten memory and its id from the next voice prompt", async () => {
+    const principalId = `principal:voice-forget-next:${serial + 1}`;
+    const itemId = await activeMemory(principalId, "My retired lantern code is amber.");
+    const sessionId = `voice:forget-next:${serial + 1}`;
+    await runVoiceTurn({
+      text: "forget the lantern code",
+      provider: new FakeAgentProvider([
+        called(tool("forget-next", "memory_forget", {
+          itemIds: [itemId], supportingExcerpt: "forget the lantern code",
+        })),
+        stopped("Done.", [{ sentence: "Done.", receiptIds: ["receipt:forget-next"] }]),
+      ]),
+      ownerPrincipalId: principalId,
+      sessionId,
+      context: [memoryContext("My retired lantern code is amber.", itemId)],
+    });
+    const provider = new FakeAgentProvider([stopped("What would you like to discuss?")]);
+
+    await runVoiceTurn({ text: "hello", provider, ownerPrincipalId: principalId, sessionId });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified this turn.");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("My retired lantern code is amber.");
+    expect(provider.requests[0]?.systemPrompt).not.toContain(itemId);
+  });
+
+  it("states when the previous voice reply cannot be verified", async () => {
+    const principalId = `principal:voice-previous-invalid:${serial + 1}`;
+    const sessionId = `voice:previous-invalid:${serial + 1}`;
+    await runVoiceTurn({
+      text: "first",
+      provider: new FakeAgentProvider([stopped("A reply that will be corrupted.")]),
+      ownerPrincipalId: principalId,
+      sessionId,
+    });
+    await env.DB.prepare(`UPDATE events SET envelope_json = '{}'
+      WHERE event_id = (
+        SELECT sent_assistant_event_id FROM conversation_turns
+        WHERE principal_id = ?1 AND session_id = ?2 ORDER BY rowid DESC LIMIT 1
+      )`).bind(principalId, sessionId).run();
+    const provider = new FakeAgentProvider([stopped("Second reply.")]);
+
+    await runVoiceTurn({ text: "second", provider, ownerPrincipalId: principalId, sessionId });
+
+    expect(provider.requests[0]?.systemPrompt).toContain(
+      "The previous assistant reply could not be verified this turn. Do not guess what Sid is confirming.",
+    );
+    expect(provider.requests[0]?.systemPrompt).not.toContain("A reply that will be corrupted.");
+  });
+
+  it("withholds Sid's profile, owner call prompt, and owner tools from a guest prompt", async () => {
+    const ownerPrincipalId = `principal:voice-private-owner:${serial + 1}`;
+    const fact = "Sid's private telescope marker is cobalt.";
+    const itemId = await activeMemory(ownerPrincipalId, fact);
+    await new MemoryRepository(env.DB).appendPin({
+      principalId: ownerPrincipalId,
+      itemId,
+      pinId: newUlid(),
+      pinned: true,
+      authorizingEventId: newUlid(),
+      occurredAt: NOW.toISOString(),
+    });
+    const provider = new FakeAgentProvider([stopped("Hello guest.")]);
+
+    await runVoiceTurn({
+      text: "hello",
+      provider,
+      ownerPrincipalId,
+      turnPrincipalId: `principal:voice-private-guest:${serial + 1}`,
+    });
+
+    expect(provider.requests[0]?.systemPrompt).not.toContain(CORE_PROFILE_PREFIX);
+    expect(provider.requests[0]?.systemPrompt).not.toContain(fact);
+    expect(provider.requests[0]?.systemPrompt).not.toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(provider.requests[0]?.tools).toHaveLength(0);
+    expect(provider.requests[0]?.toolChoice).toBe("none");
   });
 
   it("retrieves the same canonical memory and owner history on either channel", async () => {
@@ -514,7 +628,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toEqual(expect.arrayContaining(GUIDED_ASSIGNMENT_TOOL_DEFINITIONS));
+    expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     const telegramProvider = new FakeAgentProvider([stopped("Hello.")]);
     const adapter = new OwnerTelegramAgentAdapter({
       provider: telegramProvider, database: env.DB, archive: env.ARCHIVE,

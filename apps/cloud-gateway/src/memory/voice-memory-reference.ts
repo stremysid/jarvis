@@ -11,9 +11,13 @@ interface PreviousVoiceAssistantRow {
   readonly envelope_json: unknown;
 }
 
-export interface PreviousVoiceAssistant {
+export interface VoiceReplyPayload {
   readonly text: string;
   readonly itemIds: readonly Ulid[];
+}
+
+export interface PreviousVoiceAssistant extends VoiceReplyPayload {
+  readonly eventId: Ulid;
 }
 
 function safeUlid(value: unknown): Ulid {
@@ -22,10 +26,10 @@ function safeUlid(value: unknown): Ulid {
 }
 
 /** Read only references committed with the reply whose relay receipt was settled. */
-export function readVoiceReplyPayload(value: unknown): PreviousVoiceAssistant {
+export function readVoiceReplyPayload(value: unknown): VoiceReplyPayload {
   const { memoryItemIds, ...history } = value as Record<string, unknown>;
   const text = readHistoryPayloadEnvelope(history, "owner_agent_previous_reply_invalid");
-  if (history.channelCode !== 1 || memoryItemIds !== undefined && (
+  if (history.channelCode !== 1 || history.historyEligible !== false || memoryItemIds !== undefined && (
     !Array.isArray(memoryItemIds) || memoryItemIds.length === 0 || memoryItemIds.length > 8
     || memoryItemIds.some(id => typeof id !== "string" || !ULID.test(id))
     || new Set(memoryItemIds).size !== memoryItemIds.length
@@ -69,6 +73,7 @@ export async function readPreviousVoiceAssistant(database: D1Database, input: Re
     throw new TypeError("owner_agent_previous_reply_invalid");
   }
   return Object.freeze({
+    eventId,
     ...readVoiceReplyPayload(envelope.payload),
   });
 }

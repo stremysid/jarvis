@@ -31,6 +31,7 @@ import {
   applyStudyCoachWeakSpotsMigration,
   applyUniversityApplicationDetailsMigration,
 } from "../persistence/migration.js";
+import productionRuntimeSource from "../../src/voice/production-runtime.js?raw";
 
 const NOW = new Date("2026-09-17T15:00:00.000Z");
 let serial = 0;
@@ -76,6 +77,7 @@ async function runPipelineTurn(input: {
   readonly message: string;
   readonly toolName: "school_update" | "university_update" | "study_coach";
   readonly modelReplies: readonly string[];
+  readonly ownerTurnAuthoritative?: boolean;
 }): Promise<Readonly<{
   principalId: string;
   reply: string;
@@ -103,7 +105,14 @@ async function runPipelineTurn(input: {
   const school = new SchoolCatchupRepository(env.DB);
   const university = new UniversityTrackerRepository(env.DB);
   const study = new StudyCoachRepository(env.DB);
-  const pipelines = createOwnerPipelineModels(env, baseModel, redactor, principalId, true, () => NOW);
+  const pipelines = createOwnerPipelineModels(
+    env,
+    baseModel,
+    redactor,
+    principalId,
+    input.ownerTurnAuthoritative ?? true,
+    () => NOW,
+  );
   const agent = new ToolAgentProvider(input.toolName);
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB), {
     ...(input.channel === "telegram" ? { telegramDirectOwnerText: true } : {}),
@@ -161,6 +170,13 @@ async function runPipelineTurn(input: {
 beforeAll(async () => {
   await applyStudyCoachWeakSpotsMigration();
   await applyUniversityApplicationDetailsMigration();
+});
+
+it("keeps production voice pipelines authoritative with thinking disabled", () => {
+  const composition = /createOwnerPipelineModels\(env, new DeepSeekModelAdapter\(\{[\s\S]*?telegramTurn: true, telegramThinking: "disabled"[\s\S]*?\}\), new Redactor\(\), ownerPrincipalId, true, now\)/u
+    .exec(productionRuntimeSource)?.[0];
+  expect(composition).toBeDefined();
+  expect(composition).not.toContain("DEEPSEEK_TELEGRAM_THINKING");
 });
 
 describe.each(["telegram", "voice"] as const)("owner %s agent validated feature pipelines", (channel) => {
@@ -299,4 +315,23 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
       .resolves.toMatchObject({ preference: { enabled: false } });
     expect(result.baseModel.requests).toHaveLength(0);
   });
+
+  if (channel === "voice") {
+    it("refuses a voice pipeline save when its owner turn is not authoritative", async () => {
+      const result = await run({
+        label: "voice-not-authoritative",
+        message: "Chemistry uses Classroom and titration calculations feel weak",
+        toolName: "school_update",
+        modelReplies: ["I did not save that."],
+        ownerTurnAuthoritative: false,
+      });
+
+      expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+        status: "not_saved",
+        receiptId: null,
+      });
+      await expect(result.school.readSnapshot(result.principalId, "2026-09-17"))
+        .resolves.toMatchObject({ courses: [] });
+    });
+  }
 });

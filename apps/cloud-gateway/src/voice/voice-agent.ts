@@ -38,7 +38,7 @@ A receipt added to your words is read aloud verbatim by the system, so never rea
 
 There is no screen on a call. Describe links or files in spoken words when needed; swipe replies and inline keyboards belong to Telegram.
 
-For a staged memory, Sid can confirm the exact wording with a spoken yes on this call. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
+For a staged model-inferred memory, ask Sid to open /decisions in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
 
 export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly guidedAssignmentTelegram?: TelegramProvider;
@@ -128,7 +128,8 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
        * confirmation keyboard, so the spoken refusal points to /decisions.
        */
       recordDecision: (): void => undefined,
-      inferredConfirmation: "reply" as const,
+      inferredMemoryConfirmationRefusal:
+        "Nothing changed. Open /decisions in Telegram and tap Confirm or Discard. A spoken yes cannot confirm a model-inferred memory.",
       confirmationSurfaceRefusal:
         "That action always needs your tap, and I cannot show you a button on a call. Open /decisions in Telegram, tap Confirm, then ask me again on this call.",
       // There is no swipe-reply gesture on a call, so this is not a check that
@@ -138,8 +139,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because I cannot tell which memory you meant. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
-      previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
-        (await readPreviousVoiceAssistant(adapter.voice.database, turnInput))?.text ?? null,
+      previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
+        const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);
+        return previous === null ? null : Object.freeze({ text: previous.text, eventId: previous.eventId });
+      },
       composeReply: composeReceiptReply,
     });
   }

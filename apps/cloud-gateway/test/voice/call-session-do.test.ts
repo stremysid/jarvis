@@ -2303,6 +2303,7 @@ describe("CallSession production composition", () => {
       CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",
       DEEPSEEK_API_KEY: "synthetic-runtime-key",
       DEEPSEEK_MODEL: "synthetic-runtime-model",
+      DEEPSEEK_TELEGRAM_THINKING: "enabled",
       TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
       GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
       OWNER_PASSPHRASE_PEPPER_V1: base64(OWNER_TEST_PEPPER),
@@ -2431,7 +2432,11 @@ describe("CallSession production composition", () => {
 
     expect(modelBodies).toHaveLength(1);
     const body = modelBodies[0] as Record<string, unknown>;
-    expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
+    expect(body).toMatchObject({
+      stream: false,
+      tool_choice: "auto",
+      thinking: { type: "disabled" },
+    });
     expect((body.tools as { function: unknown }[]).map((tool) => tool.function))
       .toEqual(OWNER_TOOL_DEFINITIONS);
     const [system] = body.messages as { role: string; content: string }[];

@@ -726,7 +726,7 @@ function citedMemoryItemIds(text: string): readonly Ulid[] {
   return Object.freeze(itemIds);
 }
 
-function restatesMemory(reply: string, memoryText: string): boolean {
+export function restatesMemory(reply: string, memoryText: string): boolean {
   const required = recallTerms(memoryText).map(({ folded }) => folded);
   if (required.length === 0 || required.length === 1 && required[0]!.length < 5) return false;
   const available = new Set(recallTerms(reply).map(({ folded }) => folded));

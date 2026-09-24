@@ -1515,6 +1515,51 @@ describe("owner Telegram agent", () => {
     expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("forgotten");
   });
 
+  it("omits a forgotten memory and its id from the next Telegram prompt", async () => {
+    const harness = await ownerHarness("forget-next-prompt");
+    const fact = "My retired lantern code is amber.";
+    await runTurn({
+      harness,
+      text: `remember ${fact}`,
+      provider: new FakeAgentProvider([
+        called(tool("forget-next-seed", "memory_remember", {
+          fact,
+          supportingExcerpt: fact,
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forget-next-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    await runTurn({
+      harness,
+      text: "forget the lantern code",
+      context: [memoryContext(row)],
+      controlTargetIds: [row.item_id as Ulid],
+      provider: new FakeAgentProvider([
+        called(tool("forget-next", "memory_forget", {
+          itemIds: [row.item_id], supportingExcerpt: "forget the lantern code",
+        })),
+        stopped("Done.", [{ sentence: "Done.", receiptIds: ["receipt:forget-next"] }]),
+      ]),
+    });
+    const provider = new FakeAgentProvider([stopped("What would you like to discuss?")]);
+
+    await runTurn({
+      harness,
+      text: "hello",
+      controlTargetIds: [row.item_id as Ulid],
+      provider,
+    });
+
+    expect(provider.requests[0]?.systemPrompt).toContain("The previous assistant reply could not be verified this turn.");
+    expect(provider.requests[0]?.systemPrompt).not.toContain(fact);
+    expect(provider.requests[0]?.systemPrompt).not.toContain(row.item_id);
+  });
+
   it("does not forget a memory when Sid says not to forget it", async () => {
     const harness = await ownerHarness("negated-forget");
     await runTurn({

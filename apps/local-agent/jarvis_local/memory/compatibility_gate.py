@@ -196,6 +196,11 @@ class SqliteBlobCosineCandidate:
             )
 
     def _index_and_query(self, path: Path) -> tuple[str, ...]:
+        # `repair_permissions` is deliberately left at its default of False. This
+        # gate is a diagnostic that writes a throwaway index into a directory its
+        # caller made (`_verify_offline` below), it has no production caller, and
+        # changing a real permission is not something a self-check should do on
+        # the strength of having been asked to measure an embedding provider.
         index = VectorIndex.open(path, self.provider)
         try:
             index.rebuild(self.fixture.documents)

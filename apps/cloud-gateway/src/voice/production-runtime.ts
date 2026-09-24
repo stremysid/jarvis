@@ -148,8 +148,6 @@ export function createProductionCallSessionCore(
     provider: new DeepSeekAgentProvider({
       apiKey: configuration.modelApiKey,
       model: configuration.model,
-      telegramTurn: true,
-      telegramThinking: "disabled",
     }),
     database: env.DB,
     archive: env.ARCHIVE,
@@ -159,7 +157,10 @@ export function createProductionCallSessionCore(
     directOwnerText: true,
     ...createOwnerPipelineModels(env, new DeepSeekModelAdapter({
       apiKey: configuration.modelApiKey, model: configuration.model,
-      telegramTurn: true, telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
+      // A tier-3 tap is claimed before the tool body. Voice also has a tighter
+      // response deadline, so hidden reasoning must not spend the claimed tap's
+      // remaining window before the validated pipeline can settle its receipt.
+      telegramTurn: true, telegramThinking: "disabled",
     }), new Redactor(), ownerPrincipalId, true, now),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
     // The same tier gate Telegram puts in front of its tools, constructed here
