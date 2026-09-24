@@ -206,6 +206,14 @@ The pipeline's direct-text authority still applies because that decision removed
 tier, not the authenticated-source boundary. Collector revocation still requires its
 tier-three tap. The two existing judgment findings below remain open.
 
+Date-disagreement follow-up, 2026-09-24: no rationale for preferring a
+`content/myItems` date to the folder `DueDate` was recorded in #175's review, its
+agent-log entries or this register. The mapper retains that compatibility projection,
+but unequal values now add `ambiguous_assignment_date` to the evidence Jarvis reads;
+equal values do not. Folder `Availability.EndDate` is a separately labelled fallback,
+and an unfamiliar `Availability` shape is likewise surfaced rather than interpreted.
+This register remains partial.
+
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|
 | `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |

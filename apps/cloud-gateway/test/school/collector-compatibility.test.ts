@@ -105,6 +105,30 @@ it("accepts observed empty student submissions as unknown evidence with their or
   expect(JSON.stringify(evidence)).not.toMatch(/unsubmitted|"missed"/);
 });
 
+it("records a refused student submission route without treating it as not submitted", async () => {
+  const f = await collectorFixture();
+  const batch = observedBatch(f);
+  const routes = batch.routes.map((row, i) => i === 3 ? { ...row, status: 403, body: { Errors: [{ Message: "Not Authorized" }] } } : row);
+  const value = { ...batch, routes };
+  expect(await (await upload(f, value)).json()).toMatchObject({ outcome: "good" });
+  expect(mapSchoolCourse(value).items.find((item) => item.id === "folder-17")?.submission).toBe("unknown");
+  expect((await repo(f).status()).refused).toContainEqual({ route: routes[3]!.route, course: f.courseId, host: batch.host,
+    disposition: "refused", status: 403, fetched_at: batch.startedAt });
+  expect(JSON.stringify(await repo(f).status())).not.toMatch(/not submitted|unsubmitted|"missed"/i);
+});
+
+it("keeps an unobserved populated student submission array unknown", async () => {
+  const f = await collectorFixture();
+  const batch = observedBatch(f);
+  const routes = batch.routes.map((row, i) => i === 3 ? { ...row, body: [{ Status: 1 }] } : row);
+  const value = { ...batch, routes };
+  expect(await (await upload(f, value)).json()).toMatchObject({ outcome: "good" });
+  expect(mapSchoolCourse(value).items.find((item) => item.id === "folder-17")?.submission).toBe("unknown");
+  expect((await repo(f).status()).evidence.find((row) => row.route === routes[3]!.route)).toMatchObject({
+    shape: "array(1)", raw_json: JSON.stringify([{ Status: 1 }]),
+  });
+});
+
 it("keeps a first-run host session failure visible after the other host succeeds", async () => {
   const f = await collectorFixture();
   const failure = hostFailure(f);

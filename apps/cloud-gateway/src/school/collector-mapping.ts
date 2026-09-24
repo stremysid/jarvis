@@ -6,7 +6,7 @@ export interface SchoolItem {
   readonly id: string;
   readonly title: string;
   readonly dueAt: string | null;
-  readonly dateSource: "content/myItems" | "assignment DueDate" | "quiz DueDate" | "availability end" | null;
+  readonly dateSource: "content/myItems" | "assignment DueDate" | "folder Availability EndDate" | "quiz DueDate" | "availability end" | null;
   readonly dateRoute: string | null;
   readonly submission: "positive submission status" | "unknown";
 }
@@ -45,6 +45,16 @@ function date(value: unknown): string | null {
 function list(value: unknown): readonly Record<string, unknown>[] {
   if (!Array.isArray(value)) throw new Error("resource_list_invalid");
   return value.map(record);
+}
+
+function folderAvailabilityEnd(value: unknown): { readonly known: boolean; readonly at: string | null } {
+  if (value === null || value === undefined) return { known: true, at: null };
+  if (typeof value !== "object" || Array.isArray(value)
+    || !Object.prototype.hasOwnProperty.call(value, "EndDate")) return { known: false, at: null };
+  const end = (value as Record<string, unknown>).EndDate;
+  if (end !== null && typeof end !== "string") return { known: false, at: null };
+  try { return { known: true, at: date(end) }; }
+  catch { return { known: false, at: null }; }
 }
 
 export function sessionExpired(row: RouteEvidence): boolean {
@@ -150,16 +160,25 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       seen.add(key);
       const personal = personalDates.get(key) ?? null;
       const assignment = date(folder.DueDate);
-      const availability = topicDates.get(`folder-${key}`)?.at ?? null;
+      const folderAvailability = folderAvailabilityEnd(folder.Availability);
+      if (!folderAvailability.known) unmapped.push(`${folders.route}:folder_availability_shape_unknown`);
+      const contentAvailability = topicDates.get(`folder-${key}`)?.at ?? null;
+      if (personal !== null && assignment !== null && personal.at !== assignment) {
+        unmapped.push(`${folders.route}:ambiguous_assignment_date`);
+      }
+      // An unreadable higher-priority fallback cannot be treated as absent in order to select a lower one.
+      const availability = folderAvailability.known ? folderAvailability.at ?? contentAvailability : null;
       const dueAt = personal?.at ?? assignment ?? availability;
-      const dateSource = personal !== null ? "content/myItems" : assignment !== null ? "assignment DueDate" : availability !== null ? "availability end" : null;
+      const dateSource = personal !== null ? "content/myItems" : assignment !== null ? "assignment DueDate"
+        : folderAvailability.at !== null ? "folder Availability EndDate" : availability !== null ? "availability end" : null;
       const ownPath = `dropbox/folders/${key}/submissions/mysubmissions/`;
       const submission = required(ownPath);
       const ownPositive = submission?.route === prefix + ownPath && submission.status === 200 && submission.complete
         && submission.body !== null && !Array.isArray(submission.body) && typeof submission.body === "object"
         && submission.body.Status === 1;
       items.push({ id: `folder-${key}`, title: title(folder.Name), dueAt, dateSource,
-        dateRoute: personal !== null ? personal.route : assignment !== null ? folders.route : availability !== null ? toc!.route : null,
+        dateRoute: personal !== null ? personal.route : assignment !== null || folderAvailability.at !== null ? folders.route
+          : availability !== null ? toc!.route : null,
         submission: ownPositive ? "positive submission status" : "unknown" });
     });
   });

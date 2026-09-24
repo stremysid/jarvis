@@ -3,6 +3,61 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: D2L receiver follow-up surfaces fallback and disagreement evidence
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-followup.
+The branch was clean at `origin/main` `c66c387` before this work. Git remained
+read-only; no merge, push, deployment, migration, secret or live school operation
+was attempted.
+
+Results:
+
+1. Confirmed that `mapSchoolCourse` read folder `DueDate` and content
+   module/topic ends but never read `folder.Availability`. It now accepts only the
+   documented nullable object with an `EndDate`, projects that field below
+   `DueDate` as `folder Availability EndDate`, and records
+   `folder_availability_shape_unknown` for an unfamiliar shape. An unreadable
+   higher fallback is not guessed away to a lower content date; the folder stays
+   undated while other folders in the course still project.
+2. Found **no recorded rationale** for putting `content/myItems` ahead of folder
+   `DueDate` in the #175 review, the #175 log entries or `CODE-VS-JUDGMENT.md`.
+   The existing projection order remains for compatibility, but differing values
+   now record `ambiguous_assignment_date`; equal values record no disagreement.
+   The design and judgment register say this explicitly.
+3. Submission arrays and per-folder 403s did not expose a runtime defect. A 200
+   `[]`, a one-entry array with the unobserved positive shape and a 403 all remain
+   `submission: "unknown"`; repository status records the 403 as `refused`.
+   Runtime submission code is unchanged.
+
+New tests:
+
+- `prefers assignment DueDate to the folder Availability end date`
+- `uses the folder Availability end date when assignment DueDate is null and labels its source`
+- `labels an unknown folder Availability shape without dropping the rest of the course`
+- `records differing myItems and folder DueDate values while retaining the existing projected date`
+- `does not record a disagreement when myItems and folder DueDate values are equal`
+- `records a refused student submission route without treating it as not submitted`
+- `keeps an unobserved populated student submission array unknown`
+
+The existing `accepts observed empty student submissions as unknown evidence with
+their original body` test retains the 200 `[]` case.
+
+Harness gate required: all six gateway collector files — `collector-ingest`,
+`collector-compatibility`, `collector-security`, `collector-pages`,
+`collector-wiring` and `collector-migration` — plus the extension
+`collector.test.js` and `receiver-contract.test.js`, then the full cloud-gateway
+suite. No acceptance file was touched. The harness should also rerun source typing,
+the non-gating test typecheck and `check:state`.
+
+Available checks: `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed
+with no diagnostics; the extension collector and pinned receiver Node tests passed
+2/0/0; the test typecheck remained red only outside the changed collector files;
+`node scripts/check-state.mjs` passed with its one existing background-access
+advisory; `git diff --check` passed. This container cannot run Vitest or pnpm, so
+none of the gateway collector runtime tests, the full suite or mutations was
+verified here. No live D2L read, positive submission shape, production behavior,
+database migration or deployment was verified.
+
 ## 2026-09-24 — Codex builder: PR #175 review round 2 closes linked-tool and unreadable-folder gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/d2l-receiver-fix.

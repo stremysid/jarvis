@@ -115,6 +115,12 @@ Course B's 42 folders and none of the large unit's 140
 to be treated as **"exists, no date in D2L"**, with the date coming from Sid or the
 teacher.
 
+The public `DropboxFolder` contract gives the only supported non-null shape here:
+`Availability` contains `StartDate`, `EndDate`, `StartDateAvailabilityType` and
+`EndDateAvailabilityType`, each nullable. The receiver reads only that documented
+`EndDate`; an unfamiliar shape remains raw, labelled evidence rather than an alias
+guess. [Brightspace Dropbox API reference](https://docs.valence.desire2learn.com/res/dropbox.html#Dropbox.DropboxFolder).
+
 A deadline reader keyed on the obvious field alone reports almost nothing, and
 does so *silently* — an empty list is indistinguishable from "nothing is due".
 This is precisely the class of failure the P2 brief's "a page whose shape you did
