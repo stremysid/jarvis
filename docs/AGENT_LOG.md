@@ -69,6 +69,143 @@ Observed gates on final code `425b24d`: new deadline tests 25 passed plus reposi
 Mutation evidence: **14 unique faults killed on their named tests and confirmed on a second run**, with byte-identical restoration. Covers input format, named zone, date/clock zone matching, date/clock excerpt matching, course/title/status evidence, explicit-open refusal, current-message grounding, direct-owner and durable-turn checks, and the unchanged-row status race. Two initial probes were `KILLED/OTHER`; their corrected probes were independently confirmed, not counted as initial expected kills. Evidence and specs: `C:\Users\Sid\codex-ledgers\deadline-*.log` / `deadline-*mutations*.json`; continuity: `deadlines-reminders-run.md` in that folder.
 
 Only the gateway package and documentation changed. No deployment, migration application, live provider call, credential operation, local-agent execution, or PC permission change. Owner Telegram acceptance after deployment is in `OWNER-ACTIONS.md`. PR B will branch from this PR and reuse the hook. Signed: Codex.
+## 2026-09-23 — Codex builder: PR #165 review fixes and mutation evidence
+
+Publication follow-up: main advanced during the gates to
+`248c3de4b1145c22638eff5bc31999d18d00308a` (Hermes PR #156). A second normal
+merge retains both log histories; only AGENT_LOG conflicted. Gateway code/tests,
+contracts, workspace test configuration and dependency files remain identical
+to the tested revision, so their passing gates were not repeated. No Hermes or
+PC settings code was executed. This follow-up supersedes the earlier main SHA
+as the PR's final base without changing calendar behavior.
+
+Normal merge `083b36a0b5bcf6866ab0a884fbdedacee2365c77` joins reviewed
+head `38fc6224979d310dc556d1e4271374cb0750307f` and main
+`a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Only AGENT_LOG and
+OWNER-ACTIONS conflicted. Both log histories are preserved (442 and 443 parent
+entries checked, zero missing), and the unrelated incident-report restoration
+owner row is removed. No rebase, force push, merge to main or deployment.
+
+The ten review requests are addressed. Text escapes U+2028/U+2029 as newlines,
+strips Cc/Cs/Co and the specified bidi controls, and preserves ZWJ/ZWNJ. Catch-up
+and date-only university events have exclusive next-day DTEND values, including
+month/year/leap-day boundaries. Authentication hashes and compares before
+rejecting unset/short configuration; padded configuration also gets opaque 404.
+Tests pin case-sensitive credentials and well-formed physical lines with astral
+characters swept across nine fold offsets. The runbook explains silent 404s,
+interactive secret entry only (never piped), and limiting after authentication.
+The optional-secret comment in wrangler.toml includes CALENDAR_FEED_TOKEN.
+
+Observed evidence on source commit `6bd5c302b3687f3663194742dda81805a82894a8`
+plus assertion-reporting fix `0730c2842c52da34ee4898a0b4b8b74b02119ba8`:
+
+- Focused new tests: 23 passed, 0 failed, 0 skipped in 2 files. After the
+  assertion fix and again after mutation restoration: 23/0/0 each.
+- Full cloud-gateway suite, once: **5137 passed, 0 failed, 0 skipped**, 192
+  files, 194.48 seconds. No flaky-file rerun.
+- Source typecheck: exit 0, zero diagnostics. Test-file typecheck remains a
+  non-gate: 143 errors in 31 existing files, zero calendar-file diagnostics.
+  Every diagnostic matches the previous 144-error baseline except the one
+  telegram callback diagnostic removed by main; the assertion fix changed none.
+- State-carrier check: pass, 3 carriers, no warnings. Carrier files did not
+  change afterward.
+
+The committed 48-case mutation spec now has **48 unique kills**, each confirmed
+twice on its named test. In particular, lowercasing both credentials fails
+"compares mixed-case credentials exactly and refuses the lower-cased URL", and
+iterating `line.split("")` fails "keeps every physical line well formed when
+astral characters straddle each fold offset".
+
+Initial sweep: 47 killed, 0 survived/wrong-test/unconfirmed/not-applied, 1 INVALID;
+5 files restored byte-identically. A diagnostic repeat of strip-controls was
+also INVALID: raw Vitest output showed WS_ERR_INVALID_UTF8 in the Workers
+transport, with no named test failure. Changing that assertion to boolean
+membership kept unstripped lone surrogates out of its failure diagnostics.
+The same probe then killed the named control-stripping test twice, 0 invalid,
+and restored its file byte-identically. Restored focused tests passed afterward.
+The external runner adds only safe temporary-path cleanup validation and, for
+the diagnostic rerun, raw failure capture; neither invalid run counts as a kill.
+
+No real secret, database, migration, production, local-agent or PC settings
+operation occurred. iPhone subscription/refresh/alerts and platform request
+logs remain unverified. The supplied incident report is still absent; its
+unrelated owner row was removed as requested. Owner setup remains in the
+calendar runbook. Automated and independent adversarial re-review should use
+the new pushed head; the builder does not wait for or perform deployment.
+
+Signed: Codex (GPT-6), builder.
+
+## 2026-09-23 — Codex builder: private iPhone school calendar feed ready for review
+
+Branch `codex/calendar-feed-run`, from freshly fetched `origin/main`
+`a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. School is Sid's top priority and he
+tracks everything in iPhone Calendar; this fact is now in `FACTS.md`.
+
+`GET /calendar/<token>.ics` is a read-only route in the default Worker fetch.
+It requires optional `CALENDAR_FEED_TOKEN` with at least 32 characters, compares
+fixed-size hashes with Workers' native constant-time primitive, returns opaque
+404s for absent/wrong credentials, and uses an independent health-equivalent
+limiter. Every calendar response is private/no-store. Errors neither echo nor log
+the credential. Repository failures return 503, not an empty successful feed.
+
+The pure composer emits planned catch-up tasks as saved all-day dates, open
+deadlines in `[now - 14 days, now + 90 days)` with their alarm lead times, and
+dated application/workflow items with saved verified/unverified labels. UIDs are
+namespaced row ids. Text escapes, control stripping and UTF-8 75-octet folding
+prevent property injection, including a literal CRLF followed by `ATTACH:`.
+
+**Premise findings:** the importer exists and there was no outbound ICS path.
+Catch-up had no complete planned-action reader, so one was added. Both university
+methods were digest views capped at five by default and ten maximum; explicit
+`null` now requests all eligible rows while numeric limits/defaults stay intact.
+The deadline store has no principal column and is currently single-owner.
+The prompt assigns 0039 to #159 and later unreserves it; GitHub metadata instead
+shows #159 carrying `0040_tool_confirmation_consumptions.sql`. No number is needed
+or claimed here, and none of the parallel sync builder's owned files changed.
+
+Observed gates (pass / fail / skip):
+
+| Check | Result |
+|---|---|
+| Related tests during iteration, 7 files | **51 / 0 / 0** |
+| Final restored calendar/route tests, 2 files | **13 / 0 / 0** |
+| Full cloud-gateway suite, run once, 192 files | **5121 / 0 / 0**, 224.83 s; no isolated rerun needed |
+| `pnpm --filter @jarvis/cloud-gateway typecheck` | exit 0, zero diagnostics; lint is the same `tsc --noEmit` command and was not redundantly rerun |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | exit 1, **144 existing diagnostics in 32 files**, zero in the new files; existing diagnostic lines unchanged from the initial run |
+| `node scripts/check-state.mjs` | exit 0, **3 carriers**, no warnings printed |
+| Diff whitespace check | exit 0 |
+
+Mutation spec: `reviewer-tools/calendar-feed-mutations.json`, **36 unique faults**.
+The initial sweep killed 34 twice and found two survivors: the missing-path guard
+was redundant with an overly broad decode catch, and an all-multibyte fixture
+missed continuation-space accounting. Encoded-token extraction now precedes the
+URI-only catch; the fixture mixes ASCII and multibyte text. The follow-up killed
+both survivors plus the affected malformed-URI 404 probe, each twice: **3 killed,
+0 survived**. Combined: **36/36 unique killed**, zero wrong-test, unconfirmed,
+not-applied or invalid results. Both sweeps verified byte-identical restoration
+(5 files, then 2), followed by the 13/13 restored pass above. Runner was the
+repository `mutate.ps1` copied outside the worktree with only an explicit resolved
+temporary-path check added before its backup cleanup. Evidence logs and the
+continuity ledger are under `C:\Users\Sid\codex-ledgers\calendar-feed-*`.
+
+Initial iteration also observed 12 passing tests and one failing fixture: its
+workflow status evidence did not name the step. Fixed before the green baselines.
+An initial source type error from `node:crypto` was removed by using the native
+Workers primitive; the new test's Request type was corrected as well.
+
+**Not verified:** iPhone subscription/refresh/alerts, platform access-log policy,
+live endpoint, production configuration or deployment. The required Downloads
+incident report was absent and sections 1–3 could not be read. No local-agent,
+PC permissions/settings, production, real secrets, real database or migration
+operation ran. OWNER-ACTIONS records setup and the missing report; the runbook
+explains bearer-URL exposure, secret rotation, Settings search for “Subscribed
+Calendar”, and **Remove Alerts off — unverified on Sid's phone**.
+
+Next: automated and independent adversarial review when the PR opens; owner
+configuration and iPhone acceptance only after separately authorized deployment.
+The builder will remove its worktree after publication and retain the ledger.
+
+— Codex, builder
 ## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
 
 Normal merges retain the original PR history: `0c0d0fa` integrated main at
