@@ -265,11 +265,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    // The gap is the school feed with nothing in it: this deployment holds no
-    // Classroom credentials and no scan has ever completed, so the digest now
-    // says so instead of reporting a quiet term. That is the point of the
-    // change; the Brightspace line below is what this test is about.
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    // A working calendar cannot establish submission health or collector coverage.
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 2 Project");
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "Google Classroom grades/submissions: has never completed a submission scan",
@@ -295,10 +293,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    // Two gaps: the D2L feed is not set up at all, and the Classroom
-    // grades/submissions source has never completed a scan. Silence about
-    // either one reads as a quiet term.
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    // Unconfigured feeds and an unavailable collector cannot imply a quiet term.
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 3 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain("D2L notification email: not set up");
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "Google Classroom grades/submissions: has never completed a submission scan",
@@ -425,7 +422,8 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 3 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain(
       "bounded sweep omitted 140 in-window entries; kept at most 180 live items and 180 cancellations",
     );

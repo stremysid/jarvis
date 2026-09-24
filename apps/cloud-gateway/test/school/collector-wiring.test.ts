@@ -24,7 +24,7 @@ it("receives a signed course batch through the production worker router", async 
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(f.clock());
   try {
-    const response = await worker.fetch(await f.request("/school/observations", observedBatch(f)), { ...env, OWNER_PRINCIPAL_ID: f.owner } as Env,
+    const response = await worker.fetch(await f.request("/school/observations", observedBatch(f)) as Request<unknown, IncomingRequestCfProperties>, { ...env, OWNER_PRINCIPAL_ID: f.owner } as Env,
       { waitUntil() {} } as unknown as ExecutionContext);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ outcome: "good" });

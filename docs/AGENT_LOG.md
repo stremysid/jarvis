@@ -3,6 +3,20 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex GPT-6 builder: D2L school collector receiver
+
+Branch `codex/d2l-ingest-run`, refreshed from `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. School remains the priority. Built the separately scoped Ed25519 collector registry in assigned **0040**, owner Telegram pairing, terminal tier-3 revocation, signed bounded per-course observation ingestion, immutable raw evidence, labelled deadline projection and owner `school_d2l_status` tools. Failed/incomplete/stale reads become digest gaps. Undated work remains evidence; no code decides missed work. The P2 login-and-scrape reader is parked. See the [final design](plan/2026-09-23-d2l-collector-design.md) and [named verification evidence](reviews/2026-09-23-d2l-collector.md).
+
+**Observed gates:** one full cloud run, **5,150 passed / 5 failed / 0 skipped**, 193 files. All five failures were old test expectations for the extra collector gap and two school voice tools. Correcting only those expectations and rerunning the three affected files produced **35 passed / 0 failed / 0 skipped**; no failing file remains unresolved. The full run included **40/0/0 collector tests**. This is not a claim of one green full-suite run. Product typecheck passed with zero diagnostics. Test typecheck remains red with **143 diagnostics outside collector files, zero in collector files**. State/whitespace results are recorded in the PR and evidence document.
+
+**Guard proof:** 80 distinct mutations each produced two named failures and a named restored pass. Initial round: 59 killed, 3 survived, 1 invalid; follow-ups: 18/18 and 6/6 killed, with zero unmatched/unconfirmed cases. The future-date fixture had masked its target guard; the owner predicate was redundant until all application owner predicates were removed; deleting an array check still threw at map; deleting a trigger broke the migration splitter. All four were corrected in the test/mutation specification and re-proved. Every round restored touched files byte-for-byte. Specifications are versioned in `reviewer-tools/mutation-specs-d2l-collector.json`.
+
+**Premise corrections and handoff:** #161 observed `submissions/`, not `mysubmissions/`, and no populated submissions/grades or myItems shape. Synthetic adapters are not live-verified. #163 corrected the myItems route to use `orgUnitIdsCSV`; it remains a probe with no signing/push adapter. #159's initial 0040 collision is resolved at `ebd02ca1f5e6e3a0a0f881abcb0547e5bca1cd0d`, which uses assigned 0039. Apply migration order after review. #159 overlaps shared owner-agent/voice/backup wiring; neither branch is merged here. #157 runtime/test files, sync handlers, local-agent and the deploy tree were untouched.
+
+Next, **when this PR opens**: automated and independent adversarial review. The separate extension builder must wire the approved production collector transport. **After independent clearance and authorized rollout**, Sid owns the PC/laptop pairing and live completeness checks in [OWNER-ACTIONS](OWNER-ACTIONS.md). No merge, deployment, real migration, live school/provider request, secret operation or PC-permission operation occurred. The requested incident file was absent. Ledger/logs remain at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`; remove the isolated worktree after publication.
+
+Signed: Codex GPT-6, cloud receiver builder, 2026-09-23 EDT.
+
 ## 2026-09-23 — Codex builder: #163 hardening closes the H1/H9 test gaps
 
 Limited to Sid's post-review requests: literal LDSB host assertions for every
