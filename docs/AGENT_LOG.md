@@ -3,6 +3,14 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex GPT-6 builder: #169 publication refresh after #164, #165 and #167
+
+Signed: Codex GPT-6, receiver builder. GitHub reported a conflict after the first normal push. Fresh fetch proved main had advanced to `0d69556394cc543bb55a5a66627c1b35aa6139d4`. Merged it normally in `d3ab0827869251cd09907c74a783b8056de3a141`; no rebase or force-push. Kept all upstream runtime changes and every conflicting log/fact/queue entry. The two digest test conflicts now retain main's retired-source behavior and the collector's separate coverage gap. No upload route, signing, pairing payload or batch format changed.
+
+Because upstream changed executable code after the earlier 5192/0/0 full run, final gates were refreshed: focused **141/0/0** across nine files (including all **52 collector** tests); full cloud **5240/0/0** across **199 files**. Pass/fail/skip throughout. Seven changed-file mutations killed twice and passed restored, zero other outcomes, two files byte-identical. Total round proof: **103 distinct killed guards / 125 attempts**, no unresolved survivor. Source typecheck: zero diagnostics; test typecheck: **143 outside collector / 0 collector**, still non-green. See [all observed evidence](reviews/2026-09-23-d2l-collector-round-1.md#publication-refresh-after-main-advanced).
+
+Next, **after this normal push**: follow-up independent and automated review. **After clearance and authorized rollout**: the existing owner acceptance actions. No main merge, deployment, real DB/provider, secret, PC permissions/services/tasks/registry or local-agent operation occurred. Remove only the verified clean worktree after publication and retain the external ledger.
+
 ## 2026-09-23 — Codex GPT-6 builder: #169 review round 1
 
 Signed: Codex GPT-6, cloud receiver builder, 2026-09-23 EDT. Read all of [review comment 5806221250](https://github.com/stremysid/jarvis/pull/169#issuecomment-5806221250) before changes. Merged fresh main `c92078b964cf9a8ce22ee8494714da332e4f553b` normally in `ff3ae31`, preserving 0039 before 0040 and backup schema 0040. No rebase or force-push in this round. Final executable changes are `72094aea19dac430b309ccc564099d8569933eb1`.

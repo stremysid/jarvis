@@ -1,5 +1,7 @@
 # D2L collector review round 1
 
+Latest results are in [Publication refresh after main advanced](#publication-refresh-after-main-advanced); earlier results below remain dated evidence.
+
 Signed: Codex GPT-6 builder, 2026-09-23 EDT. This answers the [independent review of 5abba94](https://github.com/stremysid/jarvis/pull/169#issuecomment-5806221250), read in full before changes. The earlier [build evidence](2026-09-23-d2l-collector.md) remains historical; its counts are not this round's gates.
 
 **The upload contract is unchanged:** same `/school/*` routes, SignedRequestV1 semantics, audience, pairing request/response bodies and per-course batch format. Read-tool output adds `refusedTruncated` and `lastGoodReadUndatedItems`. Pairing's existing four-start budget is now per configured principal. No extension update is required for these fixes.
@@ -32,7 +34,7 @@ The capability fixture now restores `school.track` after each test. The real con
 
 An additional focused shape probe found that a successful submissions response with a null container was classified as good: **0 passed / 1 failed / 20 skipped**. The mapper now requires successful submissions to have an object container, preserving the observed empty object and the existing own-submission adapter. Nulls, arrays, strings and booleans fail, while complete 403 containers remain unparsed refusals. No route or payload format changed. After the fix at `72094aea`, all collector files passed **52 / 0 / 0**; all 17 affected mapping mutations were rerun before the full package gate.
 
-## Final gates
+## Gates before publication refresh
 
 | Gate | Observed result |
 |---|---|
@@ -158,3 +160,20 @@ The external runner is the same restored-pass-enhanced copy of `reviewer-tools/m
 | digest-undated-positive | counts undated work from the latest good whole read and names it in a current digest | named failure twice | 1 passed / 19 skipped (20) |
 | submission-container | fails unfamiliar successful submission containers while retaining complete submission refusals | named failure twice | 1 passed / 20 skipped (21) |
 | submission-refusal-shape | fails unfamiliar successful submission containers while retaining complete submission refusals | named failure twice | 1 passed / 20 skipped (21) |
+
+## Publication refresh after main advanced
+
+The first normal push was `1b3302dadea138aa56a69723fb0fd5d2fec4b015`. GitHub then reported a conflict: main had advanced through #167, #164 and #165 to `0d695563`. Recreated the clean worktree and merged that main normally in `d3ab0827`. No rebase or force-push. All upstream runtime changes are retained. The textual code/test conflicts were two digest fixture files: retired Classroom/email gaps disappear, while the separate Brightspace API coverage gap remains. All conflicting documentation blocks/rows were retained.
+
+The refreshed focused check passed **141 / 0 / 0** across nine files, including all 52 collector cases, the affected digest jobs and the new calendar/paste composition paths. Refreshed source typechecking passed with zero diagnostics; test typing remains **143 outside collector / 0 collector**. Upstream changed executable gateway code after the first full gate, so this is a new code snapshot requiring its own final full run. The earlier **5192 / 0 / 0** run above remains valid evidence for its explicitly older snapshot. Only seven mutations target the changed index/digest files; unchanged mutation targets retain their earlier evidence.
+
+| Refreshed gate | Observed result |
+|---|---|
+| Focused integration checks | 141 passed / 0 failed / 0 skipped, 9 files, including 52 collector tests |
+| Full cloud suite on final merged code | **5240 passed / 0 failed / 0 skipped**, 199 files |
+| Changed-file mutation rechecks | **7 killed / 0 other outcomes**, 2 files restored byte-identically |
+| Total mutation proof this round | **103 distinct killed cases, 125 confirmed attempts** (101 + 17 + 7), each with two named failures and a restored pass; 0 survivors/unapplied/invalid/unconfirmed/wrong-test outcomes |
+| Source and test typing | Source: exit 0, zero diagnostics. Tests: exit 1, 143 diagnostics outside collector / 0 collector |
+| Refreshed state / whitespace gates | Both exit 0; 3 carriers and FACTS passed, 0 warnings; 0 whitespace errors |
+
+The final full command uses the same cloud test path and writes `d2l-r1-refresh-full.txt/json`. No unrelated known-flaky failure needed a rerun. The two full runs measured different gateway code snapshots; the second was necessary after upstream runtime changes, not a repetition of an unchanged passing gate.
