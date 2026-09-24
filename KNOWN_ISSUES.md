@@ -1,5 +1,17 @@
 # Known issues
 
+## Owner voice streaming acceptance (PR #171, 2026-09-24)
+
+Live DeepSeek tool-call streaming and phone latency remain unverified. The
+round-2 model marker protocol checks this-turn receipt/tool provenance for one
+declared sentence, with regexes only as an omission backstop. An omitted novel
+claim or a semantically wrong description attached to a real receipt is still
+a model failure code cannot prove away. Combining this path with #172's real
+guided-assignment tools needs integration coverage after the branches join;
+the current proof-boundary fixtures use synthetic executed guided receipts.
+See [the design and evidence](docs/voice-streaming.md) and the first live check
+in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md). No live check or rollout is implied.
+
 Checked on 2026-09-23 against fetched `origin/main` at
 `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`. These are remaining code limits
 or explicitly unverified acceptance requirements, not a claim about today's

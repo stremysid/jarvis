@@ -38,7 +38,7 @@ describe("voice sentence receipts", () => {
 
   it("keeps passive advice and a Brightspace denial from exempting a following completion", () => {
     const sentences = new VoiceSentences();
-    const result = sentences.push("When your application is submitted, keep proof. Your application is now in with Western. I haven't checked D2L. I checked D2L.")
+    const result = [...sentences.push("When your application is submitted, keep proof. Your application is now in with Western. I haven't checked D2L. I checked D2L."), ...sentences.finish()]
       .map((sentence) => guardVoiceReplySentence(sentence, new Set()));
     expect(result).toEqual([
       "When your application is submitted, keep proof.", UNRECEIPTED_VOICE_ACTION,
@@ -51,8 +51,8 @@ describe("voice sentence buffering", () => {
   it("holds a split action claim through line breaks until its sentence is complete", () => {
     const sentences = new VoiceSentences();
     expect(sentences.push("I've\nsa")).toEqual([]);
-    expect(sentences.push("ved that. Advice follows")).toEqual(["I've\nsaved that."]);
-    expect(sentences.finish()).toEqual([" Advice follows"]);
+    expect(sentences.push("ved that. Advice follows")).toEqual(["I've\nsaved that. "]);
+    expect(sentences.finish()).toEqual(["Advice follows"]);
     expect(sentences.finish()).toEqual([]);
   });
 
@@ -60,13 +60,27 @@ describe("voice sentence buffering", () => {
     const sentences = new VoiceSentences();
     expect(sentences.push("I emailed Ms.")).toEqual([]);
     expect(sentences.push(" Smith for you. A draft costs 1.5 minutes.")).toEqual([
-      "I emailed Ms. Smith for you.", " A draft costs 1.5 minutes.",
+      "I emailed Ms. Smith for you. ",
     ]);
+    expect(sentences.finish()).toEqual(["A draft costs 1.5 minutes."]);
   });
 
   it("does not split a word at internal punctuation or emit an empty suffix", () => {
     const sentences = new VoiceSentences();
-    expect(sentences.push("example.test is a placeholder. ")).toEqual(["example.test is a placeholder."]);
+    expect(sentences.push("example.test is a placeholder. ")).toEqual(["example.test is a placeholder. "]);
     expect(sentences.finish()).toEqual([]);
+  });
+
+  it.each([
+    ["It costs 3.", "5 dollars."],
+    ["An example is e.", "g. a draft."],
+    ["Walk along St.", " Clair."],
+    ["Examples etc.", " belong here."],
+    ["1.", " Start here."],
+  ])("holds the terminal period in %s until its continuation arrives", (first, rest) => {
+    const sentences = new VoiceSentences();
+    expect(sentences.push(first)).toEqual([]);
+    expect(sentences.push(rest)).toEqual([]);
+    expect(sentences.finish()).toEqual([first + rest]);
   });
 });

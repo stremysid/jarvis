@@ -2409,7 +2409,7 @@ describe("CallSession production composition", () => {
     expect(requests.filter((url) => url.includes("api.twilio.com"))).toHaveLength(2);
     expect(call.close).not.toHaveBeenCalled();
     expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))).toContainEqual({
-      type: "text", token: "A composed voice reply.\n", last: false,
+      type: "text", token: "A composed voice reply.", last: false,
     });
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
@@ -2437,6 +2437,8 @@ describe("CallSession production composition", () => {
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(system?.content).toContain("Return plain spoken text, with no JSON envelope.");
+    expect(system?.content).toContain("[[claim");
+    expect(system?.content).toContain('"toolName":"the_proving_tool_name"');
     expect(system?.content).not.toContain("claimedActions");
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }]);

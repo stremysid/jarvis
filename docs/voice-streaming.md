@@ -1,6 +1,6 @@
 # Owner voice reply streaming
 
-Builder evidence and design, 2026-09-23. This change has not been deployed or
+Builder evidence and design, updated 2026-09-24 for review round 2. This change has not been deployed or
 checked against a live provider. The owner check is in [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
 
 ## Verified premises
@@ -14,10 +14,11 @@ checked against a live provider. The owner check is in [OWNER-ACTIONS.md](OWNER-
 - The loop allowance is min(voice 30 seconds, core default 20 seconds). More
   precisely, that timer starts **after the core-profile read**; it is not an
   end-to-end wall-clock guarantee. This PR does not change Telegram's timing.
-- A further buffering premise was wrong: `StreamingOutputRedactor` releases
-  **lines**, not sentences. Voice now delimits checked sentences with newlines,
-  so the real redactor can release them before EOF. Its secret-handling contract
-  and final transcript equality check stay in place.
+- The original output redactor releases **lines**, not sentences. Round 1 added
+  sentence newlines to make speech early. Review proved that broke quoted-secret
+  and Authorization-header redaction. Round 2 removes those inserted newlines:
+  voice redacts the original unsplit prose and releases completed sentences only
+  from its stable redacted prefix. Telegram keeps line mode.
 - DeepSeek's [chat-completions reference](https://api-docs.deepseek.com/api/create-chat-completion/)
   documents streamed `delta.tool_calls`: an indexed opening fragment includes
   id, type and function; continuations append function arguments at the same
@@ -30,13 +31,16 @@ Every model request streams plain text with tools, with `auto` on the first
 request and `none` on the follow-up. Tool arguments are assembled by index and
 are never executed before a valid terminal tool completion. A tool appearing
 after text is handled the same way: earlier sentences have already been checked
-against the receipts available **then**. Unfinished pre-tool prose is discarded.
+against the receipts available **then**. Replaced pre-tool claims are held until
+the round ends: spoken on a clean stop, discarded when a tool call follows.
+Unfinished pre-tool prose is discarded.
 One shared `executeCalls` still owns the one-action cap, owner authority, tier
 gate and all memory operations. A second tool round is refused even if a provider
 ignores `tool_choice: none`. There is no retry.
 
 After the interrupted builder run, `origin/main` at `c5310bee` was merged
-normally. Its #159 gate remains inside the memory and pipeline dispatch
+normally, then round 2 merged `29fbfcd6` and the later documentation update.
+The #159 gate remains inside the memory and pipeline dispatch
 branches, after channel refusals and before the tool body. Streaming voice
 tests preserve pending taps, claim once before even a malformed tool body,
 refuse replay, and leave an unsupported pipeline's tap available to Telegram.
@@ -52,34 +56,68 @@ live latency promises.
 
 ## What replaces the JSON claims and rewrite
 
-Voice buffers each sentence, then applies the existing external-action,
-credential-request, passive-completion and Brightspace recognizers to that
-sentence only. Internal memory completion forms also cover bare and passive
-phrasing. A newline inside an unfinished claim is whitespace, not an exemption.
-The model still chooses whether and which tool to call.
+The model judges whether each sentence claims an action. It wraps that sentence
+in metadata, while leaving the reply itself plain prose:
 
-Code speaks tool receipts before requesting the follow-up. Without the model's
-`claimedActions` declaration there is no sound binding between an arbitrary
-paraphrase and a particular action/target. Voice therefore accepts **only exact
-code-owned receipt sentences** as supported action wording. A model-generated
-completion claim outside those receipts is replaced by the fixed line
-"I can't confirm that action." A successful memory save never licenses an email,
-a different memory save or an unpin claim. Credential requests retain their
-specific refusal and cannot be exempted by a receipt or draft.
+```text
+[[claim {"toolName":"memory_remember","receiptIds":["receipt:save"]}]]I've logged that.[[/claim]]
+```
 
-This is deliberately stricter than allowing any action sentence whenever a
-receipt exists: that alternative would authorize claims about different targets.
-The fixed line avoids claiming a rollback when an actual receipt was spoken.
-There is no voice rewrite call, and no voice `claimedActions` envelope. Telegram
-retains both, along with its original prompt and JSON request format.
+The speech path strips these markers. Code requires exactly one complete
+sentence, a nonempty set of this turn's successful receipt ids, and the same
+proving tool name in every executed result. Missing, stale, refused, mismatched,
+partial-sentence and adjacent-sentence proof never permits a declared claim.
+Unsupported declarations become "I can't confirm that action." Novel declared
+paraphrases are checked even when no regex recognizes them. Malformed or
+unfinished metadata ends that reply honestly; it is never spoken.
 
-These recognizers are bounded language checks, **not proof of arbitrary English
-semantics**. The tests establish the named forms and real speech boundary. A
-novel paraphrase can still evade a lexical detector; losing the model's explicit
-claim inventory is a real tradeoff, not an equivalent semantic guarantee. See
-the partial [code-versus-judgment register](CODE-VS-JUDGMENT.md).
+The compatible `receiptedInternalSentences: [{ sentence, toolNames }]` proof
+shape matches #172. A `guided_assignment_draft` receipt can prove its exact
+declared send sentence. A memory receipt cannot exempt an external send, and
+one send never exempts a following undeclared claim. #171 adds no assignment
+tools and changes no tool catalogues. The #172 remote implementation was
+inspected at `a0f3ff8594ed8e97a0e803cc882ccfe164f5ddab`; the combined runtime
+remains to be tested after integration. Unit fixtures prove the boundary's
+guided-draft behavior, not a real guided tool execution.
 
-## Validation
+Before sentence splitting or honesty replacement, the whole marker-free prose
+is redacted without changing its whitespace. Annotation offsets are matched to
+that redacted prose, so removing a claim cannot remove a credential introducer
+and expose its secret tail. The redactor retains original context through EOF,
+releases only completed redacted sentences with lookahead, and refuses any
+change to a prefix already released. A chunk ending on a period waits for the
+next character or EOF, including decimal and abbreviation splits. Original
+whitespace is preserved; no artificial sentence newline reaches a redactor.
+
+Code still speaks receipts before the follow-up and permits an exact receipt
+sentence to be repeated. Credential requests remain forbidden even with proof.
+The external, passive and Brightspace regex checks apply per sentence as an
+omission backstop. There is no voice rewrite request: model declarations plus
+sentence-local proof checking replace the old JSON `claimedActions` inventory
+and rewrite. Telegram retains its original prompt, inventory, rewrite and wire
+format; the guard's extended proof type is backward compatible with its strings.
+
+The model can still omit a novel claim marker or attach the wrong semantic
+description to a real receipt. Code checks provenance and exact sentence scope;
+it cannot prove arbitrary English meaning. Sid rejected the regex-only design,
+and round 2 removes it. See the partial
+[code-versus-judgment register](CODE-VS-JUDGMENT.md).
+
+## Round 2 validation
+
+Only focused local files are permitted by Sid's 2026-09-24 PC-load rule. Full
+gateway, contracts and acceptance evidence comes from GitHub Actions after the
+push, not a package or workspace test run on his PC. Round-2 results will be
+recorded here after the focused mutation sweep and in the PR comment with CI.
+
+The mutation cases are in
+[`voice-streaming-round2.mutations.json`](../reviewer-tools/voice-streaming-round2.mutations.json).
+They target model declarations, current receipt/tool binding, exact sentence
+scope, marker framing, the omission backstop, redaction order and stable prefix,
+terminal-period lookahead, actual receipt registration (reviewer R07), and
+deferred pre-tool refusals. Every mutated run names its intended failing test.
+
+## Historical round 1 validation (not evidence of the round 2 fixes)
 
 Mutation evidence: **54 killed on their named tests, each confirmed twice;
 0 survived, 0 wrong-test kills, 0 unconfirmed, 0 not applied, 0 invalid**.
@@ -111,7 +149,7 @@ Full workspace run on implementation `54aa73a`: **214 files, 5,580 passed,
 | Contracts | 5 | 77 | 0 | 0 |
 | Acceptance | 14 | 276 | 0 | 0 |
 
-Commands, from the checkout in PowerShell:
+Historical commands from round 1 (full local runs are now prohibited):
 
 ```powershell
 pnpm.cmd exec vitest --config vitest.workspace.ts run

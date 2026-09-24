@@ -141,7 +141,7 @@ describe("production voice through the real DO stub and socket", () => {
   it("uses default composition for two socket turns across real eviction", async () => {
     const call = await open();
     call.prompt("My first socket question about chamomile");
-    await vi.waitFor(() => expect(call.frames).toContainEqual({ type: "text", token: "A real socket reply.\n", last: false }));
+    await vi.waitFor(() => expect(call.frames).toContainEqual({ type: "text", token: "A real socket reply.", last: false }));
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT state FROM conversation_turns").all()).results)
       .toEqual([{ state: "voice_sent" }]));
     await evictDurableObject(stub());

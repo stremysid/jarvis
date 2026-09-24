@@ -77,16 +77,19 @@ line whenever anything is dropped, so silence is never unexplained.
 
 ### Additional voice finding (2026-09-23)
 
-This register remains partial. `guardReplyClaims` and the voice-only
-`guardVoiceReplySentence` classify whether natural-language wording claims an
-action using regexes. Receipt comparison is proof, but the classification is a
-bounded judgment and cannot cover arbitrary paraphrases. For streaming, the
-accepted stopgap replaces unsupported recognized claims before speech and lets
-only exact receipt sentences establish a completed action. The eventual surface
-is a model-emitted action/receipt reference outside spoken prose, with code
-rendering the receipt; it needs a separately agreed voice protocol. This PR keeps
-the accepted plain-text protocol and records its limitation in
-[voice-streaming.md](voice-streaming.md).
+This register remains partial. PR #171's first version made regexes the only
+judge of action claims on voice. Calling that an "accepted stopgap" was wrong:
+Sid had not accepted it. His round-2 ruling requires the model to declare each
+action sentence outside the spoken prose. The voice marker names its proving
+tool and this turn's receipt ids; code strips the marker, redacts the unsplit
+prose, and verifies that exact sentence's proof before speech. Unsupported
+declarations get a fixed honest line, without a rewrite call.
+
+Regexes remain an omission backstop, as on Telegram. They cannot establish that
+an arbitrary untagged sentence is not a claim, or decide whether a declared
+paraphrase faithfully describes the receipt. Those judgments remain the model's.
+See [the protocol and evidence](voice-streaming.md). Telegram's JSON inventory
+and rewrite are unchanged by #171.
 
 ### Memory
 

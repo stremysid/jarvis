@@ -71,8 +71,9 @@ import type {
   ModelFunctionDefinition,
   ModelFunctionResult,
 } from "../providers/provider-types.js";
-import { guardReplyClaims, guardVoiceReplySentence } from "../school/school-catchup-model.js";
+import { guardReplyClaims } from "../school/school-catchup-model.js";
 import { VoiceSentences } from "./voice-sentences.js";
+import { VoiceReplyStream, type CheckedVoiceSentence } from "./voice-reply.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 
@@ -145,7 +146,7 @@ When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPL
 
 const OWNER_VOICE_STREAM_PROMPT = `${OWNER_AGENT_COMMON_PROMPT}
 
-Return plain spoken text, with no JSON envelope. When a tool is needed, call one tool. Every complete sentence is checked before it is spoken. Code speaks the tool's exact receipt as soon as the tool returns; do not repeat or paraphrase it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.`;
+Return plain spoken text, with no JSON envelope. When a tool is needed, call one tool. You decide which sentences claim actions: wrap EVERY complete sentence saying Jarvis did or is doing an action in [[claim {"toolName":"the_proving_tool_name","receiptIds":["the_receipt_id_from_this_turn"]}]]the exact one sentence.[[/claim]]. The markers are metadata and will not be spoken. Use receiptIds:[] when no receipt proves the claim; code will replace it honestly. Never wrap several sentences or only part of a sentence. Advice, offers, drafts, inability statements and actions Sid reports doing need no marker. Code speaks the tool's exact receipt as soon as the tool returns; avoid repeating it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.`;
 
 /** Kept as the name the Telegram composition already used. */
 export const OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT = OWNER_AGENT_SYSTEM_PROMPT;
@@ -917,20 +918,25 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     let outputCharacters = 0;
     const maximum = Math.min(input.maxOutputCharacters, MAX_REPLY_CHARACTERS);
     const receiptSentences = new Set<string>();
+    let executedReceipts: readonly ExecutedTool[] = [];
     let previousToolCalls: readonly ModelFunctionCall[] = [];
     let toolResults: readonly ModelFunctionResult[] = [];
     const token = (text: string): ModelToken => {
-      // The existing output redactor releases lines, not sentences. Delimit
-      // checked sentences so a one-line answer does not wait for EOF again.
-      const line = `${text.trim()}\n`;
-      outputCharacters += line.length;
+      outputCharacters += text.length;
       if (outputCharacters > input.maxOutputCharacters) throw new RangeError("voice_reply_limit");
-      return Object.freeze({ index: index++, text: line });
+      return Object.freeze({ index: index++, text });
     };
     try {
       for (let round = 0; round < 2; round += 1) {
         input.signal.throwIfAborted();
-        const sentences = new VoiceSentences();
+        const reply = new VoiceReplyStream(executedReceipts, receiptSentences);
+        const pendingReplacements: string[] = [];
+        const ready = (sentences: readonly CheckedVoiceSentence[]): string[] => sentences.flatMap((sentence) => {
+          // A tool result may settle a premature claim in this round. Delay
+          // refusals until stop, and discard them if the tool follows instead.
+          if (round === 0 && sentence.replaced) { pendingReplacements.push(sentence.text); return []; }
+          return [sentence.text];
+        });
         let completion: ModelAgentCompletion | null = null;
         for await (const chunk of provider.streamAgent({
           correlationId: input.correlationId, principalId: input.principalId,
@@ -943,13 +949,12 @@ export abstract class OwnerAgentCore implements ModelAdapter {
           if (chunk.type === "completed") { completion = chunk.completion; break; }
           rawCharacters += chunk.text.length;
           if (rawCharacters > maximum) throw new RangeError("voice_reply_limit");
-          for (const sentence of sentences.push(chunk.text)) {
-            yield token(guardVoiceReplySentence(sentence, receiptSentences));
-          }
+          for (const text of ready(reply.push(chunk.text))) yield token(text);
         }
         if (completion === null) throw new TypeError("voice_reply_incomplete");
         if (completion.finishReason === "stop") {
-          for (const sentence of sentences.finish()) yield token(guardVoiceReplySentence(sentence, receiptSentences));
+          for (const text of ready(reply.finish())) yield token(text);
+          for (const text of pendingReplacements) yield token(text);
           if (index === 0) yield token("I couldn't form a reply. Please try again.");
           return;
         }
@@ -958,6 +963,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         if (round !== 0) throw new TypeError("voice_extra_tool_round");
         input.signal.throwIfAborted();
         const executed = await this.executeCalls(input, port, completion.toolCalls);
+        executedReceipts = executed;
         previousToolCalls = completion.toolCalls;
         toolResults = executed.map((entry) => entry.providerResult);
         port.recordReferences(input.correlationId, [...new Set(executed.flatMap((entry) => entry.referencedItemIds))]);
@@ -969,7 +975,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
           for (const sentence of [...parts.push(receipt), ...parts.finish()]) {
             receiptSentences.add(sentence.replace(/\s+/gu, " ").trim());
           }
-          yield token(receipt);
+          yield token(`${receipt} `);
         }
       }
     } catch (error) {
