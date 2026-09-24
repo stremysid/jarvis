@@ -79,6 +79,11 @@ new owner-only action. The external Markdown ledger is retained.
 review of its exact remote head. This builder does not wait for or claim those
 verdicts, merge the PR, or deploy.
 
+Publication addendum: main advanced to `54c1b67b` with two documentation-only
+files from #173. Normal merge `beedcd8e` incorporates it; runtime, tests and
+mutation specs are identical to the tested checkpoint. Rechecked state carriers:
+exit 0, three carriers plus FACTS, zero warnings. No full suite was repeated.
+
 
 ## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
 

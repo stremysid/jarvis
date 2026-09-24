@@ -3,13 +3,19 @@
 Signed: Codex, builder for Sid, 2026-09-24. Validation checkpoint: `7d0f881ebf4a822f72b2903de2cc704d8212989f`.
 Main incorporated normally: `29fbfcd698f4ac7de947f076e43d0098e6bcc296`. No force push, deployment or migration application.
 
+After those gates, main advanced to `54c1b67b80421e540161714e666cec1b81e3f189`
+with two documentation-only files (#173). Normal merge `beedcd8e` includes it.
+Runtime, tests and mutation specs remain identical to the validation checkpoint;
+the changed state carriers were checked again: exit 0, zero warnings. No second
+full suite was run.
+
 ## What changed and why
 
 Read [the complete review](https://github.com/stremysid/jarvis/pull/162#issuecomment-5807216716) before design. Matching a worked object while accepting unknown tail words was still fail-open. The exemption now requires a worked verb object, a completely parsed prefix and a completely parsed tail. Unknown destinations, nouns, semicolons and second verbs stay claims. This replaces the second-action verb denylist; adding more external verbs or prepositions would repeat its failure mode.
 
 Removed program from told/asked. A called helper must identify a function/method or use call syntax. Numeric substitution requires a variable at the clause boundary. Continuations include isolate, simplify, check, cancel and get, but cannot stop matching at a noun prefix. Applied-for-you masking uses the same whole-sentence parser, including actions before the phrase. The lab-report passive upload/submission gap is also closed; a historical test expectation was strengthened while retaining its main outcome metadata.
 
-The shared owner prompt remains the original one-line PR edit. Both Telegram and voice use the same OwnerAgentCore guard. The actual PR #172 question and save receipt (open head 6c09a86 at inspection) are regression fixtures; eight scripted guided questions survive both channel adapters. This does not claim live model teaching quality or execute that PR's unmerged tools.
+The shared owner prompt remains the original one-line PR edit. Both Telegram and voice use the same OwnerAgentCore guard. The actual PR #172 question and save receipt (copied at 6c09a86, rechecked unchanged at a0f3ff85) are regression fixtures; eight scripted guided questions survive both channel adapters. This does not claim live model teaching quality or execute that PR's unmerged tools.
 
 A bounded diagnostic found overlapping target/continuation qualifiers caused excessive backtracking: 20 repeated phrases took about 120 ms and 30 exceeded a two-second worker limit. Removed the overlapping parses. The corrected diagnostic tested three phrase families at 1, 10, 30 and 100 repetitions followed by an invalid tail: all 12 rejected within 5 ms, and warmed 100-repetition cases were under 0.02 ms. These are local observations, not a universal latency guarantee.
 
