@@ -13,7 +13,7 @@ const DATE = `(?:\\d{4}-\\d{2}-\\d{2}|${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?
 const CLOCK = "(?:\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\.?|\\d{1,2}:\\d{2})";
 // The whole phrase must be one due expression. Searching the surrounding
 // message independently for a date and a clock combines different assignments.
-const DUE_PHRASE = new RegExp(`^(${DATE})(?:(?:\\s+(?:at\\s+)?|T)(${CLOCK}))?$`, "iu");
+const DUE_PHRASE = new RegExp(`^(?:(${DATE})(?:(?:\\s+(?:at\\s+)?|T)(${CLOCK}))?|(?:tonight\\s+)?(?:at\\s+)?(${CLOCK}))$`, "iu");
 
 function reject(reason: string, detail: string): never { throw new DeadlineProofError(reason, detail); }
 
@@ -57,7 +57,7 @@ function wallCandidates(date: string, hour: number, minute: number, zone: string
   });
 }
 
-function resolveDate(raw: string, anchor: string): { date: string; bound: boolean } {
+function resolveDate(raw: string, anchor: string): { date: string; bound: boolean; checkPast?: boolean } {
   const phrase = raw.toLowerCase().replace(/\./gu, "").replace(/\s+/gu, " ");
   const [year, month, day] = anchor.split("-").map(Number) as [number, number, number];
   const weekday = new Date(`${anchor}T00:00:00Z`).getUTCDay();
@@ -70,8 +70,13 @@ function resolveDate(raw: string, anchor: string): { date: string; bound: boolea
   }
   const namedDay = /^(?:(next|this) )?(\w+)$/u.exec(phrase);
   const index = WEEKDAYS.findIndex((name) => name.startsWith(namedDay?.[2] ?? "!"));
-  if (index >= 0) return { date: namedDay?.[1] === "next" ? addDays(monday, 7 + (index + 6) % 7)
-    : namedDay?.[1] === "this" ? addDays(monday, (index + 6) % 7) : addDays(anchor, (index - weekday + 7) % 7), bound: false };
+  if (index >= 0) {
+    const nearest = addDays(anchor, (index - weekday + 7) % 7);
+    if (namedDay?.[1] === "next" || namedDay?.[1] === undefined && index === weekday) {
+      return reject("deadline_ambiguous_date", `The phrase supports ${nearest} or ${addDays(nearest, 7)}. Ask Sid which date; code cannot choose between them.`);
+    }
+    return { date: namedDay?.[1] === "this" ? addDays(monday, (index + 6) % 7) : nearest, bound: false, checkPast: true };
+  }
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(phrase);
   if (iso !== null) return { date: dateKey(Number(iso[1]), Number(iso[2]), Number(iso[3])), bound: false };
   const ordinal = /^(?:the )?(\d{1,2})(?:st|nd|rd|th)$/u.exec(phrase);
@@ -121,8 +126,9 @@ export function proveDeadlineDue(input: {
   if (phrase.length === 0) return reject("deadline_missing_date", "There is no date in the due excerpt; ask for the due date.");
   const parsed = DUE_PHRASE.exec(phrase);
   if (parsed === null) return reject("deadline_ambiguous_date", "Copy one short due phrase containing its date and clock together, without another assignment or sentence.");
-  const resolved = resolveDate(parsed[1]!, wallParts(messageAt, input.ownerZone).date);
-  const clock = parsed[2]?.toLowerCase().replace(/[.\s]/gu, "");
+  const anchor = wallParts(messageAt, input.ownerZone).date;
+  const resolved = parsed[1] === undefined ? { date: anchor, bound: false, checkPast: true } : resolveDate(parsed[1], anchor);
+  const clock = (parsed[2] ?? parsed[3])?.toLowerCase().replace(/[.\s]/gu, "");
   let candidates: number[] = [];
   let note = resolved.bound ? "unconfirmed date-only bound: end of next week; the exact day was not stated"
     : "date-only: no clock time was stated";
@@ -140,6 +146,9 @@ export function proveDeadlineDue(input: {
       candidates = wallCandidates(resolved.date, hour, minute, zone);
       if (candidates.length !== 1) note = "date-only: the clock falls in a repeated or nonexistent local hour";
     }
+  }
+  if (resolved.checkPast && candidates.some((candidate) => candidate < messageAt.getTime())) {
+    return reject("deadline_time_already_passed", `That clock has already passed on ${resolved.date}. Ask for the intended date; it was not rolled forward.`);
   }
   const dateOnly = candidates.length !== 1 || resolved.bound;
   if (dateOnly) {

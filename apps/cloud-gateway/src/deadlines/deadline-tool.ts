@@ -9,7 +9,7 @@ import { requireEffort, requireText, type DeadlineStatus } from "./deadline-type
 
 export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
   name: "deadline_record",
-  description: "Record a deadline from Sid's CURRENT message. Copy evidenceExcerpt and a short dueExcerpt containing ONE date and its clock together, after the title in the same sentence. Course/title must occur in evidence (Chem also means Chemistry). Resolve dueAt against the message timestamp in the configured owner zone. timeZone defaults to that zone; another IANA zone must be named in dueExcerpt. Supported dates: ISO, English month/day or day/month with optional year, weekdays, today, tomorrow, next/this weekday, next week optionally with weekday, and ordinal day (25th). Bare weekday/month-day/ordinal means its nearest occurrence on or after the message's local date; next/this uses Monday-Sunday calendar weeks. Clocks: 3pm, 3:30 p.m., or 24-hour HH:mm. Missing/ambiguous clock means date-only: supply YYYY-MM-DD, stored at owner-zone end of day. Bare next week is an explicitly unconfirmed date-only end-of-week bound. Never combine separate assignments. effort is your classification. Optional status: submitted (also handed in/turned in), missed, cancelled (also canceled), grounded in evidence. Omission preserves status. Finished work is school_update, not proof of submission; missed here is a missed deadline, school_update handles missed classwork. Normalised course/title updates an existing owner-reported row; uncertain matches ask for clarification. Platform sources may duplicate it.",
+  description: "Record a deadline from Sid's CURRENT message, spoken or typed. Copy evidenceExcerpt and a short dueExcerpt containing ONE due expression. Course and title must occur before the due phrase in the same sentence; copy the stated course spelling, do not expand abbreviations. Resolve dueAt against the durable message timestamp in the configured owner zone. timeZone defaults to that zone; another IANA zone must be named in dueExcerpt. Supported dates: ISO, English month/day or day/month with optional year, weekdays, today, tomorrow, this weekday, next week optionally with weekday, and ordinal day (25th). Next weekday and a bare weekday naming today return deadline_ambiguous_date with both candidate dates: ask Sid which one. Bare clocks (3pm, at 3pm, tonight at 11:59pm) mean the message's local date; an already-passed bare/weekday clock is refused, never rolled forward. Other clocks: 3:30 p.m. or 24-hour HH:mm. Missing/ambiguous clock means date-only: supply YYYY-MM-DD, stored at owner-zone end of day. The limited grammar still uses nearest occurrence for omitted year/ordinal and an explicitly unconfirmed end-of-week bound for bare next week. Never combine separate assignments. effort is your classification. Optional status: submitted (also handed in/turned in), missed, cancelled (also canceled), grounded in evidence. Omission preserves status. Finished work is school_update, not proof of submission; missed here is a missed deadline, school_update handles missed classwork. Normalised course/title updates an existing owner-reported row; uncertain matches ask for clarification. Platform sources may duplicate it.",
   parameters: {
     type: "object", additionalProperties: false,
     required: ["course", "title", "dueAt", "effort", "evidenceExcerpt", "dueExcerpt"],
@@ -24,7 +24,7 @@ export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
 
 const STATUS_WORDS = { submitted: ["submitted", "handed in", "turned in"], missed: ["missed"], cancelled: ["cancelled", "canceled"] } as const;
 const normalize = (value: string): string => value.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ").trim();
-const courseKey = (value: string): string => normalize(value) === "chem" ? "chemistry" : normalize(value);
+const courseKey = normalize;
 const identity = (principal: string, course: string, title: string): Promise<string> => sha256Hex(canonicalJson({ principal, course, title }));
 
 function statusOf(value: unknown, excerpt: string): DeadlineStatus | undefined {
@@ -76,14 +76,17 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
       throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy a nonblank course and title from the current message.");
     }
     const evidence = normalize(excerpt);
-    const courses = courseKey(course) === "chemistry" ? ["chem", "chemistry"] : [normalize(course)];
+    const courseStart = wordBoundaryOccurrence(evidence, normalize(course));
     const titleStart = wordBoundaryOccurrence(evidence, normalize(title));
-    if (!courses.some((name) => wordBoundaryOccurrence(evidence, name) >= 0) || titleStart < 0) {
+    if (courseStart < 0 || titleStart < 0) {
       throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy the course and title from the grounded evidence.");
     }
     const dueStart = wordBoundaryOccurrence(evidence, normalize(dueExcerpt));
     if (dueStart < titleStart + normalize(title).length || /[.!?;]/u.test(evidence.slice(titleStart + normalize(title).length, dueStart))) {
       throw new DeadlineProofError("deadline_ambiguous_date", "The due phrase must follow this title in the same sentence. Do not borrow another assignment's time.");
+    }
+    if (dueStart < courseStart + normalize(course).length || /[.!?;]/u.test(evidence.slice(courseStart + normalize(course).length, dueStart))) {
+      throw new DeadlineProofError("deadline_course_not_tied_to_assignment", "Copy the course, title and due phrase from one sentence, with the course before the due phrase.");
     }
     const status = statusOf(args.status, excerpt);
     const effort = requireEffort(args.effort);

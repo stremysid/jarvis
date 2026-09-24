@@ -24,6 +24,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { D1ToolConfirmationStore } from "../../src/autonomy/tool-confirmations.js";
@@ -370,7 +371,7 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("offers the nine memory tools and tells the model it is speaking on a call", async () => {
+  it("offers memory and shared argument tools and tells the model it is speaking on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
     const provider = new FakeAgentProvider([stopped("Hello.")]);
@@ -383,6 +384,7 @@ describe("the voice agent adapter", () => {
     expect(request?.tools.map((definition) => definition.name)).toEqual([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
+      ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
     ]);
   });
 

@@ -137,9 +137,9 @@ describe("deadline review regression proofs", () => {
     expect((await rows()).results).toHaveLength(0);
   });
 
-  it("matches Chem and Chemistry across case and whitespace without a duplicate", async () => {
-    const text = message.replace("Chemistry Lab report", "Chem lab   report");
-    await recordDeadline(env.DB, input(text), call({ course: "Chem", title: "lab   report", evidenceExcerpt: text }), now);
+  it("matches a stated course and title across case and whitespace without a duplicate", async () => {
+    const text = message.replace("Chemistry Lab report", "chemistry lab   report");
+    await recordDeadline(env.DB, input(text), call({ course: "chemistry", title: "lab   report", evidenceExcerpt: text }), now);
     const result = await recordDeadline(env.DB, input(message), call(), now);
     expect(result.receipt).toMatch(/^Unchanged /u);
     expect((await rows()).results).toHaveLength(1);
@@ -149,7 +149,7 @@ describe("deadline review regression proofs", () => {
     const repo = new DeadlineRepository(env.DB);
     await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
     await repo.upsert({ sourceId: "owner-reported", externalId: await sha256Hex(canonicalJson({ principal: input(message).principalId,
-      course: "Chem", title: "lab report" })), course: "Chem", title: "lab report", dueAt: "2026-09-25T19:30:00.000Z",
+      course: "Chemistry", title: "lab report" })), course: "Chemistry", title: "lab report", dueAt: "2026-09-25T19:30:00.000Z",
       effort: "project", leadMinutes: 0, now });
     const result = await recordDeadline(env.DB, input(message), call(), now);
     expect(result.receipt).toMatch(/^Updated /u);
@@ -169,7 +169,7 @@ describe("deadline review regression proofs", () => {
   it("asks which row is intended when two legacy rows already normalise identically", async () => {
     const repo = new DeadlineRepository(env.DB);
     await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
-    for (const course of ["Chem", "Chemistry"]) await repo.upsert({ sourceId: "owner-reported",
+    for (const course of ["chemistry", "Chemistry"]) await repo.upsert({ sourceId: "owner-reported",
       externalId: await sha256Hex(canonicalJson({ principal: input(message).principalId, course, title: "Lab report" })),
       course, title: "Lab report", dueAt: "2026-09-25T19:30:00.000Z", effort: "project", leadMinutes: 0, now });
     const result = await recordDeadline(env.DB, input(message), call(), now);

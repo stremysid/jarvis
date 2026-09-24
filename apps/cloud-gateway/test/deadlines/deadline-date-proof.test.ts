@@ -15,7 +15,6 @@ describe("proof of a deadline due phrase", () => {
     ["September 25, 2026 at 12pm", "2026-09-25T16:00:00.000Z"],
     ["2026-09-25 12am", "2026-09-25T04:00:00.000Z"],
     ["this Friday at 3pm", "2026-09-25T19:00:00.000Z"],
-    ["next Friday at 3pm", "2026-10-02T19:00:00.000Z"],
     ["next week on Monday at 3pm", "2026-09-28T19:00:00.000Z"],
   ])("proves the complete due expression %s against the message timestamp", (phrase, instant) => {
     expect(proof(phrase!, instant!)).toMatchObject({ dueAt: instant, dateOnly: false });

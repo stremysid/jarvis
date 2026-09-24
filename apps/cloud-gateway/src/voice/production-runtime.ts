@@ -150,6 +150,7 @@ export function createProductionCallSessionCore(
     database: env.DB,
     archive: env.ARCHIVE,
     ownerPrincipalId,
+    timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
     targets,
     ...(meaningSearch === undefined ? {} : { memorySearch: meaningSearch }),
     directOwnerText: true,

@@ -24,11 +24,12 @@ import {
 import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../agent/owner-argument-tools.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
-import type { ModelAgentProvider } from "../providers/provider-types.js";
+import type { ModelAgentProvider, ModelFunctionCall } from "../providers/provider-types.js";
 import {
   composeReceiptReply,
   OwnerAgentCore,
@@ -50,7 +51,7 @@ export const OWNER_VOICE_AGENT_CHANNEL_PROMPT = `You are speaking with Sid on a 
 
 A receipt added to your words is read aloud verbatim by the system, so never read one back or paraphrase one.
 
-There is no screen. You cannot send him a message, a link, a keyboard or a file, and he cannot swipe-reply on a call.
+There is no screen on this call and he cannot swipe-reply here. Use available tools for actions; a spoken reply alone does not send a separate message, link, keyboard or file.
 
 When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap.`;
 
@@ -96,6 +97,7 @@ export interface OwnerVoiceAgentDependencies {
   readonly autonomy: ToolAutonomyGateContract;
   readonly turnTimeoutMs?: number;
   readonly now?: () => Date;
+  readonly timeZone?: string;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -120,11 +122,8 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: OWNER_VOICE_AGENT_CHANNEL_PROMPT,
-      // The nine memory tools. Phase 5's `call_place`, `pin_verify`,
-      // `guest_create` and `guest_revoke` do not exist yet; when they do they
-      // belong beside `MEMORY_TOOL_DEFINITIONS`, not here.
-      toolDefinitions: MEMORY_TOOL_DEFINITIONS,
+      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
+      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS],
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:
@@ -178,6 +177,10 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       // does not mean touching the loop, only this catalogue and the adapter
       // that runs it.
       pipelineModel: (): ModelAdapter | null => null,
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
+        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
+          channelCode: 1, requireDirectOwnerText: false })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,

@@ -23,7 +23,7 @@ import {
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
-import { DEADLINE_TOOL_DEFINITION, recordDeadline } from "../../deadlines/deadline-tool.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../../agent/owner-argument-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
@@ -52,7 +52,7 @@ export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
 
 export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   ...MEMORY_TOOL_DEFINITIONS,
-  DEADLINE_TOOL_DEFINITION,
+  ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
     description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline, a missed deadline or an explicit submission; finished alone does not mean submitted.",
@@ -190,13 +190,9 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         if (call.name === "study_coach") return adapter.telegram.studyCoachModel;
         return null;
       },
-      argumentTool: (call: ModelFunctionCall) => call.name === "deadline_record"
-        ? async () => {
-          const turn = await readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null });
-          return recordDeadline(adapter.telegram.database, input, call, adapter.telegram.now?.() ?? new Date(),
-            { ownerZone: adapter.telegram.timeZone ?? "America/Toronto", messageAt: turn.occurredAt });
-        }
-        : null,
+      argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
+        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto",
+        () => readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,
