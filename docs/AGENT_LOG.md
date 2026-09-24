@@ -3,6 +3,81 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: the guard in my own wedge fix was half unreachable, and the flake I nearly blamed on it
+
+Branch `goal/sync-recovery` (PR #157), pushed `647c429..6f7ebcd`. One commit on
+top of yesterday's entry. No new feature; this is a correction to code I wrote.
+
+**The defect is mine, and mutation found it, not the suite.** Yesterday's wedge
+fix (`cbbf590`) made the page stop at the consumer cursor under
+`cursor > after && cursor < after + pageSize`, with a comment arguing both
+bounds were load-bearing. The reviewer's own rule is that a new guard is
+neutered and a named test must die. I did that and **nothing died**: with the
+`cursor < after + pageSize` half deleted the sync file was 27/27 green.
+
+**Why it was unreachable, proven not guessed.** `readMaterial` takes
+`min(pageSize, upper - after, MAXIMUM_MATERIAL_EVENTS)` and
+`MAXIMUM_MATERIAL_EVENTS` is 48 (`sync-service.ts:379`, `:29` as of `6f7ebcd`).
+So when `cursor >= after + pageSize` — the only case where the second bound is
+false — the page is 48 events from `after` whatever `pageUpperBound` returned,
+and when it is true the bound does nothing. I confirmed it by instrumenting the
+function: the three calls in the test logged `inner=true outer=true`,
+`inner=true outer=false`, `inner=true outer=false`, and the two `outer=false`
+calls still returned full pages. The bound changed `root_upper_sequence` in a
+case that changes no served event, no `hasMore`, and no acknowledgement
+outcome. Removed, and the comment now says why rather than asserting the
+opposite.
+
+**The lesson is that the straddle tests pin the fix less than they appear to.**
+They put the cursor at the page boundary, where the materializer produced the
+same page either way. The pin needs the cursor strictly *inside* the requested
+range and inside the 48-event material window — a test I added
+("caps a page at a cursor that sits inside the range it asks for": 100 events,
+cursor 25, request 0..100, page must end at 25).
+
+**Mutations, all on the committed head, each file restored from a backup copy
+afterwards (hash checked before and after):**
+
+1. `if (false) return Math.min(latest, cursor);` — 3 failed / 25 passed.
+   Named: "ends a page that would straddle the cursor at the cursor…",
+   "resumes full pages once it is no longer behind the cursor",
+   "caps a page at a cursor that sits inside the range it asks for".
+2. `if (cursor >= after)` — 17 failed / 11 passed. So the strictness is
+   load-bearing too: at equality the cap serves zero events and bootstrap
+   never starts.
+3. Delete only the second bound (yesterday's guard) — **0 failed / 27 passed**
+   on the pre-new-test file. This is the mutation that caused the rewrite.
+
+**Numbers.** `apps/cloud-gateway/test/sync/sync-service.test.ts` **28 passed
+(28)**, run alone. Full `pnpm --filter @jarvis/cloud-gateway test`: **6 failed
+files, 9 failed tests, 5106 passed (5115)**, 684 s — the root `test:all` number
+is not this number. `typecheck:tests` **144 errors in 32 files**, the documented
+baseline (`docs/STATE.md:96`), none under `sync/`.
+
+**The 9 gateway failures are the known flake, and I nearly got this wrong.**
+Re-run alone, `literal-history`, `meaning-search` and `hermes-token-adapter`
+all pass; `telegram-memory.test.ts` kept failing alone. My first A/B looked
+decisive — FAIL/PASS/FAIL with my change against PASS/PASS/PASS without — and I
+was one step from writing "my diff caused it". It does not reach that code: the
+memory test imports no sync module, and `OLD src + MY test file` also flaked
+(PASS/FAIL/PASS), which kills the test file as the cause. A **pristine `main`
+tree flakes too** (FAIL/PASS/PASS/PASS/PASS) at `a666097`. It is the pre-existing
+q23/q25 flake; the difference I measured was load correlation, not causation.
+Sharpened in `docs/QUEUE.md:68`: the flaking case is "retrieves
+archived-source memories and archived history within 500 ms at 25 ms per D1
+round trip", and **it fails at `telegram-memory.test.ts:2785`** — the
+`"History evidence [R2 "` arm — not at the `:2787` 500 ms budget the test is
+named for.
+
+**Not done.** The local-agent half of PR #157 (review items 2–8, 11–13, and
+the integration re-run with `C:\jarvis-test-scratch`) is untouched — this
+session did the sync page-boundary work only. Items 9, 10, 14, 15, A, C and E
+were completed earlier in the same PR. I did not run `pnpm test:all`; the
+numbers above are the gateway package alone. I do not merge.
+
+Signed: DeepSeek, at the harness's default reasoning effort — the model and
+effort are not shown to me, so I will not name one.
+
 ## 2026-09-23 — DeepSeek builder: sync recovery, and the store-permission defect that destroyed Sid's profile twice
 
 Branch `goal/sync-recovery`, pushed. Two independent defects from
