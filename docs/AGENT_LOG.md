@@ -3,6 +3,131 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 evening — PR #179 round 4: carriers refreshed to the second production deploy
+
+Signed: DeepSeek Flash, headless docs builder, claude/friendly-hawking-qjcyia
+
+Docs-only round appended to the **existing** PR #179; no new PR. Branch
+`claude/friendly-hawking-qjcyia`, worktree `C:\w\carriers-evening`, starting head
+`70f5a29a` (which already contains main `68675ba6` — `git rev-list --left-right --count
+origin/main...origin/claude/friendly-hawking-qjcyia` returned `0 6`, so no merge was needed).
+Files touched: `docs/STATE.md`, `docs/QUEUE.md`, `docs/OWNER-ACTIONS.md`, `docs/FACTS.md`,
+`KNOWN_ISSUES.md` and this log. No test suite ran. No push, merge, deploy, migration
+application, secret access or production query; the one local command besides edits was
+`node scripts/check-state.mjs`.
+
+**Every fact below, with the source it was checked against.**
+
+1. **Production is a second deploy, at source `0d69556` with D1 at `0039`.**
+   - Source: the orchestrator's read-only checks at 18:44–19:07 EDT (22:44–23:07 UTC)
+     2026-09-24, quoted in the brief: production D1 `d1_migrations` shows
+     `0039_tool_confirmation_consumptions.sql` applied at `2026-09-24 03:46:58 UTC`, and
+     Cloudflare shows Worker `jarvis-cloud-gateway` `modified_on`
+     `2026-09-24T03:47:07Z`. Sid's `C:\javis` is at `0d69556` (read here; that checkout is
+     on `main` with HEAD `0d695563`).
+   - **The Worker version id is unverified.** The brief says an earlier note gives
+     `cdc45f1d-fb42-47f9-b979-a081cc4bc272`; nothing in this tree corroborates it, and this
+     builder did not query Cloudflare. It is labelled unverified in STATE and FACTS.
+   - This builder **did not query production**. It re-verified only the repository side:
+     `git merge-base --is-ancestor <commit> 0d695563` exits 0 for #133 (`0611803`),
+     #137 (`d0ec419`), #144 (`af5a618`), #146 (`3a482c4`), #147 (`bde0a9b`), #149
+     (`2855105`), #154 (`a6a0efd`), #155 (`c92078b`), #156 (`248c3de`), #159 (`6e3f1ef`),
+     #163 (`6249ab1`), #164 (`0b63b91`) and #165 (`0d69556`). Every merge after `0d69556`
+     (#161, #162, #169, #170, #171, #172, #173, #175, #176, #178, #166, #177, #182, #181)
+     fails that test and is therefore not deployed.
+   - Corrected everywhere the six files said `a6a0efd`, `7e027a1f` or D1 `0038`: STATE's
+     Production section and Control phase row, FACTS's deploy row, OWNER-ACTIONS's two
+     deploy rows, QUEUE's production paragraph and KNOWN_ISSUES's four "deployed as of"
+     rows plus its deployment-evidence paragraph.
+   - **Not changed, deliberately:** the older `a6a0efd`/`0038` statements inside dated
+     AGENT_LOG entries below this one. They were true when written and the instruction is
+     to keep every existing entry byte-for-byte; this entry is the correction.
+
+2. **Merges since the last carrier refresh, computed from `git log` on main (`68675ba`).**
+   - `git log --oneline --first-parent -8 origin/main` gives `68675ba` (#181), `a20f055`
+     (#182), `5548c38` (#177), `f5ba9a8` (#166), `4f5758b` (#178), `b16e9be` (#176),
+     `c66c387` (#175) and `3fe04c2` (#171). #181, #182 and #177 have left the open set;
+     the rest are already recorded.
+   - `gh pr list --state open` at this round returns exactly eight PRs: #122, #168, #174,
+     #179, #180, #183, #184 and #185. Their states were read
+     individually with `gh pr view`: #174 `ac5c89e` merge delta cleared with F1 outstanding;
+     #168 `d214216` CONFLICTING; #179 `70f5a29`; #180 `ac8d75b` cleared; #183 `a27a688`
+     ready to merge with follow-ups; #184 `a035630` changes requested; #185 `8822708` one
+     small fix requested; #122 `4f570fa` reviewer-parked.
+   - QUEUE and STATE now carry those observed heads; the harness-PR-being-built row was
+     replaced by the real #185, and the merged PRs left both tables.
+
+3. **Tonight's planned deploy.** Release `68675ba`; pending migrations exactly `0040`,
+   `0043` and `0045`. Source: `Get-ChildItem apps/cloud-gateway/src/persistence/migrations`
+   on main lists `0039`, `0040`, `0043`, `0045` as the top four, and the brief says `0039`
+   is already applied. #174's `0044` was checked out of `origin/codex/channel-parity` and is
+   **not** in the set. A clearly marked "Deploy results: pending Sid's report" exists in
+   STATE (`#deploy-results-pending-sids-report`) and OWNER-ACTIONS; no result was invented.
+   Merge freeze recorded in STATE, QUEUE and the OWNER-ACTIONS section.
+
+4. **Owner decisions and statements, quoted as "Sid, orchestrator chat, 2026-09-24".**
+   The brief supplies them; this builder could not open Sid's chat, so each is recorded as
+   the orchestrator's quotation rather than as a transcript check.
+   - St. Remy paused: "lets put it on pause for now".
+   - Email inbox first among school date sources: "agreeded".
+   - Deadline refusals removed: "why would jarvis refuse? … why doesnt he just ask for
+     clarity? … the AI IS THE BRAIN IT CAN THINK AND DECIDE" and "code gives jarvis
+     unfiltered unrestricted access and words, jarvis makes decisions, code should never
+     make a decision or restrict jarvis". The removal targets were confirmed to exist at
+     `68675ba`: `DUE_PHRASE` at `deadline-date-proof.ts:20`, the "code cannot choose"
+     strings at `:91`, `:172`, `:177` and `:180`, and `statusOf` at `deadline-tool.ts:47`.
+     The two former owner questions (`OWNER_SMALL_HOURS_END_HOUR`, #166 round-7 Z) were
+     removed from OWNER-ACTIONS and QUEUE as superseded.
+   - #176 L2 is reviewer-decided, not Sid's: STATE and QUEUE now say so, and the
+     OWNER-ACTIONS row was removed. The brief reports every myItems date as null in the
+     owner-run probe; that probe was not re-read here, so the row records it as his report.
+   - #122 is reviewer-decided and reviewer-parked until #174 merges:
+     [PR comment](https://github.com/stremysid/jarvis/pull/122#issuecomment-5805918111),
+     read with `gh pr view 122 --json comments`. The "awaiting-owner" state was wrong.
+   - Sid is out of cloud credits, 2026-09-24 evening (brief; not otherwise corroborated).
+   - Builders/reviews were on hold from 01:24 on 2026-09-24 by Sid's instruction; this
+     docs round and the #186 sweep were explicitly approved (brief).
+
+5. **The code-vs-judgment sweep is issue #186**, read with `gh issue view 186`: open,
+   read-only, seven area reviewers, each posting one REMOVE/KEEP/UNSURE comment, pinned at
+   main `68675ba`, created 2026-09-24T23:18:33Z. A QUEUE row points to it. **This round did
+   not edit `docs/CODE-VS-JUDGMENT.md`** — its rewrite into a removal list is a separate PR
+   after the sweep, as the brief requires.
+
+6. **KNOWN_ISSUES additions.**
+   - Deepgram strips "um" and "uh" by default: Deepgram's "Filler Words" page says
+     `filler_words` defaults to `false` and that when it is false or unset "the two most
+     common fillers, 'uh' and 'um', are stripped out of the transcript"
+     ([docs](https://developers.deepgram.com/docs/filler-words), fetched this round).
+     Jarvis sets no filler option: `git grep -n -i filler origin/main --
+     apps/cloud-gateway/src/voice` exits 1 (no match), and `voice/twiml.ts` passes only
+     `transcriptionProvider="Deepgram"`. `guided_assignment.ts:165` stores `input.userText`
+     as `raw`, so the saved "raw" spoken answer is that stripped transcript. Recorded in
+     KNOWN_ISSUES and FACTS.
+   - **The guest-call privacy leak stays live until #174 merges and deploys.** The existing
+     row was kept and its production reference corrected to `0d69556`; it was not
+     duplicated. Source: `owner-agent-core.ts` / `voice-agent.ts` on main, plus the
+     production revision above.
+
+7. **The queued round-3 nits.** FACTS's concurrency row now reads "provided quality is
+   unchanged". The row on the 2026-09-24 test practice was reworded so the practice is
+   labelled **adopted** and the quote is attributed as context, not as Sid stating the
+   practice (FACTS line 50 before the edit).
+
+**Gates actually run, and their exact output.** `node scripts/check-state.mjs`: exit 0,
+`state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown
+links resolve, BLOCKS present; 1 warning(s)`, the warning being the pre-existing
+`docs/FACTS.md:70` D2L background-access re-verification. `git diff --check`: exit 0, no
+output. STATE.md is 149 lines against the 150-line budget. No test suite was run, per the
+no-full-suite-on-Sid's-PC rule and the docs-only scope.
+
+**What could not be verified.** The D1 `0039` application, the Worker `modified_on` and the
+Worker version id were not queried by this builder; they are recorded as
+orchestrator-observed. Sid's chat statements are the orchestrator's quotations. The #122
+comment URL and the #186 issue body were read directly. The `#176` myItems-null probe was
+not re-read. `git diff --check` and `check-state` are the only commands run besides
+read-only `git`/`gh` queries.
+
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.

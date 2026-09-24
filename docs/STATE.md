@@ -2,40 +2,46 @@
 
 What is true right now. **Short on purpose, and regenerated rather than appended.**
 
-One rule governs every line below: **nothing here states a revision as current.** A
-fact that depends on a revision carries the command that prints it, or a date and
-the session that observed it. The handoff, the roadmap and this file have each, at
-different times, asserted a sha that had already moved; the fix is to stop writing
-them down.
+One rule governs every line below: **nothing here states a revision as current.** A fact that
+depends on a revision carries the command that prints it, or a date and the session that
+observed it. If this file disagrees with a longer document, this file is right and the
+longer document is stale — say so in the pull request that fixes it.
 
-If this file disagrees with a longer document, this file is right and the longer
-document is stale — say so in the pull request that fixes it.
+Last regenerated: 2026-09-24, evening, from repository
+evidence and the orchestrator's read-only production checks. For the repository revision,
+run `git log --oneline origin/main -1`.
 
-Last regenerated: 2026-09-24, about 21:30 UTC, from repository
-evidence and the harness's round-3 snapshot. No production query was made by this docs builder.
-For the repository revision, run `git log --oneline origin/main -1`.
+## Deploy results: pending Sid's report
+
+**No deploy result is recorded yet.** Sid had not reported the outcome of the planned
+2026-09-24 evening deploy at the time of writing; do not fill these rows from expectation.
+
+| Item | Planned | Result |
+|---|---|---|
+| Source | `68675ba` (#181), the release revision | **pending Sid's report** |
+| Migrations | `0040`, `0043`, `0045` (exactly; `0039` is already applied) | **pending Sid's report** |
+| Worker version | Whatever `wrangler versions view` then prints | **pending Sid's report** |
 
 ## In flight, and what each one would change here
 
-Eight PRs remain open in the harness's round-3 snapshot, with one harness PR being built. [QUEUE](QUEUE.md) carries their observed
+Eight PRs are open at this regeneration. [QUEUE](QUEUE.md) carries their observed
 heads, verdicts and next owners; merged PRs have left it.
 
 | PR | What it would change |
 |---|---|
-| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; round-5 integration review in progress on `codex/channel-parity` at `0e458a6`, migration `0044`; retain #166's argument tools and integrate #182's three-argument `confirmationReference` when next merging main |
-| [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders; still needs its builder/renumbering round after #174; #166 has merged |
-| [#179](https://github.com/stremysid/jarvis/pull/179) | This docs refresh, round 3 in progress; round 2 cleared at `f7fa19a`; awaiting harness commit and review of the resulting head |
-| [#180](https://github.com/stremysid/jarvis/pull/180) | Test lows, reviewed and cleared: round 1 at `f70b30d` ready to merge, 0 High/Medium/Low, 7/7 mutants killed; harness cleared log-only main-merge head `620a754`; merges when the pending one-time failed-job re-run is green. CI failed the local-agent (ubuntu-latest) real-socket 0.1 s retry-wait race and hermes-runtime (windows) `canonical-closure-review3.test.mjs:51` default 5 s timeout; both unrelated to #180 and passing on main. Only cloud-gateway tests, one label string and the log changed; [review and re-run evidence](QUEUE.md) |
-| [#181](https://github.com/stremysid/jarvis/pull/181) | Telegram body timeout at `e069e11`; review approved, harness cleared the log/KNOWN_ISSUES-only merge head; CI pending |
-| [#183](https://github.com/stremysid/jarvis/pull/183) | Redaction gaps at `5f67c27`; round-1 review requested changes: rules over-redact ordinary speech ("the code is due Friday"); CI's workspace suite is red |
-| [#184](https://github.com/stremysid/jarvis/pull/184) | Call-session fixes at `e786602`; round-1 review in progress |
-| [#122](https://github.com/stremysid/jarvis/pull/122) | Memory redesign spec; unchanged, awaiting Sid's plan decision |
-| Harness PR being built | `codex/local-agent-retry-wait-flake` covers both flaky tests: makes `test_node.py`'s real-socket retry test deterministic after its race against `QUARANTINE_RETRY_WAIT_SECONDS = 0.1`, and addresses the hermes-runtime per-test timeout where `canonical-closure-review3.test.mjs:51` hit Vitest's default 5 s limit on Windows |
+| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; `codex/channel-parity` at `ac5c89e`, migration `0044`; round-5 integration review approved at `0e458a6` and the `ac5c89e` merge delta cleared, with one pre-existing finding (F1: the voice refusal names `/decisions`, which is not a command) for its owner to fix before merge |
+| [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders, head `d214216`, conflicting against main; needs its builder/renumbering round after #174; #166 has merged |
+| [#179](https://github.com/stremysid/jarvis/pull/179) | This docs refresh, now round 4; round 3 cleared the merge at `70f5a29`; awaiting review of the resulting head |
+| [#180](https://github.com/stremysid/jarvis/pull/180) | Test lows, reviewed and cleared: ready to merge at `ac8d75b` after a main merge at `68675ba`, 0 High/Medium/Low on round 1, 7/7 mutants killed. Earlier CI failed the local-agent (ubuntu-latest) real-socket 0.1 s retry-wait race and the hermes-runtime (windows) `canonical-closure-review3.test.mjs:51` default 5 s timeout; both unrelated to #180 and now addressed by #185 |
+| [#183](https://github.com/stremysid/jarvis/pull/183) | Redaction gaps at `a27a688`; round 2 is **ready to merge** — 0 blocking, 3 follow-ups, 3 nits, 26/28 mutants killed, CI 9/9 green |
+| [#184](https://github.com/stremysid/jarvis/pull/184) | Call-session fixes at `a035630`; round-1 review requested changes |
+| [#185](https://github.com/stremysid/jarvis/pull/185) | CI flake bounds at `8822708`: the local-agent real-socket retry test and the hermes-runtime per-test timeout. Independent review requested a small fix: two Hermes timeouts are still shorter than the child deadline they wrap |
+| [#122](https://github.com/stremysid/jarvis/pull/122) | Memory redesign spec; reviewer-parked until #174 merges, then refreshed, reviewed and merged. Not awaiting Sid |
 
 #178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
-#177 merged as `5548c38`; #182 merged as `a20f055` at about 21:20 UTC on 2026-09-24; neither is deployed.
-#174 must retain `deadline_record` / `OWNER_ARGUMENT_TOOL_DEFINITIONS` in shared `OWNER_TOOL_DEFINITIONS`
-and integrate #182's three-argument `confirmationReference` when next merging main, with review of the resulting head.
+#177 merged as `5548c38`; #182 merged as `a20f055` at about 21:20 UTC on 2026-09-24.
+#181 merged as `68675ba` at 21:31 UTC on 2026-09-24 and is the release revision for tonight's deploy.
+None of the three is deployed.
 
 ## Where the project actually stands
 
@@ -44,7 +50,7 @@ and integrate #182's three-argument `confirmationReference` when next merging ma
 | 1 The nervous system | **partial; shared agent core** | `OwnerAgentCore` shares the loop, caps, tier gate and receipt guard. Telegram and voice still compose separate conversations; #174 addresses channel parity. No shared conversation DO, SMS path or Queues |
 | 2 Memory | **shared write store; different recall** | #147 lets calls act on `memory_items` through `D1MemoryControlTargetFinder`. Telegram recalls the memory store; voice still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. #174 addresses recall and confirmation parity. Hidden-text receipts remain a defect |
 | 3 School | **paste, calendar, guided assignment and D2L collector/receiver merged; rollout pending** | #164 saves Telegram assignment pastes, #165 provides the private calendar feed, #172 guided assignments, #169/#170 the receiver/extension, and #175/#176/#178 two-board evidence and date labels. #166 adds owner-reported deadlines without a migration. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance, production migrations and deployment remain pending; the old D2L email route yields no deadlines |
-| 4 Control | **built; policy remains table-driven** | On main (#182, not deployed), confirmations bind tool name, capability and argument hash, and a changed second autonomy outcome is denied. #159 adds single-use ten-minute taps; `0039` and gateway production rollout remain pending. T1/T2 guards remain in QUEUE. Pending pre-deploy confirmations need a fresh tap; see [the compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24) |
+| 4 Control | **built and deployed for taps; policy remains table-driven** | #159's single-use ten-minute taps and migration `0039` are applied in production (orchestrator-observed). On main, #182 is not deployed: confirmations bind tool name, capability and argument hash, and a changed second autonomy outcome is denied. T1/T2 guards remain in QUEUE. Pending pre-deploy confirmations need a fresh tap; see [the compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24) |
 | 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate |
 | 6 Daily rhythm | **cron only** | Four cron triggers; owner reminders await #168. Jarvis cannot schedule its own wake-ups or choose the digest time |
 | 7 Plumbing | **mostly built** | Backup, archive and watchdog code are present; heartbeat was observed working. No external watchdog recorded; vault sync stops at 64 notes. #145 adds Windows `serve`, #157 sync/store recovery; device acceptance remains in OWNER-ACTIONS |
@@ -53,53 +59,50 @@ Measured against [the roadmap](plan/2026-09-19-jarvis-roadmap.md).
 
 ## The one thing that changes what Jarvis is
 
-Both channels share the agent loop, but their context and catalogues still differ.
-On main, voice has memory, deadline, guided-assignment and school-collector tools; Telegram
-also has school, university and study pipelines. The recorded production build
-predates guided-assignment and collector tools: voice there has the nine memory tools.
-Voice recall still reads the local-agent projection rather than Telegram's memory
-store. #174 is the pending parity change, not a deployed guarantee.
+Both channels share the agent loop; their context and catalogues still differ. On main,
+voice has memory, deadline, guided-assignment and school-collector tools while Telegram also
+has school, university and study pipelines; production (`0d69556`) predates the guided and
+collector tools, so voice there has the nine memory tools. Voice recall still reads the
+local-agent projection. #174 is the pending parity change, not a deployed guarantee.
 
 ## Production
 
-**Owner-observed deploy on 2026-09-23, reported by Sid and the reviewer to PR #158.**
-This builder did not query production. See the [review](https://github.com/stremysid/jarvis/pull/158#issuecomment-5805607554)
-and [FACTS](FACTS.md) for provenance. The harness's 2026-09-24 about 21:30 UTC snapshot reports production unchanged.
+**Orchestrator-observed checks, 2026-09-24 at 18:44–19:07 EDT (22:44–23:07 UTC), read-only
+through the Cloudflare and production-D1 APIs.** This builder re-verified what repository
+history can show, and did not query production; see [FACTS](FACTS.md) for provenance.
 
-- Sid ran `scripts/deploy.ps1 -Publish` from `C:\javis` at source **`a6a0efd`**,
-  at **20:41 EDT on 2026-09-23 (00:41 UTC on 2026-09-24)**.
-- **Worker `jarvis-cloud-gateway`, version `7e027a1f-065b-4f60-8229-f3edff0160dc`.**
-  `/health` returned **200 at 20:42 EDT** (00:42 UTC on 2026-09-24).
-- **Deployed as of `a6a0efd`: #133, #137, #144, #146, #147, #149 and #154.**
-  #156 (`248c3de`, Hermes, local-only) merged afterwards; it is not a gateway deploy.
-- **No migrations applied; D1 stays at `0038`.** Pre-deploy restore bookmark:
-  `00000eb2-00000000-000050f0-5b731149bde16c2e83a28d379fa86a15` (owner/reviewer report).
+- **Source `0d69556` (#165).** Sid's own `C:\javis` checkout sits at that revision.
+- **D1 `0039_tool_confirmation_consumptions.sql` applied at `2026-09-24 03:46:58 UTC`**, so the old "no migrations applied; D1 stays at `0038`" is wrong.
+- **Worker `modified_on` `2026-09-24T03:47:07Z`.** Its **version id is unverified**; an earlier note says `cdc45f1d-fb42-47f9-b979-a081cc4bc272`, unchecked against the account.
+- **In `0d69556`:** #133, #137, #144, #146, #147, #149, #154, #155, #156, #159, #163, #164, #165 — each confirmed with `git merge-base --is-ancestor <commit> 0d69556` (exit 0).
+- **Not deployed:** every merge after it — #161, #162, #169, #170, #171, #172, #173, #175, #176, #178, #166, #177, #182, #181.
+- **The 2026-09-23 pre-deploy restore bookmark is not confirmed for this deploy**; do not present it as current.
 
 **Older observations from #143's production query at 23:20 UTC on 2026-09-21, not refreshed:**
 - Watchdog `c940f9b7-99cf-4194-8f41-489038a34139`.
 - **The gateway heartbeat records.** `component_liveness` holds `cloud-gateway` at
   `2026-09-21T23:20:05Z`.
 - **Memory: 5 items, all `proposed`, 0 `active`**, and 0 rows in `memory_fact_projection_facts`.
-  The promotion fix is live, but the 4 owner Telegram turns since it went live were distilled
-  and produced **no items at all**; the newest item is from 2026-09-17. Why is open in
-  [QUEUE.md](QUEUE.md). The projection is what a phone call reads, and only the Windows local
-  agent writes it, so it is empty.
+  The 4 owner Telegram turns since the promotion fix were distilled and produced **no items**;
+  the newest item is from 2026-09-17. The projection is what a phone call reads, so it is empty.
 - **Calls:** 6 inbound owner calls, all 2026-09-17; no outbound call ever.
 - **School email:** `d2l_email_messages` is empty.
 
-The deployment and health check do not refresh these older database observations.
+Neither the deploy nor the health check refreshes these older database observations.
 
 ## Pending rollout
 
-Main contains pending `0039`, `0040`, `0043` and `0045`; `0036`, `0037`, `0041`
-and `0042` are absent. `0044` belongs to open #174. Renumbering older `0041`/`0042`
-above main's maximum is approved; it does not authorize production application.
+Production's applied migration is `0039`. On main, the unapplied migrations are
+**exactly `0040`, `0043` and `0045`**; `0036`, `0037`, `0041` and `0042` are absent, and
+`0044` belongs to open #174 and is **not** part of tonight's set. Renumbering older
+`0041`/`0042` above main's maximum is approved; it does not authorize production application.
 
-The 2026-09-24 scratch result is **orchestrator-reported PASS**, including `0044` after `0045`.
-The Claude orchestrator ran it; results are transcribed from its harness-supplied summary and table;
-not independently re-run. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
-Sid plans to apply the pending migrations and deploy tonight (2026-09-24) from the home PC;
-both remain **planned, not done**, separate actions in [OWNER-ACTIONS](OWNER-ACTIONS.md).
+The 2026-09-24 scratch rehearsal is **orchestrator-reported PASS**, including `0044` after
+`0045`; the Claude orchestrator ran it, and the results are transcribed from its harness
+summary rather than independently re-run. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
+Sid plans to apply `0040`, `0043` and `0045` and deploy `68675ba` tonight from the home PC —
+**planned, not done**. **Merge freeze:** no merges until [OWNER-ACTIONS](OWNER-ACTIONS.md)
+carries his deploy report; see [Deploy results](#deploy-results-pending-sids-report).
 
 ## The gates, and whether they can be trusted
 
@@ -116,23 +119,22 @@ failures before attributing them; merge on the reviewed head's CI evidence.
 
 ## Live defects
 
-1. **Guest-call privacy leak — live on main and in the recorded production build.**
+1. **Guest-call privacy leak — live on main and in the recorded production revision.**
    `OwnerAgentCore.streamCaptured` reads the configured owner's pinned core profile
    before any tool-authority check, builds the owner-framed system prompt, and sends
    the owner tool catalogue supplied by the voice adapter. A guest conversation
    therefore carries Sid's pinned facts, owner framing and owner catalogue to the
-   model. The later tool refusal does not protect that prompt. Fixed only when
+   model; the later tool refusal does not protect that prompt. Fixed only when
    [#174](https://github.com/stremysid/jarvis/pull/174) merges and deploys. Traced in
-   `apps/cloud-gateway/src/agent/owner-agent-core.ts` and `voice/voice-agent.ts` on main
-   and at the recorded deployment source; no live guest test was run.
+   `apps/cloud-gateway/src/agent/owner-agent-core.ts` and `voice/voice-agent.ts`; no live guest test was run.
 2. **Memory explain/forget/restore receipts can reintroduce withheld text.** The
    shared core combines sanitized service receipts with separately read text.
 3. **Remaining redaction gaps:** bare/spoken-word PIN and phone/passphrase coverage
    remain open. #149's credential-word digit fix is deployed; newer #171 quoted and
    header redaction changes await deployment. [Known limits](../KNOWN_ISSUES.md).
 
-#144's suppression anti-join fix is deployed; #146 keeps its shared predicate and
-parity guards. It is no longer an open work item.
+#144's suppression anti-join fix is deployed; #146 keeps its shared predicate and parity
+guards. It is no longer an open work item.
 
 ## Where things live
 
