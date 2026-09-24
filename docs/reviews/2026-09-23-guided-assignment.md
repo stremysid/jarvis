@@ -84,6 +84,7 @@ Owner-authorized remote rehearsal remains necessary before rollout.
 
 Final test and mutation counts are recorded in the PR and the signed AGENT_LOG
 entry. The reproducible fault set is
-`reviewer-tools/mutation-specs-guided-assignment.json`; run it with
+`reviewer-tools/mutation-specs-guided-assignment.json` plus
+`reviewer-tools/mutation-specs-guided-references.json`; run them with
 `reviewer-tools/mutate.ps1` from a clean worktree. Each fault must apply, fail its
 named behavioral test twice, restore byte-for-byte, and pass after restoration.
