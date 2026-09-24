@@ -9,7 +9,7 @@ request. That failure has happened — Google Classroom consent was ruled out on
 2026-09-17 and walked through again on 2026-09-18, because the fact lived in an
 agent's memory and never in the repository.
 
-Last regenerated: 2026-09-23. Order within a section is the order to do them in.
+Last regenerated: 2026-09-24. Order within a section is the order to do them in.
 
 ## Done — kept so they are not asked for again
 
@@ -48,6 +48,15 @@ Last regenerated: 2026-09-23. Order within a section is the order to do them in.
 | Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |
 | Decide and verify R2 backup bucket-lock settings when backup retention is reviewed | Repository verification/retention code cannot establish the account's bucket-lock settings. No production configuration was queried by this audit | **unverified** |
 | Configure and prove an external watchdog monitor when monitoring setup is authorized | The watchdog's own health endpoint cannot report total cron failure without an outside poller. STATE records no external watchdog; this audit did not query production | **not started** |
+
+### [PR #157](https://github.com/stremysid/jarvis/pull/157) — the store-folder work, in order
+
+| Action | Why only you | State |
+|---|---|---|
+| If `%LOCALAPPDATA%\Jarvis` is owned by **Administrators**, run the one-time repair: either `jarvis serve` once from an **elevated** shell, or the exact `icacls` line the refusal prints | The DACL write is checked against the object's access, and a non-elevated process is not named on it — nothing the code can do changes that. This is the state the whole PR exists to get out of, and it is the one repair no builder may perform | **not started** — check the startup output for `WARNING ... is owned by` first; if it is absent, there is nothing to repair |
+| Run the **manual acceptance**: start `jarvis serve` by hand **non-elevated**, confirm `%LOCALAPPDATA%\Jarvis\data` is reachable, then stop it and start it **elevated** and confirm the same | This is the only check that meets the real DACL, and only you have the elevated shell. It is also the test nobody can run for you: it decides whether the boot task may be re-enabled at all | **not started** — do this **after** #157 merges |
+| Re-enable the `Jarvis boot chain` task | It has to stay disabled until the row above passes — the elevated task is what created the Administrators-owned folder in the first place | **not started** — blocked on the row above |
+| Delete `C:\jarvis-test-scratch` after the checkpoint-5 integration run | The scratch directory is the signal that a real-permission test is wanted, so leaving it in place means the next `uv run pytest` runs five tests that change real permissions without anyone choosing to | **not started** — after the checkpoint-5 run, and only when you decide no further real-DACL run is needed |
 
 **Not on this list, deliberately:** giving a phone call tools and one brain. That is
 builder work and it is in [QUEUE.md](QUEUE.md).

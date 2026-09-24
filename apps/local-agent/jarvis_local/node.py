@@ -10,6 +10,7 @@ quarantine changes and their receipts remain on the cycle thread.
 
 from __future__ import annotations
 
+import logging
 import os
 import posixpath
 import shlex
@@ -28,6 +29,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
 from jarvis_local.archive.database import SQLiteDirectoryError
+from jarvis_local.archive.store_permissions import (
+    StoreDaclRefusedError,
+    StoreOwnerUnknownError,
+    StoreRootUnresolvedError,
+    UnsafeStorePathError,
+    configured_store_roots,
+    permit_store_roots,
+    store_root_summary,
+)
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
@@ -47,6 +57,8 @@ from jarvis_local.transport.unix_socket import (
     default_unix_socket_path,
 )
 
+logger = logging.getLogger(__name__)
+
 SYNC_AUDIENCE = "jarvis-local-agent"
 CONTROL_SOCKET_CONFIG = CONTROL_SOCKET_ENVIRONMENT
 
@@ -54,6 +66,10 @@ EXIT_NODE_OK = 0
 EXIT_NODE_CONFIGURATION = 3
 EXIT_NODE_STARTUP = 4
 EXIT_NODE_AUTHENTICATION = 5
+#: The store's location or its permissions are wrong. Its own code because the
+#: repair is different from every other startup failure: an elevated run, or a
+#: configuration change -- not "try again".
+EXIT_NODE_STORE_PERMISSIONS = 6
 
 # Leave most of the control client's two-second exchange deadline for I/O.
 QUARANTINE_RETRY_WAIT_SECONDS = 0.1
@@ -709,6 +725,24 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
             # sentence saying which host this command is for.
             if not _running_on_windows():
                 raise NodeConfigurationError("jarvis serve binds the Windows named pipe and requires Windows")
+            # Says out loud which directories this process may change
+            # permissions inside. The guard refuses anything else, so a store
+            # configured outside these roots is a refusal rather than a silent
+            # rewrite, and this line is how a reader of the log sees which
+            # boundary applied without reconstructing it from the environment.
+            #
+            # The allowlist is enforced here rather than in
+            # `configured_store_roots()`. This is the entry point that actually
+            # changes permissions on every run, so it is where being strict
+            # costs nothing; putting it in the shared resolver would make the
+            # integration tests' scratch root need an environment variable, and
+            # a guard with an off switch is the thing D12 removed.
+            # Raises before anything is opened if a configured store is not
+            # inside the one permitted location. The return value is the same
+            # roots resolved, which `store_root_summary` already reports, so it
+            # is the check that is used here and not the value.
+            permit_store_roots(configured_store_roots())
+            logger.info("store roots for this service: %s", store_root_summary())
             settings = NodeSettings.from_config(config)
             runtime = build_node(settings, control_factory=_windows_control_endpoint, platform=current_platform)
             # No signal handlers: Windows delivers Ctrl+C to every process
@@ -738,6 +772,18 @@ def _serve(config: JarvisLocalConfig, *, command: Literal["node", "serve"], sock
     except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
+    except (StoreDaclRefusedError, StoreOwnerUnknownError, StoreRootUnresolvedError, UnsafeStorePathError) as error:
+        # Before the catch-all below, which would otherwise fold all of these
+        # into "the Jarvis node could not start" and exit 4 -- indistinguishable
+        # from a port already in use, and with the one-time fix printed by
+        # `dacl_refused_message` thrown away. These are the failures whose whole
+        # value is the sentence naming the repair. `UnsafeStorePathError` belongs
+        # here for the same reason: it is raised by the guard immediately before
+        # a write, it names the path it refused, and "the node could not start"
+        # would discard the one thing a reader needs in order to fix the
+        # configuration.
+        print(str(error))
+        return EXIT_NODE_STORE_PERMISSIONS
     except UnixSocketInUseError:
         recovery = (
             f"   rm -- {shlex.quote(requested_endpoint)}\n"

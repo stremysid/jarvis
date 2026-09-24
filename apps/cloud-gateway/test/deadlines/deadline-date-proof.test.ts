@@ -7,7 +7,7 @@ const proof = (dueExcerpt: string, dueAt: string, changes = {}) => proveDeadline
 describe("proof of a deadline due phrase", () => {
   it.each([
     ["Friday at 11:59pm", "2026-09-26T03:59:00.000Z"],
-    ["tomorrow at 3pm", "2026-09-24T19:00:00.000Z"],
+    ["tomorrow at 9am", "2026-09-24T13:00:00.000Z"],
     ["today at 3:30 p.m.", "2026-09-23T19:30:00.000Z"],
     ["Sept 25 at 3pm", "2026-09-25T19:00:00.000Z"],
     ["25th at 3pm", "2026-09-25T19:00:00.000Z"],
@@ -21,7 +21,7 @@ describe("proof of a deadline due phrase", () => {
   });
 
   it("refuses a resolved date that disagrees with the relative expression", () => {
-    expect(() => proof("tomorrow at 3pm", "2026-09-25T19:00:00.000Z")).toThrow("deadline_resolved_date_mismatch");
+    expect(() => proof("tomorrow at 9am", "2026-09-25T13:00:00.000Z")).toThrow("deadline_resolved_date_mismatch");
   });
   it("uses the owner's local date when UTC is already the following day", () => {
     expect(proof("tomorrow at 3pm", "2026-09-23T19:00:00.000Z", { messageAt: "2026-09-23T02:00:00Z" }).dueAt)
