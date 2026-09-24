@@ -141,11 +141,29 @@ describe("school evidence and projection", () => {
     batch.routes[0].body[1].DueDate = "2026-09-27T12:00:00Z";
     const mapped = mapSchoolCourse(batch);
     expect(mapped.failures).toEqual([]);
-    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder_availability_shape_unknown`);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:folder_availability_shape_unknown`);
     expect(mapped.items.find((item) => item.id === "folder-17")).toMatchObject({ dueAt: null, dateSource: null });
     expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({ dueAt: "2026-09-27T12:00:00.000Z", dateSource: "assignment DueDate" });
     expect((await ingest(f, batch)).outcome).toBe("good");
     expect(await repo(f).status()).toMatchObject({ state: "current", unmappedRoutes: 1 });
+  });
+
+  it.each([
+    ["numeric", 5],
+    ["malformed", "not-a-date"],
+  ] as const)("labels a %s folder Availability EndDate without dropping the rest of the course", async (_shape, endDate) => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[0].body[0].Availability = { EndDate: endDate };
+    batch.routes[0].body[1].DueDate = "2026-09-27T12:00:00Z";
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.failures).toEqual([]);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:folder_availability_shape_unknown`);
+    expect(mapped.items.find((item) => item.id === "folder-17")).toMatchObject({ dueAt: null, dateSource: null });
+    expect(mapped.items.find((item) => item.id === "folder-18")).toMatchObject({
+      dueAt: "2026-09-27T12:00:00.000Z", dateSource: "assignment DueDate",
+    });
+    expect(mapped.deadlines.map((deadline) => deadline.externalId)).toContain("folder-18");
   });
 
   it("records differing myItems and folder DueDate values while retaining the existing projected date", async () => {
@@ -156,7 +174,7 @@ describe("school evidence and projection", () => {
       complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-26T12:00:00Z" }] });
     const mapped = mapSchoolCourse(batch);
     expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-26T12:00:00.000Z", dateSource: "content/myItems" });
-    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:ambiguous_assignment_date`);
+    expect(mapped.unmapped).toContain(`${batch.routes[0].route}:folder-17:ambiguous_assignment_date`);
   });
 
   it("does not record a disagreement when myItems and folder DueDate values are equal", async () => {
@@ -167,7 +185,27 @@ describe("school evidence and projection", () => {
       complete: true, body: [{ ToolItemId: 17, DueDate: "2026-09-25T12:00:00Z" }] });
     const mapped = mapSchoolCourse(batch);
     expect(mapped.items[0]).toMatchObject({ dueAt: "2026-09-25T12:00:00.000Z", dateSource: "content/myItems" });
-    expect(mapped.unmapped).not.toContain(`${batch.routes[0].route}:ambiguous_assignment_date`);
+    expect(mapped.unmapped).not.toContain(`${batch.routes[0].route}:folder-17:ambiguous_assignment_date`);
+  });
+
+  it("names each item whose content dates disagree", async () => {
+    const f = await collectorFixture();
+    const batch = structuredClone(observedBatch(f)) as unknown as { routes: any[] } & SchoolBatch;
+    batch.routes[1].body.Modules[0].Topics.push(
+      { TopicId: 42, Title: "Conflicting assignment link", ToolItemId: 17,
+        TypeIdentifier: "Dropbox", EndDateTime: "2026-09-30T00:00:00Z" },
+      { TopicId: 50, Title: "Synthetic content", TypeIdentifier: "Content",
+        EndDateTime: "2026-10-01T00:00:00Z" },
+      { TopicId: 50, Title: "Conflicting synthetic content", TypeIdentifier: "Content",
+        EndDateTime: "2026-10-02T00:00:00Z" },
+    );
+    const mapped = mapSchoolCourse(batch);
+    expect(mapped.unmapped).toEqual([
+      `${batch.routes[1].route}:folder-17:ambiguous_content_date`,
+      `${batch.routes[1].route}:topic-50:ambiguous_content_date`,
+    ]);
+    expect(mapped.items.find((item) => item.id === "folder-17")?.dueAt).toBeNull();
+    expect(mapped.items.find((item) => item.id === "topic-50")?.dueAt).toBeNull();
   });
 
   it("keeps empty submissions and denied folder counts as evidence and only labels a positive own status submitted", async () => {
