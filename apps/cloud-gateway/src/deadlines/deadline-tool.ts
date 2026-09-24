@@ -28,14 +28,19 @@ const courseKey = normalize;
 const identity = (principal: string, course: string, title: string): Promise<string> => sha256Hex(canonicalJson({ principal, course, title }));
 const ASSIGNMENT_GAP_FILLERS = new Set([
   "is", "was", "will", "be", "due", "on", "by", "at", "it's", "the", "um", "uh", "for", "in",
+  "it", "which", "that", "that's", "like", "so", "i", "think", "just",
 ]);
+const ASSIGNMENT_GAP_SOFT_WORDS = new Set(["and", "then", "or", "plus", "also"]);
 const ASSIGNMENT_GAP_WORD = /[\p{L}]+(?:['’][\p{L}]+)*/gu;
 const assignmentGapBreaksTie = (gap: string): boolean => {
   if (/[.!?;]/u.test(gap) || containsDeadlineDateOrClock(gap)) return true;
-  const hasSoftSeparator = gap.includes(",") || /(?:^|[^\p{L}\p{N}])and(?=$|[^\p{L}\p{N}])/u.test(gap);
+  const hasSoftSeparator = /[,&+\/]/u.test(gap) || (gap.match(ASSIGNMENT_GAP_WORD) ?? [])
+    .some((word) => ASSIGNMENT_GAP_SOFT_WORDS.has(word));
   if (!hasSoftSeparator) return false;
+  if (/\p{N}/u.test(gap)) return true;
   return (gap.match(ASSIGNMENT_GAP_WORD) ?? [])
-    .some((word) => word !== "and" && !ASSIGNMENT_GAP_FILLERS.has(word.replace(/’/gu, "'")));
+    .some((word) => !ASSIGNMENT_GAP_SOFT_WORDS.has(word)
+      && !ASSIGNMENT_GAP_FILLERS.has(word.replace(/’/gu, "'")));
 };
 
 function statusOf(value: unknown, excerpt: string): DeadlineStatus | undefined {
@@ -86,7 +91,7 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     if (normalize(course).length === 0 || normalize(title).length === 0) {
       throw new DeadlineProofError("deadline_fields_not_in_evidence", "Copy a nonblank course and title from the current message.");
     }
-    const evidence = normalize(excerpt);
+    const evidence = normalize(excerpt.replace(/\r\n?|\n/gu, ", "));
     const courseStart = wordBoundaryOccurrence(evidence, normalize(course));
     const titleStart = wordBoundaryOccurrence(evidence, normalize(title));
     if (courseStart < 0 || titleStart < 0) {
@@ -97,11 +102,11 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     const titleEnd = titleStart + normalize(title).length;
     const titleGap = evidence.slice(titleEnd, dueStart);
     if (dueStart < titleEnd || assignmentGapBreaksTie(titleGap)) {
-      throw new DeadlineProofError("deadline_ambiguous_date", "The due phrase must follow this title without a sentence separator, another date or clock, or another assignment across a comma or and.");
+      throw new DeadlineProofError("deadline_ambiguous_date", "The due phrase must follow this title without a sentence separator, another date or clock, or another assignment across a soft separator.");
     }
     const courseGap = evidence.slice(courseEnd, titleStart);
     if (titleStart < courseEnd || assignmentGapBreaksTie(courseGap)) {
-      throw new DeadlineProofError("deadline_course_not_tied_to_assignment", "Copy the course, title and due phrase in order without a sentence separator, another date or clock, or another assignment across a comma or and.");
+      throw new DeadlineProofError("deadline_course_not_tied_to_assignment", "Copy the course, title and due phrase in order without a sentence separator, another date or clock, or another assignment across a soft separator.");
     }
     const status = statusOf(args.status, excerpt);
     const effort = requireEffort(args.effort);

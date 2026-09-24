@@ -3,6 +3,76 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: #166 round 5 closes deadline proof gaps
+
+Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.
+
+Review item 1: line breaks now become `, ` before the course-to-title and
+title-to-due gaps are cut. `&`, `+`, `/`, `then`, `or`, `plus` and `also` join
+comma and `and` as soft separators under the same filler rule. Both requested
+line-break forms and all seven added separator forms refuse the proposed
+Math/quiz row; `Chem:\nlab report due Friday at 3pm` retains its accepted path.
+No heuristic was added for unpunctuated speech.
+
+Review item 2: under `tonight`, suffix-less two-digit clocks from `00:00`
+through `12:59` now return `deadline_ambiguous_date`. The `12:00` and `12:30`
+fixtures each exercise both 09:00 and 22:00 owner-local receipt times, so the
+late case cannot fall through to `deadline_time_already_passed`.
+
+Review item 3: the filler set now includes `it`, `which`, `that`, `that's`,
+`like`, `so`, `i`, `think` and `just`. The two exact requested messages are
+accepted, and separate fixtures cover every added filler plus the curly `’`
+normalisation and the existing `at` filler.
+
+Review item 4: any Unicode digit in a soft-separated gap is assignment content.
+The Math/essay proposal for `Math is at 3, the essay is due Friday at 3pm`
+refuses before a row is written.
+
+Review item 5: `proveDeadlineDue` accepts an optional test-only small-hours end
+hour while its production default remains `OWNER_SMALL_HOURS_END_HOUR = null`.
+With a test value of 4, clocked tomorrow, date-only tomorrow and date-only today
+all ask at 00:30 and resolve at 04:00. No channel adapter or tool catalogue file
+was changed; CODE-VS-JUDGMENT records the bounded proof rules.
+
+New test names in `deadline-review-r5.test.ts`:
+
+- `refuses a line break from tying Math quiz to the essay's due phrase`
+- `refuses a line break and list marker from tying Math quiz to the essay's due phrase`
+- `refuses an ampersand from tying Math quiz to the essay's due phrase`
+- `refuses a plus sign from tying Math quiz to the essay's due phrase`
+- `refuses a slash from tying Math quiz to the essay's due phrase`
+- `refuses then from tying Math quiz to the essay's due phrase`
+- `refuses or from tying Math quiz to the essay's due phrase`
+- `refuses plus from tying Math quiz to the essay's due phrase`
+- `refuses also from tying Math quiz to the essay's due phrase`
+- `accepts a line break after course punctuation when it does not cross assignments`
+- `asks which date tonight at 12:00 means at both 09:00 and 22:00`
+- `asks which date tonight at 12:30 means at both 09:00 and 22:00`
+- `accepts Math homework, it is due Friday at 3pm`
+- `accepts Chem lab report, I think it's due Friday at 3pm`
+- `accepts which as filler in a soft-separated gap`
+- `accepts that as filler in a soft-separated gap`
+- `accepts that's as filler in a soft-separated gap`
+- `accepts like as filler in a soft-separated gap`
+- `accepts so and just as filler in a soft-separated gap`
+- `accepts a curly apostrophe in that's as filler`
+- `accepts at as filler in a soft-separated gap`
+- `refuses a digit as content in a soft-separated course-to-title gap`
+- `asks which adjacent date tomorrow at 9am means at 00:30 when the window ends at 4`
+- `asks which adjacent date date-only tomorrow means at 00:30 when the window ends at 4`
+- `asks which adjacent date date-only today means at 00:30 when the window ends at 4`
+- `resolves tomorrow at 9am at 04:00 when the window ends at 4`
+- `resolves date-only tomorrow at 04:00 when the window ends at 4`
+- `resolves date-only today at 04:00 when the window ends at 4`
+
+Available verification: cloud-gateway source TypeScript completed with zero
+diagnostics. Test TypeScript retains the 143 pre-existing diagnostics and reports
+none in the changed deadline files. `git diff --check` passed. The sandbox cannot
+run Vitest or pnpm, so no behavioural or mutation pass is claimed; the harness
+must run the new round-5 file, the affected deadline suite and the S8/S11/S12/S14/S15
+mutations. No live provider, database, migration, deployment, secret, PC or owner
+operation was performed.
+
 ## 2026-09-24 — Codex builder: #166 round 4 narrows deadline refusals
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.

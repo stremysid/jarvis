@@ -128,7 +128,7 @@ export interface DeadlineDateProof {
 
 export function proveDeadlineDue(input: {
   dueAt: string; timeZone?: string; ownerZone: string; messageAt: string; dueExcerpt: string;
-}): DeadlineDateProof {
+}, smallHoursEndHour: number | null = OWNER_SMALL_HOURS_END_HOUR): DeadlineDateProof {
   validZone(input.ownerZone);
   const zone = input.timeZone ?? input.ownerZone;
   validZone(zone);
@@ -146,7 +146,7 @@ export function proveDeadlineDue(input: {
   const resolved = parsed[1] === undefined ? { date: anchor, bound: false, checkPast: true } : resolveDate(parsed[1], anchor);
   const datePhrase = parsed[1]?.toLowerCase().replace(/\./gu, "").replace(/\s+/gu, " ");
   const isTonight = /^tonight\s+/iu.test(phrase);
-  const smallHours = inOwnerSmallHours(messageAt, input.ownerZone);
+  const smallHours = inOwnerSmallHours(messageAt, input.ownerZone, smallHoursEndHour);
   const clock = (parsed[2] ?? parsed[3])?.toLowerCase().replace(/[.\s]/gu, "");
   let candidates: number[] = [];
   let note = resolved.bound ? "unconfirmed date-only bound: end of next week; the exact day was not stated"
@@ -159,7 +159,7 @@ export function proveDeadlineDue(input: {
       return reject("deadline_invalid_time", "The clock time is invalid; ask for the intended time.");
     }
     if (match[3] !== undefined) hour = hour % 12 + (match[3] === "pm" ? 12 : 0);
-    const morningClock = match[3] === "am" || match[3] === undefined && match[1]!.length === 2 && hour < 12;
+    const morningClock = match[3] === "am" || match[3] === undefined && match[1]!.length === 2 && hour <= 12;
     if (match[3] === undefined && match[1]!.length === 1) {
       note = "date-only: the clock was ambiguous without am/pm";
     } else {
