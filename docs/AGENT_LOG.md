@@ -3,6 +3,31 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) round 1 keeps shared school-store errors visible
+
+Signed: Codex GPT-6, builder. Read the full independent review [5805656319](https://github.com/stremysid/jarvis/pull/167#issuecomment-5805656319). Its blocking finding is confirmed: `ingestD2lEmailGrade` writes to `SchoolObservationRepository`, while the read catch used the retired Classroom scan-health name. The original mixed-source test asserted that incorrect omission; the prior entry's blanket shared-repository claim is corrected below.
+
+- Renamed only the read-error gap to `School grades/submissions store`. Classroom scan-health warnings remain retired. The mixed-source daily/retro test now requires the shared-store error first and the live Brightspace failure second. The retirement comment explains shared D2L storage and the FACTS row ruling out LDSB iCal when neither source is configured.
+- Normally merged freshly fetched `origin/main` at `6249ab13f0611e80b1332a002b73a67479498dac` in `b0c2129`; preserved both sides of AGENT_LOG and OWNER-ACTIONS insertion conflicts. No force-push, PR merge, migration or production operation.
+- Focused digest/poll/deadline tests: **177 passed / 0 failed / 0 skipped**, **10 files**. Gateway source typecheck passed with zero diagnostics.
+- Mutation on `4054b5bb01ae`: changed the store catch back to the retired name. Green baseline; **1 killed, confirmed twice; 0 survived / wrong-test / unconfirmed / not applied / invalid**. Named killer: `excludes retired sources while a live failing source still appears in the daily digest`; the retro variant also failed. Byte-identical restoration verified; restored digest file **37 passed / 0 failed / 0 skipped**.
+- Full gateway suite run once: **5,116 passed / 1 failed / 0 skipped**, **189 passed / 1 failed files**, 325.74 s. The unchanged `meaning-search.test.ts` test `keeps the 100-input bge-m3 request inside the byte ceiling and independent mutation cap` hit its 30,000 ms timeout. This exact timeout is already recorded in the log's test-budget evidence (CI run `35469836873`); no cause is inferred from this run. Isolated file rerun: **70 passed / 0 failed / 0 skipped**, 28.60 s. Gateway source typecheck passed with zero diagnostics; state check passed for all **3 carriers**; `git diff --check` passed. No full-suite rerun.
+
+Next: independent re-review of the updated head; deployment and live digest checks remain owner-only after clearance and merge.
+
+## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) retires closed school sources from digest health
+
+Branch `codex/digest-retire`, freshly based on `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. Signed: Codex GPT-6, builder.
+
+- `RETIRED_DIGEST_HEALTH_SOURCES` in `digest-job.ts` explicitly retires the three fixed health names for D2L notification email and Classroom deadlines/observations. It filters final gaps only, so missing-row/configuration and failed/stale paths agree while existing deadlines, grades, source rows and ingestion remain intact. Other Brightspace sources and shared deadline-repository failures remain visible. **Correction from independent review:** the original claim included all shared repositories, but `e357cad` hid school-observation store failures under the retired Classroom name. Round 1 separates that store-read error from Classroom scan health. No migration, database write, or parallel builder-owned implementation change.
+- FACTS' 2026-09-17/18 Classroom rows and 2026-09-21 D2L-email row confirm the retirement premise. Both `/digest` and scheduled digest reach this assembler. Fixed health names avoid retiring the shared `brightspace` kind or trusting source-provided labels. This is the owner's explicit retirement choice, not a relevance judgment inferred by code.
+- Focused tests: initial **61 passed / 1 failed / 0 skipped**; corrected the old two-gap expectation in Brightspace truncation, then that file passed **18/0/0**. Gateway production typecheck passed with zero diagnostics.
+- Mutation on code/test commit `0db138a297ef`: `reviewer-tools/mutate.ps1` removed the final exclusion after a green baseline. **1 killed, confirmed twice; 0 survived / wrong-test / unconfirmed / not applied / invalid.** Named killer: `excludes retired sources while a live failing source still appears in the daily digest`; the retro variant also failed. The tool listed 12 newly failing tests on the first mutation run. Restoration was byte-identical; the restored digest file passed **37/0/0**.
+- Final gates: full gateway suite run once, **5,117 passed / 0 failed / 0 skipped**, **190 files passed**, 235.05 s. `node scripts/check-state.mjs` passed for all **3 carriers**; `git diff --check` passed. No unrelated failure or flake rerun.
+- Not independently verified: the reported live deployment/digest output (production access forbidden), and the unpublished `codex/d2l-ingest-run` branch (not in initial fetched branches/open PRs; design/probe #160/#163 were visible). The prompt contradicts itself about 0039 allocation; this task uses no number. The supplied Downloads incident report was absent; no local-agent tests or host-administration code ran. No merge, deploy, real migration or live provider/Telegram operation. Owner follow-up is in OWNER-ACTIONS.
+
+Next: automated and independent review at the pushed head; owner deployment and live digest checks only after clearance and merge.
+
 ## 2026-09-23 — Codex builder: check-state hardening on codex/check-state-harden
 
 Signed: Codex (GPT-6), builder. **PR #155, round 2.** Reviewed head:
