@@ -486,8 +486,14 @@ function unsafeFirstPersonRanges(
   return Object.freeze(ranges);
 }
 
+export interface ReceiptedToolSentence {
+  readonly sentence: string;
+  readonly toolNames: readonly string[];
+}
+
 export interface ReplyClaimGuardOptions {
-  readonly receiptedInternalSentences?: readonly string[];
+  /** Tool names come from executed results, never the model's declaration. */
+  readonly receiptedInternalSentences?: readonly (string | ReceiptedToolSentence)[];
 }
 
 function blankRange(value: string, start: number, end: number): string {
@@ -566,7 +572,10 @@ function withoutSentenceRanges(reply: string, ranges: readonly Readonly<{ start:
 }
 
 export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions = {}): string {
-  const receipted = new Set(options.receiptedInternalSentences ?? []);
+  const claims = options.receiptedInternalSentences ?? [];
+  const receipted = new Set(claims.map((claim) => typeof claim === "string" ? claim : claim.sentence));
+  const draftSends = new Set(claims.flatMap((claim) => typeof claim !== "string"
+    && claim.toolNames.includes("guided_assignment_draft") ? [claim.sentence] : []));
   const secretScan = reply.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);
   let scan = exemptDraftAndReportSpans(reply);
@@ -578,18 +587,22 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   if (hasPassiveExternalCompletion(scan)) {
     externalRanges.push(...offendingSentenceRanges(reply, scan, [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]));
   }
+  // Receipt proof belongs to one declared sentence, including when a caller
+  // checks it before streaming. A neighbouring claim gets no borrowed proof.
+  const unprovenExternalRanges = externalRanges.filter((range) =>
+    !draftSends.has(reply.slice(range.start, range.end).trim()));
   const brightspaceRanges = isFalseBrightspaceCheckCompletion(scan)
     ? offendingSentenceRanges(reply, scan, BRIGHTSPACE_CHECK_COMPLETIONS)
     : [];
-  const all = [...secretRanges, ...externalRanges, ...brightspaceRanges];
+  const all = [...secretRanges, ...unprovenExternalRanges, ...brightspaceRanges];
   if (all.length === 0) return reply;
   let safe = withoutSentenceRanges(reply, all);
   // An adjacent completion fragment cannot survive the action claim it affirmed.
-  if (externalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
+  if (unprovenExternalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
   const replacement = secretRanges.length > 0
     ? SECRET_REPLACEMENT
-    : externalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
-  if (secretRanges.length === 0 && externalRanges.length > 0
+    : unprovenExternalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
+  if (secretRanges.length === 0 && unprovenExternalRanges.length > 0
     && /\bI did not complete the unreceipted action\./u.test(safe)) return safe;
   return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
 }
