@@ -980,12 +980,9 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
     if (!port.canActOn(call)) return refusedTool(call, port.authorityRefusal);
-    // Every tool call is evaluated against its capability tier before it acts.
-    // This runs after the authority checks (so only a genuine owner turn is
-    // audited) and before any tool body, so nothing below can execute on a
-    // capability that is tier 3, withheld by shadow mode, or unclassified.
-    const gated = await this.gateTool(input, port, call);
-    if (gated !== null) return gated;
+    // The gate can consume a tap. Finish channel refusals first so a call that
+    // cannot dispatch does not spend approval or record an authorized action.
+    // Once dispatch starts, audit or tool failures do not refund that tap.
     if (call.name.startsWith("memory_")) {
       if (!this.dependencies.directOwnerText) {
         return refusedTool(call, port.memoryAuthorityRefusal);
@@ -993,6 +990,8 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (!await port.replyTargetsLatestAssistant(input)) {
         return refusedTool(call, port.replyTargetRefusal);
       }
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
       return this.memoryTool(input, port, call);
     }
     if (this.dependencies.directPipelineText === false) {
@@ -1012,6 +1011,8 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     const pipeline = port.pipelineModel(call);
     if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);
+    const gated = await this.gateTool(input, port, call);
+    if (gated !== null) return gated;
     return this.runPipeline(input, port, call, pipeline);
   }
 
