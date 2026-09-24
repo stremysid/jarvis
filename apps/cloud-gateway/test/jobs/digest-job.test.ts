@@ -421,7 +421,10 @@ describe("a source that will not answer", () => {
     }));
 
     expect(digest.sections.find((section) => section.heading === "Could not be read")?.lines)
-      .toEqual(["Brightspace: feed_unavailable"]);
+      .toEqual([
+        "School grades/submissions store: observation_read_failed",
+        "Brightspace: feed_unavailable",
+      ]);
   });
 
   it("still reports a failed shared health read when retired sources cannot be read either", async () => {
