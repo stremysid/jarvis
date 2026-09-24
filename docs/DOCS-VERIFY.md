@@ -18,10 +18,11 @@ Audit base: `a666097ffe6e0b2c99dc83ce29fc43efacdf7f4d`, freshly fetched from
 - The initial open-PR query returned #96, #122, #154, #155 and #156. The prompt's
   sync-recovery ownership is treated as a reservation, not proof it has an open PR.
   No migration or another builder's source file was edited.
-- Recorded production source is `352991e`, Worker upload
+- At audit time (`a666097`), recorded production source was `352991e`, Worker upload
   `78cb6e98-7814-4be7-82fb-a795a7e4d0a7`, active version
   `64a184ce-4408-4962-b973-9ec3b6f48c9c`; observation from STATE at
-  23:20 UTC on 2026-09-21. No live query was made.
+  23:20 UTC on 2026-09-21. Superseded by the owner-observed 2026-09-23 deploy
+  of `a6a0efd` recorded in [STATE](STATE.md#production). No live query was made.
 - STATE's implementation prose is also partly stale: its claim that voice
   cannot read the previous assistant turn predates the same-call lookup in
   `bde0a9b`. This audit uses its Production section as the recorded deployment

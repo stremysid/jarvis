@@ -32,6 +32,7 @@ Last regenerated: 2026-09-23. Order within a section is the order to do them in.
 
 | Action | Why only you | State |
 |---|---|---|
+| **Load the probe, click Run probe, paste the summary** | Only your Opera GX session can test LDSB access. Follow [the D2L probe runbook](runbooks/d2l-extension.md): one pass with every D2L tab closed, then one with a refreshed D2L tab open. Copy the combined shape-only summary to the reviewer, then remove the extension. This single action replaces #160's overlapping D2L capability-check and collector-probe requests; do not repeat those separately | **awaiting-owner**, after the probe PR is reviewed; browser/account behaviour is unverified |
 | Run the live voice smoke and commit the redacted evidence | `pnpm smoke:voice`, then `pnpm release:voice-gate`. Both are built and neither has ever run against production. It needs your phone | **not started** |
 | Send one real Google Classroom notification, forwarded | The Classroom REST route is impossible on this board, so the notification email is the only route. A parser cannot be written honestly from a guessed format. Forward one real notification to the school mailbox | **not started** |
 | Say whether that forward is an **automatic M365 rule** or a **manual Outlook Forward** | It decides whether Classroom can work at all. An automatic M365 forward preserves the original DKIM signature; a manual Forward recomposes the body, destroys it, and every message quarantines as `from_domain_unpinned` | **not started** |
