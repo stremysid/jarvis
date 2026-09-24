@@ -374,6 +374,8 @@ export class DeadlineRepository {
    * the same title tomorrow, computes the same hash, and does not reach the
    * branch that would overwrite him. When the teacher actually edits the item,
    * the tag we derived from the old text is stale anyway and is re-derived.
+   * An explicit owner status also replaces effort on unchanged content, so a
+   * spoken submission or retag cannot be swallowed by the polling fast path.
    *
    * `reminded_at` is cleared only when the due date itself moved. A corrected
    * typo in a title is not a reason to remind him again; a date that moved is
@@ -391,26 +393,26 @@ export class DeadlineRepository {
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
-    // The common hourly path is one statement per unchanged item. Reading
-    // first and then touching last_seen_at tripled the D1 cost of a steady
-    // school feed before the caller even computed disappearances.
-    const unchanged = await this.#database.prepare(
-      `UPDATE deadlines
-       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
-           status = coalesce(?, status), effort = CASE WHEN ? IS NULL THEN effort ELSE ? END
-       WHERE source_id = ? AND external_id = ? AND content_hash = ?
-       RETURNING *`,
-    ).bind(observedAt, observedAt, status, status, effort, sourceId, externalId, contentHash).first<DeadlineRow>();
-    if (unchanged !== null) {
-      return Object.freeze({
-        outcome: "unchanged" as const,
-        deadline: toDeadline(unchanged),
-        revisionId: null,
-        previous: null,
-      });
-    }
-
     for (let attempt = 0; attempt < UPSERT_ATTEMPTS; attempt += 1) {
+      // The common hourly path is one statement per unchanged item. Reading
+      // first and then touching last_seen_at tripled the D1 cost of a steady
+      // school feed before the caller even computed disappearances.
+      const unchanged = await this.#database.prepare(
+        `UPDATE deadlines
+         SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
+             status = coalesce(?, status), effort = CASE WHEN ? IS NULL THEN effort ELSE ? END
+         WHERE source_id = ? AND external_id = ? AND content_hash = ?
+         RETURNING *`,
+      ).bind(observedAt, observedAt, status, status, effort, sourceId, externalId, contentHash).first<DeadlineRow>();
+      if (unchanged !== null) {
+        return Object.freeze({
+          outcome: "unchanged" as const,
+          deadline: toDeadline(unchanged),
+          revisionId: null,
+          previous: null,
+        });
+      }
+
       const existing = await this.#readRow(sourceId, externalId);
 
       if (existing === null) {
@@ -450,12 +452,9 @@ export class DeadlineRepository {
       }
 
       if (existing.content_hash === contentHash) {
-        return Object.freeze({
-          outcome: "unchanged" as const,
-          deadline: toDeadline(existing),
-          revisionId: null,
-          previous: null,
-        });
+        // A writer won between our update and read. Retry the metadata write
+        // instead of receipting a submitted status that was never persisted.
+        continue;
       }
 
       const revisionId = newUlid();

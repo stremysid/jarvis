@@ -55,6 +55,7 @@ describe("owner reported deadlines", () => {
     ["a time absent from the evidence", { dueAt: "2026-09-25T16:30:00-04:00" }],
     ["a mismatched zone offset", { dueAt: "2026-09-25T15:30:00-05:00" }],
     ["a missing offset", { dueAt: "2026-09-25T15:30:00" }],
+    ["a numeric timezone instead of an IANA zone", { timeZone: "-04:00" }],
     ["an invalid effort", { effort: "huge" }],
     ["an unknown argument", { other: true }],
   ])("refuses %s before creating a source or a deadline", async (_label, changes) => {
@@ -66,6 +67,37 @@ describe("owner reported deadlines", () => {
   it("refuses evidence cut out of the middle of a word", async () => {
     await expect(recordDeadline(env.DB, input(`Bio${message}`), call(), NOW)).rejects.toThrow();
     expect((await rows()).results).toHaveLength(0);
+  });
+
+  it("persists the requested status when an unchanged row appears between update and read", async () => {
+    const repository = new DeadlineRepository(env.DB);
+    await repository.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now: NOW });
+    const entry = { sourceId: "owner-reported", externalId: "raced", course: "Chemistry", title: "Lab report",
+      dueAt: "2026-09-25T19:30:00.000Z", effort: "project" as const, leadMinutes: 0, now: NOW };
+    let injectRace = true;
+    const database = new Proxy(env.DB, { get(target, key) {
+      if (key === "prepare") return (sql: string) => new Proxy(target.prepare(sql), { get(statement, method) {
+        if (method === "bind") return (...values: unknown[]) => {
+          const bound = statement.bind(...values);
+          return new Proxy(bound, { get(query, operation) {
+            if (operation === "first" && sql.includes("UPDATE deadlines") && injectRace) return async () => {
+              injectRace = false;
+              await repository.upsert(entry);
+              return null;
+            };
+            const value = Reflect.get(query, operation);
+            return typeof value === "function" ? value.bind(query) : value;
+          } });
+        };
+        const value = Reflect.get(statement, method);
+        return typeof value === "function" ? value.bind(statement) : value;
+      } });
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const result = await new DeadlineRepository(database).upsert({ ...entry, status: "submitted" });
+    expect(result.deadline.status).toBe("submitted");
+    expect((await repository.readByExternalId("owner-reported", "raced"))?.status).toBe("submitted");
   });
 
   it("refuses an explicit open status even when the evidence contains that word", async () => {

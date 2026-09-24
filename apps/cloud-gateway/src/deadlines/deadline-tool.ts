@@ -22,6 +22,7 @@ export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
 
 /** Compare the model's instant with the stated wall date and time; no date is chosen here. */
 export function proveDeadlineTime(dueAt: string, timeZone: string, excerpt: string): string {
+  if (!/^[A-Za-z]/u.test(timeZone)) throw new TypeError("deadline_zone_invalid");
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00(?:\.000)?(Z|[+-]\d{2}:\d{2})$/u.exec(dueAt);
   if (match === null) throw new TypeError("deadline_time_invalid");
   const instant = new Date(dueAt);
