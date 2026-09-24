@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Jarvis D2L shape probe",
+  "version": "0.1.0",
+  "description": "Read-only API shape checks for the LDSB Brightspace session.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://ldsb.elearningontario.ca/*"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_popup": "popup.html" },
+  "content_scripts": [{
+    "matches": ["https://ldsb.elearningontario.ca/*"],
+    "js": ["probe.js", "content.js"],
+    "run_at": "document_idle",
+    "all_frames": false,
+    "world": "ISOLATED"
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://ldsb.elearningontario.ca"
+  }
+}
