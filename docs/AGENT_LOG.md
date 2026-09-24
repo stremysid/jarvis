@@ -3,12 +3,22 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: channel-parity publication after the PC-load pause
+
+Signed: Codex, `codex/channel-parity`, isolated worktree `C:\w\channel-parity`.
+
+Merged fresh main `f56f279dd90ddce69d3885c63c4c9fbf2c19b850` normally, including #172. Both adapters now use the same 17-tool catalogue (9 memory, 3 pipeline, 2 collector, 3 guided assignment). Preserved guided assignment state, source proof and typed receipt claims; retained both the assignment catalogue and previous delivered-reply reference in the shared prompt. The voice streaming loop and separate PIN rebuild remain untouched. Same-call memory confirmation and canonical recall are implemented. Full two-speaker cross-channel history is explicitly deferred as `CHANNEL-CONTINUITY-TRANSCRIPT` in QUEUE.
+
+Observed final local gates: 97/0/0 in six focused files, then 186/0/0 in two changed provider/production files; both serial with one worker. The production test exposed the provider's stale 16-tool bound, which rejected the new 17-tool catalogue before fetch. Raised it to 32 and proved both production parity and the retained upper bound. **No local full package/workspace suite was run**, per Sid's resume rule. GitHub Actions will supply that result in the PR. Mutations: **47 confirmed named kills, each twice**, zero other outcomes; restored files byte-identical in all four sweeps (8, 2, 1, 1 files). Source typecheck passes with zero diagnostics. Historical test-typecheck baseline remains 143 diagnostics; no current #172 test-typecheck claim. [The audit](reviews/2026-09-23-channel-parity.md) records every observed local count, initial failure and mutation result.
+
+After the PR is published, read CI and post the authorized short status comment. Independent and automated review follow publication. Only after independent clearance and separate owner authorization may rollout proceed, as listed in OWNER-ACTIONS. No production, real migration, live call, secret, PC setting or sync-recovery file was touched.
+
 ## 2026-09-23 — Codex builder: channel-parity, shared owner capabilities
 
 Signed: Codex, branch `codex/channel-parity`, isolated worktree `C:\w\channel-parity`.
 Sid's exact rule is recorded in DECISIONS. [The audit](reviews/2026-09-23-channel-parity.md) distinguishes medium constraints, removed gaps and the explicitly deferred `CHANNEL-CONTINUITY-TRANSCRIPT` follow-up.
 
-The source of parity is now `src/agent/owner-tools.ts`, with one pipeline constructor/resolver in `owner-pipelines.ts`. The guided-assignment builder (#172) must add its definitions and dispatch there when integrating. The voice streaming loop and PIN rebuild remain their builders' responsibility.
+The source of parity is now `src/agent/owner-tools.ts`, with one pipeline constructor/resolver in `owner-pipelines.ts`. Update after #172 merged: its three definitions are integrated in the shared catalogue and its dispatch remains in the common core. The voice streaming loop and PIN rebuild remain their builders' responsibility.
 
 The real pipeline tests uncovered 19 Telegram-only database triggers as well as the two adapter restrictions. Migration 0044 widens only those channel predicates after checking main and all 11 open PRs; 0040, 0041 and 0043 were occupied. Voice references persist only with the settled relay event. Shared retrieval now reads canonical memory; the previous exact reply and target ids reach the model on both transports. Tier-3 consumption ordering is unchanged. No production, PC settings, real migrations or calls were touched.
 
