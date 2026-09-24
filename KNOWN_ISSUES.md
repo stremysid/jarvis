@@ -6,20 +6,57 @@ Live DeepSeek tool-call streaming and phone latency remain unverified. The
 round-2 model marker protocol checks this-turn receipt/tool provenance for one
 declared sentence, with regexes only as an omission backstop. An omitted novel
 claim or a semantically wrong description attached to a real receipt is still
-a model failure code cannot prove away. #172 is now merged into this branch;
-local integration covers its real guided-assignment service with a fake
+a model failure code cannot prove away. Both #171 and #172 are merged on main;
+recorded local integration covers the real guided-assignment service with a fake
 Telegram provider. Live model compliance and provider delivery remain untested.
 See [the design and evidence](docs/voice-streaming.md) and the first live check
 in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md). No live check or rollout is implied.
 
-Two low-severity follow-ups from the independent review remain open and are not
-fixed in this merge round:
+The following low-severity follow-ups from the independent review remain open:
 
 - **L2′:** A literal `[[` in ordinary prose, such as "In Obsidian, write
   `[[Page name]]` to link.", throws `voice_claim_invalid` and aborts the spoken
   reply.
 - **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
   order.
+
+The 2026-09-24 carrier-refresh harness also lists **L5 and L6** as open. Their
+finding text is absent from this section at the checked main revision and from
+the searched #171 log entries. Recover the review's exact findings before scoping
+those fixes; [QUEUE](docs/QUEUE.md) retains both rather than inventing their content.
+
+Sid's 2026-09-24 report, "ive already done test calling and it works", establishes
+his working-call observation, not the specific streaming checks above.
+
+## Guest-call privacy leak — live until #174 deploys
+
+On main and at the recorded production source `a6a0efd`,
+[`OwnerAgentCore.streamCaptured`](apps/cloud-gateway/src/agent/owner-agent-core.ts)
+reads the configured owner's pinned core profile unconditionally and builds an
+owner-framed system prompt. The
+[voice adapter](apps/cloud-gateway/src/voice/voice-agent.ts) also supplies its owner
+tool catalogue before `canActOn` refuses guest tool execution. An authorized guest
+conversation can therefore send Sid's pinned facts, owner framing and owner
+catalogue to the model. The later tool refusal does not protect prompt contents.
+The catalogue is model request metadata alongside the system prompt; this finding
+does not claim guest tools execute or that a live guest test was performed.
+
+[#174](https://github.com/stremysid/jarvis/pull/174) carries the fix. The defect
+remains live until that change merges and deploys; the observed Worker is still
+`7e027a1f…` at `a6a0efd`. See [STATE](docs/STATE.md#production).
+
+## Telegram keyboard payload fields (PR #174 round-3 L2)
+
+The round-3 review records Telegram keyboard payload fields rejecting staged ids.
+This is **fail-closed**: affected confirmation delivery can be refused, not granted
+extra authority. Keep the fix in a **separate PR**, as the round-4 brief requires.
+Trace `assistantStagePayload` and staged-event readback in
+[conversation-repository.ts](apps/cloud-gateway/src/conversation/conversation-repository.ts)
+through payload-field validation and
+[outbox-dispatcher.ts](apps/cloud-gateway/src/conversation/outbox-dispatcher.ts).
+Retain the decision/callback grammar and structural-id redaction boundary.
+Source: the harness's 2026-09-24 round-3 verdict and round-4 brief; no new failure
+probe was run in this docs-only refresh. Tracked in [QUEUE](docs/QUEUE.md).
 
 ## Reply-claim tutoring exemptions are deliberately conservative and partial
 
@@ -117,7 +154,7 @@ the corrected tool gates, normal 403s and undated digest evidence.
 | Remaining limit | Evidence and boundary |
 |---|---|
 | Local Workers tests do not prove production runtime compatibility. | [Chained PBKDF2](apps/cloud-gateway/src/security/chained-pbkdf2.ts) uses six 100,000-iteration calls, and [the cap test](apps/cloud-gateway/test/security/pbkdf2-production-cap.test.ts) checks source parameters. The earlier over-cap implementation was fixed by `d839cad`; this remains a test-environment limitation, not an open claim that current PBKDF2 exceeds the cap. |
-| Gateway test types are outside the normal gate. | [tsconfig.test.json](apps/cloud-gateway/tsconfig.test.json) includes tests; [tsconfig.json](apps/cloud-gateway/tsconfig.json) does not. This audit ran `typecheck:tests`: 144 errors in 32 files. [CI](.github/workflows/ci.yml) does not invoke it. No assertion that every newer directory is clean. |
+| Gateway test types are outside the normal gate. | [tsconfig.test.json](apps/cloud-gateway/tsconfig.test.json) includes tests; [tsconfig.json](apps/cloud-gateway/tsconfig.json) does not. **143 as measured on 2026-09-24 by the builders**; this docs builder could not remeasure because `node_modules/.bin/tsc` is absent. [CI](.github/workflows/ci.yml) does not invoke it. No assertion that every newer directory is clean. |
 | Local-agent CI typechecks only the Windows target. | Both CI matrix jobs use `mypy --platform win32`. Direct Linux platform branches, including in [unix_socket.py](apps/local-agent/jarvis_local/transport/unix_socket.py), can be excluded by narrowing. Historical mutation/error totals were not remeasured; they are not current gate counts. This does not imply a Linux machine is needed. |
 | Hermes coverage is split and some tests were historically slow. | [TESTING](TESTING.md) and the [manual workflow](.github/workflows/hermes-runtime-manual.yml) identify the two extended files excluded from normal CI. No current duration or extended-suite pass is established here. |
 | Hermes profile/source lock bindings disagree. | Canonicalizing [hermes-source-lock.json](apps/hermes-runtime/hermes-source-lock.json) with [canonical-json.mjs](apps/hermes-runtime/src/canonical-json.mjs) gives SHA-256 `9dd8a06d7df921dec55652bb0e2c5ab0488702b288abdc2fb505e66271dbb392`; `sourceLockHash` in [hermes-profile-lock.json](apps/hermes-runtime/hermes-profile-lock.json) is `3f3618bb177da35cab360f4e62c059d28f82cebe14fa98f4582a8c1374ded0d3`. `c363631` re-pinned the source lock without regenerating the profile lock. The profile schema retains that older binding too. An integrity-chain update remains separate work. |

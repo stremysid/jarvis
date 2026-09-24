@@ -1,64 +1,51 @@
 # State
 
-What is true right now. **Short on purpose, and regenerated rather than appended.**
+What is true right now. Short on purpose, regenerated rather than appended.
+If this file disagrees with a longer document, correct the longer document.
 
-One rule governs every line below: **nothing here states a revision as current.** A
-fact that depends on a revision carries the command that prints it, or a date and
-the session that observed it. The handoff, the roadmap and this file have each, at
-different times, asserted a sha that had already moved; the fix is to stop writing
-them down.
-
-If this file disagrees with a longer document, this file is right and the longer
-document is stale — say so in the pull request that fixes it.
-
-Last regenerated: 2026-09-23. Deploy updated from Sid's and the reviewer's report;
-older database observations remain dated 2026-09-21. No production query was made
-for this update. For the repository revision, run `git log --oneline origin/main -1`.
+Last regenerated: 2026-09-24, from repository evidence and the harness's approximately
+19:40 UTC observations. No production query was made by this docs builder.
+For the repository revision, run `git log --oneline origin/main -1`.
 
 ## In flight, and what each one would change here
 
-`#141`, `#144`, `#146`, `#147`, `#148`, `#149` and `#150` merged 2026-09-21/22, and `#145` on
-2026-09-23. **Six PRs are open**; only `#151` is listed, as the only one touching this file.
-The verdicts below predate `#145`: where one says the boot chain stops at exit 3, it is stale.
+Six PRs are open in the harness snapshot. [QUEUE](QUEUE.md) carries their observed
+heads, verdicts and next owners; merged PRs have left it.
 
 | PR | What it would change |
 |---|---|
-| [#151](https://github.com/stremysid/jarvis/pull/151) | Documentation only: the P2 brief at [`briefs-p2-d2l-read.md`](briefs-p2-d2l-read.md). Moves no verdict |
+| [#166](https://github.com/stremysid/jarvis/pull/166) | `deadline_record`; round-7 fix under independent review, rest ready at round 6 |
+| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; round-4 fix under independent review, migration `0044` |
+| [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders; stale with eight conflicts, builder round after #166/#174 and migration renumbering above main's maximum |
+| [#177](https://github.com/stremysid/jarvis/pull/177) | Scratch runbook, deploy.md and REVIEWER-MANUAL stale-fixes; round-2 review running |
+| [#178](https://github.com/stremysid/jarvis/pull/178) | #176 D2L label lows L1/L3/L4; review running |
+| [#122](https://github.com/stremysid/jarvis/pull/122) | Memory redesign spec; unchanged, awaiting Sid's plan decision |
+
+Whichever of #166/#174 lands second must include `deadline_record` in shared
+`OWNER_TOOL_DEFINITIONS`, with review of the resulting head.
 
 ## Where the project actually stands
 
-| Phase | Verdict | The one thing missing |
+| Phase | Verdict | Remaining boundary |
 |---|---|---|
-| 1 The nervous system | **partial** | Infrastructure is there, and as of `goal/item4-5-voice` so is one brain for the agent loop: `OwnerAgentCore` holds the loop, the caps, the tier gate, the receipt guard and the nine memory tools once, and Telegram and voice each subclass it. **What is not collapsed** is the channel itself: a stateless Worker for Telegram and a separate `CallSession` DO for voice, with no DO holding conversation state for Telegram to share. No SMS path, no Queues |
-| 2 Memory | **code-complete; the two channels act on one store and recall from two** | Schema, promotion fix, core profile, nine tools and expiry are live as of 2026-09-20. Pinning works in production as of 2026-09-21. **A phone call now acts on `memory_items`, the same store Telegram writes** — before `goal/item4-5-voice` the voice path could not name a memory at all. Recall still differs: Telegram composes `TelegramMemoryRetriever`, voice composes `D1ContextRetriever` over `memory_fact_projection_*`, whose only writer is `http/sync-routes.ts` when the Windows local agent pushes, and which is **empty in production** — so nothing said by text reaches a phone call's *context* |
-| 3 School | **built, and cannot receive anything useful** | The email route is configured, and **D2L's email carries no deadline.** Sid enabled every notification option; D2L sends an activity summary naming the course with a count (*"76 New Emails"*) and a link. No assignment, no date. So the handler, parser and authenticity checks are correct and **their input cannot contain what they need**; the dates are behind the D2L login. Classroom is impossible on this board (no Google Cloud Console access) and the Brightspace feed does not exist. **The only remaining route is the PC reading D2L while logged in** — see [QUEUE.md](QUEUE.md) |
-| 4 Control | **built as the inverse of what the roadmap asks** | Tiers are a D1 table looked up per capability, not prompt guidance Jarvis judges. Confirmations still bind `capability:argumentsHash` across channels. The [single-use tap change](reviews/2026-09-23-tier3-tap.md) claims each tap once with a ten-minute expiry; migration `0039` and the gateway rollout await owner action |
-| 5 Calling | **plumbing proven, brain present, release gate never run** | Six inbound owner calls reached Jarvis on 2026-09-17 (one completed, three rejected, one failed, one enrollment). No outbound call has ever been placed. **As of `goal/item4-5-voice` a call dispatches the nine memory tools**: `OwnerVoiceAgentAdapter` is a `ModelAdapter` that drives `ModelAgentProvider`, with the tier gate in front and the receipts spoken. Two memory tools remain unusable on a call — `memory_confirm` and the "previous memory" lookup both need the Telegram delivery chain — and the release gate has still never been run |
-| 6 Daily rhythm | **cron only** | Four cron triggers fire. Jarvis cannot schedule its own wake-ups — no DO holds conversation state to hang an alarm on — and does not choose the digest time |
-| 7 Plumbing | **most complete** | Nightly backup, archive and the watchdog all run. **The heartbeat records as of 2026-09-20.** No external watchdog; vault sync stops at 64 notes |
+| 1 The nervous system | **partial; shared agent core** | `OwnerAgentCore` shares the loop, caps, tier gate and receipt guard. Telegram and voice still compose separate conversations; #174 addresses channel parity. No shared conversation DO, SMS path or Queues |
+| 2 Memory | **shared write store; different recall** | #147 lets calls act on `memory_items` through `D1MemoryControlTargetFinder`. Telegram recalls the memory store; voice still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. #174 addresses recall and confirmation parity. Hidden-text receipts remain a defect |
+| 3 School | **paste, calendar, guided assignment and D2L collector/receiver merged; rollout pending** | #164 saves Telegram assignment pastes, #165 provides the private calendar feed, #172 guided assignments, #169/#170 the receiver/extension, and #175/#176 two-board evidence and date labels. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance, production migrations and deployment remain pending; the old D2L email route yields no deadlines |
+| 4 Control | **built; policy remains table-driven** | Confirmations bind capability and arguments, not tool. #159 adds single-use ten-minute taps; `0039` and gateway production rollout remain pending. T1/T2 guards, T3's literal permit and B2 tool binding remain in QUEUE |
+| 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate |
+| 6 Daily rhythm | **cron only** | Four cron triggers; owner reminders await #168. Jarvis cannot schedule its own wake-ups or choose the digest time |
+| 7 Plumbing | **mostly built** | Backup, archive and watchdog code are present; heartbeat was observed working. No external watchdog recorded; vault sync stops at 64 notes. #145 adds Windows `serve`, #157 sync/store recovery; device acceptance remains in OWNER-ACTIONS |
 
-Measured against the phases in
-[`plan/2026-09-19-jarvis-roadmap.md`](plan/2026-09-19-jarvis-roadmap.md).
+Measured against [the roadmap](plan/2026-09-19-jarvis-roadmap.md).
 
 ## The one thing that changes what Jarvis is
 
-**There are two assistants, not one, and they are one brain short of the whole way.** Telegram and a phone
-call are still composed separately, and the agent loop they now share is only part of it:
-
-| | Telegram | Phone call |
-|---|---|---|
-| Agent loop | `OwnerAgentCore` + `OwnerTelegramAgentAdapter` | `OwnerAgentCore` + `OwnerVoiceAgentAdapter` — **one copy of the loop, the caps, the tier gate and the receipt guard** |
-| Tools | twelve: nine memory, plus `school_update`, `university_update`, `study_coach` | **nine: the memory tools.** No school, university or study pipeline over a call |
-| Memory it acts on | `memory_items`, through `TelegramMemoryRetriever` | `memory_items`, through `D1MemoryControlTargetFinder` — **the same store** |
-| Memory it recalls | `memory_items` and `memory_fact_projection_*` | `memory_fact_projection_*` only — a different store, written only when the Windows local agent pushes, and **empty** in production |
-| Authority | the turn is Sid's direct current Telegram text | the turn's principal is the configured owner, on a session that required the owner passphrase |
-| Core profile | injected every turn | injected every turn |
-| A tier-3 tap | an inline keyboard | raised durably, then **spoken** — the tap itself has to be given in Telegram |
-
-So a call can act now, and what it acts on is the store Sid's memory actually lives in. What has not
-changed is what a call can *recall*: nothing Sid tells Jarvis by text reaches a call's context, because
-the store a call reads is still empty. The roadmap's answer is one brain that both doors reach; the
-agent half of that landed and the memory-read half did not.
+Both channels share the agent loop, but their context and catalogues still differ.
+On main, voice has memory, guided-assignment and school-collector tools; Telegram
+also has school, university and study pipelines. The recorded production build
+predates guided-assignment and collector tools: voice there has the nine memory tools.
+Voice recall still reads the local-agent projection rather than Telegram's memory
+store. #174 is the pending parity change, not a deployed guarantee.
 
 ## Production
 
@@ -89,47 +76,49 @@ and [FACTS](FACTS.md) for provenance.
 
 The deployment and health check do not refresh these older database observations.
 
+## Pending rollout
+
+Main contains pending `0039`, `0040`, `0043` and `0045`; `0036`, `0037`, `0041`
+and `0042` are absent. `0044` belongs to open #174. Renumbering older `0041`/`0042`
+above main's maximum is approved; it does not authorize production application.
+
+The reviewer completed the authorized remote scratch rehearsal on 2026-09-24:
+**PASS**, including `0044` after `0045`. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
+Production migration application and tonight's deployment are **not started**, Sid's
+separate actions in [OWNER-ACTIONS](OWNER-ACTIONS.md).
+
 ## The gates, and whether they can be trusted
 
 | Gate | State |
 |---|---|
-| CI | **Alive, and green on `main` at `cdfdd4b`** — `gh run list --repo stremysid/jarvis --branch main` shows `success` for that commit. **Do not write "the last five runs pass":** it is false, and it was false in this row before. The real shape on 2026-09-21/22 was one `failure` at `688fe02`, two runs `cancelled` by newer pushes (#137, #138), then green. A newer push cancels an older run on the same branch (one concurrency group per branch) and **a cancelled run is not a failure** — reading one as a red main is a recurring error here. Re-run a flaky test before attributing a failure to it; those rows are in [QUEUE.md](QUEUE.md) |
-| `pnpm test` | **The count in this cell is stale and should not be quoted.** It said 5,395; two sessions independently measured **5,428 in 206 files** and **5,433** on trees that differ from this one, which is what a suite looks like when it grows and the carrier is not regenerated. Run `pnpm test` and read its own total. **`testTimeout` is 15s** as of #116 — sized against a measured p99 of 5,247 ms and a worst unprotected test of 7,217 ms, but those measurements do not make a timeout proof of an ordering defect. Of the three previously listed flakes, [#154](https://github.com/stremysid/jarvis/pull/154) fixes both Telegram cases: callback-ID corruption and the archived-memory test's host-dependent clock. Its replacement retains a virtual <=500 ms guard and requires candidate/history overlap. The remaining listed timing flake is `hermes-runtime`'s `artifact-security-review3`, whose cause remains open in [QUEUE.md](QUEUE.md). Hermes' Store PowerShell defect (#24) is separate; this PR does not claim it fixed |
-| `pnpm typecheck` | Clean |
-| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **143 errors**, measured in #154 round 1; none in the changed files. Still red and gated nowhere |
-| `pnpm lint` | Exit 0, but four packages define it as `tsc --noEmit`; no linter is reachable |
-| Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
+| CI | Query the relevant head's run before clearing it; no current green-main claim is made here. Full suites run in GitHub Actions, not on Sid's PC |
+| Workspace tests | No suite rerun or permanent count in this docs round. #154 fixed the two Telegram flakes; #156 fixed Store PowerShell discovery. Remaining timing investigations are in QUEUE |
+| Source typecheck / lint | No new execution here. Gateway source typecheck excludes tests; several package lint scripts are typechecks, not linters. See [TESTING](../TESTING.md) |
+| Gateway `typecheck:tests` | **143 as measured on 2026-09-24 by the builders**; still red and outside CI. `node_modules/.bin/tsc` is absent here, so this builder could not remeasure |
+| Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist; none appears in a workflow. Live acceptance remains separate from the owner's working-call report |
 
-**A runner timeout is separate from an operation deadline.** Setting `testTimeout`
-does not prevent a 450 ms retrieval deadline from firing under load. The two Telegram
-causes and their measured fixes are in [QUEUE.md](QUEUE.md); an assertion failure by
-itself proves neither ordering nor a timeout. Merge on CI, not on a local run alone.
+A runner timeout does not prevent an operation deadline firing under load. Isolate
+failures before attributing them; merge on the reviewed head's CI evidence.
 
 ## Live defects
 
-Re-checked against `main` and production on 2026-09-21:
+1. **Guest-call privacy leak — live on main and in the recorded production build.**
+   `OwnerAgentCore.streamCaptured` reads the configured owner's pinned core profile
+   before any tool-authority check, builds the owner-framed system prompt, and sends
+   the owner tool catalogue supplied by the voice adapter. A guest conversation
+   therefore carries Sid's pinned facts, owner framing and owner catalogue to the
+   model. The later tool refusal does not protect that prompt. Fixed only when
+   [#174](https://github.com/stremysid/jarvis/pull/174) merges and deploys. Traced in
+   `apps/cloud-gateway/src/agent/owner-agent-core.ts` and `voice/voice-agent.ts` on main
+   and at the recorded deployment source; no live guest test was run.
+2. **Memory explain/forget/restore receipts can reintroduce withheld text.** The
+   shared core combines sanitized service receipts with separately read text.
+3. **Remaining redaction gaps:** bare/spoken-word PIN and phone/passphrase coverage
+   remain open. #149's credential-word digit fix is deployed; newer #171 quoted and
+   header redaction changes await deployment. [Known limits](../KNOWN_ISSUES.md).
 
-1. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
-   a token on the line after `Authorization:`. Confirmed by executing
-   `sanitizeRedaction`. The test that appears to cover it asserts against
-   `guest.pin`, a field no production call site passes. [#149](https://github.com/stremysid/jarvis/pull/149)
-   fixes a four-digit PIN after a credential word, on every channel, and is
-   deployed as of `a6a0efd`. A bare PIN with no credential word before it, and a spoken-word PIN,
-   stay open. PR #96 fixes the digit
-   half only.
-2. `explain` / `forget` / `restore` print the memory text in the same tool result
-   that says it was withheld.
-
-**Fixed by #144, deployed as of `a6a0efd`:** `selectControlTargets` read `memory_item_fts` with no
-suppression anti-join, so a memory whose originating event the ledger had suppressed
-was still reachable as a control target. Fixed with both `NOT EXISTS` clauses the FTS
-arm of `readCandidates` carries, each pinned by its own mutation, in [#144](https://github.com/stremysid/jarvis/pull/144).
-The finder, `D1MemoryControlTargetFinder` (`memory-control-targets.ts`, where #147 moved the arm), composes
-them from `suppression-clauses.ts` since #146. To check they are still there, grep that file for
-`creation_event_sequence BETWEEN`; the parity test's guards 1, 2 and 4 now pin the same thing.
-
-Item 2 is in [QUEUE.md](QUEUE.md). [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) was
-audited on 2026-09-23; its [disposition record](DOCS-VERIFY.md) names the source revision and fixes removed.
+#144's suppression anti-join fix is deployed; #146 keeps its shared predicate and
+parity guards. It is no longer an open work item.
 
 ## Where things live
 
@@ -137,8 +126,8 @@ audited on 2026-09-23; its [disposition record](DOCS-VERIFY.md) names the source
 |---|---|
 | What is in flight, and who acts next? | [QUEUE.md](QUEUE.md) |
 | What can only Sid do? | [OWNER-ACTIONS.md](OWNER-ACTIONS.md) |
+| What durable facts are recorded? | [FACTS.md](FACTS.md) |
 | Why is it built this way? | [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](../DECISIONS.md) |
 | What is broken or unproven? | [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) |
-| What stopped working and why? | [AGENT_LOG.md](AGENT_LOG.md) — **search it, do not read it** |
-| What is meant to exist? | [the roadmap](plan/2026-09-19-jarvis-roadmap.md) — **Sid's own, and authoritative.** The milestone roadmaps that preceded it are deleted |
-| Who builds and reviews what? | [BUILDING.md](BUILDING.md) |
+| What stopped working and why? | [AGENT_LOG.md](AGENT_LOG.md) — search it, do not read it |
+| Who builds and reviews? | [BUILDING.md](BUILDING.md) |
