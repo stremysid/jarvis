@@ -109,14 +109,18 @@ itself proves neither ordering nor a timeout. Merge on CI, not on a local run al
 
 Re-checked against `main` and production on 2026-09-21:
 
-1. **A four-digit PIN is not redacted**, nor a spoken-word PIN, a phone number, or
-   a token on the line after `Authorization:`. Confirmed by executing
-   `sanitizeRedaction`. The test that appears to cover it asserts against
-   `guest.pin`, a field no production call site passes. [#149](https://github.com/stremysid/jarvis/pull/149)
-   fixes a four-digit PIN after a credential word, on every channel, and is
-   deployed as of `a6a0efd`. A bare PIN with no credential word before it, and a spoken-word PIN,
-   stay open. PR #96 fixes the digit
-   half only.
+1. **Redaction still has gaps in the recorded deployment.**
+   [#149](https://github.com/stremysid/jarvis/pull/149) already protects a four-digit
+   PIN after a credential word, on both channels, and is deployed as of `a6a0efd`.
+   On 2026-09-24, the builder reproduced the remaining assignment, phone-format
+   and newline-bearer gaps against the base recorded in the evidence below.
+   `codex/redaction-gaps` fixes these in both runtimes and retains streaming
+   context; harness gates, independent review and deployment remain pending.
+   The old field-only test now uses `conversation.turn.text`.
+   **Bare four-digit numbers deliberately survive**, as Sid's brief requires:
+   a year or quantity is not proof of a PIN. Unlabelled passphrases and complete
+   spoken-word PIN sequences are still outside the guarantee. See the
+   [measured coverage and limits](reviews/2026-09-24-redaction-gaps.md).
 2. `explain` / `forget` / `restore` print the memory text in the same tool result
    that says it was withheld.
 

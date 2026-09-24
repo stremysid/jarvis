@@ -39,21 +39,38 @@ const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICA
  * spoken with no credential word before it is not caught here.
  */
 const CONTEXTUAL_FOUR_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{4})(?!\d)`, "gi");
-const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
-const BARE_BEARER = /\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})/gi;
+const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*(?:bearer[ \t\r\n]+[A-Za-z0-9._~+/=-]+[^\r\n]*|[^\r\n]*)/gi;
+const BARE_BEARER = /\bbearer[ \t\r\n]+([A-Za-z0-9._~+/=-]{8,})/gi;
+const CREDENTIAL_LABEL = String.raw`api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret|pin|passphrase|passcode|code`;
 // An escape can be split at EOF in a streaming prefix. Consume that dangling
 // backslash too; falling back to the unquoted alternative exposes later words.
-const CREDENTIAL_ASSIGNMENT = /(?<![A-Za-z0-9])(["']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|[^\s,;]+)/gi;
+// A numeric replacement retains its label. Do not reinterpret that exact
+// placeholder as another assignment when already-redacted text crosses again.
+const CREDENTIAL_ASSIGNMENT = new RegExp(String.raw`(?<![A-Za-z0-9])((["']?)(${CREDENTIAL_LABEL})\2(?:\s*[=:]\s*|\s+is\s+))((?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|(?!\[REDACTED_(?:AUTH_DIGITS|AUTHORIZATION|CREDENTIAL|PHONE_NUMBER)\][.!?]*(?:\s|[,;]|$))[^\s,;]+))`, "gi");
+// Spoken passphrases need not have quotation marks. The unquoted form ends at
+// sentence/list punctuation; quoted values use the escape-aware rule above.
+const SPOKEN_PASSPHRASE = /\bpassphrase(?:\s*[=:]\s*|\s+is\s+)(?![\s"'])[^\s,;.!?][^,;.!?\r\n]*/gi;
+// A line can end midway through a label or before its value. Telegram retains
+// that suffix to EOF rather than releasing a line that later input can redact.
+const STREAMING_REDACTION_CONTEXT = new RegExp(String.raw`(?<![A-Za-z0-9])(?:${CREDENTIAL_LABEL}|authorization|bearer|otp|authentication|verification)\b|\b(?:api|client|access)\s*$`, "i");
+// A bare digit run is ambiguous. Require a country prefix or the requested
+// grouping, and reject a match embedded in a longer alphanumeric identifier.
+const PHONE_NUMBER = /(?<![A-Za-z0-9_+-])(?:\+1[ \t-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:[0-9]{3}[ -])?[0-9]{3}[ -][0-9]{4}|[0-9]{10})|\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|[0-9]{3}-[0-9]{3}-[0-9]{4})(?![A-Za-z0-9_]|-[0-9])/g;
 const KNOWN_CREDENTIAL = /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*)-----[\s\S]*?(?:-----END \1-----|$)/g;
 
-export type RedactionMarker = "authentication_digits" | "authorization" | "credential";
+export type RedactionMarker = "authentication_digits" | "authorization" | "credential" | "phone_number";
 
 const REPLACEMENT: Readonly<Record<RedactionMarker, string>> = Object.freeze({
   authentication_digits: "[REDACTED_AUTH_DIGITS]",
   authorization: "[REDACTED_AUTHORIZATION]",
   credential: "[REDACTED_CREDENTIAL]",
+  phone_number: "[REDACTED_PHONE_NUMBER]",
 });
+
+export function hasStreamingRedactionContext(text: string): boolean {
+  return STREAMING_REDACTION_CONTEXT.test(text);
+}
 
 export interface OutboundCallCommand {
   commandId: Ulid;
@@ -169,7 +186,24 @@ export function sanitizeRedaction(
       mark("authorization");
       return REPLACEMENT.authorization;
     });
-    redacted = redacted.replace(CREDENTIAL_ASSIGNMENT, () => {
+    redacted = redacted.replace(SPOKEN_PASSPHRASE, () => {
+      mark("credential");
+      return REPLACEMENT.credential;
+    });
+    // An unquoted assignment can consume only a phone's country/area prefix.
+    // Match the whole number first so that cannot expose the remaining groups.
+    redacted = redacted.replace(PHONE_NUMBER, () => {
+      mark("phone_number");
+      return REPLACEMENT.phone_number;
+    });
+    redacted = redacted.replace(CREDENTIAL_ASSIGNMENT, (_match, prefix: string, _quote: string, label: string, value: string) => {
+      // Preserve the existing numeric marker and sentence punctuation for PINs
+      // and codes, including lengths the old four/eight-digit rules missed.
+      const digits = /^(\d+)([.!?]*)$/.exec(value);
+      if (/^(?:pin|passcode|code)$/i.test(label) && digits !== null) {
+        mark("authentication_digits");
+        return `${prefix}${REPLACEMENT.authentication_digits}${digits[2]}`;
+      }
       mark("credential");
       return REPLACEMENT.credential;
     });

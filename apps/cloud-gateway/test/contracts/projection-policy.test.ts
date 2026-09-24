@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import vectors from "../../../../tests/fixtures/memory-projection-policy.json";
+import gaps from "../../../../tests/fixtures/redaction-gaps.json";
 import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 
 function expand(text: string): string {
@@ -8,6 +9,12 @@ function expand(text: string): string {
 }
 
 describe("shared Python and gateway redaction decisions", () => {
+  it.each(gaps)("$name", ({ text, expected }) => {
+    const result = sanitizeRedaction(text);
+    expect(result).toMatchObject({ ok: true, text: expected });
+    expect(!result.ok || result.text !== text).toBe(expected !== text);
+  });
+
   it.each(vectors.redactionCases)("$name", ({ text, refuse }) => {
     const original = expand(text);
     const result = sanitizeRedaction(original);

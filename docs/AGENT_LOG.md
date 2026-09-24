@@ -3,6 +3,74 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Codex builder: remaining redaction gaps, harness handoff
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/redaction-gaps.
+
+Based on `origin/main` at `f5ba9a8`, confirmed by read-only Git. No Git writes,
+PR creation, secret access, live call, migration or deployment. The root
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness.
+[Detailed evidence, limits and commands](reviews/2026-09-24-redaction-gaps.md).
+
+| Brief item | Result |
+|---|---|
+| 1. Assignment vocabulary and digit independence | #149 already catches contextual four-digit PINs in both runtimes. Added `pin`, `passphrase`, `passcode`, `code` and the `is` delimiter to generic assignments; numeric PIN/code markers retain their prefix and sentence punctuation at any length. Spoken multiword passphrases have an explicit punctuation boundary |
+| 2. Preserve bare four-digit values | Unchanged bare six-digit rule. Exact negative fixtures cover four-digit values, years, times, dates, quantities and course codes |
+| 3. Phone shapes in both runtimes | Added country-prefixed, parenthesized and hyphenated forms with identifier boundaries and a `phone_number` marker. Whole-number matching runs before assignments can consume a prefix and expose the tail. Python refuses matching facts instead of rewriting them |
+| 4. Newline bearer pairs | Header matching consumes bearer values across CR/LF, including short header values. Bare bearer matching accepts CR/LF. Python already refused headers on main but missed newline bare bearers; the TypeScript header leak is independently pinned by exact output |
+| 5. Production field | Re-aimed the old four-digit test from `guest.pin` to `conversation.turn.text`. Existing #149 real `handleTurn` integration tests are retained |
+| 6. Streaming | Voice's unsplit redaction applies the new grammar. Telegram now retains potential credential context across lines through EOF, while safe preceding lines still release. Every emitted prefix is tested against the final expected text |
+
+New/retargeted test names:
+
+- `redacts a contextual four-digit PIN in the production turn field while preserving a bare number and a year`
+- `marks phone numbers on both channels without changing the course code or year beside them`
+- `marks a spoken passphrase as a credential without retaining any of its words`
+- `holds a bearer label and its following value line until they can be redacted together`
+- `test_redaction_gaps_match_the_gateway_decision`, parametrized from the shared table.
+- The 69 full-sentence names in `tests/fixtures/redaction-gaps.json` also name
+  gateway contract tests and streaming tests with suffix `at every split and
+  character by character`, for both release modes. Examples include `redacts
+  a contextual four-digit code`, `redacts a header bearer whose value starts
+  on another line`, `redacts a spoken multiword passphrase in context`, and
+  `preserves a bare four-digit number`. The legacy whitespace test now also
+  exercises code assignments and quoted/unquoted passphrases.
+
+Executed: **371 differential decisions, zero differences/expectation failures;
+3,456 streams match exact expected text**. Main's same final corpus has zero
+boolean parity differences but **111 failed expectations**, demonstrating why
+parity alone cannot clear leaks. Eleven temporary-source mutations were killed:
+TypeScript assignment labels, phone rule, bare-four-digit overreach, header
+newline handling, bare-bearer newline handling, multiword passphrases, line
+retention and phone/assignment ordering; Python phone rule, assignment labels
+and bare-bearer newline handling.
+Source typecheck, Python syntax compilation, diff checks and state carriers
+pass. State check has one existing browser-background-access FACTS advisory.
+Gateway test typecheck reports **143 diagnostics, none in changed files**.
+
+Harness must run, in order: focused Vitest on `call-redaction`, `envelope`,
+`security/redaction`, `security/pin-redaction-turn`,
+`security/streaming-output-redactor` and `contracts/projection-policy`; focused
+Python `tests/memory/test_projection_policy.py` and
+`tests/sync/test_memory_projection.py`; the standalone Python/Node differential;
+then `pnpm test`, `pnpm typecheck`, gateway `typecheck:tests` (inspect its existing
+baseline), local-agent `uv run pytest -q --ignore=tests/integration`, Ruff and
+mypy, plus `node scripts/check-state.mjs`. Use the commands in the evidence
+page and the repository's supported Node 24.19+ runtime.
+
+Not verified here: Vitest/pnpm (forbidden by the harness brief), pytest
+(`No module named pytest`), Python lint/mypy, D1 integration behavior and live
+delivery. Container versions are Node 22.22.2 and Python 3.12.3. Explicit
+assignments remain syntactic: the original `pin is on` wording now has an exact
+fixture showing `on` redacted and the year retained. Unlabelled passphrases,
+complete spoken-word PIN sequences and phone formats beyond the listed shapes
+are outside the guarantee; see KNOWN_ISSUES. This is not independent clearance.
+
+- When the harness receives this worktree: run the outstanding gates and commit
+  with the supplied message/body.
+- When those gates pass: Claude reviews the exact resulting head before merge;
+  any later deployment remains a separate owner action.
+
 ## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
 
 Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/deadlines-reminders-run.

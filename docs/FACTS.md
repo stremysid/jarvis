@@ -40,6 +40,7 @@ repository is the only thing every session reads.**
 
 | Fact | How we know | Observed | Still true? |
 |---|---|---|---|
+| Bare four-digit numbers must survive redaction because they can be years, times or quantities; PIN/code protection needs credential context | Sid's explicit `codex/redaction-gaps` builder brief, requirements 1–2; [scope and evidence](reviews/2026-09-24-redaction-gaps.md) | 2026-09-24 | yes |
 | Sid approved the Opera GX session-API D2L collector on the PC and laptop, with separate school-only keys and an owner Telegram pairing tap; the PC login-and-scrape reader is parked | Sid's explicit D2L receiver builder instruction; [collector design](plan/2026-09-23-d2l-collector-design.md) | 2026-09-23 | yes |
 | A complete per-tool D2L HTTP 403 is normal because teachers lay out courses differently; retain it as refused evidence without failing the read | Sid's explicit PR #169 fix-round instruction; [independent review](https://github.com/stremysid/jarvis/pull/169#issuecomment-5806221250) | 2026-09-23 | yes |
 | Sid's online CIA4U1 course uses Durham Brightspace, alongside LDSB; retain the actual board host | Sid's receiver follow-up instruction; [extension contract findings](https://github.com/stremysid/jarvis/blob/5420836ece76a199c3541cfba9f27fa094e3f53a/docs/research/2026-09-23-d2l-collector-contract-gaps.md) | 2026-09-24 | yes |
