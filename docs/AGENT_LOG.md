@@ -3,6 +3,61 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #197 merged with main after #196 and #195
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` from audited
+head `ba9be375`, normal merge of `origin/main` at `8d7e2c02`. Touches rules 4 and 8.
+
+- **Conflicts:** `KNOWN_ISSUES.md` (main's rows kept, including its removal of the
+  step-up rows whose code #196 deleted; this branch's "toward readers who are not Sid"
+  scoping reapplied to the two redaction-limit rows) and this log (both entries kept).
+  No code conflict; no code changed in the resolution.
+- **Audience wiring after main:** #195 `web-tools.ts` and #196 `sensitive-action-pin.ts`,
+  `pin-capture.ts`, `owner-call-alerts.ts`, `tool-gate.ts` construct no `Redactor` and call
+  no `sanitizeRedaction`. No `new Redactor()` default remains in gateway `src`. The call
+  PIN utterance and keypad digits are consumed in `call-session-do.ts` before
+  `handleTurn`, so the owner audience never stores them.
+- **Evidence:** gateway and contracts `typecheck` exit 0; focused Vitest 18 gateway files
+  1227/1227 and 4 contracts/acceptance files 107/107; `check-state` passed. Full suites
+  and the Python redaction differential on CI.
+- **Scope:** not merged, not deployed, no migration applied.
+
+## 2026-09-25 — Claude builder: #197 round 3 (parity script, guest Telegram text, stale comments)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
+`2dfc85ab`, plus a normal merge of `origin/main` (`976d5b2b`). Touches Sid's rules 3, 4, 8.
+Answers the DeepSeek re-audit of `2dfc85ab` (3 findings).
+
+- **Parity script:** `scripts/check-redaction-differential.mjs` names `new Redactor("owner")`.
+  Before: exit 1, 69 expectation failures; after: 0 differences, 0 failures, 13128 streams.
+  Now run in CI's local-agent job (both OSes) so it cannot go red unnoticed again.
+- **Guest Telegram:** a verified non-owner identity is a designed path (acceptance
+  "refuses an authenticated guest before outbound policy"), so it is not rejected.
+  `onAccepted` now carries the external reader's text for any non-owner, and
+  `replyTo` answers a guest turn with the external reader (`telegramTurnRedactor`);
+  this PR had made that reader `owner` for every principal. Sid's path is unchanged.
+- **Comments:** the two "default is Sid" comments now say the default is `external`.
+- **Evidence:** focused Vitest green locally; mutations via `reviewer-tools/mutate.ps1`
+  recorded in the PR comment. Full suites on CI.
+
+## 2026-09-25 — Claude builder: #197 audit round (reader named everywhere, external by default)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
+`9ff7ee34`, plus a normal merge of `origin/main` (`605c1773`). Touches Sid's rules 4, 8, 9.
+Answers the DeepSeek audit of `9ff7ee34`; no redaction toward Sid is re-added.
+
+- **Default reader is now `external`** for `sanitizeRedaction` and `Redactor`. Every
+  owner path names `owner` explicitly. The entry below saying `literal-history.ts`
+  "inherits the owner default" is superseded: #194 removed its redactor.
+- **Telegram webhook** chooses `owner` only for the configured `OWNER_PRINCIPAL_ID`;
+  any other verified identity, or every sender with no owner configured, gets `external`.
+- **Labelled `api_key=`/`client_secret=`/`access_token=`** of no known shape stay
+  visible to Sid (his rule); the remember-tool comment now says only `KNOWN_CREDENTIAL`
+  shapes are refused, pinned by a contracts test.
+- **`contextForAudience`** re-fits from the newest item and cuts at the first misfit.
+- **Evidence:** focused Vitest (17 PR-touched files plus the webhook test) green
+  locally; 8/8 mutations KILLED via `reviewer-tools/mutate.ps1`. Full suites on CI.
+
 ## 2026-09-25 — Claude builder: #195 merged with main after #196
 
 Signed: Claude (builder agent), branch `codex/web-tools` from audited head `0b0e3f74`. Touches rule 8 only.
@@ -160,6 +215,58 @@ NOT applied; Sid applies it only after review.
   (backup file), 26 passed (living-notes migration), 77 passed (parity + syntax +
   restore). `pnpm --filter @jarvis/cloud-gateway typecheck` clean. Mutation
   results are in the PR body.
+
+## 2026-09-24 — No redaction toward Sid; guests and telemetry keep it
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid`,
+worktree `C:\w\no-redaction`, based on `origin/main` `7d773d3` (#183). Touches
+Sid's principles 3, 4 and 8. Claude-built; needs a DeepSeek audit before merge.
+
+**Why.** Sid, 2026-09-24 ~11 PM: "Yes Jarvis can say email codes and store them
+… there should be nothing between Jarvis and I interms of what he knows and I
+know". At `7d773d3` every caller of `sanitizeRedaction` hid Sid's six-digit
+codes, contextual PINs, labelled passwords, passphrases and phone numbers from
+Sid himself: in the event log and archive, the model prompt, recall, memory
+writes (refused), Python projection (refused) and every Telegram and spoken reply.
+
+**What changed.** One question decides: who is receiving this text?
+`RedactionAudience` in `packages/contracts/src/calls.ts`:
+- `owner` (default): Sid's own chat, calls, memory, store and PC. Only machine
+  credentials go: private keys, `Authorization` headers, bearer tokens, known
+  API-key shapes, and now the Telegram bot-token shape.
+- `external`: guest call sessions (ingress, stored turn, model context, spoken
+  reply; composed by `voiceSessionAudience` in `voice/production-runtime.ts`),
+  `policy/policy-audit.ts` and `http/voice-callback-recorder.ts`. All 12 rules
+  still apply; the 136-case gap table's external output is byte-for-byte
+  unchanged.
+- Python `projection_policy.py` mirrors the owner reader: 8 of its 11 patterns
+  were deleted as dead.
+
+**Kept on purpose.** The owner passphrase and guest PIN verifiers stay hashed
+(authentication, not hiding data). The voice DTMF field marker stays (it is the
+keypad verification input). No tool gate or confirmation tier was touched.
+
+**Evidence.** Focused vitest: 21 files, 1200 passed (security, contracts,
+context retriever, voice reply, packages/contracts) and 25 files, 1528 passed
+on the neighbouring set. pytest `tests/memory tests/sync`: 477 passed. ruff
+clean, mypy clean, gateway `tsc` 0. Differential: 136 gap cases, 181 decisions,
+0 runtime differences, 13,128 streams match for both readers. Mutations via
+`reviewer-tools/mutate.ps1`: 6 of 6 killed by the named tests; one manual Python
+mutation (bot-token pattern) killed 2 named tests.
+
+**Disclosed slip.** While editing, one PowerShell `[IO.File]` call resolved a
+relative path against the process directory and wrote
+`apps/cloud-gateway/src/conversation/context-retriever.ts` in **`C:\javis`**. It
+was restored with `git -C C:\javis checkout --` of that one file within about a
+minute. `C:\javis` status before and after: only its three untracked files.
+
+**Deploy order.** Gateway before local agent: an old gateway rejects projected
+facts that a new agent now sends. Stored data redacted before this change stays
+redacted; it cannot be recovered.
+
+**Coordination.** `literal-history.ts` is untouched (PR #194 owns it); it
+inherits the owner default. #190 re-merges main after this lands.
+
 ## 2026-09-24 — Claude builder: #174 merges main `2e12b3b` (#179, #180, #183, #188, #191)
 
 Signed: Claude (builder agent), `codex/channel-parity` after reviewed head `ca14f01`.

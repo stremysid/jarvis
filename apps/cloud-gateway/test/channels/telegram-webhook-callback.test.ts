@@ -66,7 +66,10 @@ beforeEach(() => {
   deps = {
     webhookSecret: SECRET,
     policy,
-    redactor: new Redactor(),
+    // Production's wiring: the configured owner gets Sid's reader, everyone
+    // else the external one.
+    redactor: new Redactor("external"),
+    owner: { principalId: "principal-1", redactor: new Redactor("owner") },
     events,
     limiter,
     now: () => NOW,
@@ -150,12 +153,21 @@ describe("accepting a button tap", () => {
     "123456",
     "01m30abcde123456abcdefghjk",
     "d1:01m30abcde123456abcdefghjk:confirm!",
-  ])("still redacts digits in non-decision callback data: %s", async (data) => {
+  ])("stores non-decision callback data from Sid's own tap as it arrived: %s", async (data) => {
+    // A tap on Sid's own chat is Sid's data; his digits are not hidden from him.
     await handleTelegramWebhook(requestFor(tapUpdate(91, data)), deps);
 
     const payload = events.events[0]?.envelope.payload as Record<string, unknown>;
-    expect(payload.data).toContain("[REDACTED_AUTH_DIGITS]");
-    expect(payload.data).not.toContain("123456");
+    expect(payload.data).toBe(data);
+    expect(payload.data).not.toContain("[REDACTED_");
+  });
+
+  it("still redacts digits in non-decision callback data from a verified identity that is not the configured owner", async () => {
+    policy.result = { principalId: "principal-2", identityState: "active" };
+    await handleTelegramWebhook(requestFor(tapUpdate(92, "123456")), deps);
+
+    const payload = events.events[0]?.envelope.payload as Record<string, unknown>;
+    expect(payload.data).toBe("[REDACTED_AUTH_DIGITS]");
   });
 
   it("refuses to record a tap the redactor will not issue a token for", async () => {
@@ -163,9 +175,11 @@ describe("accepting a button tap", () => {
     // redactor and the envelope rejects the payload, so nothing is stored at
     // all. Without this, "it went through the redactor" would be an untested
     // claim about a code path rather than a property.
+    const refuse = { redact: () => ({ ok: false as const, reason: "refused" }) };
     const refusing = {
       ...deps,
-      redactor: { redact: () => ({ ok: false as const, reason: "refused" }) },
+      redactor: refuse,
+      owner: { principalId: "principal-1", redactor: refuse },
     } as unknown as TelegramWebhookDependencies;
 
     await expect(handleTelegramWebhook(requestFor(tapUpdate()), refusing)).rejects.toThrow();
