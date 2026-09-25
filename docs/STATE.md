@@ -96,7 +96,7 @@ Neither the deploy nor the health check refreshes these older database observati
 
 Production D1 is at `0045` (Sid's report); `0040`, `0043` and `0045` were applied at the
 deploy. `0036`, `0037`, `0041`, `0042` are absent; `0044`, `0047`, `0048`, `0049` are merged on main; open
-#190 holds `0046`, #199 `0051` (checked 2026-09-25). Renumbering older `0041`/`0042` above main's maximum
+#190 holds `0052` (renumbered from `0046`), #199 `0051` (checked 2026-09-25). Renumbering older `0041`/`0042` above main's maximum
 is approved; open #168 carries its reminders migration as `0050`. That does not authorize applying it.
 
 The 2026-09-24 scratch rehearsal is **orchestrator-reported PASS**, including `0044` after

@@ -2,6 +2,7 @@ import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
+import { EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
 
 /** A new owner capability reaches both communication adapters from this catalogue. */
@@ -25,4 +26,5 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
     description: "Help Sid learn or practise a topic, for example 'explain titration', 'quiz me on derivatives', or 'I missed the lesson on quadratics; teach me'. Use school_update to save a pasted assignment list, record 'I finished the lab', or plan 'what should I do today'; use study_coach for the actual explanation, practice and feedback.",
     parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
+  ...EMAIL_INBOX_TOOL_DEFINITIONS,
 ]);

@@ -52,6 +52,11 @@
  * never make the tool ask, and adding a sixth tier-3 row fails a named test.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  // Tier 1: reading the inbox changes nothing and reaches nobody. The rows
+  // exist so this is a deliberate classification rather than a missing entry,
+  // which the gate would deny as an unregistered capability.
+  email_inbox_list: "email.read",
+  email_inbox_read: "email.read",
   memory_remember: "memory.write",
   // Correcting a memory supersedes one stored wording with another in the same
   // ledger, so it is a memory write and not a capability of its own. It shares
@@ -116,6 +121,8 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  * hurry at the same time as the integration.
  */
 const RESERVED_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  // `send_email` is the sending hand, not the inbox read above. Sending an
+  // email is one of Sid's five, so it has its own tier-3 row whoever it is to.
   send_email: "send.email",
   tesla_precondition: "vehicle.precondition",
   tesla_unlock: "vehicle.unlock",

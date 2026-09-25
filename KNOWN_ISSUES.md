@@ -37,7 +37,11 @@ outside the tier registry and are not changed by it:
   `/shadow off` is Sid's own switch and makes every tier-2 action run
   without asking. Whether production is in shadow mode was not queried.
   `delete.data`, `write.production` and `vehicle.unlock` moved to tier 2
-  and have no tool yet.
+  and have no tool yet. Tier 2 therefore no longer means "reversible", as
+  `0008` described it. It means "not one of the five". When a tool for
+  deleting data or touching production lands, it will run unconfirmed once
+  shadow mode is off. That follows Sid's 2026-09-24 rule, and `0051` and
+  `autonomy-types.ts` say so.
 
 Not action confirmations, and kept: the tap that confirms a *model-inferred*
 memory is true (it records whether the fact holds, not whether to act), the

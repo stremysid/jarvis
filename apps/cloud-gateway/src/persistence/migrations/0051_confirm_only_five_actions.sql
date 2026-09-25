@@ -30,10 +30,19 @@
 --     withheld while the /shadow switch is on, which would leave the tool
 --     unable to run at all rather than able to run without asking.
 --   delete.data, write.production, vehicle.unlock  3 to 2. No tool reaches
---     any of them yet. Tier 2 is the device-action tier `0008` already uses
---     for the car climate, calendar, project files and app launch. It never
---     asks. It runs when Sid has turned shadow mode off with /shadow off and is
---     reported instead of run while it is on, and that switch is his.
+--     any of them yet. Tier 2 is the tier `0008` already uses for the car
+--     climate, calendar, project files and app launch. It never asks. It runs
+--     when Sid has turned shadow mode off with /shadow off and is reported
+--     instead of run while it is on, and that switch is his.
+--
+-- What tier 2 means changes here. `0008` described it as "reversible
+-- action, logged". From this migration on it means: not one of Sid's five,
+-- so it acts without asking once shadow mode is off, and every run is
+-- logged. Deleting data and touching production are not reversible, and
+-- they sit here anyway, because Sid did not name them. When a tool for
+-- either lands it will run unconfirmed in live mode, which is his rule, not
+-- an oversight. `0008` is applied and is left as written, so this comment is
+-- where its tier-2 line is superseded.
 --
 -- Every tier still writes an `autonomy_evaluations` row, so an action that no
 -- longer asks is still receipted. The tier stays in the database, as `0008`

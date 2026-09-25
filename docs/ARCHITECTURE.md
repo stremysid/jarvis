@@ -54,11 +54,19 @@ not.
 Sid's five actions -- spending money, sending an email, making a phone call,
 submitting school work, and texting or calling someone on his behalf -- are
 never automatic, in either autonomy mode, whatever the model's confidence
-(Sid, 2026-09-24: "that's literaly it"). Nothing else asks. This is the
-control that still works when a prompt injection has successfully steered the
-model, which is why it is a property of the capability rather than of the
-caller. Migration `0051` sets that list, and
+(Sid, 2026-09-24: "that's literaly it"). No other registered capability
+asks; a few asks outside the tier registry remain and are listed in
+[KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25).
+This is the control that still works when a prompt injection has successfully
+steered the model, which is why it is a property of the capability rather
+than of the caller. Migration `0051` sets that list, and
 `five-confirmed-actions.test.ts` pins it.
+
+Tier 2 is not one of the five. It acts without asking once shadow mode is
+off (`/shadow off`, Sid's own switch) and is reported instead of run while
+it is on. Since `0051` it no longer means "reversible": deleting data and
+touching production are tier 2 because Sid did not name them. Tier 1 always
+runs. Every tier is audited.
 
 ### 5. Claim before you act, report after
 
