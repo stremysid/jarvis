@@ -3,6 +3,52 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Claude (orchestrator agent): Sid's rules open AGENTS.md; CODE-VS-JUDGMENT becomes a removal list
+
+Signed: Claude (orchestrator agent), branch `docs/principles-and-removal-list` off
+`68675ba`. Docs only. Touches rules 1–5 and 9 (it writes them down; it changes no code).
+
+**Why.** Sid, 2026-09-24, quoted in issue #186: "code gives jarvis unfiltered unrestricted
+access and words, jarvis makes decisions, code should never make a decision or restrict jarvis".
+At 7:15 PM: "so why is hell is code refusing? … code should never make a decions or retaruict
+jarvis". `docs/CODE-VS-JUDGMENT.md` had filed the deadline proof grammar, the reply-claim regex
+guard and the school storage ceilings as accepted exceptions. Under his rule each is something to
+remove, not something to disclose.
+
+**What changed.**
+
+- `AGENTS.md`: Sid's principles block (nine rules, red flags, "before you start") now opens the
+  file under "Sid's rules: read these first". His quotes are copied programmatically from the
+  principles file, spelling and markers intact ("(m)", "exact words not recorded", "No verbatim
+  quote found"). Only the heading levels changed. The paragraph that told readers to add a new
+  decision to the register now calls the file a removal list that new code must not add to.
+  Nothing else in `AGENTS.md` changed.
+- `docs/CODE-VS-JUDGMENT.md`: rewritten from the seven area comments of the #186 sweep at
+  `68675ba`. The sweep posted 164 REMOVE, 126 UNSURE and 138 KEEP rows; after merging duplicates
+  the list has 142 REMOVE and 113 UNSURE rows, grouped by area, each linked to its comment and
+  reviewer row id. KEEP items are a one-line-each "legitimate code" list. The old row numbers
+  (1–12 and the named sections) are mapped at the end, because `KNOWN_ISSUES.md` and other docs
+  cite them.
+- Merge rules: one behaviour reported by several areas is one row. A rating an area gave to
+  another area's file (its "xref" rows) defers to the owning area. Where two owning areas
+  disagreed about the same behaviour, the row is UNSURE and names both: PS-5, PS-8, PS-9, PS-16,
+  AG-23, VC-24 and the CHECK half of PS-2. The "needs Sid" versus "needs evidence" split on UNSURE
+  rows is my reading of each reviewer's stated reason.
+- I added no finding and re-verified none against the code. Every row is the sweep's.
+
+**For the auditor.** This is Claude-authored, so the cross-vendor rule is suspended and a
+non-Claude (DeepSeek) audit goes in the PR before merge. Attack first: (1) the rows whose status
+the merge rules changed; (2) any sweep REMOVE or UNSURE row missing or misattributed. I checked
+every row id programmatically for the six comments that have ids, and placed the persistence
+comment's 36 rows by hand because it has none. (3) Whether the principles block in `AGENTS.md`
+matches the source file.
+
+**Verification.** `node scripts/check-state.mjs`: "state check passed: 3 carriers and FACTS
+register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 1 warning(s)".
+The warning is the existing `docs/FACTS.md:62` re-verify row. `git diff --check`: clean. No test
+suites run; the change is docs only. A merge freeze is on until Sid's deploy: do not merge this
+PR before then.
+
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.
