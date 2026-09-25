@@ -3,6 +3,35 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #198 round 2 (DeepSeek audit findings 1–8)
+
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,
+[#198](https://github.com/stremysid/jarvis/pull/198), after a normal merge of
+`origin/main`. No merge, deploy, migration or production access. Touches Sid's
+rules 3, 8 and 9. **Claude-authored, so the delta needs a DeepSeek re-audit.**
+
+- **F1 carriers:** STATE's tool counts (18 → 19 with `history_search`) and
+  cross-channel-timeline lines, and QUEUE's `CHANNEL-CONTINUITY-TRANSCRIPT`
+  status (now "partly done in #198", with what is still open), corrected.
+- **F2 one flag reading:** `conversation/history-eligibility.ts`
+  (`admitsHistoryEligible`) is the only reading of a call reply's
+  `historyEligible`; literal history, recent context and `readVoiceReplyPayload`
+  all use it, so the writer can be flipped without breaking Telegram recall.
+  #174's voice test that pinned "`true` is refused" was updated to the new
+  contract.
+- **F3 backfill:** new messages are indexed before the call-reply backfill;
+  backfill runs once the cursor has caught up; forget/lift/archive refreshes keep
+  priority.
+- **F4–F6 wording:** a missing range now carries `missingReason`
+  (`not_indexed_yet`/`being_reindexed`) and only the tail is called "the newest
+  messages"; an emptied page names forgotten messages as well as the speaker; a
+  refused around read names the event id.
+- **F7:** the around test runs from a call and from Telegram and compares the
+  receipts. **F8:** `reviewer-tools/mutation-specs-history-search.json` is the
+  committed sweep spec (the 24 round-1 mutations, three re-pointed, plus nine
+  round-2 ones).
+- **Evidence:** in the PR comment.
+
 ## 2026-09-25 — Claude builder: history_search, on calls and Telegram (codex/history-search)
 
 Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,

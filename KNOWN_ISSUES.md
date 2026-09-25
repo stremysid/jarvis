@@ -36,6 +36,15 @@ spaces (the 0016 and 0025 CHECKs refuse them) and the event keeps the original.
   replies, and every history read honours it. Widening the trigger is a migration.
 - **No date, channel or sort filters and no whole-day read** yet; results carry
   the date and channel so the model can judge.
+- **Call replies are still written with `historyEligible: false`.** On a call
+  reply the flag is legacy: every reader (literal history, recent context and
+  the spoken-reply reader) goes through `admitsHistoryEligible` and admits
+  either value, so flipping the writer later changes nothing. Pinned by
+  `test/conversation/history-eligibility.test.ts`.
+- **Backfill waits for the cursor.** Old call replies are backfilled only on
+  steps where the cursor has no new events to index, so new messages are never
+  held back; with a large backlog the backfill itself can take several hourly
+  runs (8 steps each).
 
 ## Restoring a set at an older schema version still checks today's seeded rows (2026-09-25)
 
