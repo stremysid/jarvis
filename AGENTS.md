@@ -12,12 +12,25 @@ has already had.
 
 **Before you write a condition, read
 [docs/CODE-VS-JUDGMENT.md](docs/CODE-VS-JUDGMENT.md).** The roadmap's core rule
-is *"Code builds tools. Jarvis makes every decision."* That file is the register
-of every place in this codebase where a judgment got written in code instead,
-with the surface each one should move to. An `if` that decides how many results,
-what counts as relevant, or whether to act at all is a decision, not plumbing.
-The list is **partial** — say so on the page if you find another, and add it in
-the same pull request that you find it in.
+is *"Code builds tools. Jarvis makes every decision."* Code never decides
+meaning, relevance, how many, which, how long, or whether to act. The model
+decides, through tool arguments and its prompt, and asks Sid when it is unsure
+(Sid, 2026-09-25: "any judgment and decisions and thought should be the ai brain").
+
+- **A pull request that adds a code-side judgment does not merge.** Reviewers
+  treat it as a blocking finding. Writing it into the register does not make it
+  acceptable; that is how thirteen rows stayed on main.
+- **A judgment found in existing code** is removed in that pull request if it is
+  small. Otherwise it gets a row in the register **and** a removal item in
+  [docs/QUEUE.md](docs/QUEUE.md), in the same pull request.
+- **What code may still decide**, each named as such where it appears:
+  permissions (guest isolation, and Sid's five confirmed actions: spend money,
+  send email, make a call, submit school work, text or call someone); validation
+  that an id exists and is Sid's; and system-protection limits (sizes, timeouts,
+  runaway caps).
+
+The register is **partial**; a limit that quietly decides "how many" is a
+judgment, not a system-protection limit.
 
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
