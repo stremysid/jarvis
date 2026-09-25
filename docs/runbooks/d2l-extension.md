@@ -114,7 +114,7 @@ The queue retains the newest **two** batches per host/course and at most **1 MiB
 of serialized UTF-8 entries, evicting the oldest entries when necessary.
 `queue-evicted-<count>` in the popup reports every eviction in that run, including
 superseded reads. One flush attempts at most **eight** uploads, each with the
-existing 15-second request timeout. Held entries do not consume upload attempts.
+existing 15-second request timeout.
 The queue is committed once at the end of a run, including a caught interruption;
 new evidence from a worker killed before that commit must be read again. A lost
 receipt or termination before the queue commit can cause a repeated batch.

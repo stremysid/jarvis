@@ -3,6 +3,31 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 10:19 PM — Claude builder: #191 review nits and main merge
+
+Signed: Claude (builder agent), `codex/d2l-ext-unblock` after `d97c77f`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches rules 4 and 8.
+
+- **Merge, not rebase.** `origin/main` (`e831e34`) merged normally. `docs/QUEUE.md`
+  conflicted with #179's regeneration: main's table kept, and its row "D2L extension
+  compatibility hold and host-failure emission" now says #191 deletes the hold and
+  host-only failure emission remains. `docs/AGENT_LOG.md` merged cleanly, both sides kept.
+- **N1:** `docs/runbooks/d2l-extension.md` drops "Held entries do not consume upload
+  attempts." (no held entries exist now).
+- **N2:** `receiver-contract.test.js` now asserts the pinned receiver refuses
+  `news/?x=1` with `school_route_invalid`, so the comment's "both halves" is true.
+- **N3:** new test "It feeds real collectHost output for both boards through the pinned
+  receiver parser and mapper." Both hosts, a good read with two folders (no mapping
+  failures) and a versions failure with cached courses (parsed, failures recorded).
+  Mutations planted by hand and restored: bare `submissions/` label, a query on the news
+  label, and `news` dropped from `ROUTES` each fail it (0 pass / 1 fail).
+- **Unchanged:** `protocol.js`, `delivery.js`, all other production files and the
+  receiver snapshots are byte-identical to `d97c77f`; snapshots still equal main's
+  `collector-protocol.ts` and `collector-mapping.ts`.
+- **Gates:** extension `npm test` 51 pass / 0 fail / 0 skip; `test:mutations` 133/133
+  killed, 0 not applied, 0 unconfirmed; `check-state.mjs` passed with its one existing
+  FACTS warning. No merge to main, deploy or migration.
+
 ## 2026-09-24 — DeepSeek dsh headless builder: the D2L extension's receiver hold is gone
 
 Signed: DeepSeek (dsh headless builder, effort low), `codex/d2l-ext-unblock`.

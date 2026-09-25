@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { runInThisContext } from "node:vm";
 import { canonical, createKey, publicKeyBase64, sign } from "../protocol.js";
-import { batch, clock } from "./fixtures.js";
+import { collectHost } from "../collector.js";
+import { D2L, batch, clock, fixture } from "./fixtures.js";
 
 // Execute the pinned receiver's real parser/mapper against extension output.
 // Shared signing source on main differs from dfc284e only by three export keywords.
@@ -57,6 +58,8 @@ test("It proves the refreshed receiver accepts Durham, news and quizzes and stil
   // Quizzes may carry a query string; news may not, and this proves both halves.
   const queried = { ...value, routes: [...value.routes, { ...value.routes[0], route: "/d2l/api/le/1.82/1/quizzes/?orgUnitIdsCSV=1" }] };
   receiver.parseSchoolBatch(queried, new Date(clock()));
+  const queriedNews = { ...value, routes: [...value.routes, { ...value.routes[0], route: "/d2l/api/le/1.82/1/news/?x=1" }] };
+  assert.throws(() => receiver.parseSchoolBatch(queriedNews, new Date(clock())), /school_route_invalid/);
   const items = structuredClone(value);
   Object.assign(items.routes[0], { status: 200, body: { Items: [], Next: null } });
   assert.deepEqual(mapping.mapSchoolCourse(receiver.parseSchoolBatch(items, new Date(clock()))).failures, []);
@@ -72,4 +75,27 @@ test("It proves the refreshed receiver accepts Durham, news and quizzes and stil
   assert.throws(() => receiver.parseSchoolBatch(wrongSubmission, new Date(clock())), /school_route_invalid/);
   const emptyManifest = { ...value, courseIds: [] };
   assert.throws(() => receiver.parseSchoolBatch(emptyManifest, new Date(clock())), /school_manifest_invalid/);
+});
+test("It feeds real collectHost output for both boards through the pinned receiver parser and mapper.", async () => {
+  const folders = [{ Id: 2, Name: "Synthetic folder A", DueDate: null }, { Id: 3, Name: "Synthetic folder B", DueDate: null }];
+  for (const host of D2L.HOSTS) {
+    const good = fixture();
+    const request = good.request;
+    await collectHost({ ...good, host, request: async (h, route, args) => (route === "folders" ? { status: 200, complete: true, body: folders } : request(h, route, args)) });
+    assert.equal(good.batches.length, 1);
+    const read = good.batches[0];
+    assert.equal(read.host, new URL(host).hostname);
+    assert.equal(read.routes.filter((entry) => entry.route.endsWith("/submissions/mysubmissions/")).length, 2);
+    for (const tool of ["news/", "quizzes/"]) assert.ok(read.routes.some((entry) => entry.route.endsWith(`/${tool}`)), tool);
+    assert.deepEqual(receiver.parseSchoolBatch(read, new Date(clock())), read);
+    assert.deepEqual(mapping.mapSchoolCourse(receiver.parseSchoolBatch(read, new Date(clock()))).failures, []);
+
+    const lost = fixture();
+    await lost.store.set(`courses:${host}`, [{ id: "1", name: "Synthetic course" }]);
+    await collectHost({ ...lost, host, request: async () => ({ status: 200, complete: true, body: [] }) });
+    assert.equal(lost.batches.length, 1);
+    assert.equal(lost.batches[0].enrollmentComplete, false);
+    assert.deepEqual(receiver.parseSchoolBatch(lost.batches[0], new Date(clock())), lost.batches[0]);
+    assert.ok(mapping.mapSchoolCourse(receiver.parseSchoolBatch(lost.batches[0], new Date(clock()))).failures.length > 0);
+  }
 });
