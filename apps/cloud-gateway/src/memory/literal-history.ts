@@ -1429,7 +1429,7 @@ export class LiteralHistoryService {
             WHERE coverage.principal_id = cursor_row.principal_id
               AND coverage.start_event_sequence = reply.sequence
               AND coverage.end_event_sequence = reply.sequence
-              -- A reply that could not be decoded gets a `failed` coverage row
+              -- A reply that could not be decoded gets a 'failed' coverage row
               -- and is settled, like any other skipped row, not retried forever.
           )
       )
