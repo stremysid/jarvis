@@ -43,27 +43,34 @@ file, and the citations were corrected where the audit's had moved.
 
 ---
 
-## Owner deadline proof contract (#166 review round 1)
+## Owner deadline proof contract: removed
 
-| Symbol | Decision or bounded proof rule | Model-visible surface |
+Removed by the PR titled "fix(deadlines): let the AI decide deadlines; remove the code
+proof grammar and status keyword list" (branch `codex/deadline-judgment-removal`). Sid,
+2026-09-24: "code should never make a decision or restrict jarvis". This section used to
+record these rows as reviewed exceptions. That was wrong: they were code judging Sid's
+wording, and writing them down did not make them right.
+
+| Symbol (as of `a7cd355`) | What it decided | Now |
 |---|---|---|
-| `proveDeadlineDue` | Validates the model's proposed instant against one grounded date/clock phrase and the durable current-message timestamp, using `DIGEST_TIMEZONE ?? "America/Toronto"`. An override zone must be named in that phrase. | `deadline_record` describes the grammar and returns a specific refusal reason for one precise clarification. Course, title, effort, whether to act, and the proposed resolution remain model arguments. Receipts always use the owner zone. |
-| `resolveDate` | Accepted dates are ISO `YYYY-MM-DD`, English month/day or day/month with optional year/ordinal suffix (full month, three-letter abbreviation, `Sept`), weekday names/three-letter abbreviations, today, tomorrow, this/next weekday, next week optionally followed by a weekday, and ordinal days such as `25th`. Bare weekday, omitted year and ordinal use the nearest occurrence on or after the message's local date. This/next refers to Monday-Sunday calendar weeks. | These conventions are disclosed in the tool description; a proposed date that disagrees is refused. They are an explicit limited grammar, not general natural-language date understanding. Unsupported dates require clarification. |
-| `proveDeadlineDue` date-only branch | Clocks accepted are `3pm`, `3:30 p.m.`, and `HH:mm` in 24-hour form. Missing clocks, a single-digit hour without am/pm, and repeated/nonexistent DST hours become date-only at owner-zone end of day. Bare next week uses Sunday as an **unconfirmed upper bound**, never a claim that Sid named Sunday. | The model supplies the proven `YYYY-MM-DD`; the receipt explicitly says date-only/end-of-day, or unconfirmed end-of-week bound. Numeric ambiguous dates such as `03/04` cannot establish even a unique day and are refused with `deadline_ambiguous_date`. |
-| `statusOf` | `submitted`, `handed in`, `turned in` prove submitted; `missed` proves missed; `cancelled`, `canceled` prove cancelled. Omission preserves stored status. `finished` is not proof of submission. | Aligned with #164's school tool description: school_update handles missed classwork/finished work and catch-up planning, deadline_record handles dated deadlines and explicit deadline status. Words are named in the tool schema and description rather than silently inferred. |
-| `matchingDeadline` | Case/whitespace and the explicit Chem/Chemistry alias share a principal-scoped identity. Prefix/punctuation collisions ask which existing assignment is intended rather than creating a likely duplicate. | `deadline_record` describes normalised matching and returns candidate course/title receipts for clarification. Arbitrary course aliases and semantic similarity are not guessed. Platform sources still may duplicate owner-reported rows. |
+| `proveDeadlineDue` / `DUE_PHRASE` / `resolveDate` (`deadline-date-proof.ts`) | A date and clock grammar that refused due phrases it could not parse, refused "next Friday" and a same-day weekday as ambiguous, rolled missing years forward, refused passed clocks, and prepared a small-hours rule | File deleted. The model supplies `dueAt` as an ISO instant or a `YYYY-MM-DD` date and asks Sid when unsure. Code checks only that the date or instant is real and the zone is a real IANA zone |
+| `statusOf` / `STATUS_WORDS` (`deadline-tool.ts`) | Only "submitted", "handed in" or "turned in" in Sid's words counted as a submission; "finished" did not | Deleted. `status` is one of the four stored values, chosen by the model |
+| Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
+| `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
-These proof limits and date-only conventions are recorded under Sid's explicit review request;
-they do not grant code permission to choose study priorities or reminder wording/timing.
-`DEFAULT_LEAD_MINUTES[effort]` supplies the existing ingestion lead-window contract, with effort
-chosen by the model, so owner-reported rows reach `listReminderDue` like collected rows.
+## Owner-requested redaction grammar, 2026-09-24
 
-## Owner reminder contract (#168 review round 1)
-
-| Symbol | Decision or bounded proof rule | Model-visible surface |
-|---|---|---|
-| `executeReminderTool` | Sid's review explicitly bounds scheduling to now minus five minutes through now plus 400 days, inclusive. The adapter supplies its clock and the same `DIGEST_TIMEZONE` owner zone used by deadline_record. Code refuses an out-of-range proposal without substituting another time. | `reminder_schedule` names both bounds and where the model gets the current instant/zone. Receipts include local time, daylight/standard zone name and UTC. The model still chooses whether, when and what to send. |
-| `OwnerReminderSender.run` | Sid's review sets a ten-row due batch per drain, using the existing quiet rule and verified owner identity once per batch. Authentication/rate-limit refusals retry; invalid requests become rejected; uncertain delivery stays fenced. | The schedule description discloses batching/quiet delays. `reminder_list` distinguishes rejected/not delivered from failed/may have arrived. This is delivery plumbing, not a code-chosen study priority. |
+`sanitizeRedaction` and Python's `redaction_would_change` classify credential
+assignments, bearer pairs and specified phone shapes under Sid's explicit
+`codex/redaction-gaps` brief. Bare four-digit values remain ordinary text.
+This is an owner-requested privacy boundary rather than a model relevance rule.
+Its remaining judgment is syntactic: `pin is on` treats `on` as a value, and
+`code is` cannot distinguish a credential from an ordinary identifier.
+That ambiguity is now a [known limit](../KNOWN_ISSUES.md), with exact fixtures;
+semantic disambiguation would need a separately agreed policy surface rather
+than an undisclosed list of prose exceptions. Streaming retention only holds
+potentially unfinished credential context within the existing size limits.
+This register remains partial; this change is not a fresh audit of other rules.
 
 ## The list
 
@@ -97,6 +104,22 @@ item 1. Enumerated while verifying item 1 rather than by the audit:
 Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
 line whenever anything is dropped, so silence is never unexplained.
 
+### Additional voice finding (2026-09-23)
+
+This register remains partial. PR #171's first version made regexes the only
+judge of action claims on voice. Calling that an "accepted stopgap" was wrong:
+Sid had not accepted it. The independent review required the model to declare each
+action sentence outside the spoken prose. The voice marker names its proving
+tool and this turn's receipt ids; code strips the marker, redacts the unsplit
+prose, and verifies that exact sentence's proof before speech. Unsupported
+declarations get a fixed honest line, without a rewrite call.
+
+Regexes remain an omission backstop, as on Telegram. They cannot establish that
+an arbitrary untagged sentence is not a claim, or decide whether a declared
+paraphrase faithfully describes the receipt. Those judgments remain the model's.
+See [the protocol and evidence](voice-streaming.md). Telegram's JSON inventory
+and rewrite are unchanged by #171.
+
 ### Memory
 
 | # | Symbol | The decision code is making | Surface it should move to |
@@ -113,7 +136,7 @@ line whenever anything is dropped, so silence is never unexplained.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Sentence patterns decide which replies claim unreceipted external actions; these language heuristics also mistake some worked explanations for actions. | `OWNER_AGENT_SYSTEM_PROMPT` and the model's `claimedActions` should carry the judgment; receipts enforce proof. #162 narrows the tutoring heuristic and retains a fallback for undeclared real actions. Its runtime change is not part of this PR. The school intake still guards claims, including a leading "Done." attached to a removed external-action claim. |
+| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a worked verb object plus a completely parsed explanation prefix and tail. Unknown continuation words, destinations and second actions remain claims, including verbs absent from the original action list. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
 | 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
@@ -136,6 +159,14 @@ transport bounds, not a decision about which capacity the owner should choose.
 per-course inserted/deduplicated counts while limiting examples to fit Telegram.
 Schedule repair notices describe the existing storage ceilings, not new planning policy.
 This is a partial register, not a completed audit of school or university code.
+
+### Fixed collector name judgment (PR #170 round 2)
+
+`apps/d2l-extension/collector.js:offering` previously excluded the exact name
+`DCE D2L BrightSpace Orientation`. That name-based relevance decision is deleted:
+every active accessible course offering is read and Jarvis judges its evidence.
+The collector's queue limits are explicitly owner-authorised storage bounds, with
+visible eviction counts. This remains a partial register, not a completed audit.
 
 ## How to use this list
 
@@ -193,3 +224,26 @@ a general hazard rather than a `memory_pin` one: the same shape can hide the nex
 
 Last verified against the code: 2026-09-21, at `0611803`. Coverage is partial — see the top
 of this file.
+
+## School collector findings, 2026-09-23 (still a partial register)
+
+Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
+storable unknown JSON as a failed school read. It records projection labels and keeps
+raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
+deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decision](https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523).
+The pipeline's direct-text authority still applies because that decision removed the safety
+tier, not the authenticated-source boundary. Collector revocation still requires its
+tier-three tap. The two existing judgment findings below remain open.
+
+Date-disagreement follow-up, 2026-09-24: no rationale for preferring a
+`content/myItems` date to the folder `DueDate` was recorded in #175's review, its
+agent-log entries or this register. The mapper retains that compatibility projection,
+but unequal values now add `ambiguous_assignment_date` to the evidence Jarvis reads;
+equal values do not. Folder `Availability.EndDate` is a separately labelled fallback,
+and an unfamiliar `Availability` shape is likewise surfaced rather than interpreted.
+This register remains partial.
+
+| Symbol | Decision in code | Surface it should move to |
+|---|---|---|
+| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
+| `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |

@@ -37,7 +37,12 @@ import scheduledRunDetailSql from "../../src/persistence/migrations/0034_schedul
 import autonomyToolCapabilitiesSql from "../../src/persistence/migrations/0035_autonomy_tool_capabilities.sql?raw";
 import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memory_lifetime_and_pins.sql?raw";
 import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
-import ownerRemindersSql from "../../src/persistence/migrations/0041_owner_reminders.sql?raw";
+import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
+import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
+import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_channel_parity.sql?raw";
+import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
+import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
+import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -140,7 +145,13 @@ export async function applyMemoryIngressMigration(): Promise<void> {
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
-    { name: "0041_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+    { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    // 0044 replaces triggers owned by the school, university and study schemas
+    // (0020, 0022, 0023, 0024, 0029 and 0030). This deliberately narrow memory
+    // fixture has not installed those tables or triggers, so applying 0044 here
+    // would make its first DROP fail rather than exercise memory ingress. The
+    // current-schema and full-schema fixtures below both apply 0044.
+    { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -283,6 +294,14 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await applyMemoryBackupMigration();
   memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
     { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+    // 0048 rewrites a trigger 0032 creates, so it belongs beside it: a fixture
+    // that stops at 0032 still carries the markdown-citation clause the product
+    // removed, and its notes would be refused by the database, not by any code
+    // under test. It is also in every full-chain list below.
+    {
+      name: "0048_note_sources_without_markdown_citation.sql",
+      queries: splitMigration(noteSourcesWithoutMarkdownCitationSql),
+    },
   ]);
   await memoryLivingNotesMigrated;
 }
@@ -308,6 +327,10 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       queries: splitMigration(memoryLifetimeAndPinsSql),
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
+    { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
+    { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
+    { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -357,7 +380,12 @@ const allCloudGatewayMigrations = Object.freeze([
     queries: splitMigration(memoryLifetimeAndPinsSql),
   },
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
-  { name: "0041_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+  { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
+  { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+  { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
+  { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+  { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
 ]);
 
 /**
@@ -662,3 +690,4 @@ export async function clearConversationDataForTest(): Promise<void> {
       END`).run();
   }
 }
+

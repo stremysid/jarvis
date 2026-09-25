@@ -3,10 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../../apps/cloud-gateway/src/index.js";
 import type { Env } from "../../../apps/cloud-gateway/src/env.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
-import { applyVoiceRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
-  applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
+import { applyNewestRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
+  clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
-import { FAKE_OWNER_PASSPHRASE, seedFakeOwnerPassphrase } from "./voice-access-system.js";
+import {
+  FAKE_OWNER_PASSPHRASE,
+  clearFakeCanonicalMemory,
+  seedFakeCanonicalMemory,
+  seedFakeOwnerPassphrase,
+} from "./voice-access-system.js";
 
 const ACCOUNT = `AC${"6".repeat(32)}`;
 const CALL = `CA${"4".repeat(32)}`;
@@ -20,11 +25,12 @@ describe("production Worker voice and Telegram composition", () => {
   let clients: WebSocket[];
   let now: Date;
   let creditFails: boolean;
+  let modelBodies: Record<string, unknown>[];
   beforeEach(async () => {
-    await applyVoiceRuntimeMigration();
-    await applyVoiceOwnerDeliveryMigration();
+    await applyNewestRuntimeMigration();
     const clock = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").first<{ now: string }>();
     now = new Date(clock!.now); requests = []; sends = []; dials = []; clients = []; creditFails = false;
+    modelBodies = [];
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input); requests.push(url);
@@ -48,11 +54,11 @@ describe("production Worker voice and Telegram composition", () => {
       }
       if (url === "https://api.deepseek.com/chat/completions") {
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        // The production voice path reaches the shared owner agent, which is a
-        // non-streaming `completeAgent` request; the streaming shape is what a
-        // bare `DeepSeekModelAdapter` asks for on other channels.
+        modelBodies.push(body);
+        // Keep both response shapes available so a failed composition produces
+        // an assertion below rather than an unrelated synthetic fetch failure.
         if (body.stream === true) {
-          return new Response('data: {"choices":[{"delta":{"content":"Worker socket reply."}}]}\n\ndata: [DONE]\n\n',
+          return new Response('data: {"choices":[{"index":0,"delta":{"content":"Worker socket reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             { headers: { "content-type": "text/event-stream" } });
         }
         return Response.json({
@@ -87,6 +93,7 @@ describe("production Worker voice and Telegram composition", () => {
     await env.DB.prepare("DELETE FROM provider_events").run();
     await clearOwnerCallStepUpDataForTest(); await clearOutboundCallAttemptsForTest();
     await clearConversationDataForTest(); await clearOwnerPassphraseDataForTest(); await clearVoiceAccessDataForTest();
+    await clearFakeCanonicalMemory("principal:owner");
     await env.DB.batch([env.DB.prepare("DELETE FROM capacity_alert_crossings"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
       env.DB.prepare("DELETE FROM device_keys"), env.DB.prepare("DELETE FROM channel_identities"),
@@ -116,6 +123,8 @@ describe("production Worker voice and Telegram composition", () => {
   const inbound = () => form("/voice/inbound", { CallSid: CALL, From: "+14165550123", To: "+14165550100" });
 
   it("authenticates ingress and forwards an actual upgraded socket to default composition", async () => {
+    const canonicalFact = "The canonical Worker voice marker is heliotrope.";
+    await seedFakeCanonicalMemory("principal:owner", canonicalFact, now.toISOString());
     const response = await inbound();
     expect(response.status).toBe(200);
     const xml = await response.text();
@@ -133,9 +142,15 @@ describe("production Worker voice and Telegram composition", () => {
     socket.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
     vi.advanceTimersByTime(2_001);
-    socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worker question", lang: "en-US", last: true }));
+    socket.send(JSON.stringify({
+      type: "prompt", voicePrompt: "What is my canonical Worker voice marker?", lang: "en-US", last: true,
+    }));
     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.", last: false }));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(1);
+    expect(modelBodies[0]).toMatchObject({
+      stream: true, tool_choice: "auto", thinking: { type: "disabled" },
+    });
+    expect(JSON.stringify(modelBodies[0])).toContain(canonicalFact);
     const closes: number[] = []; socket.addEventListener("close", (event) => { closes.push(event.code); });
     const count = requests.length;
     const terminal = { CallSid: CALL, SessionId: `VX${"5".repeat(32)}`, SessionStatus: "completed", SessionDuration: "1" };

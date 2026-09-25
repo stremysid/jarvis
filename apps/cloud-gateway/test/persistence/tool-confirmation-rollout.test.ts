@@ -12,7 +12,7 @@ import migration from "../../src/persistence/migrations/0039_tool_confirmation_c
 import { applyFoundationMigration, splitMigration } from "./migration.js";
 
 describe("the additive confirmation migration", () => {
-  it("keeps old readers working and fails closed on tier 3 when code arrives before the schema", async () => {
+  it("preserves answer rows across the additive migration and fails closed on tier 3 without its schema", async () => {
     await applyFoundationMigration();
     const timestamp = "2026-09-23T12:00:00.000Z";
     const now = () => new Date(timestamp);
@@ -29,7 +29,7 @@ describe("the additive confirmation migration", () => {
     const gate = new ToolAutonomyGate(service, new D1ToolConfirmationStore(env.DB, now));
     const request = { principalId, toolName: "send_email", arguments: "{}" };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
-    const reference = confirmationReference("contact.third_party", await argumentsFingerprint(request.arguments));
+    const reference = confirmationReference(request.toolName, "contact.third_party", await argumentsFingerprint(request.arguments));
     const item = await decisions.raise({
       principalId, origin: TIER3_TOOL_ORIGIN, originReference: reference,
       urgency: "normal", question: "Run the fixture?", choices: [{ key: "confirm", label: "Confirm" }],
@@ -47,16 +47,16 @@ describe("the additive confirmation migration", () => {
     const responseBefore = await env.DB.prepare("SELECT * FROM decision_responses WHERE decision_id = ?")
       .bind(item.decisionId).first();
     await applyD1Migrations(env.DB, [{ name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(migration) }]);
-    // The pre-deploy SELECT still resolves the existing tap against unchanged
-    // answer tables. Old code ignores the new table until the gateway deploy.
-    const oldReader = await env.DB.prepare(`SELECT item.decision_id
+    // The schema remains additive for readers of the answer tables. This query
+    // uses the new reference, not the legacy encoding tested in tier3-tap.
+    const answerReader = await env.DB.prepare(`SELECT item.decision_id
       FROM decision_items item JOIN decision_responses response ON response.decision_id = item.decision_id
       WHERE item.principal_id = ? AND item.origin = ? AND item.origin_reference = ?
         AND response.option_key = 'confirm' AND item.resolved_at IS NOT NULL
         AND item.resolved_at >= ?
       ORDER BY response.responded_at DESC LIMIT 1`)
       .bind(principalId, TIER3_TOOL_ORIGIN, reference, timestamp).first<{ decision_id: string }>();
-    expect(oldReader?.decision_id).toBe(item.decisionId);
+    expect(answerReader?.decision_id).toBe(item.decisionId);
     expect(await env.DB.prepare("SELECT * FROM decision_responses WHERE decision_id = ?")
       .bind(item.decisionId).first()).toEqual(responseBefore);
     expect((await gate.evaluateToolCall(request)).verdict).toBe("permit");

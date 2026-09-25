@@ -1,0 +1,314 @@
+[
+  {
+    "name": "R2-H2-double-quoted-escape",
+    "file": "packages/contracts/src/calls.ts",
+    "find": "(?:\"|\\\\(?=\\r?\\n|$)|(?=\\r?\\n|$))",
+    "replace": "(?:\"|(?=\\r?\\n|$))",
+    "testPath": "packages/contracts/test/call-redaction.test.ts",
+    "expect": "redacts an unfinished double-quoted credential when it ends on an escape"
+  },
+  {
+    "name": "R2-H2-single-quoted-escape",
+    "file": "packages/contracts/src/calls.ts",
+    "find": "(?:'|\\\\(?=\\r?\\n|$)|(?=\\r?\\n|$))",
+    "replace": "(?:'|(?=\\r?\\n|$))",
+    "testPath": "packages/contracts/test/call-redaction.test.ts",
+    "expect": "redacts an unfinished single-quoted credential when it ends on an escape"
+  },
+  {
+    "name": "R2-H1-model-declaration",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "const checked = unsupported ? UNRECEIPTED_VOICE_ACTION",
+    "replace": "const checked = false ? UNRECEIPTED_VOICE_ACTION",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "uses the model declaration for a novel paraphrase outside the regex vocabulary"
+  },
+  {
+    "name": "R2-H1-current-receipt",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "entry.receiptId === id && entry.providerResult.name === span.claim.toolName",
+    "replace": "entry.providerResult.name === span.claim.toolName",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses a novel declaration supported by a stale receipt"
+  },
+  {
+    "name": "R2-H1-proving-tool",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "entry.receiptId === id && entry.providerResult.name === span.claim.toolName",
+    "replace": "entry.receiptId === id",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses a novel declaration supported by a mismatched tool"
+  },
+  {
+    "name": "R2-H1-nonempty-proof",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": " && span.claim.receiptIds.length > 0",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses a novel declaration supported by an empty inventory"
+  },
+  {
+    "name": "R2-H1-every-receipt",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "span.claim.receiptIds.every((id)",
+    "replace": "span.claim.receiptIds.some((id)",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses a novel declaration supported by a mixture of real and invented receipts"
+  },
+  {
+    "name": "R2-H1-whole-sentence",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "claimStart === start && claimEnd === end && ",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "does not use a proof for part of a sentence or for a different declared sentence"
+  },
+  {
+    "name": "R2-H1-one-sentence",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "|| [...sentences.push(body), ...sentences.finish()].length !== 1",
+    "replace": "|| false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-sentence-terminator",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "!/[.!?][\"'’”)]*$/u.test(body.trim())",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-no-nesting",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "body.includes(\"[[\")",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-exact-fields",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "Object.keys(claim).sort().join(\",\") !== \"receiptIds,toolName\"",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-tool-grammar",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "typeof claim.toolName !== \"string\" || !/^[a-z][a-z0-9_]{0,63}$/u.test(claim.toolName)",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-receipt-bound",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "claim.receiptIds.length > 4",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-receipt-grammar",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "claim.receiptIds.some((id: unknown) => typeof id !== \"string\" || !/^[A-Za-z0-9:_-]{1,160}$/u.test(id))",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-unique-receipts",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "new Set(claim.receiptIds).size !== claim.receiptIds.length",
+    "replace": "false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-exact-opener",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "if (!this.pending.startsWith(\"[[claim \")) throw new TypeError(\"voice_claim_invalid\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-complete-marker",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "if (this.claim !== null || this.pending.length > 0) throw new TypeError(\"voice_claim_incomplete\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses malformed or incomplete claim framing"
+  },
+  {
+    "name": "R2-H1-offset-redaction",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "if (!safe.startsWith(before) || !safe.startsWith(through)) throw new TypeError(\"voice_claim_redaction_overlap\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "refuses annotation offsets that do not survive as redacted prefixes"
+  },
+  {
+    "name": "R2-H1-stripped-metadata",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "result.push(...this.append(body));",
+    "replace": "result.push(...this.append(JSON.stringify(this.spans.at(-1)!.claim) + body));",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "strips a supported marker at every chunk boundary before releasing its sentence"
+  },
+  {
+    "name": "R2-H1-exact-proof",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "typeof claim !== \"string\" && claim.sentence === text",
+    "replace": "typeof claim !== \"string\"",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "does not use a proof for part of a sentence or for a different declared sentence"
+  },
+  {
+    "name": "R2-H1-draft-tool-scope",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const sentDraft = proofs.some((claim) => claim.toolNames.includes(\"guided_assignment_draft\"));",
+    "replace": "const sentDraft = proofs.length > 0;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "binds guided draft proof to one exact declared sentence and leaves an adjacent claim unproven"
+  },
+  {
+    "name": "R2-H1-draft-send-supported",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (external && !sentDraft) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (external) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "binds guided draft proof to one exact declared sentence and leaves an adjacent claim unproven"
+  },
+  {
+    "name": "R2-H1-passive-local",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (hasPassiveExternalCompletion(scan) && !sentDraft) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (false) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "does not borrow guided draft proof for a passive completion in a later sentence"
+  },
+  {
+    "name": "R2-H1-secret-first",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "keeps credential requests and Brightspace checks forbidden even with a guided draft receipt"
+  },
+  {
+    "name": "R2-H1-brightspace-local",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "keeps credential requests and Brightspace checks forbidden even with a guided draft receipt"
+  },
+  {
+    "name": "R2-H1-omission-backstop",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": " || VOICE_COMPLETION_BACKSTOP.test(scan)",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "catches the untagged action"
+  },
+  {
+    "name": "R2-H1-receipt-through-core",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "executedReceipts = executed;",
+    "replace": "executedReceipts = [];",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "speaks a marked save paraphrase only after its real tool receipt and strips the metadata"
+  },
+  {
+    "name": "R2-H2-unsplit-archive",
+    "file": "apps/cloud-gateway/src/security/streaming-output-redactor.ts",
+    "find": "const safe = this.issue(this.rawArchive).text;",
+    "replace": "const safe = this.outputParts.join(\"\") + this.issue(this.pending).text;",
+    "testPath": "apps/cloud-gateway/test/security/streaming-output-redactor.test.ts",
+    "expect": "keeps every spoken prefix"
+  },
+  {
+    "name": "R2-H2-stable-prefix",
+    "file": "apps/cloud-gateway/src/security/streaming-output-redactor.ts",
+    "find": "if (!safe.startsWith(prefix)) this.terminate(\"stream_redaction_failed\");",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/security/streaming-output-redactor.test.ts",
+    "expect": "rejects a changed redacted prefix before releasing any additional text"
+  },
+  {
+    "name": "R2-H2-no-inserted-newlines",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "return Object.freeze({ index: index++, text });",
+    "replace": "return Object.freeze({ index: index++, text: text.trim() + \"\\n\" });",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "never delivers the secret tail from the unsplit reply"
+  },
+  {
+    "name": "R2-H2-redact-before-honesty",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "new StreamingOutputRedactor(this.redactor, undefined, true)",
+    "replace": "new StreamingOutputRedactor({ redact: (input) => this.redactor.redact(input), redactText: (text) => { const sentences = new VoiceSentences(); return this.redactor.redactText([...sentences.push(text), ...sentences.finish()].map((sentence) => guardVoiceReplySentence(sentence, this.receiptSentences)).join(' ')); } }, undefined, true)",
+    "testPath": "apps/cloud-gateway/test/voice/voice-reply.test.ts",
+    "expect": "redacts the original prose before replacing a claim that contains a credential introducer"
+  },
+  {
+    "name": "R2-H2-inner-newline-corruption",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "new StreamingOutputRedactor(this.redactor, undefined, true)",
+    "replace": "new StreamingOutputRedactor({ redact: (input) => this.redactor.redact(input), redactText: (text) => this.redactor.redactText(text.replaceAll('. ', '.\\n')) }, undefined, true)",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "never delivers the secret tail from the unsplit reply"
+  },
+  {
+    "name": "R2-H2-voice-mode",
+    "file": "apps/cloud-gateway/src/conversation/conversation-service.ts",
+    "find": "captured.channel === \"voice\");",
+    "replace": "false);",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "delivers the first sentence through redaction while the provider still holds the rest of the reply"
+  },
+  {
+    "name": "R2-L1-terminal-lookahead",
+    "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+    "find": "if (end === this.pending.length || !/\\s/u.test(this.pending[end]!)) continue;",
+    "replace": "if (end < this.pending.length && !/\\s/u.test(this.pending[end]!)) continue;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "holds the terminal period in It costs 3. until its continuation arrives"
+  },
+  {
+    "name": "R2-L1-abbreviation-continuation",
+    "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+    "find": "if (/\\b(?:mr|mrs|ms|dr|prof|st|etc|e\\.g|i\\.e)\\.$/iu.test(candidate)",
+    "replace": "if (false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "holds the terminal period in An example is e. until its continuation arrives"
+  },
+  {
+    "name": "R2-L1-list-continuation",
+    "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+    "find": "if (/^\\s*\\d+\\.$/u.test(candidate)) continue;",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "holds the terminal period in 1. until its continuation arrives"
+  },
+  {
+    "name": "R2-L2-register-receipt",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "receiptSentences.add(sentence.replace(/\\s+/gu, \" \").trim());",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "speaks the follow-up's exact current receipt sentence instead of replacing it"
+  },
+  {
+    "name": "R2-L3-defer-pretool-refusal",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (round === 0 && sentence.replaced)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "runs a chunked tool call mid-stream exactly once and never speaks a save claim before its receipt"
+  }
+]

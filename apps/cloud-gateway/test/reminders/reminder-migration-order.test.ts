@@ -9,6 +9,6 @@ describe("reminder migration registration order", () => {
     expect(restore).toEqual([...restore].sort());
     expect(fixtures).toEqual([...fixtures].sort());
     expect(restore.indexOf("0039_tool_confirmation_consumptions.sql"))
-      .toBeLessThan(restore.indexOf("0041_owner_reminders.sql"));
+      .toBeLessThan(restore.indexOf("0050_owner_reminders.sql"));
   });
 });

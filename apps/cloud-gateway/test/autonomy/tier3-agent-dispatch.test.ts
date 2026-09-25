@@ -20,7 +20,7 @@ import type { ModelAdapter, ModelToken } from "../../src/model/model-types.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
-import type { ModelAgentCompletion, ModelAgentProvider } from "../../src/providers/provider-types.js";
+import type { ModelAgentCompletion, ModelAgentProvider, ModelAgentStreamProvider } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
@@ -51,7 +51,7 @@ async function harness(toolName = "school_update", approved = true) {
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
   const raised = await decisions.raise({
     principalId, origin: TIER3_TOOL_ORIGIN,
-    originReference: confirmationReference(capability, await argumentsFingerprint(args)),
+    originReference: confirmationReference(toolName, capability, await argumentsFingerprint(args)),
     urgency: "normal", question: "Run this fixture action?",
     choices: [{ key: "confirm", label: "Confirm" }],
   });
@@ -62,6 +62,7 @@ async function harness(toolName = "school_update", approved = true) {
     })).toMatchObject({ outcome: "recorded" });
   }
   let executions = 0;
+  let expectedDecisionId = raised.decisionId;
 
   async function run(options: {
     channel?: "telegram" | "voice";
@@ -76,23 +77,28 @@ async function harness(toolName = "school_update", approved = true) {
     const text = "Run the fixture action.";
     const completions: ModelAgentCompletion[] = [
       { content: null, toolCalls: [{ id: "dispatch", name: toolName, arguments: args }], finishReason: "tool_calls" },
-      { content: JSON.stringify({ reply: "Here is the result.", claimedActions: [] }), toolCalls: [], finishReason: "stop" },
+      { content: channel === "voice" ? "Here is the result." : JSON.stringify({ reply: "Here is the result.", claimedActions: [] }), toolCalls: [], finishReason: "stop" },
     ];
     let toolResult: { status: string; receipt: string } | undefined;
-    const provider: ModelAgentProvider = { async completeAgent(input) {
-      if (input.toolResults !== undefined) {
+    const provider: ModelAgentProvider & ModelAgentStreamProvider = { async completeAgent(input) {
+      if (input.toolResults !== undefined && input.toolResults.length > 0) {
         expect(input.toolResults).toHaveLength(1);
         toolResult = JSON.parse(input.toolResults[0]!.content) as { status: string; receipt: string };
       }
       const completion = completions.shift();
       if (completion === undefined) throw new Error("unexpected_agent_call");
       return completion;
+    }, async *streamAgent(input) {
+      const completion = await this.completeAgent(input);
+      if (completion.content !== null) yield { type: "text", text: completion.content };
+      yield { type: "completed", completion };
     } };
     const pipeline = {
       async *stream(): AsyncIterable<ModelToken> {
         for await (const token of this.streamOwnerTool()) yield token;
       },
       async *streamOwnerTool() {
+        expect(await claims(expectedDecisionId)).toBe(1);
         executions++;
         if (options.failBody) throw new Error("fixture_tool_failure");
         yield { index: 0, text: "Saved the fixture action.", toolOutcome: "saved" as const };
@@ -101,6 +107,7 @@ async function harness(toolName = "school_update", approved = true) {
     const shared = {
       provider, database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: principalId,
       directOwnerText, decisions, now,
+      schoolModel: pipeline, universityModel: pipeline, studyCoachModel: pipeline,
       targets: { async findControlTargets() { return []; } },
       autonomy: new ToolAutonomyGate(
         new AutonomyService({ repository: new AutonomyRepository(env.DB), now }),
@@ -144,9 +151,24 @@ async function harness(toolName = "school_update", approved = true) {
     return toolResult;
   }
 
-  async function claims() {
+  async function confirmIssued() {
+    const items = await env.DB.prepare(`SELECT decision_id, origin_reference FROM decision_items
+      WHERE principal_id = ? AND origin = ? AND decision_id != ?`)
+      .bind(principalId, TIER3_TOOL_ORIGIN, raised.decisionId)
+      .all<{ decision_id: string; origin_reference: string }>();
+    expect(items.results).toHaveLength(1);
+    const item = items.results[0]!;
+    expect(item.origin_reference).toBe(confirmationReference(toolName, capability, await argumentsFingerprint(args)));
+    expect(await decisions.answer({
+      decisionId: item.decision_id, answeredByIdentityId: identityId, optionKey: "confirm",
+    })).toMatchObject({ outcome: "recorded" });
+    // The body must check the agent-issued tap, not the unanswered seed.
+    expectedDecisionId = item.decision_id;
+    return item.decision_id;
+  }
+  async function claims(decisionId = raised.decisionId) {
     const row = await env.DB.prepare("SELECT count(*) AS count FROM tool_confirmation_consumptions WHERE decision_id = ?")
-      .bind(raised.decisionId).first<{ count: number }>();
+      .bind(decisionId).first<{ count: number }>();
     return row?.count;
   }
   async function authorizedAudits() {
@@ -154,18 +176,30 @@ async function harness(toolName = "school_update", approved = true) {
       .bind(raised.decisionId).first<{ count: number }>();
     return row?.count;
   }
-  return { run, claims, authorizedAudits, executions: () => executions };
+  return { run, confirmIssued, claims, authorizedAudits, executions: () => executions };
 }
 
 describe("tap consumption at agent dispatch", () => {
   beforeAll(applyNewestRuntimeMigration, 120_000);
 
-  it.each(["memory_pin", "school_update"])("requires a tap before dispatching the tier-3 tool %s", async (toolName) => {
+  it.each(["memory_pin", "school_update", "university_update", "study_coach"])("requires a tap before dispatching the tier-3 tool %s on voice", async (toolName) => {
     const h = await harness(toolName, false);
-    expect(await h.run()).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
     expect(await h.claims()).toBe(0);
     expect(await h.authorizedAudits()).toBe(0);
     expect(h.executions()).toBe(0);
+  });
+
+  it("binds a confirmation raised by the agent to its tool and consumes the owner's answer once", async () => {
+    const h = await harness("school_update", false);
+    expect(await h.run()).toMatchObject({ status: "pending_confirmation" });
+    const issued = await h.confirmIssued();
+    expect(await h.run()).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
+    expect(await h.claims(issued)).toBe(1);
+    expect(h.executions()).toBe(1);
+    expect(await h.run()).toMatchObject({ status: "pending_confirmation" });
+    expect(await h.claims(issued)).toBe(1);
+    expect(h.executions()).toBe(1);
   });
 
   it.each([
@@ -180,13 +214,9 @@ describe("tap consumption at agent dispatch", () => {
     expect(h.executions()).toBe(0);
   });
 
-  it("preserves a Telegram tap after voice refuses an unsupported pipeline and lets a later Telegram turn claim it once", async () => {
-    const h = await harness();
-    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "refused", receipt: expect.stringContaining("unknown tool call") });
-    expect(await h.claims()).toBe(0);
-    expect(await h.authorizedAudits()).toBe(0);
-    expect(h.executions()).toBe(0);
-    expect(await h.run()).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
+  it.each(["school_update", "university_update", "study_coach"])("lets voice claim a Telegram tap once for %s before its body and refuses reuse on Telegram", async (toolName) => {
+    const h = await harness(toolName);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "completed", receipt: "Saved the fixture action." });
     expect(await h.claims()).toBe(1);
     expect(await h.authorizedAudits()).toBe(1);
     expect(h.executions()).toBe(1);
@@ -196,13 +226,32 @@ describe("tap consumption at agent dispatch", () => {
     expect(h.executions()).toBe(1);
   });
 
-  it("does not refund the tap after the dispatched tool body fails", async () => {
+  it.each(["voice", "telegram"] as const)("does not refund the tap after the dispatched tool body fails on %s", async (channel) => {
     const h = await harness();
-    expect(await h.run({ failBody: true })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
+    expect(await h.run({ channel, failBody: true })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
     expect(await h.claims()).toBe(1);
     expect(await h.authorizedAudits()).toBe(1);
     expect(h.executions()).toBe(1);
     expect(await h.run()).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("already used or expired") });
     expect(h.executions()).toBe(1);
+  });
+
+  it("requires a tap before streaming voice dispatches a tier-3 memory tool", async () => {
+    const h = await harness("memory_pin", false);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("needs your tap") });
+    expect(await h.claims()).toBe(0);
+    expect(await h.authorizedAudits()).toBe(0);
+  });
+
+  it("claims a memory tap before the streaming voice tool body refuses malformed arguments and never refunds it", async () => {
+    // Empty pin arguments reach the real memory body only after the shared gate.
+    // A refund on failure would let a second call reuse an already spent tap.
+    const h = await harness("memory_pin");
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "refused", receipt: expect.stringContaining("could not safely apply that tool call") });
+    expect(await h.claims()).toBe(1);
+    expect(await h.authorizedAudits()).toBe(1);
+    expect(await h.run({ channel: "voice" })).toMatchObject({ status: "pending_confirmation", receipt: expect.stringContaining("already used or expired") });
+    expect(await h.claims()).toBe(1);
+    expect(await h.authorizedAudits()).toBe(1);
   });
 });

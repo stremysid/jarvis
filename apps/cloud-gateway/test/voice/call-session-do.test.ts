@@ -30,8 +30,10 @@ import {
   type OwnerStepUpAlarmPort,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
-import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
+import { GUIDED_ASSIGNMENT_PROMPT } from "../../src/school/guided-assignment-tools.js";
+import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import {
   createTargetGuestAccessDocumentVerifier,
@@ -2188,6 +2190,54 @@ describe("CallSession capacity admission", () => {
     expect(core.close).not.toHaveBeenCalled();
   });
 
+  it("admits a prompt sent after barge-in once the aborted turn releases the slot", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const enteredGate = new Promise<void>((resolve) => { entered = resolve; });
+    const handled: string[] = [];
+    const conversation: ConversationService = {
+      handleTurn: vi.fn<ConversationService["handleTurn"]>(async (input) => {
+        handled.push(input.text);
+        if (handled.length === 1) {
+          // Deliberately ignores input.signal: the abort must not settle this turn,
+          // so the slot stays owned exactly as a slow teardown leaves it.
+          entered();
+          await gate;
+        }
+        return { outcome: "cancelled", committedUserEventId: TURN_ID, sentAssistantEventId: null,
+          deliveredAssistantEventId: null, deliveryId: null };
+      }),
+      async stageSystemNotice(): Promise<never> { throw new Error("unexpected_voice_notice"); },
+    };
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const core = makeCore({ session: stored, repo, conversation, turnIds: [TURN_ID, NEXT_TURN_ID] });
+    await core.instance.handleRelayEvent(relaySetup(stored));
+    const first = core.instance.handleRelayEvent(prompt);
+    void first.catch(() => undefined);
+    await enteredGate;
+    await core.instance.handleRelayEvent({ type: "interrupt" });
+    let released = false;
+    let settledBeforeRelease = false;
+    const second = core.instance.handleRelayEvent({ ...prompt, text: "A corrected question" });
+    void second.then(
+      () => { if (!released) settledBeforeRelease = true; },
+      () => { if (!released) settledBeforeRelease = true; },
+    );
+    // The aborted turn cannot settle until the gate opens, so a bounded wait here
+    // is a real gap for the replacement to be dropped in.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(settledBeforeRelease).toBe(false);
+    released = true;
+    release();
+    await expect(second).resolves.toBeUndefined();
+    await expect(first).resolves.toBeUndefined();
+    expect(handled).toEqual(["An ordinary question", "A corrected question"]);
+    expect(core.close).not.toHaveBeenCalled();
+    expect(core.instance.phase).toBe("active");
+  });
+
   it("never starts an abort-ignoring model after interruption during durable context retrieval", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -2302,6 +2352,7 @@ describe("CallSession production composition", () => {
       CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",
       DEEPSEEK_API_KEY: "synthetic-runtime-key",
       DEEPSEEK_MODEL: "synthetic-runtime-model",
+      DEEPSEEK_TELEGRAM_THINKING: "enabled",
       TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
       GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
       OWNER_PASSPHRASE_PEPPER_V1: base64(OWNER_TEST_PEPPER),
@@ -2370,12 +2421,10 @@ describe("CallSession production composition", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       modelBodies.push(body);
       expect(body).toMatchObject({ model: "synthetic-runtime-model" });
-      // The production voice path now reaches the shared owner agent, which is a
-      // non-streaming `completeAgent` request carrying tools. The streaming
-      // shape stays supported because that is what a bare `DeepSeekModelAdapter`
-      // still asks for on every other channel's fallback path.
+      // Both adapters stream, so the composition pin below must still name the
+      // tools and voice prompt. A stream-only assertion would accept a bare model.
       if (body.stream === true) {
-        return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
+        return new Response('data: {"choices":[{"index":0,"delta":{"content":"A composed voice reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
           { headers: { "content-type": "text/event-stream" } });
       }
       expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
@@ -2416,7 +2465,7 @@ describe("CallSession production composition", () => {
       .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
   });
 
-  it("gives an owner's call the memory tools through the voice agent adapter the production runtime composes", async () => {
+  it("gives the production voice agent the same complete tool definitions as Telegram in the configured owner zone", async () => {
     // The fixture above answers both a streaming and an agent request, so every
     // other test in this block passes whether `createProductionCallSessionCore`
     // composes `OwnerVoiceAgentAdapter` or a bare `DeepSeekModelAdapter`. This
@@ -2424,18 +2473,33 @@ describe("CallSession production composition", () => {
     // no voice prompt, and a call silently goes back to talking without acting.
     await seedActiveVoiceIdentity();
     const stored = await createInboundSession(repository());
-    const call = await runtime(stored);
+    const call = await runtime(stored, { ...configuration(), DIGEST_TIMEZONE: "America/Vancouver" });
     await call.setup();
     await call.prompt("What do you remember about my exams?");
 
     expect(modelBodies).toHaveLength(1);
     const body = modelBodies[0] as Record<string, unknown>;
-    expect(body).toMatchObject({ stream: false, tool_choice: "auto" });
+    expect(body).toMatchObject({
+      stream: true,
+      tool_choice: "auto",
+      thinking: { type: "disabled" },
+    });
+    expect(body).not.toHaveProperty("response_format");
+    expect((body.tools as { function: unknown }[]).map((tool) => tool.function))
+      .toEqual(OWNER_TOOL_DEFINITIONS);
+    expect((body.tools as { function: unknown }[]).map((tool) => tool.function))
+      .toEqual(expect.arrayContaining([...OWNER_ARGUMENT_TOOL_DEFINITIONS]));
     expect((body.tools as { function: { name: string } }[]).map((tool) => tool.function.name))
-      .toEqual(MEMORY_TOOL_DEFINITIONS.map((tool) => tool.name));
+      .toContain("deadline_record");
     const [system] = body.messages as { role: string; content: string }[];
     expect(system?.role).toBe("system");
     expect(system?.content).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
+    expect(system?.content).toContain("Owner time zone: America/Vancouver");
+    expect(system?.content).toContain("Return plain spoken text, with no JSON envelope.");
+    expect(system?.content).toContain("[[claim");
+    expect(system?.content).toContain('"toolName":"the_proving_tool_name"');
+    expect(system?.content).not.toContain("claimedActions");
+    expect(system?.content).toContain(GUIDED_ASSIGNMENT_PROMPT);
     expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
       .toEqual([{ state: "voice_sent" }]);
   });

@@ -1,10 +1,6 @@
 # Jarvis Owner and Guest Voice Access Implementation Plan
 
-> **Superseded for owner authentication:** This historical implementation plan
-> built PIN-free owner admission. Its guest-grant work remains relevant, but
-> the owner portions are replaced by the
-> [2026-09-14 owner-passphrase design](../specs/2026-09-14-owner-call-passphrase-design.md).
-> Do not use its PIN-free owner tests or evidence as the R1 release contract.
+> **Superseded in part by [the owner-passphrase design](../specs/2026-09-14-owner-call-passphrase-design.md) and merged [#137](https://github.com/stremysid/jarvis/pull/137):** owner calls require the passphrase; the PIN-free owner tests and evidence below are historical.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

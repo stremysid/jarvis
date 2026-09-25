@@ -746,7 +746,7 @@ describe("SchoolCatchupModelAdapter", () => {
     );
   });
 
-  it("handles a plain-speech D2L refresh only on the owner's own Telegram turn", async () => {
+  it("handles a plain-speech D2L refresh on the owner's own turn on either channel", async () => {
     const ordinary = JSON.stringify({
       engaged: false,
       reply: "Ordinary reply.",
@@ -785,9 +785,9 @@ describe("SchoolCatchupModelAdapter", () => {
     await expect(collect(adapter.stream(input({
       channel: "voice",
       userText: "Check Brightspace now.",
-    })))).resolves.toBe("Voice reply.");
-    expect(refreshBrightspace).toHaveBeenCalledTimes(1);
-    expect(model.requests).toHaveLength(2);
+    })))).resolves.toBe("Brightspace refreshed at 2026-09-15T11:30:00.000Z.");
+    expect(refreshBrightspace).toHaveBeenCalledTimes(2);
+    expect(model.requests).toHaveLength(1);
     expect(isBrightspaceRefreshRequest("check D2L now")).toBe(true);
     expect(isBrightspaceRefreshRequest("/check D2L now")).toBe(false);
   });

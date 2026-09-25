@@ -17,7 +17,7 @@ let serial = 8_000_000;
 
 export async function argumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
-  direct?: boolean; durableDirect?: boolean; pipeline?: boolean; gate?: ToolAutonomyGateContract;
+  direct?: boolean; durableDirect?: boolean; pipeline?: boolean; wrongOwner?: boolean; gate?: ToolAutonomyGateContract;
   timeZone?: string; messageAt?: Date; processingAt?: Date;
 } = {}) {
   await applyMemoryIngressMigration();
@@ -40,7 +40,8 @@ export async function argumentTurn(text: string,
   }, principalId);
   const fallback = { async *stream() { yield { index: 0, text: "No action." }; } };
   const model = new OwnerTelegramAgentAdapter({
-    database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: principalId, authorityText: text,
+    database: env.DB, archive: env.ARCHIVE,
+    ownerPrincipalId: options.wrongOwner ? "principal:another-owner" : principalId, authorityText: text,
     directOwnerText: options.direct ?? true, directPipelineText: options.pipeline ?? true,
     autonomy: options.gate ?? await testToolGate(env.DB), now: () => options.processingAt ?? NOW,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }), turnReceivedAt: (options.messageAt ?? NOW).toISOString(),

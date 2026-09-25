@@ -1,5 +1,7 @@
 # Task brief: P2 — the PC reads D2L while logged in
 
+**PARKED by Sid, 2026-09-23.** The approved express lane is an Opera GX extension reading session-authenticated Valence JSON and pushing school-only signed evidence. The PC login-and-scrape reader below is historical scope, not an active assignment. See the [final collector design](plan/2026-09-23-d2l-collector-design.md) and [observed API findings in #161](https://github.com/stremysid/jarvis/pull/161). Revisit this fallback only for a demonstrated coverage gap and a new assignment.
+
 You are a **builder** on `stremysid/jarvis`. Read `AGENTS.md` and
 `docs/plan/2026-09-19-jarvis-roadmap.md` first. This brief is the task; those are standing and
 this does not override them.

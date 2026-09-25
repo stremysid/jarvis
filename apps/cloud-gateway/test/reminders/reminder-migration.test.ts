@@ -43,7 +43,7 @@ describe("owner reminder migration", () => {
   it("includes reminders in the backup inventory after their conversation turns", () => {
     expect(MEMORY_BACKUP_TABLES).toContain("owner_reminders");
     expect(MEMORY_BACKUP_TABLES.indexOf("owner_reminders")).toBeGreaterThan(MEMORY_BACKUP_TABLES.indexOf("conversation_turns"));
-    expect(MEMORY_BACKUP_RESTORE_MIGRATIONS.find((migration) => migration.name === "0041_owner_reminders.sql")?.sql)
+    expect(MEMORY_BACKUP_RESTORE_MIGRATIONS.find((migration) => migration.name === "0050_owner_reminders.sql")?.sql)
       .toContain("CREATE TABLE owner_reminders");
   });
 });

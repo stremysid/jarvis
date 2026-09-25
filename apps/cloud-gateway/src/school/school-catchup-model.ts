@@ -51,8 +51,9 @@ const SECRET_ADVISORY = new RegExp(
 );
 const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
 const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
+const ACTION_CLAIM_VERBS = String.raw`sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+(?:you\s+)?up|signing\s+up|reserved|cancelled|canceled|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;
 const FIRST_PERSON_ACTION_CLAIM = new RegExp(
-  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled)\b`,
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>${ACTION_CLAIM_VERBS})\b`,
   "giu",
 );
 const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
@@ -63,8 +64,40 @@ const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
   /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
   /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
 ]);
-const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
+// Anchor to the verb's object. A digit or "example" elsewhere cannot prove that
+// an unknown recipient or store is part of a worked explanation.
+const WORKED_OBJECTS: Readonly<Record<string, RegExp>> = Object.freeze({
+  added: /^\s+(?:(?:[-+]?\d+[a-z]?|[a-z])\s+to\s+both\s+sides\b|the\s+term\s+[-+]?\d*[a-z]\b|an?\s+(?:(?:worked|stronger|email\s+validation)\s+)?(?:example|paragraph|hook|transition|route|timeout|loop|function)\b|an?\s+\d+\s+ms\s+timeout\b|(?:an?\s+)?error\s+handling\b)/iu,
+  applied: /^\s+the\s+(?:(?:[a-z-]+\s+){0,4}(?:rule|law|formula|theorem|method)\b|rubric(?:\s+(?:that\s+)?your\s+teacher\s+uses)?\b)/iu,
+  called: /^\s+(?:[a-z_$][\w$]*\s*\(\s*\)|the\s+(?:(?:parent\s+)?(?:function|constructor|method)|helper\s+(?:function|method))\b)/iu,
+  told: /^\s+the\s+(?:loop|function|compiler)\b/iu,
+  asked: /^\s+the\s+(?:loop|function|compiler)\b/iu,
+  saved: /^\s+(?:[a-z]|(?:the\s+)?(?:result|value))\s+(?:as|in)\s+a\s+variable\b/iu,
+  "put in": /^\s+[-+]?\d+\s+for\s+[a-z](?=\s*(?:[,.;:!?]|$|\s+(?:and|to|into|so)\b))/iu,
+});
+const WORKED_APPLIED_FOR_YOU = /\bapplied\s+the\s+(?:[a-z-]+\s+){0,4}(?:rule|law|formula|method|theorem)\s+for\s+you\b/giu;
+const WORKED_TRANSACTION_OBJECT = /\b(?:discount|credit|code|fee|coupon)\b/iu;
+const WORKED_DESTINATION = /\b(?:to|in|on|into|with)\s+(?:your|my|our|his|her|their|the\s+\w+\s+of)\b/iu;
+const WORKED_RECIPIENT = /\bfor\s+(?:you|(?:the\s+)?\d+)\b/iu;
+const WORKED_NAMED_RECIPIENT = /\b(?:[Tt]o|[Ww]ith|[Ff]or)\s+\p{Lu}[\p{L}'’-]*\b/u;
+const WORKED_REAL_WORLD_VALUE = /\d{3}[-\s]\d{3,4}|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}:\d{2}\b|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[$£€¥%]|\b(?:cad|usd|eur)\s*\d|\b\d+\s*(?:dollars?|euros?|pounds?|percent)\b/iu;
+// Both sides of the worked object must parse completely. A second verb is not
+// safe just because it is absent from an action list, nor is a noun prefix proof
+// that the rest of a destination describes the explanation.
+const WORKED_CLAIM_PREFIX = new RegExp(String.raw`^\s*(?:${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?)?$`, "iu");
+const WORKED_VALUE = String.raw`(?:[-+]?\d+[a-z]?|[a-z])`;
+// Qualifiers belong to the continuation, not also to its target. Two parses of
+// every "example below" make a repeated explanation backtrack exponentially.
+const WORKED_TARGET = String.raw`(?:(?:the|a|an|this|these|each)\s+)?(?:both\s+sides|(?:left|right)\s+side\s+of\s+the\s+equation|two\s+(?:points|ideas)|(?:balanced\s+|combustion\s+)?equations?|terms?|variables?(?:\s+type)?|functions?|loops?|(?:request\s+)?examples?|paragraphs?|thesis|denominators?|return\s+(?:value|type)|(?:empty|input)\s+string|email\s+address|constructor|roots?|expression|brackets|answer|result|sum|volume|length|concentration|mass|reaction|argument|narrator['’]s\s+motive|character['’]s\s+choice|Flask\s+application|application\s+essay)`;
+const WORKED_OPERATION = String.raw`(?:(?:solve|differentiate|find|expand|explain|print|return|infer|introduce|convert|isolate|simplify|check|cancel|get)\s+(?:${WORKED_TARGET}|${WORKED_VALUE}|why\s+(?:this|the)\s+thesis\s+needs\s+evidence)|walk\s+through\s+${WORKED_TARGET}|stop\s+when\s+[a-z]\s+equals\s+(?:zero|\d+))`;
+const WORKED_CONTINUATION = new RegExp(
+  String.raw`^(?:\s+(?:below|above|example|recursively|twice|to\s+(?:${WORKED_OPERATION}|${WORKED_TARGET})|(?:in|on|with|of|around|between)\s+${WORKED_TARGET}|of\s+balancing\s+${WORKED_TARGET}|of\s+\d+\s+ms|explaining\s+${WORKED_TARGET}|showing\s+an\s+application\s+of\s+the\s+(?:[a-z-]+\s+){0,4}(?:rule|law|formula|theorem|method)|that\s+(?:sums|checks)\s+${WORKED_TARGET}|before\s+(?:assigning|setting)\s+${WORKED_TARGET}|named\s+[a-z_][\w]*|and\s+got\s+${WORKED_VALUE})|\s*,?\s+so\s+(?:${WORKED_VALUE}\s*=\s*${WORKED_VALUE}|the\s+roots\s+are\s+${WORKED_VALUE}\s+and\s+${WORKED_VALUE}))*\s*[.!?]?\s*$`,
+  "iu",
+);
+const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request|lab\s+report)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
 const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
+const PASSIVE_RECEIPT_COMPLETION = /\b(?:(?:fees?|payment)\b.{0,32}\b(?:is|has\s+been)\s+(?:paid|made|processed)|payment\s+was\s+made|registration\s+(?:is|was|has\s+been)\s+(?:completed|confirmed)|(?:email|message)\b.{0,48}\b(?:is|was|has\s+been|has)\s+(?:sent|gone\s+out)|(?:teacher|instructor)\s+(?:was|has\s+been)\s+told|(?:form|request)\s+is\s+in(?=[.!?]|$)|(?:meeting|lesson|appointment)\s+(?:is|was|has\s+been)\s+(?:booked|scheduled))\b/giu;
+const PASSIVE_COMPLETION_PATTERNS = [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY, PASSIVE_RECEIPT_COMPLETION];
 const PASSIVE_ADVICE_CONTEXT = /\b(?:once|after|when|until|before|whether|make\s+sure|check|if)\b/iu;
 const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:i|we|jarvis)\b.{0,32}\b(?:saved|updated|recorded|stored|added|changed|replanned)\b.{0,64}\b(?:school|course|catch-?up|plan|action|fact|university|program|requirement|date|tracker)\b/iu,
@@ -418,7 +451,7 @@ function sentenceAround(value: string, start: number, end: number): {
 }
 
 function hasPassiveExternalCompletion(reply: string): boolean {
-  for (const pattern of [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]) {
+  for (const pattern of PASSIVE_COMPLETION_PATTERNS) {
     pattern.lastIndex = 0;
     for (const match of reply.matchAll(pattern)) {
       const start = match.index;
@@ -465,6 +498,25 @@ function isReceiptedInternalClaim(
     && [...receipted].some((claim) => sentence.includes(claim));
 }
 
+function isWorkedExplanation(sentence: string, verb: string, tail: string): boolean {
+  const action = verb.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  const object = WORKED_OBJECTS[action]?.exec(tail)?.[0];
+  if (object === undefined) return false;
+  if (action === "applied" && WORKED_TRANSACTION_OBJECT.test(object)) return false;
+  const prefix = sentence.slice(0, sentence.length - tail.length - verb.length);
+  if (!WORKED_CLAIM_PREFIX.test(prefix)) return false;
+  let remainder = tail.slice(object.length);
+  let recipientScan = sentence;
+  if (action === "applied" && /\b(?:rule|law|formula|theorem|method)$/iu.test(object)
+    && /^\s+for\s+you\b/iu.test(remainder)) {
+    remainder = remainder.replace(/^\s+for\s+you\b/iu, "");
+    recipientScan = recipientScan.replace(/\bfor\s+you\b/iu, "");
+  }
+  if (WORKED_DESTINATION.test(sentence) || WORKED_RECIPIENT.test(recipientScan)
+    || WORKED_NAMED_RECIPIENT.test(sentence) || WORKED_REAL_WORLD_VALUE.test(sentence)) return false;
+  return WORKED_CONTINUATION.test(remainder);
+}
+
 function unsafeFirstPersonRanges(
   reply: string,
   scan: string,
@@ -478,6 +530,7 @@ function unsafeFirstPersonRanges(
     const sentence = sentenceAround(reply, start, end);
     const tail = sentence.text.slice(end - sentence.start);
     const verb = match.groups?.verb ?? "";
+    if (isWorkedExplanation(sentence.text, verb, tail)) continue;
     if (!allowedFirstPersonActionClaim(verb, tail)
       && !isReceiptedInternalClaim(sentence.text, verb, receipted)) {
       ranges.push(Object.freeze({ start: sentence.start, end: sentence.end }));
@@ -486,8 +539,14 @@ function unsafeFirstPersonRanges(
   return Object.freeze(ranges);
 }
 
+export interface ReceiptedToolSentence {
+  readonly sentence: string;
+  readonly toolNames: readonly string[];
+}
+
 export interface ReplyClaimGuardOptions {
-  readonly receiptedInternalSentences?: readonly string[];
+  /** Tool names come from executed results, never the model's declaration. */
+  readonly receiptedInternalSentences?: readonly (string | ReceiptedToolSentence)[];
 }
 
 function blankRange(value: string, start: number, end: number): string {
@@ -566,32 +625,83 @@ function withoutSentenceRanges(reply: string, ranges: readonly Readonly<{ start:
 }
 
 export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions = {}): string {
-  const receipted = new Set(options.receiptedInternalSentences ?? []);
+  const claims = options.receiptedInternalSentences ?? [];
+  const receipted = new Set(claims.map((claim) => typeof claim === "string" ? claim : claim.sentence));
+  const draftSends = new Set(claims.flatMap((claim) => typeof claim !== "string"
+    && claim.toolNames.includes("guided_assignment_draft") ? [claim.sentence] : []));
   const secretScan = reply.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);
   let scan = exemptDraftAndReportSpans(reply);
   scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  const completionScan = scan.replace(WORKED_APPLIED_FOR_YOU, (value: string, start: number) => {
+    const sentence = sentenceAround(reply, start, start + value.length);
+    const tail = sentence.text.slice(start - sentence.start + "applied".length);
+    return isWorkedExplanation(sentence.text, "applied", tail) ? " ".repeat(value.length) : value;
+  });
   const externalRanges = [
-    ...offendingSentenceRanges(reply, scan, FALSE_EXTERNAL_COMPLETIONS),
+    ...offendingSentenceRanges(reply, completionScan, FALSE_EXTERNAL_COMPLETIONS),
     ...unsafeFirstPersonRanges(reply, scan, receipted),
   ];
   if (hasPassiveExternalCompletion(scan)) {
-    externalRanges.push(...offendingSentenceRanges(reply, scan, [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]));
+    externalRanges.push(...offendingSentenceRanges(reply, scan, PASSIVE_COMPLETION_PATTERNS));
   }
+  // Receipt proof belongs to one declared sentence, including when a caller
+  // checks it before streaming. A neighbouring claim gets no borrowed proof.
+  const unprovenExternalRanges = externalRanges.filter((range) =>
+    !draftSends.has(reply.slice(range.start, range.end).trim()));
   const brightspaceRanges = isFalseBrightspaceCheckCompletion(scan)
     ? offendingSentenceRanges(reply, scan, BRIGHTSPACE_CHECK_COMPLETIONS)
     : [];
-  const all = [...secretRanges, ...externalRanges, ...brightspaceRanges];
+  const all = [...secretRanges, ...unprovenExternalRanges, ...brightspaceRanges];
   if (all.length === 0) return reply;
   let safe = withoutSentenceRanges(reply, all);
   // An adjacent completion fragment cannot survive the action claim it affirmed.
-  if (externalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
+  if (unprovenExternalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
   const replacement = secretRanges.length > 0
     ? SECRET_REPLACEMENT
-    : externalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
-  if (secretRanges.length === 0 && externalRanges.length > 0
+    : unprovenExternalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
+  if (secretRanges.length === 0 && unprovenExternalRanges.length > 0
     && /\bI did not complete the unreceipted action\./u.test(safe)) return safe;
   return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
+}
+
+export const UNRECEIPTED_VOICE_ACTION = "I can't confirm that action.";
+
+// This is only an omission backstop. The model declares action sentences in
+// the voice marker protocol; receipt validation, not vocabulary, proves them.
+const VOICE_MEMORY_COMPLETION = new RegExp(
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:(?:have|has|am|are)\s+)?(?:(?:already|just|now|also|successfully)\s+)*(?:saved|saving|stored|storing|recorded|recording|updated|updating|changed|changing|corrected|correcting|remembered|remembering|forgot|forgotten|forgetting|deleted|deleting|removed|removing|restored|restoring|confirmed|confirming|pinned|pinning|unpinned|unpinning|scheduled|scheduling|completed|completing)\b|\b(?:it|that|this|memory|fact|note|preference)\b\s*(?:['’]s|is|was|has\s+been)\s+(?:(?:already|just|now)\s+)?(?:saved|stored|recorded|updated|changed|corrected|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled)\b|^\s*(?:done|saved|stored|recorded|updated|changed|corrected|remembered|forgotten|deleted|removed|restored|confirmed|pinned|unpinned|scheduled|submitted|sent|booked|paid)\b`,
+  "iu",
+);
+
+const VOICE_COMPLETION_BACKSTOP = /\b(?:memory\s+updated|(?:I['’]ve|I\s+have)\s+(?:made\s+a\s+note|logged|wiped|erased|put\b[^.!?]*\bin\s+your\s+notes|cancelled|set\s+a\s+reminder|taken\s+care\s+of\s+it)|(?:in\s+(?:your|my)\s+memory\s+now|now\s+in\s+(?:your|my)\s+memory)|preference\s+is\s+gone\s+now|reminder\s+(?:is\s+set|created)|message\s+went\s+out|consider\s+it\s+done|all\s+set)\b|^\s*Noted[.!]?\s*$/iu;
+
+/**
+ * Only the sentence about to be spoken can supply an exemption. A denial or
+ * draft in a later sentence cannot legalise words the caller already heard.
+ * Proofs are supplied by code after matching this turn's receipt and tool;
+ * the model's marker alone is never authority.
+ */
+export function guardVoiceReplySentence(
+  sentence: string, receipts: ReadonlySet<string>, options: ReplyClaimGuardOptions = {},
+): string {
+  const text = sentence.replace(/\s+/gu, " ").trim();
+  const secretScan = text.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;
+  if (receipts.has(text)) return text;
+  const proofs = (options.receiptedInternalSentences ?? []).filter((claim): claim is ReceiptedToolSentence =>
+    typeof claim !== "string" && claim.sentence === text);
+  const sentDraft = proofs.some((claim) => claim.toolNames.includes("guided_assignment_draft"));
+  const scan = exemptDraftAndReportSpans(text);
+  const external = offendingSentenceRanges(text, scan, FALSE_EXTERNAL_COMPLETIONS).length > 0
+    || unsafeFirstPersonRanges(text, scan, new Set(proofs.map((claim) => claim.sentence))).length > 0;
+  if (external && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
+  // Both helpers receive exactly one complete sentence, including its own
+  // attribution/denial, rather than borrowing one from elsewhere in the reply.
+  if (hasPassiveExternalCompletion(scan) && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
+  if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;
+  if (proofs.length === 0 && (VOICE_MEMORY_COMPLETION.test(scan) || VOICE_COMPLETION_BACKSTOP.test(scan))) return UNRECEIPTED_VOICE_ACTION;
+  return text;
 }
 
 function boundedUtf8(value: string, maximumBytes: number): string {
@@ -1003,7 +1113,7 @@ async function* guardedOrdinaryReplyWithNotice(
   });
 }
 
-/** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
+/** Converts one owner model response into both a durable plan revision and a natural reply. */
 export class SchoolCatchupModelAdapter implements ModelAdapter {
   private readonly now: () => Date;
 
@@ -1019,10 +1129,6 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
 
   /** Preserves code-observed save state for the owner-agent tool boundary. */
   async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram") {
-      yield* this.dependencies.model.stream(input);
-      return;
-    }
     if (this.dependencies.ownerTurnAuthoritative === false) {
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
@@ -1089,7 +1195,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         return;
       }
       // A missing migration or a malformed private row must not take down the
-      // owner's ordinary Telegram conversation.
+      // owner's ordinary conversation.
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }

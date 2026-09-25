@@ -19,11 +19,13 @@ import {
   continueVerifiedMemoryBackupRestore,
   finalizeVerifiedMemoryBackupRestore,
   readLatestVerifiedMemoryBackup,
+  readVerifiedMemoryBackupRows,
   restoreVerifiedMemoryBackupRows,
   type MemoryBackupRestoreManifest,
   type MemoryBackupRestorePointer,
 } from "../../src/backup/memory-backup-restore.js";
 import memoryBackupRestoreOperator from "../../src/backup/memory-backup-restore-operator.js";
+import { MEMORY_BACKUP_RESTORE_MIGRATIONS } from "../../src/backup/memory-backup-restore-migrations.js";
 import {
   MEMORY_BACKUP_LATEST_KEY,
   MEMORY_BACKUP_SELF_REFERENCES,
@@ -660,7 +662,7 @@ describe("verified memory backup restore", () => {
       database: env.DB,
       bucket,
       pointer,
-      migrationSql: namedMigrationSources,
+      migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
       maxObjectsPerStep: 2,
     });
     for (let step = 0; step < 500 && cached.outcome === "pending"; step += 1) {
@@ -668,7 +670,7 @@ describe("verified memory backup restore", () => {
         database: env.DB,
         bucket,
         pointer,
-        migrationSql: namedMigrationSources,
+        migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
         maxObjectsPerStep: 2,
       });
     }
@@ -677,7 +679,7 @@ describe("verified memory backup restore", () => {
       database: env.DB,
       bucket,
       pointer,
-      migrationSql: namedMigrationSources,
+      migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
       maxObjectsPerStep: 2,
     });
     expect(repeated.outcome).toBe("ready");
@@ -768,12 +770,12 @@ describe("verified memory backup restore", () => {
       VALUES ('identity:backup-tap', 'principal:owner', 'telegram', 'synthetic-backup-tap', 'active', ?, ?)`)
       .bind(timestamp, timestamp).run();
     const lookup = {
-      principalId: "principal:owner", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
+      principalId: "principal:owner", toolName: "send_email", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
     };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => instant });
     const item = await decisions.raise({
       principalId: lookup.principalId, origin: TIER3_TOOL_ORIGIN,
-      originReference: confirmationReference(lookup.capability, lookup.argumentsHash),
+      originReference: confirmationReference(lookup.toolName, lookup.capability, lookup.argumentsHash),
       urgency: "normal", question: "Run the backup fixture?", choices: [{ key: "confirm", label: "Confirm" }],
     });
     await decisions.markDelivered(item.decisionId);
@@ -1010,6 +1012,70 @@ END;
     await finalizeVerifiedMemoryBackupRestore(env.DB, manifest.runId);
     expect(await env.DB.prepare(`SELECT finalized FROM memory_backup_restore_progress
       WHERE singleton = 1`).first()).toEqual({ finalized: 1 });
+  }, 300_000);
+
+  it("restores a set captured before a table existed, each table by name, into that set's schema", async () => {
+    await seedBaseMemory();
+    const full = await finishBackup();
+    // The set an older run publishes: no cut and no objects for a table a
+    // later migration added (0043 added guided_assignment_answers mid-list).
+    const added = "guided_assignment_answers";
+    const older = Object.freeze({
+      ...full,
+      tableCuts: full.tableCuts.filter((cut) => cut.table !== added),
+      objects: full.objects.filter((object) => object.table !== added),
+    });
+    expect(older.tableCuts.length).toBe(MEMORY_BACKUP_TABLES.length - 1);
+    const bytes = new TextEncoder().encode(canonicalJson(older));
+    const manifestSha256 = await sha256Hex(bytes);
+    const manifestObjectKey = `restore-test/${older.runId}/older-manifest.json`;
+    await backupBucket.put(manifestObjectKey, bytes);
+    const pointer: MemoryBackupRestorePointer = Object.freeze({
+      schemaVersion: "1.0",
+      runDate: older.runDate,
+      runId: older.runId,
+      manifestObjectKey,
+      manifestSha256,
+    });
+    // An object must belong to a table the set holds.
+    await expect(readVerifiedMemoryBackupRows(backupBucket, {
+      ...older,
+      objects: [...older.objects, { ...older.objects[0]!, table: added, objectKey: "restore-test/stray" }],
+    })).rejects.toThrow("memory_backup_restore_manifest_invalid");
+
+    // The target is at the set's schema, where the added table does not exist.
+    await recreateFreshDatabaseForBackupRestoreTest();
+    const addedTriggers = await env.DB.prepare(`SELECT name FROM sqlite_schema
+      WHERE type = 'trigger' AND tbl_name = ?`).bind(added).all<{ name: string }>();
+    expect(addedTriggers.results).toHaveLength(3);
+    for (const { name } of addedTriggers.results) await env.DB.prepare(`DROP TRIGGER "${name}"`).run();
+    await env.DB.prepare(`DROP TABLE "${added}"`).run();
+    const olderMigrations = namedMigrationSources.map((migration) => migration.name === "0043_guided_assignment.sql"
+      ? Object.freeze({ name: migration.name, sql: "-- 0043 as the older set saw it: no guided answers yet.\n" })
+      : migration);
+
+    let cached = await cacheVerifiedMemoryBackupSet({
+      database: env.DB, bucket: backupBucket, pointer, migrationSql: olderMigrations,
+    });
+    for (let step = 0; step < 500 && cached.outcome === "pending"; step += 1) {
+      cached = await cacheVerifiedMemoryBackupSet({
+        database: env.DB, bucket: backupBucket, pointer, migrationSql: olderMigrations,
+      });
+    }
+    if (cached.outcome !== "ready") throw new Error("older restore set was not cached");
+    const report = await restoreVerifiedMemoryBackupRows({
+      database: env.DB,
+      databaseSchemaVersion: older.databaseSchemaVersion,
+      rowsByTable: cached.set.rowsByTable,
+      migrationSql: olderMigrations,
+      restoreId: older.runId,
+      verifiedSetHash: cached.setHash,
+      jobs: { rebuildHistory: async () => undefined, rebuildVectors: async () => undefined },
+    });
+    expect(report.restoredRows.principals).toBeGreaterThan(0);
+    expect(report.restoredRows[added]).toBe(0);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM principals").first("count"))
+      .toBe(report.restoredRows.principals);
   }, 300_000);
 
   it("refuses a non-fresh target before its first DDL", async () => {

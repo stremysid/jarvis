@@ -1,0 +1,443 @@
+[
+  {
+    "name": "H01-secret",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;",
+    "replace": "if (false) return SECRET_REPLACEMENT;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "refuses a credential request even inside a draft or an alleged receipt"
+  },
+  {
+    "name": "H02-receipt-binding",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (receipts.has(text)) return text;",
+    "replace": "if (true) return text;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "accepts only an exact receipt instead of using one successful action to license another"
+  },
+  {
+    "name": "H03-receipt-support",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (receipts.has(text)) return text;",
+    "replace": "if (false) return text;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "accepts only an exact receipt instead of using one successful action to license another"
+  },
+  {
+    "name": "H04-external",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (external) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (false) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "replaces the unreceipted sentence I sent your reference to the teacher."
+  },
+  {
+    "name": "H05-passive",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (hasPassiveExternalCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (false) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "replaces the unreceipted sentence Your application is now in with Western."
+  },
+  {
+    "name": "H06-brightspace",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (false) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "replaces the unreceipted sentence I checked D2L."
+  },
+  {
+    "name": "H07-memory",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (VOICE_MEMORY_COMPLETION.test(scan)) return UNRECEIPTED_VOICE_ACTION;",
+    "replace": "if (false) return UNRECEIPTED_VOICE_ACTION;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "replaces the unreceipted sentence I have unpinned that."
+  },
+  {
+    "name": "H08-sentence-speech",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "yield token(guardVoiceReplySentence(sentence, receiptSentences));\n          }",
+    "replace": "yield token(sentence);\n          }",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "runs a chunked tool call mid-stream exactly once and never speaks a save claim before its receipt"
+  },
+  {
+    "name": "H09-final-fragment",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "for (const sentence of sentences.finish()) yield token(guardVoiceReplySentence(sentence, receiptSentences));",
+    "replace": "for (const sentence of sentences.finish()) yield token(sentence);",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "holds an unfinished save claim until a clean stop and checks it before speech"
+  },
+  {
+    "name": "H10-no-rollback-fiction",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "yield token(\"I couldn't finish that reply. Please check any action receipt before trying again.\");",
+    "replace": "yield token(\"Nothing changed and nothing was saved.\");",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "retains a committed receipt when the follow-up fails without claiming that nothing was saved"
+  },
+  {
+    "name": "B01-line-release",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "const line = `${text.trim()}\\n`;",
+    "replace": "const line = text.trim();",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "delivers the first sentence through redaction while the provider still holds the rest of the reply"
+  },
+  {
+    "name": "B02-raw-limit",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (rawCharacters > maximum) throw new RangeError(\"voice_reply_limit\");",
+    "replace": "if (false) throw new RangeError(\"voice_reply_limit\");",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "bounds an unfinished model reply without releasing its oversized claim"
+  },
+  {
+    "name": "B03-output-limit",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (outputCharacters > input.maxOutputCharacters) throw new RangeError(\"voice_reply_limit\");",
+    "replace": "if (false) throw new RangeError(\"voice_reply_limit\");",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "bounds expanded refusal text before it exceeds the caller's output allowance"
+  },
+  {
+    "name": "B04-terminal-required",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (completion === null) throw new TypeError(\"voice_reply_incomplete\");",
+    "replace": "if (completion === null) completion = {content: null, toolCalls: [], finishReason: \"stop\"};",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "replaces an incomplete or empty stream instead of flushing its unfinished claim"
+  },
+  {
+    "name": "B05-empty-reply",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (index === 0) yield token(\"I couldn't form a reply. Please try again.\");",
+    "replace": "if (false) yield token(\"I couldn't form a reply. Please try again.\");",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "replaces an incomplete or empty stream instead of flushing its unfinished claim"
+  },
+  {
+    "name": "B06-second-round",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (round !== 0) throw new TypeError(\"voice_extra_tool_round\");",
+    "replace": "if (false) throw new TypeError(\"voice_extra_tool_round\");",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "refuses a second tool round even when an injected provider ignores the no-tools request"
+  },
+  {
+    "name": "B07-cancel-before-delta",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "input.signal.throwIfAborted();\n          if (chunk.type === \"completed\")",
+    "replace": "if (chunk.type === \"completed\")",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not speak a delta returned after the caller cancels"
+  },
+  {
+    "name": "B08-cancel-before-tool",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "input.signal.throwIfAborted();\n        const executed = await this.executeCalls",
+    "replace": "const executed = await this.executeCalls",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not dispatch a tool if cancellation arrives while the completed stream closes"
+  },
+  {
+    "name": "B09-cancel-before-followup",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "for (let round = 0; round < 2; round += 1) {\n        input.signal.throwIfAborted();",
+    "replace": "for (let round = 0; round < 2; round += 1) {",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not start the follow-up when the caller cancels after hearing a receipt"
+  },
+  {
+    "name": "B10-cancel-no-fallback",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (callerSignal.aborted) throw error;",
+    "replace": "if (false) throw error;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not speak a delta returned after the caller cancels"
+  },
+  {
+    "name": "S01-abbreviations",
+    "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+    "find": "if (/\\b(?:mr|mrs|ms|dr|prof|e\\.g|i\\.e)\\.$/iu.test(candidate)",
+    "replace": "if (false",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "keeps a title and decimal within their sentence instead of releasing a misleading prefix"
+  },
+  {
+    "name": "S02-internal-punctuation",
+    "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+    "find": "if (end < this.pending.length && !/\\s/u.test(this.pending[end]!)) continue;",
+    "replace": "if (false) continue;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "does not split a word at internal punctuation or emit an empty suffix"
+  },
+  {
+    "name": "S03-no-newline-claim-split",
+    "testPath": "apps/cloud-gateway/test/voice/voice-sentences.test.ts",
+    "expect": "holds a split action claim through line breaks until its sentence is complete",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+        "find": "this.pending.matchAll(/[.!?]+[\"'’”)]*/gu)",
+        "replace": "this.pending.matchAll(/[.!?\\n]+[\"'’”)]*/gu)"
+      },
+      {
+        "file": "apps/cloud-gateway/src/agent/voice-sentences.ts",
+        "find": "if (end < this.pending.length && !/\\s/u.test(this.pending[end]!)) continue;",
+        "replace": "if (!match[0].includes(\"\\n\") && end < this.pending.length && !/\\s/u.test(this.pending[end]!)) continue;"
+      }
+    ]
+  },
+  {
+    "name": "P01-streaming-wire",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "const body = this.requestBody(input, true);",
+    "replace": "const body = this.requestBody(input, false);",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "streams plain text with tools and leaves Telegram completion in JSON mode"
+  },
+  {
+    "name": "P02-first-token-bound",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!Number.isSafeInteger(input.firstTokenTimeoutMs) || input.firstTokenTimeoutMs < 1\n      || input.firstTokenTimeoutMs > input.timeoutMs)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses an invalid first-token deadline before requesting the provider"
+  },
+  {
+    "name": "P03-pre-cancel",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "controller.signal.throwIfAborted();\n      const response",
+    "replace": "const response",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "does not open a provider request for an already cancelled turn"
+  },
+  {
+    "name": "P04-first-token-deadline",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "const firstToken = setTimeout(abort, input.firstTokenTimeoutMs);",
+    "replace": "const firstToken = setTimeout(() => undefined, input.firstTokenTimeoutMs);",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "expires the first-token deadline while headers or an empty role-only stream stalls"
+  },
+  {
+    "name": "P05-overall-deadline",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "const overall = setTimeout(abort, input.timeoutMs);\n    const firstToken",
+    "replace": "const overall = setTimeout(() => undefined, input.timeoutMs);\n    const firstToken",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "keeps the total deadline armed after meaningful tool progress"
+  },
+  {
+    "name": "P06-http-status",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!response.ok || response.status >= 300 && response.status <= 399 || response.body === null\n        || !response.headers.get",
+    "replace": "if (response.body === null\n        || !response.headers.get",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses HTTP 302 before reading model output"
+  },
+  {
+    "name": "P07-response-media",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "|| !response.headers.get(\"content-type\")?.toLowerCase().startsWith(\"text/event-stream\")",
+    "replace": "|| false",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a non-SSE response before interpreting it"
+  },
+  {
+    "name": "P08-wire-bound",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (bytes > AGENT_RESPONSE_BYTES) throw new DeepSeekAdapterError(\"other\", \"agent_stream_limit\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_limit\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses an oversized wire response without returning executable calls"
+  },
+  {
+    "name": "P09-terminal-before-done",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (finishReason === null) throw new DeepSeekAdapterError(\"other\", \"agent_stream_incomplete\");",
+    "replace": "if (finishReason === null) finishReason = \"stop\";",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses an absent finish reason without returning executable calls"
+  },
+  {
+    "name": "P10-tool-finish-consistency",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if ((finishReason === \"tool_calls\") !== (toolCalls.length > 0)\n              || input.toolChoice === \"none\" && toolCalls.length > 0)",
+    "replace": "if (input.toolChoice === \"none\" && toolCalls.length > 0)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses tool completion with no tool without returning executable calls"
+  },
+  {
+    "name": "P11-none-enforced",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "|| input.toolChoice === \"none\" && toolCalls.length > 0",
+    "replace": "|| false",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses tool calls from the follow-up even if the provider ignores tool_choice none"
+  },
+  {
+    "name": "P12-no-chunks-after-terminal",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (finishReason !== null) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a second terminal chunk without returning executable calls"
+  },
+  {
+    "name": "P13-choice-index",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (choice.index !== 0) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a different choice index without returning executable calls"
+  },
+  {
+    "name": "P14-tool-index",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!Number.isSafeInteger(index) || (index as number) < 0 || (index as number) >= AGENT_MAX_TOOL_CALLS\n                || fn.arguments !== undefined && typeof fn.arguments !== \"string\")",
+    "replace": "if (fn.arguments !== undefined && typeof fn.arguments !== \"string\")",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a negative tool index without returning executable calls"
+  },
+  {
+    "name": "P15-tool-opener",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (typeof chunk.id !== \"string\" || !AGENT_CALL_ID.test(chunk.id)\n                  || chunk.type !== \"function\" || typeof fn.name !== \"string\" || !AGENT_NAME.test(fn.name))",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a non-function opener without returning executable calls"
+  },
+  {
+    "name": "P16-repeated-tool-identity",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (chunk.id !== undefined || chunk.type !== undefined || fn.name !== undefined)",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a repeated opener without returning executable calls"
+  },
+  {
+    "name": "P17-terminal-reason",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (choice.finish_reason !== \"stop\" && choice.finish_reason !== \"tool_calls\")",
+    "replace": "if (false)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a length-limited response without returning executable calls"
+  },
+  {
+    "name": "P18-object-shape",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "function streamRecord(value: unknown): Record<string, unknown> {\n  if (value === null || typeof value !== \"object\" || Array.isArray(value))",
+    "replace": "function streamRecord(value: unknown): Record<string, unknown> {\n  if (false)",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses an array delta without returning executable calls"
+  },
+  {
+    "name": "P19-first-tool-progress",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "clearTimeout(firstToken);\n            }\n          }\n          if (delta.content",
+    "replace": "void firstToken;\n            }\n          }\n          if (delta.content",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "clears the first-token timer after meaningful tool progress"
+  },
+  {
+    "name": "P20-first-text-progress",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "clearTimeout(firstToken);\n              content += delta.content;",
+    "replace": "void firstToken;\n              content += delta.content;",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "clears the first-token timer after meaningful text progress"
+  },
+  {
+    "name": "P21-body-cancel-race",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "signal.addEventListener(\"abort\", abort, { once: true });\n    })]);",
+    "replace": "void abort;\n    })]);",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "interrupts a stalled body read when the caller cancels"
+  },
+  {
+    "name": "P22-reader-cleanup",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "await reader?.cancel().catch(() => undefined);\n      reader?.releaseLock();",
+    "replace": "void reader;",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "cancels the body and releases the reader when the consumer stops after one sentence"
+  },
+  {
+    "name": "C01-voice-stream-composition",
+    "file": "apps/cloud-gateway/src/voice/voice-agent.ts",
+    "find": "protected override streamingProvider(): ModelAgentStreamProvider { return this.voice.provider; }",
+    "replace": "protected override streamingProvider(): ModelAgentStreamProvider | null { return null; }",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "expect": "gives an owner's call the memory tools through the voice agent adapter the production runtime composes"
+  },
+  {
+    "name": "P23-single-choice",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!Array.isArray(choices) || choices.length !== 1) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses an extra choice beside a valid one without returning executable calls"
+  },
+  {
+    "name": "B11-cancel-after-commit",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "callerSignal.throwIfAborted();",
+    "replace": "void callerSignal;",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "does not speak a receipt when cancellation arrives during the tool itself"
+  },
+  {
+    "name": "T01-voice-refusal-preserves-tap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "replace": "    await this.gateTool(input, port, call);\n    if (pipeline === null) return refusedTool(call, port.unknownToolRefusal);",
+    "expect": "preserves a Telegram tap after voice refuses an unsupported pipeline",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "T02-streaming-memory-needs-tap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool(input, port, call);",
+    "replace": "      return this.memoryTool(input, port, call);",
+    "expect": "requires a tap before streaming voice dispatches a tier-3 memory tool",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts"
+  },
+  {
+    "name": "T03-streaming-claim-before-body",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return this.memoryTool(input, port, call);",
+    "replace": "      const executed = await this.memoryTool(input, port, call);\n      const gated = await this.gateTool(input, port, call);\n      if (gated !== null) return gated;\n      return executed;",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-agent-dispatch.test.ts",
+    "expect": "claims a memory tap before the streaming voice tool body refuses malformed arguments and never refunds it"
+  },
+  {
+    "name": "P24-truncated-body",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (next.done) throw new DeepSeekAdapterError(\"other\", \"agent_stream_incomplete\");",
+    "replace": "if (next.done) { yield { type: \"completed\", completion: { content, toolCalls: [], finishReason: \"stop\" } }; return; }",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses a truncated stream without returning executable calls"
+  },
+  {
+    "name": "P25-content-type",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (typeof delta.content !== \"string\") throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses non-string content without returning executable calls"
+  },
+  {
+    "name": "P26-tool-array",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "if (!Array.isArray(delta.tool_calls)) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "replace": "if (false) throw new DeepSeekAdapterError(\"other\", \"agent_stream_invalid\");",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-agent-stream.test.ts",
+    "expect": "refuses string-valued tool calls without returning executable calls"
+  }
+]

@@ -35,7 +35,12 @@ import migration0034 from "../persistence/migrations/0034_scheduled_run_detail.s
 import migration0035 from "../persistence/migrations/0035_autonomy_tool_capabilities.sql";
 import migration0038 from "../persistence/migrations/0038_memory_lifetime_and_pins.sql";
 import migration0039 from "../persistence/migrations/0039_tool_confirmation_consumptions.sql";
-import migration0041 from "../persistence/migrations/0041_owner_reminders.sql";
+import migration0040 from "../persistence/migrations/0040_school_collector_keys.sql";
+import migration0043 from "../persistence/migrations/0043_guided_assignment.sql";
+import migration0044 from "../persistence/migrations/0044_owner_channel_parity.sql";
+import migration0045 from "../persistence/migrations/0045_school_collector_hosts.sql";
+import migration0048 from "../persistence/migrations/0048_note_sources_without_markdown_citation.sql";
+import migration0050 from "../persistence/migrations/0050_owner_reminders.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
 export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
@@ -76,5 +81,11 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0035_autonomy_tool_capabilities.sql", sql: migration0035 }),
   Object.freeze({ name: "0038_memory_lifetime_and_pins.sql", sql: migration0038 }),
   Object.freeze({ name: "0039_tool_confirmation_consumptions.sql", sql: migration0039 }),
-  Object.freeze({ name: "0041_owner_reminders.sql", sql: migration0041 }),
+  Object.freeze({ name: "0040_school_collector_keys.sql", sql: migration0040 }),
+  Object.freeze({ name: "0043_guided_assignment.sql", sql: migration0043 }),
+  Object.freeze({ name: "0044_owner_channel_parity.sql", sql: migration0044 }),
+  Object.freeze({ name: "0045_school_collector_hosts.sql", sql: migration0045 }),
+  Object.freeze({ name: "0048_note_sources_without_markdown_citation.sql", sql: migration0048 }),
+  Object.freeze({ name: "0050_owner_reminders.sql", sql: migration0050 }),
 ]);
+
