@@ -74,6 +74,7 @@ async function run(h: Harness, text: string, tool: ModelFunctionCall | null, opt
   } };
   const turnId = newUlid();
   const owner = options.owner ?? h.principalId;
+  const redactor = new Redactor();
   const repository = options.voice
     ? new ConversationRepository(env.DB, new EventRepository(env.DB))
     : buildTelegramConversationRepository(env.DB, new EventRepository(env.DB), {
@@ -86,15 +87,16 @@ async function run(h: Harness, text: string, tool: ModelFunctionCall | null, opt
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise(): Promise<never> { throw new Error("unexpected_confirmation"); } },
     autonomy: await testToolGate(env.DB), now: () => NOW,
+    schoolModel: emptyModel, universityModel: emptyModel, studyCoachModel: emptyModel,
   };
   const model = options.voice ? new OwnerVoiceAgentAdapter(dependencies) : new OwnerTelegramAgentAdapter({
-    ...dependencies, authorityText: text, schoolModel: emptyModel, universityModel: emptyModel, studyCoachModel: emptyModel,
+    ...dependencies, authorityText: text,
   });
   const service = new DefaultConversationService({
     repository, model, context: { async retrieve() { await options.beforeModel?.(); return []; } },
     dispatcher: new DefaultOutboxDispatcher({ repository, identityResolver: new D1TelegramIdentityResolver(env.DB),
       channels: new Map([["telegram", h.telegram]]), circuitBreaker: new ProviderCircuitBreaker(), now: () => NOW }),
-    redactor: new Redactor(), now: () => NOW,
+    redactor, now: () => NOW,
   });
   const sessionId = `${options.voice ? "voice" : "telegram"}:${h.chatId}`;
   let reply = "";

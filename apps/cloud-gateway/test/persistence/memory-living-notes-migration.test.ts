@@ -540,12 +540,57 @@ describe("memory living notes migration", () => {
     );
   });
 
-  it("needs the whole note-source insert guard to require a citation in Markdown", async () => {
+  it("accepts a note source the schema holds even when the markdown never names it", async () => {
+    const value = await fixture();
+    const noteVersionId = newUlid();
+    const text = "A note written in the model's own words, with no id in it.";
+    await env.DB.prepare(`INSERT INTO memory_topic_note_versions (
+      note_version_id, principal_id, topic_id, version_number, markdown, content_hash,
+      source_count, token_count, run_id, model_id, created_at
+    ) VALUES (?, ?, ?, 1, ?, ?, 1, 40, ?, ?, ?)`)
+      .bind(
+        noteVersionId,
+        value.principalId,
+        value.rootTopicId,
+        text,
+        await sha256Hex(text),
+        value.runId,
+        MODEL,
+        value.now,
+      ).run();
+
+    // 0047 removed the markdown-citation clause from this guard. The receipt is
+    // the source row the action names, not a copy of the id inside prose.
+    const sourceRefId = newUlid();
+    await expect(env.DB.prepare(`INSERT INTO memory_topic_note_sources (
+      source_ref_id, principal_id, note_version_id, source_position, source_kind,
+      source_id, item_version_id, created_at
+    ) VALUES (?, ?, ?, 0, 'topic_event', ?, NULL, ?)`)
+      .bind(sourceRefId, value.principalId, noteVersionId, value.rootTopicEventId, value.now).run())
+      .resolves.toBeDefined();
+  });
+
+  it("needs the whole note-source insert guard to reject a topic event the principal does not hold", async () => {
     const value = await fixture();
     const id = await insertVersion(value);
     await proveWholeTrigger(
       "memory_topic_note_sources_insert_guard",
-      () => insertSource(value, id, value.inboxTopicEventId),
+      () => insertSource(value, id, newUlid()),
+      "memory_topic_note_source_invalid",
+    );
+  });
+
+  it("needs the whole note-source insert guard to reject an item source whose version does not exist", async () => {
+    const value = await fixture();
+    const item = await seedItem(value, "An item the note may cite.");
+    const id = await insertVersion(value, value.rootTopicId, 1, 1, item.itemId);
+    await proveWholeTrigger(
+      "memory_topic_note_sources_insert_guard",
+      () => env.DB.prepare(`INSERT INTO memory_topic_note_sources (
+        source_ref_id, principal_id, note_version_id, source_position, source_kind,
+        source_id, item_version_id, created_at
+      ) VALUES (?, ?, ?, 0, 'item', ?, ?, ?)`)
+        .bind(newUlid(), value.principalId, id, item.itemId, newUlid(), value.now).run(),
       "memory_topic_note_source_invalid",
     );
   });

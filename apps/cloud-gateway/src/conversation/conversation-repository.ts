@@ -694,7 +694,10 @@ export class ConversationRepository {
       principalId: binding.principalId,
       correlationId: binding.turnId,
       causationId: binding.userEventId,
-      payload: historyPayload("voice", text, false),
+      payload: Object.freeze({
+        ...assistantStagePayload(text, takePendingTelegramMemoryReferences(binding.turnId), null),
+        channelCode: 1,
+      }),
       nowIso: observedAt.iso,
     });
     const requestHash = await sha256Hex(canonicalJson(["voice-sent-v1", binding.turnId, contentHash]));

@@ -916,6 +916,59 @@ describe("living memory notes", () => {
     expect(calls).toBe(0);
   });
 
+  it("accepts a note whose markdown names none of its source ids and applies it", async () => {
+    const memory = await createTestMemory();
+    await seedItem(memory, "My favourite drink is jasmine tea.");
+    const provider = new CallbackProvider((topics) => topics.map((topic) => ({
+      kind: "note",
+      topicId: topic.topicId,
+      sourceIds: topic.sources.map((source) => source.id),
+      reason: "Wrote the note in my own words.",
+      // The id-shaped token is not a source. Prose is the model's; code does
+      // not read ids out of it.
+      markdown: `${topic.name}: tea, and a calm morning. Order 01k5nm0000000000000000000z.`,
+    })));
+
+    const result = await workflow(memory, provider).runNight();
+
+    expect(result).toMatchObject({
+      outcome: "succeeded",
+      rewrittenNoteCount: 2,
+      failureCode: null,
+    });
+    const notes = await env.DB.prepare(`SELECT markdown FROM memory_topic_note_versions
+      WHERE principal_id = ? ORDER BY topic_id`).bind(memory.principalId)
+      .all<{ markdown: string }>();
+    expect(notes.results).toHaveLength(2);
+    for (const { markdown } of notes.results) {
+      expect(markdown).toMatch(/: tea, and a calm morning\. Order 01k5nm0000000000000000000z\.$/u);
+    }
+  });
+
+  it("still refuses a note whose sourceIds name a source that was not supplied", async () => {
+    const memory = await createTestMemory();
+    await seedItem(memory, "The owner prefers a short nightly summary.");
+    const neverSupplied = "01k5nm0000000000000000000v" as Ulid;
+    const provider = new CallbackProvider((topics) => topics.map((topic) => ({
+      kind: "note",
+      topicId: topic.topicId,
+      sourceIds: [...topic.sources.map((source) => source.id), neverSupplied],
+      reason: "Cited an id that was not in the prompt.",
+      markdown: `${topic.name}: a summary.`,
+    })));
+
+    const result = await workflow(memory, provider).runNight();
+
+    // The whole step is refused before anything is applied, which is the
+    // receipt: no note version lands in the database at all.
+    expect(result).toMatchObject({
+      outcome: "failed",
+      failureCode: "memory_consolidation_provider_output_invalid",
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topic_note_versions
+      WHERE principal_id = ?`).bind(memory.principalId).first("count")).toBe(0);
+  });
+
   it("reports a failed nightly consolidation phase as a scheduled-job failure", async () => {
     const memory = await createTestMemory();
     await seedItem(memory, "A failed note rewrite must not look like a quiet nightly run.");

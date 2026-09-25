@@ -1,5 +1,36 @@
 # Known issues
 
+## Literal-history rows that cannot be decoded are skipped, not surfaced to search (2026-09-25)
+
+Since #194 round 2, `indexSequences` in
+[`literal-history.ts`](apps/cloud-gateway/src/memory/literal-history.ts) records a
+row it cannot decode (an envelope that fails validation, a control character
+other than a line break or tab, non-NFC or oversize text, a payload that is not
+history-eligible) as a `failed` row in `memory_history_coverage`, with a named
+`failure_code` such as `history_row_text_invalid`, and moves the cursor past it.
+The hourly job reports the count as "rows skipped". What is not done yet:
+
+- `searchLiteral` does not tell the model that a skipped row exists, so a
+  `no_hit` covers every row that was indexed, not literally every row.
+- An exhaustive search job still fails as `history_step_corrupt` when its walk
+  reaches such a row.
+- A skipped archived row settles on its segment id alone, and no test drives a
+  skipped row through the archive path.
+
+Line breaks themselves are no longer a problem: the search copy stores them as
+spaces (the 0016 and 0025 CHECKs refuse them) and the event keeps the original.
+
+## Restoring a set at an older schema version still checks today's seeded rows (2026-09-25)
+
+Since #194 round 2, the restore accepts a set whose table cuts are a subset of
+`MEMORY_BACKUP_TABLES`, restores each table it holds by name, and skips backup
+tables the target schema does not have. `assertFreshRestoreTarget` still
+compares the migration-seeded rows (`capability_tiers` and the singletons) with
+the list in the current code. A target migrated only to an older set's schema
+version, from before a migration that seeded new capabilities, fails that check
+as `memory_backup_restore_target_not_fresh:capability_tiers`. This is older
+than #194 and applies to any older-version set.
+
 ## Tier-3 confirmations issued before tool binding (2026-09-24)
 
 #182 changes confirmation references from
@@ -237,6 +268,7 @@ the corrected tool gates, normal 403s and undated digest evidence.
 | Restored inferred proposals do not auto-promote merely because they were restored. | [liftItem](apps/cloud-gateway/src/memory/memory-repository.ts) records an owner transition. An explicit confirmation path now exists in [memory-owner-controls.ts](apps/cloud-gateway/src/memory/memory-owner-controls.ts); saying that it must be built before restore can be exposed is obsolete. [voice-agent.ts](apps/cloud-gateway/src/voice/voice-agent.ts) reads the previous assistant turn from the same call in `bde0a9b` (#147), **deployed in the observed production revision `0d69556`**; a tier-3 confirmation still needs a Telegram tap. |
 | Proposed items remain outside meaning recall. | [meaning-search.ts](apps/cloud-gateway/src/memory/meaning-search.ts) selects `memory_retrievable_item_versions`, whose [0016 view](apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql) requires active state. Keyword/area recall can include uncertain proposals. A non-direct turn may yield an uncertain reference; it does not thereby become an authenticated owner fact. |
 | Extraction can duplicate a paraphrase after failed finalization. | [automatic-distillation.ts](apps/cloud-gateway/src/memory/automatic-distillation.ts) derives identity from proposal content and sources, commits items, then finalizes the run. Exact proposal replay is stable; different wording is a different hash. Topic creation/refiling and whole-sentence promotion are implemented, so neither is still “waiting for a slice.” Extraction currently assigns durable lifetime. |
+| An unreferenced paraphrase can survive previous-reply forgetting. | On both Telegram and voice, previous-reply filtering removes a reply when its durable committed/cited item ids include a forgotten item, its paired owner turn is suppressed, or its text exactly restates the forgotten current version. A paraphrase with no committed/cited item id has the same lexical limit as canonical retrieval and can remain visible. Widening that judgment matcher is deferred rather than adding another rule in code. |
 | Initial archive subject attribution is application-enforced. | [0026](apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql) makes the backfilled subject immutable. The [archive reader](apps/cloud-gateway/src/memory/literal-history.ts) validates the envelope; SQL cannot inspect the R2 envelope on the first subject write. |
 | Literal-history hit receipts retain metadata; chunks can be deleted. | [literal-history.ts](apps/cloud-gateway/src/memory/literal-history.ts) rechecks suppression on results, but [0016](apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql) retains append-only exhaustive hit receipts and allows derived chunk deletion. A missing chunk can leave coverage marked indexed. The indexer is composed by [job-table.ts](apps/cloud-gateway/src/jobs/job-table.ts); the former “uncomposed” claim is false. |
 | Projection validates the same source repeatedly. | `verifyPageSources` in [memory-projection.ts](apps/cloud-gateway/src/sync/memory-projection.ts) caches event rows but revalidates envelopes and source text per fact/source pair. It runs before stage replay checks. Limits are 32 facts and eight sources per fact; historical timing and mutation claims were not remeasured. |
@@ -305,6 +337,8 @@ work, not an implemented reader.
 
 | Remaining limit | Evidence and boundary |
 |---|---|
+| Guest calls on deployed main receive owner-only prompt material. | Before #174 deploys, `OwnerAgentCore.streamCaptured` reads Sid's pinned core profile and supplies the owner call prompt and full owner tool catalogue even when the active call principal is a guest. #174 gates all three on exact owner-principal equality and adds a guest-prompt regression test. This remains live on main until that reviewed change deploys. |
+| #174 deliberately gives authenticated guests zero model tools. | This is a safer interim, not the final guest-capability design. The approved design permits a grant-filtered guest catalogue such as `research.web` and `memory.own`, but the owner catalogue is not a scoped guest catalogue. Until those guest-specific adapters enforce each grant and resource scope, #174 supplies no tools and `toolChoice: "none"`. |
 | Guest-grant notices and owner rejection effects can repeat after a crash. | [guest-grant-notice.ts](apps/cloud-gateway/src/voice/guest-grant-notice.ts) sends before marking delivered; [telegram-provider.ts](apps/cloud-gateway/src/providers/telegram-provider.ts) does not transmit its internal idempotency key to the API. [call-session-do.ts](apps/cloud-gateway/src/voice/call-session-do.ts) records rejection delivery after refusal/end/alert effects. In-memory overlap protection cannot make those effects atomic with D1. |
 | Permanently failing guest notices remain pending. | [guest-grant-notice-drain.ts](apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts) fairly rotates the queue, fixing oldest-ten starvation. There is no 24-hour-undelivered line in [digest-composer.ts](apps/cloud-gateway/src/digest/digest-composer.ts). |
 | Late passphrase fragments are not universally suppressed. | `#guardOwnerRepeat` in [call-session-do.ts](apps/cloud-gateway/src/voice/call-session-do.ts) returns short fragments as ordinary speech when status is `available` after the fragment window. The `spent` path was corrected by `c58463b` (#137), **deployed in the observed production revision `0d69556`**; the old blanket description of all later statuses was inaccurate for the audit base. |
