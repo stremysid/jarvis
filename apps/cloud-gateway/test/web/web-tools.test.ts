@@ -8,11 +8,10 @@
  * shared core, not of this module.
  */
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
-import { OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { AGENT_MAX_TOOLS } from "../../src/providers/deepseek-provider.js";
-import { OWNER_VOICE_TOOL_DEFINITIONS } from "../../src/voice/voice-agent.js";
 import type { ModelAdapterStreamInput } from "../../src/model/model-adapter.js";
 import type { ModelFunctionCall } from "../../src/providers/provider-types.js";
 import type { ToolAutonomyGateContract, ToolGateDecision } from "../../src/autonomy/tool-gate.js";
@@ -20,11 +19,14 @@ import {
   EXA_MCP_ENDPOINT,
   runWebTool,
   UNTRUSTED_WEB_NOTICE,
+  WEB_LIMITS,
   WEB_READ_TOOL_NAME,
   WEB_SEARCH_TOOL_NAME,
+  webToolsFromEnv,
   type WebMarkdownConverter,
   type WebToolsDependencies,
 } from "../../src/web/web-tools.js";
+import type { Env } from "../../src/env.js";
 import { argumentTurn } from "../channels/argument-tool-fixture.js";
 import { voiceArgumentTurn } from "../channels/voice-argument-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
@@ -128,6 +130,7 @@ describe("web_read", () => {
       truncated: false,
       more: null,
       javascriptRendering: "not_configured",
+      redirectsChecked: true,
     });
     expect(result.receipt).toBe("Read uwaterloo.ca.");
     expect(rows).toHaveLength(1);
@@ -238,9 +241,26 @@ describe("web_read", () => {
     const init = fetcher.mock.calls[0]?.[1];
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer synthetic-token");
     expect(JSON.parse(String(init?.body))).toEqual({ url: "https://app.example.org/" });
-    expect(content).toMatchObject({ status: "completed", method: "browser_rendering", text: "# Rendered app", untrustedWebContent: true });
+    // Cloudflare's browser follows redirects where this code cannot re-check
+    // them, so the result must not look like a checked direct read.
+    expect(content).toMatchObject({
+      status: "completed", method: "browser_rendering", text: "# Rendered app", untrustedWebContent: true,
+      finalUrl: null, redirectsChecked: false,
+    });
     expect(result.providerResult.content).not.toContain("synthetic-token");
     expect(rows[0]).toMatchObject({ method: "browser_rendering", outcome: "completed" });
+  });
+
+  it("applies the URL and argument caps from the limits seam like every other bound", async () => {
+    const tightUrl = dependencies({ limits: { maxUrlCharacters: 20 } });
+    const longUrl = await run(tightUrl, toolCall(WEB_READ_TOOL_NAME, { url: "https://example.org/a-longer-path" }));
+    expect(tightUrl.fetch).not.toHaveBeenCalled();
+    expect(String(longUrl.content.error)).toBe("url_length: a URL must be 1 to 20 characters.");
+
+    const tightArguments = dependencies({ limits: { maxArgumentBytes: 16 } });
+    const bigArguments = await run(tightArguments, toolCall(WEB_READ_TOOL_NAME, { url: "https://example.org/" }));
+    expect(tightArguments.fetch).not.toHaveBeenCalled();
+    expect(String(bigArguments.content.error)).toBe("arguments_too_large: arguments are limited to 16 bytes.");
   });
 
   it("tells the model when the web tools were not wired rather than returning an empty page", async () => {
@@ -296,6 +316,19 @@ describe("web_search", () => {
     expect(rows[0]).toMatchObject({ outcome: "failed", http_status: 429, method: "exa_mcp" });
   });
 
+  it("names the search reply's own byte cap, not the page cap, when a search reply is cut short", async () => {
+    const complete = `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: SEARCH_TEXT }] } })}\n\n`;
+    const cap = new TextEncoder().encode(complete).byteLength + 16;
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(`${complete}event: message\ndata: ${"x".repeat(400)}`,
+      { status: 200, headers: { "content-type": "text/event-stream" } }));
+    const { content, rows } = await run(dependencies({ fetch: fetcher, limits: { maxSearchResponseBytes: cap } }),
+      toolCall(WEB_SEARCH_TOOL_NAME, { query: "OUAC deadline" }));
+    expect(content).toMatchObject({ status: "completed", text: SEARCH_TEXT, truncated: true });
+    expect(String(content.more)).toContain(`larger than ${cap} bytes, so only its first ${cap} bytes`);
+    expect(String(content.more)).not.toContain(String(WEB_LIMITS.maxSourceBytes));
+    expect(rows[0]).toMatchObject({ outcome: "completed", truncated: 1, bytes: cap });
+  });
+
   it("surfaces a tool error, a JSON-RPC error and a reply with no content as failures", async () => {
     const cases: Array<[Response, RegExp]> = [
       [jsonRpc({ isError: true, content: [{ type: "text", text: "Exa API error: invalid query" }] }), /^search_provider_error: Exa API error/u],
@@ -313,17 +346,63 @@ describe("web_search", () => {
   });
 });
 
-describe("web tools on both owner channels", () => {
-  it("puts web_read and web_search in the Telegram and the call catalogues, within the provider's tool cap", () => {
-    for (const catalogue of [OWNER_TELEGRAM_TOOL_DEFINITIONS, OWNER_VOICE_TOOL_DEFINITIONS]) {
-      const names = catalogue.map((tool) => tool.name);
-      expect(names).toContain(WEB_READ_TOOL_NAME);
-      expect(names).toContain(WEB_SEARCH_TOOL_NAME);
-      expect(catalogue.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
+describe("webToolsFromEnv", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function fromEnv(publicOrigin: string | undefined): WebToolsDependencies {
+    return webToolsFromEnv({ PUBLIC_ORIGIN: publicOrigin } as unknown as Env);
+  }
+
+  it("refuses every web_read and fetches nothing when PUBLIC_ORIGIN is missing, blank, not a URL or has no web host", async () => {
+    const network = vi.spyOn(globalThis, "fetch").mockImplementation(async () => { throw new Error("unexpected_fetch"); });
+    for (const origin of [undefined, "", "   ", "jarvis gateway", "mailto:ops@example.org", "ftp://files.example.org"]) {
+      const web = fromEnv(origin);
+      expect(web.ownHost).toBeNull();
+      const { result, content, rows } = await run(web, toolCall(WEB_READ_TOOL_NAME, { url: "https://example.org/page" }));
+      expect(content.status).toBe("refused");
+      expect(String(content.error)).toMatch(/^own_origin_unknown: nothing was fetched\./u);
+      expect(String(content.error)).toContain("PUBLIC_ORIGIN");
+      expect(result.receiptId).toBeNull();
+      expect(rows[0]).toMatchObject({ tool_name: "web_read", outcome: "refused", method: "none", bytes: 0 });
     }
-    const telegramWeb = OWNER_TELEGRAM_TOOL_DEFINITIONS.filter((tool) => tool.name.startsWith("web_"));
-    const voiceWeb = OWNER_VOICE_TOOL_DEFINITIONS.filter((tool) => tool.name.startsWith("web_"));
-    expect(telegramWeb).toEqual(voiceWeb);
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it("keeps web_search working without PUBLIC_ORIGIN, because the own-origin limit is about fetching pages", async () => {
+    const network = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      jsonRpc({ content: [{ type: "text", text: SEARCH_TEXT }] }));
+    const { content } = await run(fromEnv(undefined), toolCall(WEB_SEARCH_TOOL_NAME, { query: "OUAC deadline" }));
+    expect(String(network.mock.calls[0]?.[0])).toBe(EXA_MCP_ENDPOINT);
+    expect(content).toMatchObject({ status: "completed", text: SEARCH_TEXT });
+  });
+
+  it("takes the own host from PUBLIC_ORIGIN, refuses it in any case or with a trailing dot, and reads other hosts", async () => {
+    const network = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response("plain notes", { headers: { "content-type": "text/plain" } }));
+    const web = fromEnv(" https://Gateway.Example.NET/base ");
+    expect(web.ownHost).toBe("gateway.example.net");
+
+    const own = await run(web, toolCall(WEB_READ_TOOL_NAME, { url: "https://GATEWAY.example.net./telegram" }));
+    expect(String(own.content.error)).toMatch(/^own_origin_refused:/u);
+    expect(network).not.toHaveBeenCalled();
+
+    const other = await run(web, toolCall(WEB_READ_TOOL_NAME, { url: "https://example.org/notes.txt" }));
+    expect(other.content).toMatchObject({ status: "completed", text: "plain notes" });
+    expect(network).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("web tools on both owner channels", () => {
+  // Since #174 both adapters hand the provider this one catalogue, so being in
+  // it is being on both channels. The two turn tests below prove each adapter
+  // actually runs the tool.
+  it("puts web_read and web_search in the shared owner catalogue, within the provider's tool cap", () => {
+    const names = OWNER_TOOL_DEFINITIONS.map((tool) => tool.name);
+    expect(names).toContain(WEB_READ_TOOL_NAME);
+    expect(names).toContain(WEB_SEARCH_TOOL_NAME);
+    expect(OWNER_TOOL_DEFINITIONS.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
   });
 
   it("runs web_search from a Telegram turn and hands the model the untrusted results with a receipt", async () => {

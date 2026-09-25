@@ -14,9 +14,14 @@ VALUES ('read.web', 1, 'Search the public web or read one public web page', '202
 -- page is public and re-readable, and this table answers "what did Jarvis look
 -- at", not "what did the page say".
 CREATE TABLE web_tool_receipts (
+  -- The row's own ULID. It is not the id the model quotes.
   receipt_id TEXT PRIMARY KEY,
   principal_id TEXT NOT NULL,
   turn_id TEXT NOT NULL,
+  -- The id the model quotes is receipt: followed by this value, the same
+  -- convention every owner tool uses. Nothing here assumes a provider's call
+  -- ids are unique across turns, so that id resolves through
+  -- UNIQUE (turn_id, tool_call_id) below rather than being the primary key.
   tool_call_id TEXT NOT NULL,
   tool_name TEXT NOT NULL CHECK (tool_name IN ('web_read', 'web_search')),
   -- The URL requested, or the search query, exactly as the model sent it.

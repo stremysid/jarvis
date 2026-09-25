@@ -8,6 +8,10 @@
  * list, no keyword rule and no site allowlist. The only limits are about safety
  * and resources -- http/https only, never the gateway's own origin, a timeout
  * on every network step, and a cap on bytes downloaded and characters returned.
+ * The direct path re-checks every redirect. The Browser Rendering path checks
+ * only the URL it hands over: Cloudflare's browser follows redirects inside
+ * Cloudflare's network, reports no landing URL, and this code cannot see or
+ * re-check those hops (see `renderedRead`).
  *
  * Web content is data. Every result is marked `untrustedWebContent` with a
  * notice the model reads, and neither tool can act: an outward action still
@@ -100,7 +104,12 @@ export interface WebToolsDependencies {
   /** Workers AI, for HTML and PDF conversion. Null where the binding is absent. */
   readonly ai: WebMarkdownConverter | null;
   readonly fetch: typeof fetch;
-  /** The gateway's own host (from PUBLIC_ORIGIN), which is never fetched. */
+  /**
+   * The gateway's own host (from PUBLIC_ORIGIN), which is never fetched. Null
+   * means the host is unknown, and then `web_read` refuses every URL: without
+   * it the own-origin limit cannot be applied, and skipping it would turn the
+   * one safety limit off exactly when the configuration is broken.
+   */
   readonly ownHost: string | null;
   /** Browser Rendering's REST credentials; null keeps that path off. */
   readonly browserRendering: { readonly accountId: string; readonly apiToken: string } | null;
@@ -124,10 +133,19 @@ function normalizedHost(host: string): string {
   return host.toLowerCase().replace(/\.$/u, "");
 }
 
+/**
+ * The host of an http(s) origin, or null. A value that parses under another
+ * scheme (`mailto:...`) is null too: its empty host would compare unequal to
+ * every web URL and quietly switch the own-origin limit off. An http(s) URL
+ * with an empty host does not parse, so no second emptiness check is needed.
+ */
 function hostOf(origin: string | undefined): string | null {
   const value = configured(origin);
   if (value === null) return null;
-  try { return normalizedHost(new URL(value).hostname); } catch { return null; }
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return normalizedHost(url.hostname);
 }
 
 export function webToolsFromEnv(env: Env): WebToolsDependencies {
@@ -195,7 +213,7 @@ export async function runWebTool(run: RunWebToolInput): Promise<ExecutedTool> {
       throw new WebToolFailure("failed", "web_tools_not_wired: this gateway was started without the web tools, so nothing was fetched.");
     }
     if (toolName === WEB_READ_TOOL_NAME) {
-      const args = parseWebArguments(call, ["url", "offset", "renderJavaScript"], ["url"]);
+      const args = parseWebArguments(call, ["url", "offset", "renderJavaScript"], ["url"], limitsOf(run.web));
       target = typeof args.url === "string" ? args.url : "";
       const read = await webRead(run.web, args, run.input.signal);
       return await finish(run, {
@@ -204,7 +222,7 @@ export async function runWebTool(run: RunWebToolInput): Promise<ExecutedTool> {
         truncated: read.payload.truncated, detail: null,
       }, `Read ${hostLabel(read.finalUrl ?? target)}.`, read.payload.body);
     }
-    const args = parseWebArguments(call, ["query", "numResults"], ["query"]);
+    const args = parseWebArguments(call, ["query", "numResults"], ["query"], limitsOf(run.web));
     target = typeof args.query === "string" ? args.query : "";
     const search = await webSearch(run.web, args, run.input.signal);
     return await finish(run, {
@@ -280,10 +298,10 @@ function hostLabel(url: string): string {
 }
 
 function parseWebArguments(call: ModelFunctionCall, allowed: readonly string[],
-  required: readonly string[]): Record<string, unknown> {
+  required: readonly string[], limits: WebLimits): Record<string, unknown> {
   const text = call.arguments === "" ? "{}" : call.arguments;
-  if (new TextEncoder().encode(text).byteLength > WEB_LIMITS.maxArgumentBytes) {
-    throw new WebToolFailure("refused", `arguments_too_large: arguments are limited to ${WEB_LIMITS.maxArgumentBytes} bytes.`);
+  if (new TextEncoder().encode(text).byteLength > limits.maxArgumentBytes) {
+    throw new WebToolFailure("refused", `arguments_too_large: arguments are limited to ${limits.maxArgumentBytes} bytes.`);
   }
   let decoded: unknown;
   try { decoded = JSON.parse(text) as unknown; }
@@ -306,9 +324,9 @@ function parseWebArguments(call: ModelFunctionCall, allowed: readonly string[],
  * redirect. Scheme and own origin only: which site it is, and what it is
  * about, are the model's business.
  */
-export function checkWebUrl(raw: string, ownHost: string | null): URL {
-  if (raw.length === 0 || raw.length > WEB_LIMITS.maxUrlCharacters) {
-    throw new WebToolFailure("refused", `url_length: a URL must be 1 to ${WEB_LIMITS.maxUrlCharacters} characters.`);
+export function checkWebUrl(raw: string, ownHost: string | null, limits: WebLimits = WEB_LIMITS): URL {
+  if (raw.length === 0 || raw.length > limits.maxUrlCharacters) {
+    throw new WebToolFailure("refused", `url_length: a URL must be 1 to ${limits.maxUrlCharacters} characters.`);
   }
   let url: URL;
   try { url = new URL(raw); }
@@ -316,7 +334,12 @@ export function checkWebUrl(raw: string, ownHost: string | null): URL {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new WebToolFailure("refused", `scheme_refused: only http and https URLs can be read, not ${url.protocol}`);
   }
-  if (ownHost !== null && normalizedHost(url.hostname) === ownHost) {
+  // Fail closed: an unknown own host refuses the read rather than skipping the
+  // check. What is refused is a configuration state, never a site or a topic.
+  if (ownHost === null) {
+    throw new WebToolFailure("refused", "own_origin_unknown: nothing was fetched. The gateway's PUBLIC_ORIGIN setting is missing or is not an http(s) URL, so Jarvis cannot tell its own address apart from other sites, and web_read stays off until it is set. web_search still works. Tell Sid the PUBLIC_ORIGIN secret needs setting.");
+  }
+  if (normalizedHost(url.hostname) === ownHost) {
     throw new WebToolFailure("refused", "own_origin_refused: Jarvis's own gateway is never fetched through the web tools.");
   }
   return url;
@@ -375,7 +398,8 @@ interface TextPayload {
 
 /** Cuts text to the return cap and says so, with how to get the rest. */
 function pageOfText(limits: WebLimits, text: string, offset: number, facts: Record<string, unknown>,
-  sourceTruncated: boolean, continuation: (end: number) => string): TextPayload {
+  source: { readonly truncated: boolean; readonly capBytes: number }, continuation: (end: number) => string): TextPayload {
+  const sourceTruncated = source.truncated;
   if (offset > text.length) {
     throw new WebToolFailure("refused", `offset_past_end: offset ${offset} is past the end of the text (${text.length} characters).`);
   }
@@ -388,7 +412,9 @@ function pageOfText(limits: WebLimits, text: string, offset: number, facts: Reco
   const truncated = cut || sourceTruncated;
   const notes: string[] = [];
   if (cut) notes.push(`Only characters ${offset} to ${end} of ${text.length} were returned. ${continuation(end)}`);
-  if (sourceTruncated) notes.push(`The source was larger than ${limits.maxSourceBytes} bytes, so only its first ${limits.maxSourceBytes} bytes were downloaded; anything after that cannot be read with this tool.`);
+  // Name the cap that actually stopped the download: a search reply and a page
+  // have different caps, and the wrong one misstates the size to the model.
+  if (sourceTruncated) notes.push(`The source was larger than ${source.capBytes} bytes, so only its first ${source.capBytes} bytes were downloaded; anything after that cannot be read with this tool.`);
   return {
     body: Object.freeze({
       untrustedWebContent: true,
@@ -424,7 +450,7 @@ async function webRead(web: WebToolsDependencies, args: Record<string, unknown>,
   if (args.renderJavaScript !== undefined && typeof args.renderJavaScript !== "boolean") {
     throw new WebToolFailure("refused", "renderJavaScript_invalid: renderJavaScript must be true or false.");
   }
-  const url = checkWebUrl(args.url, web.ownHost);
+  const url = checkWebUrl(args.url, web.ownHost, limits);
   const rendering = web.browserRendering === null ? "not_configured" : "available";
   const continuation = (end: number): string =>
     `Call web_read again with url ${JSON.stringify(args.url)} and offset ${end} for the next part.`;
@@ -458,7 +484,7 @@ async function webRead(web: WebToolsDependencies, args: Record<string, unknown>,
         });
       }
       let next: URL;
-      try { next = checkWebUrl(new URL(location, current).toString(), web.ownHost); }
+      try { next = checkWebUrl(new URL(location, current).toString(), web.ownHost, limits); }
       catch (error) {
         if (error instanceof WebToolFailure) {
           throw new WebToolFailure("refused", `redirect_refused: ${error.detail}`, { finalUrl: current.toString(), httpStatus: reply.status, method: "direct" });
@@ -489,8 +515,8 @@ async function webRead(web: WebToolsDependencies, args: Record<string, unknown>,
   const { text, title } = await pageText(web, contentType, body.bytes, current, parent, facts);
   const payload = pageOfText(limits, text, offset, {
     url: args.url, finalUrl, title, httpStatus: response.status, contentType: contentType || null,
-    method: "direct", javascriptRendering: rendering,
-  }, body.truncated, continuation);
+    method: "direct", javascriptRendering: rendering, redirectsChecked: true,
+  }, { truncated: body.truncated, capBytes: limits.maxSourceBytes }, continuation);
   return { finalUrl, method: "direct", httpStatus: response.status, bytes: body.bytes.byteLength, payload };
 }
 
@@ -591,10 +617,14 @@ async function renderedRead(credentials: NonNullable<WebToolsDependencies["brows
   }
   // Browser Rendering reports the page as markdown only: no final URL after
   // in-browser redirects and no title, so those are null rather than guessed.
+  // It follows redirects itself, off this Worker, so the own-origin check
+  // covered the requested URL only. `redirectsChecked: false` tells the model
+  // so, and the receipt's null final_url records that the landing host is
+  // unknown rather than implying it was the requested one.
   const payload = pageOfText(limits, record.result, offset, {
     url: url.toString(), finalUrl: null, title: null, httpStatus: null, contentType: null,
-    method: "browser_rendering", javascriptRendering: "available",
-  }, body.truncated, (end) => `${continuation(end)} Keep renderJavaScript true.`);
+    method: "browser_rendering", javascriptRendering: "available", redirectsChecked: false,
+  }, { truncated: body.truncated, capBytes: limits.maxSourceBytes }, (end) => `${continuation(end)} Keep renderJavaScript true.`);
   return { finalUrl: null, method: "browser_rendering", httpStatus: response.status, bytes: body.bytes.byteLength, payload };
 }
 
@@ -673,7 +703,7 @@ async function webSearch(web: WebToolsDependencies, args: Record<string, unknown
     throw new WebToolFailure("failed", "search_provider_empty: the search provider returned no text content at all, so there are no results to report.", facts);
   }
   const payload = pageOfText(limits, text, 0, { query: args.query, provider: "exa", keyless: web.exaApiKey === null },
-    body.truncated, () => "Ask for fewer results, or use web_read on a result URL to read that page in full.");
+    { truncated: body.truncated, capBytes: limits.maxSearchResponseBytes }, () => "Ask for fewer results, or use web_read on a result URL to read that page in full.");
   return { httpStatus: response.status, bytes: body.bytes.byteLength, payload };
 }
 
