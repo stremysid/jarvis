@@ -3,6 +3,56 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — No redaction toward Sid; guests and telemetry keep it
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid`,
+worktree `C:\w\no-redaction`, based on `origin/main` `7d773d3` (#183). Touches
+Sid's principles 3, 4 and 8. Claude-built; needs a DeepSeek audit before merge.
+
+**Why.** Sid, 2026-09-24 ~11 PM: "Yes Jarvis can say email codes and store them
+… there should be nothing between Jarvis and I interms of what he knows and I
+know". At `7d773d3` every caller of `sanitizeRedaction` hid Sid's six-digit
+codes, contextual PINs, labelled passwords, passphrases and phone numbers from
+Sid himself: in the event log and archive, the model prompt, recall, memory
+writes (refused), Python projection (refused) and every Telegram and spoken reply.
+
+**What changed.** One question decides: who is receiving this text?
+`RedactionAudience` in `packages/contracts/src/calls.ts`:
+- `owner` (default): Sid's own chat, calls, memory, store and PC. Only machine
+  credentials go: private keys, `Authorization` headers, bearer tokens, known
+  API-key shapes, and now the Telegram bot-token shape.
+- `external`: guest call sessions (ingress, stored turn, model context, spoken
+  reply; composed by `voiceSessionAudience` in `voice/production-runtime.ts`),
+  `policy/policy-audit.ts` and `http/voice-callback-recorder.ts`. All 12 rules
+  still apply; the 136-case gap table's external output is byte-for-byte
+  unchanged.
+- Python `projection_policy.py` mirrors the owner reader: 8 of its 11 patterns
+  were deleted as dead.
+
+**Kept on purpose.** The owner passphrase and guest PIN verifiers stay hashed
+(authentication, not hiding data). The voice DTMF field marker stays (it is the
+keypad verification input). No tool gate or confirmation tier was touched.
+
+**Evidence.** Focused vitest: 21 files, 1200 passed (security, contracts,
+context retriever, voice reply, packages/contracts) and 25 files, 1528 passed
+on the neighbouring set. pytest `tests/memory tests/sync`: 477 passed. ruff
+clean, mypy clean, gateway `tsc` 0. Differential: 136 gap cases, 181 decisions,
+0 runtime differences, 13,128 streams match for both readers. Mutations via
+`reviewer-tools/mutate.ps1`: 6 of 6 killed by the named tests; one manual Python
+mutation (bot-token pattern) killed 2 named tests.
+
+**Disclosed slip.** While editing, one PowerShell `[IO.File]` call resolved a
+relative path against the process directory and wrote
+`apps/cloud-gateway/src/conversation/context-retriever.ts` in **`C:\javis`**. It
+was restored with `git -C C:\javis checkout --` of that one file within about a
+minute. `C:\javis` status before and after: only its three untracked files.
+
+**Deploy order.** Gateway before local agent: an old gateway rejects projected
+facts that a new agent now sends. Stored data redacted before this change stays
+redacted; it cannot be recovered.
+
+**Coordination.** `literal-history.ts` is untouched (PR #194 owns it); it
+inherits the owner default. #190 re-merges main after this lands.
 ## 2026-09-24 — Hermes round 2: the tar host comes from the system directory
 
 Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not

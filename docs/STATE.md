@@ -132,7 +132,7 @@ failures before attributing them; merge on the reviewed head's CI evidence.
    shared core combines sanitized service receipts with separately read text.
 3. **Remaining redaction gaps:** bare/spoken-word PIN and phone/passphrase coverage
    remain open. #149's credential-word digit fix is deployed; newer #171 quoted and
-   header redaction changes await deployment. [Known limits](../KNOWN_ISSUES.md). `codex/redaction-gaps` ([#183](https://github.com/stremysid/jarvis/pull/183)) fixes the assignment, phone-format and newline-bearer gaps in both runtimes; deployment remains pending. **Bare four-digit numbers deliberately survive**, as Sid's brief requires: a year or quantity is not proof of a PIN. See the [measured coverage and limits](reviews/2026-09-24-redaction-gaps.md).
+   header redaction changes await deployment. [Known limits](../KNOWN_ISSUES.md). **Superseded toward Sid by `codex/no-redaction-toward-sid` (PR pending, not merged or deployed):** Sid decided on 2026-09-24 that nothing is hidden from him, so these rules now apply only to readers who are not Sid (guest calls, audit and callback telemetry); toward Sid only machine credentials are removed. `codex/redaction-gaps` ([#183](https://github.com/stremysid/jarvis/pull/183)) fixes the assignment, phone-format and newline-bearer gaps in both runtimes; deployment remains pending. **Bare four-digit numbers deliberately survive**, as Sid's brief requires: a year or quantity is not proof of a PIN. See the [measured coverage and limits](reviews/2026-09-24-redaction-gaps.md).
 
 #144's suppression anti-join fix is deployed; #146 keeps its shared predicate and parity
 guards. It is no longer an open work item.
