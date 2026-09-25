@@ -2,7 +2,7 @@
 
 ## Confirmations outside Sid's five that migration 0051 does not remove (2026-09-25)
 
-[#PRNUM](https://github.com/stremysid/jarvis/pull/PRNUM) makes tier 3 exactly
+[#199](https://github.com/stremysid/jarvis/pull/199) makes tier 3 exactly
 Sid's five actions (spending money, sending an email, making a call,
 submitting school work, texting or calling someone on his behalf). Sid,
 2026-09-24: "the only things I'd might want a human to double check with me

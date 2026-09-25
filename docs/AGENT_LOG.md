@@ -3,7 +3,7 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-25 — Claude builder: confirm only Sid's five actions (#PRNUM, migration 0051)
+## 2026-09-25 — Claude builder: confirm only Sid's five actions (#199, migration 0051)
 
 Signed: Claude (builder agent), `codex/five-action-gates` from main `9ea215b`. Touches Sid's rules 1, 3, 4, 8, 9.
 
