@@ -1,0 +1,130 @@
+[
+  {
+    "name": "M1 executeCalls no longer stops a round once the turn has ended",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (input.signal.aborted) {\n        executed.push(refusedTool(call, TURN_ENDED_REFUSAL));\n        continue;\n      }\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "stops the loop when the turn ends mid-step and never asks the gate about a later call"
+  },
+  {
+    "name": "M2 Telegram loop asks the model again after the turn ended",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "        if (controller.signal.aborted) {",
+    "replace": "        if (false) {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "stops at the turn deadline instead of taking another step"
+  },
+  {
+    "name": "M3 voice loop no longer checks the turn deadline before each step",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "        input.signal.throwIfAborted();\n        const toolsMayFollow",
+    "replace": "        const toolsMayFollow",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "stops at the turn deadline instead of taking another step"
+  },
+  {
+    "name": "M4 Telegram loop has no runaway cap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "while (completion.finishReason !== \"stop\" && rounds.length < MAX_TOOL_ROUNDS) {",
+    "replace": "while (completion.finishReason !== \"stop\") {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "makes the model answer once the runaway cap is reached"
+  },
+  {
+    "name": "M5 voice loop has no runaway cap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "        if (!toolsMayFollow) throw new TypeError(\"voice_extra_tool_round\");\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "makes the model answer once the runaway cap is reached"
+  },
+  {
+    "name": "M6 tools are never switched off at the cap",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "return completedRounds >= MAX_TOOL_ROUNDS ? \"none\" : initial;",
+    "replace": "return initial;",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "makes the model answer once the runaway cap is reached"
+  },
+  {
+    "name": "M7 earlier rounds are not handed back to the model",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    ...(rounds.length > 1 ? { earlierToolRounds: Object.freeze(rounds.slice(0, -1)) } : {}),\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "each step seeing every earlier result"
+  },
+  {
+    "name": "M8 provider drops the earlier rounds from the messages",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "  for (const round of earlier) appendToolRound(messages, round.calls, round.results, seenCallIds);",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "expect": "sends every earlier tool round in order before the latest one"
+  },
+  {
+    "name": "M9 provider accepts a call id reused across rounds",
+    "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+    "find": "    if (result === undefined || result.name !== call.name || seenCallIds.has(call.id)) {",
+    "replace": "    if (result === undefined || result.name !== call.name) {",
+    "testPath": "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "expect": "refuses a tool history that reuses a call id across rounds"
+  },
+  {
+    "name": "M10 no per-step call bound",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (calls.length > MAX_TOOL_CALLS_PER_ROUND || new Set(ids).size",
+    "replace": "if (new Set(ids).size",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "refuses a step with more calls than the per-step bound without executing any of them"
+  },
+  {
+    "name": "M11 a repeated call id in one step is executed",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": " || new Set(ids).size !== ids.length",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "refuses a step that repeats a call id without executing either call"
+  },
+  {
+    "name": "M12 the model's declared references are never recorded",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    port.recordReferences(input.correlationId, Object.freeze([...itemIds]));\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/memory/memory-search.test.ts",
+    "expect": "records the memory the model declares as the turn's reference"
+  },
+  {
+    "name": "M13 Telegram loop still ends after one tool step",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "          toolChoice: toolChoiceForRound(ownerTurn ? \"auto\" : \"none\", rounds.length),",
+    "replace": "          toolChoice: rounds.length > 0 ? \"none\" : ownerTurn ? \"auto\" : \"none\",",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "runs every call the model makes in one step"
+  },
+  {
+    "name": "M14 a declared id the turn never showed is accepted",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (!touchedItemIds.has(itemId)) {",
+    "replace": "      if (false) {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "refuses a declared memory id the turn never showed the model"
+  },
+  {
+    "name": "M15 a declaration past the store's bound is accepted",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "        || args.itemIds.length > MAX_DECLARED_REFERENCES) {",
+    "replace": "        || false) {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "refuses a declaration past the store's bound and tells the model"
+  },
+  {
+    "name": "M16 a repeated declared id is accepted",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (itemIds.includes(itemId)) {",
+    "replace": "      if (false) {",
+    "testPath": "apps/cloud-gateway/test/memory/memory-search.test.ts",
+    "expect": "refuses a declaration that repeats one id"
+  }
+]

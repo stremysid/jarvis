@@ -3,6 +3,79 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: #200 round 4 (model-declared reply references)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `7c23884b`.
+Touches Sid's rules 1, 2, 3 and 8.
+
+- **The blocker.** `replyReferences` kept the 8 most recent memory items a turn had touched, so
+  code chose which memories the reply was about -- and which a later "forget that" could reach.
+  Deleted, with `MAX_REPLY_REFERENCES`. Sid, 2026-09-25: "any judgment and decisions and thought
+  should be the ai brain".
+- **What replaced it.** The shared tool `declare_memory_references` (both channels, from
+  `OWNER_TOOL_DEFINITIONS`; capability `memory.read`, no migration). Every tool result now names
+  the item ids it touched in its content, so the model can name them even for an id a write just
+  committed. Code checks each declared id was shown this turn (context plus earlier tool results,
+  carried across rounds) and that the list is at most 8; a malformed, repeated, unseen or
+  over-bound list is refused back to the model with the reason, never trimmed. A turn that
+  declares nothing records nothing: no recency fallback. Malformed protocol and the tier gate for
+  real actions are unchanged; this tool is bookkeeping, not an action.
+- **Docs.** `docs/CODE-VS-JUDGMENT.md` row 14 removed, with a "Reply-reference selection: removed"
+  note. Also merged `origin/main` at `01dc06f1` (#203, docs) normally, no conflict.
+- **Verified here:** gateway `tsc` 0; focused vitest 5 files / 296 passed after the merge
+  (multi-step-tools, memory-search, voice-agent, owner-telegram-agent, telegram-memory), plus
+  11 further neighbour files / 274 passed and 10 more / 318 passed on the same tree;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` **16/16 KILLED** (M12 and M14-M16 are
+  the new guards), each confirmed, restore byte-identical. Full suites on CI; none run locally.
+- Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: #200 round 3 (main `3f3748c6` merged, test fix)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `9289cd19`.
+Touches Sid's rules 2, 3 and 8.
+
+- **Merge.** `origin/main` at `3f3748c6` (#199) merged normally, no rebase. Three doc conflicts
+  kept both sides: `KNOWN_ISSUES.md` (this branch's "several tools per turn" section and #199's
+  "confirmations outside Sid's five"), `docs/AGENT_LOG.md`, and `docs/CODE-VS-JUDGMENT.md`, where
+  #199's `OwnerAgentCore.forget` holds row 13, so this branch's `MAX_REPLY_REFERENCES` row is now
+  **row 14**.
+- **Tier-3-in-a-chain test.** #199's `0051` moved `school.collector.revoke` to tier 1, so the test
+  failed on both channels on the merged tree. Its `beforeAll` now promotes that one capability with
+  `UPDATE capability_tiers SET tier = 3 ...`, the shape #199's `tier3-pin-turn.test.ts` uses. No
+  product tier changed; `five-confirmed-actions.test.ts` still pins the shipped registry.
+- **Low finding fixed.** `ScriptedModel` in `multi-step-tools.test.ts` now calls
+  `assertAgentToolHistory` in both `completeAgent` and `streamAgent`, so every chain test checks its
+  history the way the real provider would, not only the F1 cross-round test.
+- **Verified here:** 7 focused files, 285 passed (multi-step-tools, deepseek-provider, voice-agent,
+  owner-telegram-agent, five-confirmed-actions, tier3-pin-turn, memory-search); gateway `tsc` 0;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` 14/14 KILLED, each confirmed, restore
+  byte-identical. Full suites on CI; none run locally.
+- Claude-authored at `9289cd19`; this round is DeepSeek, so the cross-vendor rule holds. Not
+  merged or deployed.
+
+## 2026-09-25 — Claude builder: several tools in one turn (branch `codex/multi-step-tools`)
+
+Signed: Claude Opus 5.5 (builder agent), from `f43fcf42`. Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **What changed.** `MAX_TOOL_CALLS = 1` and the one-round Telegram/voice flows are gone.
+  `OwnerAgentCore` runs one tool loop for both channels: the model calls tools (several per
+  step), sees every result, and decides the next step until it answers. Bounds: the turn
+  deadline, and a runaway cap `MAX_TOOL_ROUNDS = 20` after which one tools-off request asks it
+  to answer. Calls in a step run in order, never concurrently (a PIN question cannot be
+  answered twice at once). Every call keeps its own authority check, tier gate and receipt.
+  An ended turn runs nothing further and asks no gate; #196's re-check before gated bodies stays.
+- **Provider.** `earlierToolRounds` on `ModelAgentCompletionInput`; DeepSeek renders each
+  round (assistant tool_calls, then its results) in order before the latest round, which keeps
+  `previousToolCalls`/`toolResults`. A call id reused across rounds is refused.
+- **Found, not fixed (KNOWN_ISSUES.md):** memory controls key idempotency as
+  `<turn event>:mutation`, so a second memory write in one turn is refused (proven by test run).
+  School plan save looks like the same shape (unverified). Long chains can hit the 128 KiB
+  request cap (unverified in practice).
+- **Evidence:** 36 focused files, 972 passed. `tsc --noEmit` clean; test tsconfig 140
+  diagnostics, none in touched files. `mutate.ps1` with
+  `reviewer-tools/mutation-specs-multi-step-tools.json`: 13/13 KILLED, each confirmed.
+  No full suite run locally; CI runs it.
+
 ## 2026-09-25 — Claude builder: #199 round 2 (DeepSeek audit of `b5950275`, main merged after #190)
 
 Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.
