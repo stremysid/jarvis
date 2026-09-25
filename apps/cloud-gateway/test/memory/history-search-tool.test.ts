@@ -27,6 +27,7 @@ import { buildTelegramConversationRepository } from "../../src/index.js";
 import { HISTORY_SEARCH_PREFIX } from "../../src/memory/history-search.js";
 import { LiteralHistoryService } from "../../src/memory/literal-history.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
+import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { AGENT_MAX_TOOLS } from "../../src/providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
@@ -265,6 +266,19 @@ describe("history_search through the owner agents", () => {
     ]));
     // The search turns themselves are newer than the index, and the result says so.
     expect(fromCall.receipt).toContain("Index coverage: incomplete.");
+  });
+
+  it("puts what Jarvis said on a call into the next Telegram turn's recent context", async () => {
+    const who = await owner();
+    await callTurn(who, "What is on for tonight?", "Chemistry revision at seven.");
+
+    const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, now: () => NOW })
+      .retrieve({ principalId: who.principalId, channel: "telegram", purpose: "conversation", query: "tonight", maxTokens: 24_000 });
+
+    expect(contexts.map((context) => context.text)).toEqual(expect.arrayContaining([
+      "What is on for tonight?",
+      "Chemistry revision at seven.",
+    ]));
   });
 
   it("refuses history_search on Telegram when the turn is not Sid's direct text", async () => {
