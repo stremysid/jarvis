@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, verify, KeyObject } from "node:crypto";
-import { canonical, courseBody, createKey, publicKeyBase64, sign, post, uploadBlock, AUDIENCE, GATEWAY, PATHS } from "../protocol.js";
+import { canonical, courseBody, createKey, publicKeyBase64, sign, post, AUDIENCE, GATEWAY, PATHS } from "../protocol.js";
 import { delivery } from "../delivery.js";
 import { clock, batch, memory, json } from "./fixtures.js";
 
@@ -167,24 +167,22 @@ test("It preserves an approved key through temporary receiver failures and later
   await assert.rejects(client.status()); await assert.rejects(client.pair("Synthetic PC"));
   assert.equal(starts, 1); assert.equal(await publicKeyBase64(await store.get("keys")), original);
 });
-test("It retains incompatible board and tool evidence without sending an invalid receiver batch.", async () => {
+test("It sends every board and tool the receiver now accepts, including Durham, news and quizzes.", async () => {
   const store = memory({ pairing: { ...identity, status: "active" }, keys: await createKey() });
-  let sends = 0;
-  const client = delivery({ store, clock, send: async () => { sends += 1; return { batchId: "synthetic", outcome: "good" }; } });
-  const cases = [
-    { ...batch(), host: "durham.elearningontario.ca" },
-    ...["news/", "quizzes/", "../2/content/toc"].map((suffix) => ({ ...batch(), routes: [...batch().routes,
-      { ...batch().routes[0], route: `/d2l/api/le/1.82/1/${suffix}` }] })),
-    { ...batch(), routes: [{ ...batch().routes[0], route: "/d2l/api/le/1.82/2/content/toc" }] },
-  ];
-  for (const value of cases) {
-    await store.set("queue", []);
-    const entry = await client.enqueue(value);
-    assert.equal(entry.error, value.host === "durham.elearningontario.ca" ? "receiver-contract-host-unsupported" : "receiver-contract-route-unsupported");
-    assert.deepEqual(JSON.parse(entry.body), value);
-    assert.equal((await client.flush()).error, "receiver-contract-incompatible");
-    assert.equal((await store.get("queue")).length, 1);
-  }
-  assert.equal(sends, 0);
-  assert.equal(uploadBlock(batch()), null);
+  const calls = [];
+  const client = delivery({ store, clock, send: async (path, body) => {
+    const value = JSON.parse(body); calls.push({ path, value });
+    return { batchId: "synthetic-batch", outcome: "good" };
+  } });
+  const durham = { ...batch(), host: "durham.elearningontario.ca" };
+  const tools = ["news/", "quizzes/"].map((suffix) => ({ ...batch(), routes: [...batch().routes,
+    { ...batch().routes[0], route: `/d2l/api/le/1.82/1/${suffix}` }] }));
+  await client.enqueue(durham);
+  await client.enqueue(tools[0]);
+  await client.enqueue(tools[1]);
+  assert.equal((await client.flush()).queued, 0);
+  assert.deepEqual(await store.get("queue"), []);
+  assert.deepEqual(calls.map((call) => call.path), ["/school/observations", "/school/observations", "/school/observations"]);
+  assert.deepEqual(calls.map((call) => call.value.host), ["durham.elearningontario.ca", "ldsb.elearningontario.ca", "ldsb.elearningontario.ca"]);
+  assert.deepEqual(calls.slice(1).map((call) => call.value.routes.map((route) => route.route).at(-1)), ["/d2l/api/le/1.82/1/news/", "/d2l/api/le/1.82/1/quizzes/"]);
 });

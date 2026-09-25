@@ -1,6 +1,11 @@
 # Collector / receiver contract findings
 
 > **Superseded in part by [#175](https://github.com/stremysid/jarvis/pull/175), merged 2026-09-24 as [`c66c3870`](https://github.com/stremysid/jarvis/commit/c66c38709a9774e32546bfd7cbd7766995278a71):** the receiver fixes below are on main; extension integration and live rollout remain unverified.
+>
+> The extension's client-side compatibility hold described below was deleted in
+> `codex/d2l-ext-unblock`, because #175 accepts both hosts and every route the
+> collector reads. Nothing in the extension inspects a batch's host or routes
+> before sending it now; the receiver's schema validation is the only gate.
 
 Disposition at that merge, checked against the [receiver review](../reviews/2026-09-24-d2l-receiver-fix.md)
 and merged code. The original findings below remain a record of #169:
@@ -15,7 +20,8 @@ and merged code. The original findings below remain a record of #169:
 | Pairing proof consumed before delivery | Closed for retries of the same proof before expiry; delivery can still repeat after an ambiguous send. |
 | Body/depth/structure limits | Unchanged bounds, not a closed gap. Oversized reads must remain explicit failures. |
 
-The extension's compatibility hold remains in `apps/d2l-extension/protocol.js`.
+The compatibility hold this section described is gone; it is kept as the record of
+why the extension held those batches before #175.
 No receiver merge alone proves deployment, migration application, Opera GX
 background access, Durham federation or complete school ingestion.
 
