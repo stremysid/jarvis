@@ -495,6 +495,23 @@ const OBJECT_COLUMNS = `run_id, object_number, table_name, object_key, schema_ve
   row_count, byte_count, first_key, last_key, sha256, verified_at`;
 const MAX_ORDINAL_KEY_COLUMNS = 4;
 
+/**
+ * Matches a cut to the descriptor for the same table, by name.
+ *
+ * Exported because the failure it prevents needs a descriptor list that already
+ * grew a table, which no test can build from the current constant. Position is
+ * not identity here: a migration that inserts a table in the middle of
+ * `MEMORY_BACKUP_TABLES` shifts every later index, and a positional lookup then
+ * hands this cut another table's descriptor and exports one table's rows under
+ * another table's name.
+ */
+export function descriptorForCut<T extends Readonly<{ table: string; keyKind: CutKeyKind }>>(
+  cut: Readonly<{ table: string }>,
+  descriptors: readonly T[],
+): T | null {
+  return descriptors.find((candidate) => candidate.table === cut.table) ?? null;
+}
+
 class MemoryBackupRepository {
   private descriptorsPromise: Promise<readonly TableDescriptor[]> | undefined;
 
@@ -1127,12 +1144,12 @@ export class MemoryBackupService {
         if (this.options.bucket === undefined) {
           throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.bindingMissing);
         }
-        const cutCount = MEMORY_BACKUP_TABLES.length;
-        if (claimed.currentTableIndex < cutCount) {
-          const cut = await retryTransient(
-            () => this.repository.readCut(claimed.runId, claimed.currentTableIndex),
-          );
-          if (cut === null) throw new Error("memory_backup_cut_missing");
+        // The cut set the run started with, never the current table constant: a
+        // migration that adds tables must not make a running set ask for a cut
+        // its own capture never wrote (memory_backup_cut_missing).
+        const cuts = await retryTransient(() => this.repository.listCuts(claimed.runId));
+        const cut = cuts.find((candidate) => candidate.tableIndex === claimed.currentTableIndex);
+        if (cut !== undefined) {
           await retryTransient(() => this.exportPage(claimed, cut));
         } else if (claimed.verifiedObjectCount < claimed.nextObjectNumber) {
           await retryTransient(() => this.reverifyObject(claimed));
@@ -1164,8 +1181,8 @@ export class MemoryBackupService {
     const bucket = this.options.bucket;
     if (bucket === undefined) throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.bindingMissing);
     const descriptors = await this.repository.descriptors();
-    const descriptor = descriptors[cut.tableIndex];
-    if (descriptor === undefined || descriptor.table !== cut.table || descriptor.keyKind !== cut.keyKind) {
+    const descriptor = descriptorForCut(cut, descriptors);
+    if (descriptor === null || descriptor.keyKind !== cut.keyKind) {
       throw new Error("memory_backup_cut_descriptor_mismatch");
     }
     if (cut.throughKey === null) {
@@ -1225,7 +1242,10 @@ export class MemoryBackupService {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.manifestReadback);
     }
     const cuts = await this.repository.listCuts(run.runId);
-    if (cuts.length !== MEMORY_BACKUP_TABLES.length) {
+    // Compared against the run's own cuts, not the current constant: a set
+    // captured before a migration added tables must still publish, and its
+    // manifest describes exactly the tables it holds.
+    if (cuts.length === 0 || cuts.some((cut, index) => cut.tableIndex !== index)) {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.manifestReadback);
     }
     const exportedRows = new Map<MemoryBackupTableName, number>();
