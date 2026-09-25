@@ -289,7 +289,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 const AGENT_RESPONSE_BYTES = 262_144;
 const AGENT_MAX_OUTPUT_TOKENS = 8_192;
-const AGENT_MAX_TOOLS = 16;
+// A sanity bound, not a budget: the owner catalogues were 18 (Telegram) and 15 (voice) at 68675ba and must always fit; a cap below a catalogue silently fails every turn.
+export const AGENT_MAX_TOOLS = 64;
 const AGENT_MAX_TOOL_CALLS = 16;
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
 const AGENT_CALL_ID = /^[A-Za-z0-9_-]{1,192}$/u;

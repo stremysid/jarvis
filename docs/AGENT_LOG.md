@@ -3,6 +3,17 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
+
+Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
+
+- **Bug (runtime-proven at `68675ba`):** `AGENT_MAX_TOOLS` in `apps/cloud-gateway/src/providers/deepseek-provider.ts` was 16, and `requestBody` throws `agent_request_invalid` above it. `OWNER_TELEGRAM_TOOL_DEFINITIONS` has 18 tools (voice has 15), so every owner Telegram turn failed before any model call and no message was sent. CI stayed green because the Telegram tests use `FakeAgentProvider`.
+- **Fix:** `AGENT_MAX_TOOLS` is 64 and exported; it stays a sanity bound. Voice's catalogue is now the exported `OWNER_VOICE_TOOL_DEFINITIONS` (same four lists, same order), so the test reads the real one.
+- **Test:** `apps/cloud-gateway/test/providers/deepseek-agent-catalogue.test.ts`, 4 tests: the real Telegram catalogue through `completeAgent`; the real voice catalogue through `completeAgent` and `streamAgent`; both lengths within the exported cap; 65 tools still rejected with no fetch.
+- **Mutation:** cap set back to 16 made the Telegram test fail with `agent_request_invalid` and the cap test fail (2 of 4 failed); restored, 4 of 4 pass.
+- **Verification:** focused runs 4/4 (new file), 99/99 (`deepseek-provider` + `deepseek-agent-stream`), 36/36 (`voice-agent`). `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its one existing FACTS warning. The test tsconfig still reports 143 diagnostics, the count the Codex entry below recorded on main; none are in touched files.
+- **Scope:** no merge, deploy, migration or production access. A DeepSeek audit follows; this is meant to merge before tonight's deploy.
+
 ## 2026-09-24 evening — PR #179 round 5: fixes for the round-4 review
 
 Signed: Claude (orchestrator agent)
