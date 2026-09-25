@@ -56,13 +56,16 @@ import { readInboxPage } from "../email/email-reader.js";
 import { emailInboxEvidence, EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
 
 /**
- * The inbox list tool's accepted argument names, read from its own schema so a
- * field added to the definition cannot become a call the dispatch refuses.
+ * The accepted argument names of the two inbox tools, read from their own
+ * schemas so a field added to a definition cannot become a call the dispatch
+ * refuses.
  */
-const EMAIL_INBOX_LIST_ARGUMENTS: readonly string[] = Object.freeze(
-  Object.keys(EMAIL_INBOX_TOOL_DEFINITIONS.find((tool) => tool.name === "email_inbox_list")!
+const emailInboxArgumentNames = (toolName: string): readonly string[] => Object.freeze(
+  Object.keys(EMAIL_INBOX_TOOL_DEFINITIONS.find((tool) => tool.name === toolName)!
     .parameters.properties as Record<string, unknown>),
 );
+const EMAIL_INBOX_LIST_ARGUMENTS = emailInboxArgumentNames("email_inbox_list");
+const EMAIL_INBOX_READ_ARGUMENTS = emailInboxArgumentNames("email_inbox_read");
 import {
   composeMemorySearchResults,
   MemorySearchService,
@@ -1174,15 +1177,15 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (gated !== null) return gated;
       const inbox = new EmailInbox(this.dependencies.database, this.dependencies.ownerPrincipalId);
       if (call.name === "email_inbox_read") {
-        // `parseArguments` demands an exact key set, so an optional field is a
-        // second accepted shape rather than a loosened check. A hallucinated
-        // key is then a refusal instead of a silently dropped argument.
-        let args: Record<string, unknown>;
-        try {
-          args = parseArguments(call, ["email_id"]);
-        } catch {
-          args = parseArguments(call, ["email_id", "part", "offset"]);
-        }
+        // `parseArguments` demands an exact key set, which is what turns a
+        // hallucinated argument into a refusal instead of a silently dropped
+        // field. `email_id` is required and the other two are optional, so the
+        // shape is the caller's key set validated against the accepted names --
+        // every subset the model may legitimately send is then one shape, and
+        // an unknown key is still a refusal.
+        const fields = optionalArgumentKeys(call, EMAIL_INBOX_READ_ARGUMENTS);
+        if (!fields.includes("email_id")) throw new TypeError("email_inbox_read_arguments_invalid");
+        const args = parseArguments(call, fields);
         const result = await readInboxPage(
           inbox,
           this.dependencies.archive,

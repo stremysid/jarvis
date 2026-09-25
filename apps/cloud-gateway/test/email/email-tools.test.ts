@@ -224,6 +224,29 @@ describe("the email inbox tools", () => {
     expect(toolResultContent(provider).join("\n")).toContain("BODY-MARKER-9137");
   });
 
+  it("accepts any legitimate subset of the read tool's optional arguments", async () => {
+    // `parseArguments` demands an exact key set, so a read sending `email_id`
+    // and `part` but not `offset` is a shape the dispatch must still accept.
+    // A hand-listed pair of shapes refused it and read as a broken tool.
+    const emailId = await seedEmail("Subset read", "SUBSET-BODY-MARKER");
+    const authorityText = "read the source facts";
+    const provider = new FakeAgentProvider([
+      called({
+        id: "read-subset",
+        name: "email_inbox_read",
+        arguments: JSON.stringify({ email_id: emailId, part: "source" }),
+      }),
+      stopped("Here they are."),
+    ]);
+    const agent = await telegramAgent(provider, { authorityText });
+    await collect(agent.stream(turnInput(authorityText)));
+    const content = toolResultContent(provider).join("\n");
+    // The dispatch result is the source-facts page, not the shared refusal: the
+    // authentication-facts sentence exists only in that page.
+    expect(content).toContain("Header-reported SPF, DKIM, DMARC and ARC results");
+    expect(content).not.toContain("I could not safely apply that tool call");
+  });
+
   it("refuses an email_id that is not an id instead of querying with whatever the model sent", async () => {
     // A read with a non-ULID would otherwise reach the query with the model's
     // own string. The refusal is what makes "read one email by id" mean an id.
