@@ -28,7 +28,7 @@ import { readPreviousVoiceAssistant, readVoiceReplyPayload } from "../../src/mem
 
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, sha256Hex, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
@@ -47,7 +47,7 @@ import {
   D1MemoryControlTargetFinder,
   type MemoryTargetFinder,
 } from "../../src/memory/memory-control-targets.js";
-import type { MeaningSearchReader } from "../../src/memory/meaning-search.js";
+import type { MeaningSearchHit, MeaningSearchReader } from "../../src/memory/meaning-search.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import { CORE_PROFILE_PREFIX } from "../../src/memory/core-profile.js";
 import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
@@ -64,7 +64,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } from "../persistence/migration.js";
-import { DeepSeekAgentProvider } from "../../src/providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { agentFrame, agentResponse, textResponse, toolFrames } from "../fixtures/deepseek-agent-stream.js";
 import { UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
 import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
@@ -100,6 +100,9 @@ class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider 
   async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_must_stream"); }
 
   async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    // Refuse a history the real provider refuses, before it is recorded: a fake
+    // that accepts one certifies a path production cannot reach.
+    assertAgentToolHistory(input);
     this.requests.push(input);
     const completion = this.completions.shift();
     if (completion === undefined) throw new Error("unexpected_agent_call");
@@ -218,6 +221,30 @@ function memoryContext(text: string, itemId: Ulid): RetrievedContext {
     text: `Memory evidence [topic Inbox; item ${itemId}; active; stated]: ${text}`,
     sensitivity: "personal" as const,
   });
+}
+
+/** The index, answering with the hits a test chose. It never decides relevance. */
+class FakeMeaningIndex implements MeaningSearchReader {
+  hits: readonly MeaningSearchHit[] = Object.freeze([]);
+  async search(): Promise<readonly MeaningSearchHit[]> { return this.hits; }
+}
+
+/**
+ * The item ids the newest settled voice reply carries.
+ *
+ * The voice path records references through the same pending map Telegram uses,
+ * so the `conversation.assistant_sent` payload is the durable copy of what
+ * `recordReferences` was handed across the whole turn.
+ */
+async function voiceSentMemoryItemIds(principalId: string): Promise<readonly string[]> {
+  const row = await env.DB.prepare(`SELECT envelope_json FROM events
+    WHERE subject_id = ?1 AND event_type = 'conversation.assistant_sent'
+    ORDER BY sequence DESC LIMIT 1`).bind(principalId).first<{ envelope_json: string }>();
+  if (row === null) throw new Error("voice_sent_event_missing");
+  const payload = (JSON.parse(row.envelope_json) as { payload?: { memoryItemIds?: unknown } }).payload;
+  return Object.freeze(Array.isArray(payload?.memoryItemIds)
+    ? payload.memoryItemIds.map((value) => String(value))
+    : []);
 }
 
 interface RunVoiceTurnInput {
@@ -877,6 +904,42 @@ describe("the voice agent adapter", () => {
     expect(spoken).toContain(fact);
     expect(spoken).toContain("Okay.");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("keeps what a search found when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, so a call that recorded
+    // each step alone would let its last step (an inbox read here) erase the
+    // item the search found, and a later "forget that" would miss.
+    const principalId = `principal:voice-reference-chain:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    const version = await env.DB.prepare(`SELECT version_id, text_hash FROM memory_item_versions
+      WHERE principal_id = ?1 AND item_id = ?2`).bind(principalId, itemId)
+      .first<{ version_id: string; text_hash: string }>();
+    if (version === null) throw new Error("voice_reference_fixture_missing");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([{
+      vectorId: "a".repeat(64) as Sha256Hex,
+      score: 0.9,
+      itemKind: "item",
+      itemId: version.version_id as Ulid,
+      contentHash: version.text_hash as Sha256Hex,
+    }]);
+    const provider = new FakeAgentProvider([
+      called(tool("search-voice", "memory_search", { query: "coffee" })),
+      called(tool("inbox-voice", "email_inbox_list", {})),
+      stopped("On a sticky note."),
+    ]);
+
+    await runVoiceTurn({
+      text: "where is my locker code, and anything in my inbox?",
+      provider,
+      ownerPrincipalId: principalId,
+      memorySearch: index,
+      context: Object.freeze([]),
+    });
+
+    expect(await voiceSentMemoryItemIds(principalId)).toEqual([itemId]);
   });
 
   it("holds an unfinished save claim until a clean stop and checks it before speech", async () => {

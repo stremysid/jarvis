@@ -30,6 +30,7 @@ import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import { MemoryOwnerControlsService } from "../../src/memory/memory-owner-controls.js";
 import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
+import { assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import type {
   ModelAgentCompletion,
@@ -73,6 +74,10 @@ class FakeAgentProvider implements ModelAgentProvider {
   }
 
   async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+    // Refuse a history the real provider refuses, before it is recorded as a
+    // request: without this the fake accepts the malformed-round history the
+    // real stack rejects, and the suite certifies a path production cannot reach.
+    assertAgentToolHistory(input);
     this.requests.push(input);
     const completion = this.completions.shift();
     if (completion === undefined) throw new Error("unexpected_agent_call");
@@ -2955,12 +2960,17 @@ describe("owner Telegram agent", () => {
       (_, index) => tool(`too-many-${index}`, "memory_remember", args));
     const provider = new FakeAgentProvider([called(...calls), stopped("Nothing changed.")]);
 
-    await runTurn({ harness, text: "one fact", provider });
+    const delivered = await runTurn({ harness, text: "one fact", provider });
 
     await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
     const results = provider.requests[1]?.toolResults ?? [];
     expect(results).toHaveLength(MAX_TOOL_CALLS_PER_ROUND + 1);
     expect(results.every((result) => JSON.parse(result.content).status === "refused")).toBe(true);
+    // The refusal must reach the model as a history the real provider accepts;
+    // otherwise the follow-up never leaves the gateway and Sid reads a fallback
+    // instead of the model's answer.
+    expect(() => assertAgentToolHistory(provider.requests[1]!)).not.toThrow();
+    expect(delivered).toContain("Nothing changed.");
   });
 
   it("refuses a step that repeats a call id without executing either call", async () => {
@@ -2978,10 +2988,18 @@ describe("owner Telegram agent", () => {
       stopped("Nothing changed."),
     ]);
 
-    await runTurn({ harness, text: "one fact", provider });
+    const delivered = await runTurn({ harness, text: "one fact", provider });
 
     await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
     expect(provider.requests[1]?.toolResults).toHaveLength(2);
+    // The refused round is recorded under fresh ids, so the real provider still
+    // accepts the history and the model reads the "step was malformed" refusal.
+    expect(() => assertAgentToolHistory(provider.requests[1]!)).not.toThrow();
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content))
+      .toMatchObject({ status: "refused" });
+    expect((provider.requests[1]!.previousToolCalls ?? []).map((entry) => entry.id))
+      .not.toContain("same-id");
+    expect(delivered).toContain("Nothing changed.");
   });
 
   it("runs two calls in one step one after the other, so a repeated remember saves the fact once", async () => {

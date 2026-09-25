@@ -336,6 +336,16 @@ function agentMessages(input: ModelAgentCompletionInput): readonly AgentChatMess
   return Object.freeze(messages);
 }
 
+/**
+ * The provider's own check on a turn's tool history, exposed so an injected
+ * provider in a test cannot accept a history this provider would refuse before
+ * the request leaves the gateway. `agentMessages` is the one builder, so this
+ * cannot drift from the wire shape it guards.
+ */
+export function assertAgentToolHistory(input: ModelAgentCompletionInput): void {
+  agentMessages(input);
+}
+
 /** One assistant tool_calls message, then one tool message per call, in call order. */
 function appendToolRound(
   messages: AgentChatMessage[],

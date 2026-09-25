@@ -13,7 +13,7 @@
     "find": "        if (controller.signal.aborted) {",
     "replace": "        if (false) {",
     "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
-    "expect": "the owner tool loop on telegram > stops at the turn deadline instead of taking another step"
+    "expect": "stops at the turn deadline instead of taking another step"
   },
   {
     "name": "M3 voice loop no longer checks the turn deadline before each step",
@@ -21,7 +21,7 @@
     "find": "        input.signal.throwIfAborted();\n        const toolsMayFollow",
     "replace": "        const toolsMayFollow",
     "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
-    "expect": "the owner tool loop on voice > stops at the turn deadline instead of taking another step"
+    "expect": "stops at the turn deadline instead of taking another step"
   },
   {
     "name": "M4 Telegram loop has no runaway cap",
@@ -29,7 +29,7 @@
     "find": "while (completion.finishReason !== \"stop\" && rounds.length < MAX_TOOL_ROUNDS) {",
     "replace": "while (completion.finishReason !== \"stop\") {",
     "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
-    "expect": "the owner tool loop on telegram > makes the model answer once the runaway cap is reached"
+    "expect": "makes the model answer once the runaway cap is reached"
   },
   {
     "name": "M5 voice loop has no runaway cap",
@@ -37,7 +37,7 @@
     "find": "        if (!toolsMayFollow) throw new TypeError(\"voice_extra_tool_round\");\n",
     "replace": "",
     "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
-    "expect": "the owner tool loop on voice > makes the model answer once the runaway cap is reached"
+    "expect": "makes the model answer once the runaway cap is reached"
   },
   {
     "name": "M6 tools are never switched off at the cap",
@@ -101,6 +101,14 @@
     "find": "          toolChoice: toolChoiceForRound(ownerTurn ? \"auto\" : \"none\", rounds.length),",
     "replace": "          toolChoice: rounds.length > 0 ? \"none\" : ownerTurn ? \"auto\" : \"none\",",
     "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
-    "expect": "the owner tool loop on telegram > runs every call the model makes in one step"
+    "expect": "runs every call the model makes in one step"
+  },
+  {
+    "name": "M14 voice records references for the latest step only",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "port.recordReferences(input.correlationId, replyReferences(executedReceipts));",
+    "replace": "port.recordReferences(input.correlationId, replyReferences(executed));",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "keeps what a search found when a later step touches no memory"
   }
 ]

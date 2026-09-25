@@ -34,6 +34,7 @@ import type {
   ModelFunctionCall,
 } from "../../src/providers/provider-types.js";
 import { SchoolCollectorPairing } from "../../src/school/collector-pairing.js";
+import { assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { argumentTurn } from "../channels/argument-tool-fixture.js";
 import { voiceArgumentTurn } from "../channels/voice-argument-fixture.js";
@@ -217,6 +218,27 @@ describe.each<Channel>(["telegram", "voice"])("the owner tool loop on %s", (chan
     expect(results.map((result) => resultStatus(result.content))).toEqual(["completed", "completed"]);
     // Tools stay on after a result, so the model could have taken another step.
     expect(model.requests[1]!.toolChoice).toBe("auto");
+  });
+
+  it("refuses a call id reused from an earlier step and still answers", async () => {
+    // The real provider rejects a history whose call id was already used, so a
+    // refusal that replayed the reused id would kill the follow-up request and
+    // the turn would end on a fallback instead of telling the model.
+    const model = scripted([
+      tools(call("reused", "email_inbox_list")),
+      tools(call("reused", "email_inbox_list")),
+      answer(channel, "Recovered."),
+    ]);
+    const turn = await runTurn(channel, model);
+    expect(turn.error).toBeNull();
+    expect(model.requests).toHaveLength(3);
+    const refusal = model.requests[2]!.toolResults![0]!;
+    expect(resultStatus(refusal.content)).toBe("refused");
+    expect(JSON.parse(refusal.content).receipt).toContain("malformed");
+    // The refusal carries a fresh id, so the provider accepts this history.
+    expect(model.requests[2]!.previousToolCalls![0]!.id).not.toBe("reused");
+    expect(() => assertAgentToolHistory(model.requests[2]!)).not.toThrow();
+    expect(turn.text).toContain("Recovered.");
   });
 
   it("asks for a tier-3 action inside a chain exactly as it would on its own", async () => {

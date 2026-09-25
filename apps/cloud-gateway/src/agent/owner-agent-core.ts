@@ -914,6 +914,56 @@ function callIds(rounds: readonly ModelToolRound[]): ReadonlySet<string> {
   return new Set(rounds.flatMap((round) => round.calls.map((call) => call.id)));
 }
 
+/**
+ * A malformed round's refusals, under ids the provider will accept.
+ *
+ * The round is refused because a call id repeats an earlier one, or because the
+ * round is over-bound. Replaying it under the original ids would hand the
+ * provider a history it rejects -- `agent_tool_history_invalid` on the repeated
+ * id -- so the follow-up request is never sent and the turn dies on a fallback
+ * before the model is told anything. Each refusal instead gets a fresh id, and
+ * `recordedRound` writes that id into the round it records.
+ */
+function refusedMalformedRound(
+  calls: readonly ModelFunctionCall[],
+  earlierCallIds: ReadonlySet<string>,
+  receipt: string,
+): readonly ExecutedTool[] {
+  const taken = new Set(earlierCallIds);
+  return Object.freeze(calls.map((call, index) => {
+    const base = `refused_${index}`;
+    let id = base;
+    let suffix = 0;
+    while (taken.has(id)) {
+      suffix += 1;
+      id = `${base}_${suffix}`;
+    }
+    taken.add(id);
+    return refusedTool(Object.freeze({ ...call, id }), receipt);
+  }));
+}
+
+/**
+ * One round in the provider's own shape: every call id matches the result the
+ * dispatcher recorded for it. They differ only for a malformed round, whose
+ * refusals carry the fresh ids `refusedMalformedRound` minted.
+ */
+function recordedRound(
+  calls: readonly ModelFunctionCall[],
+  executed: readonly ExecutedTool[],
+): ModelToolRound {
+  const results = executed.map((entry) => entry.providerResult);
+  return Object.freeze({
+    calls: Object.freeze(calls.map((call, index) => {
+      const recorded = results[index];
+      return recorded === undefined || recorded.toolCallId === call.id
+        ? call
+        : Object.freeze({ ...call, id: recorded.toolCallId });
+    })),
+    results: Object.freeze(results),
+  });
+}
+
 function turnReceiptIds(executed: readonly ExecutedTool[]): ReadonlySet<string> {
   return new Set(executed.flatMap((entry) => entry.receiptId === null ? [] : [entry.receiptId]));
 }
@@ -1091,10 +1141,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
           boundedInput, port, completion.toolCalls, callIds(rounds),
         );
         executed.push(...roundExecuted);
-        rounds.push(Object.freeze({
-          calls: completion.toolCalls,
-          results: Object.freeze(roundExecuted.map((entry) => entry.providerResult)),
-        }));
+        rounds.push(recordedRound(completion.toolCalls, roundExecuted));
         port.recordReferences(input.correlationId, replyReferences(executed));
         const receiptIds = turnReceiptIds(executed);
         // An ended turn asks the model nothing more: a later step could only
@@ -1202,10 +1249,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         input.signal.throwIfAborted();
         const executed = await this.executeCalls(input, port, completion.toolCalls, callIds(rounds));
         executedReceipts.push(...executed);
-        rounds.push(Object.freeze({
-          calls: completion.toolCalls,
-          results: Object.freeze(executed.map((entry) => entry.providerResult)),
-        }));
+        rounds.push(recordedRound(completion.toolCalls, executed));
         port.recordReferences(input.correlationId, replyReferences(executedReceipts));
         callerSignal.throwIfAborted();
         for (const entry of executed) {
@@ -1295,10 +1339,11 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const ids = calls.map((call) => call.id);
     if (calls.length > MAX_TOOL_CALLS_PER_ROUND || new Set(ids).size !== ids.length
       || ids.some((id) => earlierCallIds.has(id))) {
-      return Object.freeze(calls.map((call) => refusedTool(
-        call,
+      return refusedMalformedRound(
+        calls,
+        earlierCallIds,
         "I refused these tool calls because the step was malformed (too many calls at once or a repeated call id). Nothing changed.",
-      )));
+      );
     }
     // One after another, in the order the model asked, never concurrently: a
     // gated call may ask Sid a question (a spoken PIN, a tap), and two open
