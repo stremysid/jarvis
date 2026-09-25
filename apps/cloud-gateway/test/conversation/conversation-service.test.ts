@@ -712,7 +712,11 @@ describe("DefaultConversationService", () => {
       expect(beginCalls).toBe(1);
       expect(modelCalls).toBe(1);
       expect(claimCalls).toBe(1);
-      expect(modelContext).toEqual([]);
+      expect(modelContext).toEqual([expect.objectContaining({
+        sourceEventId: turnId,
+        sensitivity: "personal",
+        text: expect.stringContaining("Memory could not be read this turn"),
+      })]);
       expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
         turnId, reason: "failure",
       });
@@ -773,7 +777,11 @@ describe("DefaultConversationService", () => {
       await vi.advanceTimersByTimeAsync(1);
       await expect(pending).resolves.toMatchObject({ outcome: "voice_sent" });
       expect(modelCalls).toBe(1);
-      expect(modelContext).toEqual([]);
+      expect(modelContext).toEqual([expect.objectContaining({
+        sourceEventId: turnId,
+        sensitivity: "personal",
+        text: expect.stringContaining("Memory could not be read this turn"),
+      })]);
       expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
         turnId, reason: "timeout",
       });

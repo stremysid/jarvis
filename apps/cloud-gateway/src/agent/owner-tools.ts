@@ -2,6 +2,7 @@ import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
+import { OWNER_ACCESS_TOOL_DEFINITIONS } from "../voice/owner-access-tool.js";
 import { EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
 
@@ -11,6 +12,7 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
   ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
+  ...OWNER_ACCESS_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",
     description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline or a deadline's status (open, submitted, missed, cancelled); you judge which one Sid's words mean, and ask him if unsure.",

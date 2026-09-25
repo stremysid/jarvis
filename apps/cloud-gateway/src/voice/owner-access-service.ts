@@ -15,12 +15,29 @@ import {
 } from "../persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
 import { CapabilityRegistry, type CapabilitySnapshot } from "./capability-registry.js";
-import type { OwnerAccessDraft } from "./owner-access-intent.js";
 import type { GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import {
   type OwnerCallAuthority,
   VoiceAccessAuthorityService,
 } from "./voice-access-authority.js";
+
+/**
+ * One access change, as the model's `owner_access` tool call names it.
+ *
+ * The model chooses the operation and the capability ids; code keeps only the
+ * validation that the target is a real E.164 number and every id is a guest
+ * capability the registry can grant (#200's rule, Sid 2026-09-25).
+ */
+export type OwnerAccessDraft =
+  | Readonly<{
+    kind: "add" | "replace_permissions";
+    providerE164: string;
+    capabilityIds: readonly GuestCapabilityId[];
+    resourceScopes?: VoiceResourceScopesV1;
+  }>
+  | Readonly<{ kind: "rotate_pin"; providerE164: string }>
+  | Readonly<{ kind: "revoke"; providerE164: string }>
+  | Readonly<{ kind: "list" }>;
 
 export interface PreparedOwnerAccessProposal {
   readonly proposalId: string;
@@ -31,7 +48,6 @@ export interface PreparedOwnerAccessProposal {
   readonly capabilityIds: readonly GuestCapabilityId[];
   readonly accessDocumentHash: Sha256Hex | null;
   readonly createdAt: string;
-  readonly expiresAt: string;
 }
 
 export type OwnerPinSelection =
@@ -52,14 +68,28 @@ export interface OwnerAccessServiceDependencies {
 
 export interface OwnerAccessExecutionResult {
   readonly outcome: "created" | "changed" | "rotated" | "revoked" | "listed";
-  readonly speech: string;
+  readonly operation: "add" | "replace_permissions" | "rotate_pin" | "revoke" | "list";
+  readonly maskedTarget: string | null;
+  /** Present only for `list`: what the model needs to describe the allowed callers. */
+  readonly guests?: readonly OwnerAccessGuestSummary[];
+  /**
+   * True when the change committed but the independent Telegram notice could
+   * not be confirmed. The model decides how to say that; code does not phrase it.
+   */
+  readonly noticeUnconfirmed: boolean;
+}
+
+export interface OwnerAccessGuestSummary {
+  readonly maskedNumber: string;
+  readonly status: string;
+  readonly capabilityIds: readonly GuestCapabilityId[];
 }
 
 type CapturedDraft =
   | Readonly<{
     kind: "add" | "replace_permissions";
     providerE164: string;
-    permissionPhrases: readonly string[];
+    capabilityIds: readonly GuestCapabilityId[];
     resourceScopes: VoiceResourceScopesV1 | null;
   }>
   | Readonly<{ kind: "rotate_pin"; providerE164: string }>
@@ -86,7 +116,7 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const E164 = /^\+[1-9][0-9]{7,14}$/u;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u;
 const SAFE_PROPOSAL_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/u;
-const PERMISSION_PHRASE = /^[a-z][a-z0-9]*(?: [a-z][a-z0-9]*){0,3}$/u;
+const CAPABILITY_ID = /^[a-z][a-z0-9._-]*$/u;
 const OPAQUE_SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/u;
 const DEPENDENCY_FIELDS = new Set([
   "repository", "registry", "authorities", "verifier", "scopeResolver", "idFactory", "proposalIdFactory",
@@ -95,9 +125,9 @@ const DEPENDENCY_FIELDS = new Set([
 const REQUIRED_DEPENDENCY_FIELDS = new Set(["repository", "registry", "authorities", "verifier"]);
 const PREPARE_FIELDS = new Set(["ownerAuthority", "sessionId", "draft", "now"]);
 const EXECUTE_FIELDS = new Set(["proposal", "ownerAuthority", "pinSelection", "now"]);
-const PERMISSION_DRAFT_FIELDS = new Set(["kind", "providerE164", "permissionPhrases"]);
+const PERMISSION_DRAFT_FIELDS = new Set(["kind", "providerE164", "capabilityIds"]);
 const SCOPED_PERMISSION_DRAFT_FIELDS = new Set([
-  "kind", "providerE164", "permissionPhrases", "resourceScopes",
+  "kind", "providerE164", "capabilityIds", "resourceScopes",
 ]);
 const TARGET_DRAFT_FIELDS = new Set(["kind", "providerE164"]);
 const LIST_DRAFT_FIELDS = new Set(["kind"]);
@@ -105,44 +135,6 @@ const RESOURCE_SCOPE_FIELDS = new Set([
   "schemaVersion", "calendarConnectionIds", "fileRootIds", "pcActionIds",
 ]);
 const SCOPE_ASSIGNMENT_FIELDS = new Set(["providerE164", "resourceScopes"]);
-
-const PERMISSION_CAPABILITIES = Object.freeze({
-  conversation: "conversation.basic",
-  "web research": "research.web",
-  memory: "memory.own",
-  reminders: "reminders.manage",
-  "calendar reading": "calendar.read",
-  "calendar management": "calendar.manage",
-  "owner contact": "owner.contact",
-  "communication drafting": "communications.draft",
-  "communication sending": "communications.send",
-  calls: "calls.place",
-  "file reading": "files.read",
-  "file writing": "files.write",
-  "computer control": "pc.control",
-  "spending proposals": "spending.propose",
-  "destructive proposals": "destructive.propose",
-  "destructive action proposals": "destructive.propose",
-  "access management": "access.manage",
-} as const);
-
-const CAPABILITY_LABELS: Readonly<Record<GuestCapabilityId, string>> = Object.freeze({
-  "conversation.basic": "conversation",
-  "research.web": "web research",
-  "memory.own": "memory",
-  "reminders.manage": "reminders",
-  "calendar.read": "calendar reading",
-  "calendar.manage": "calendar management",
-  "owner.contact": "owner contact",
-  "communications.draft": "communication drafting",
-  "communications.send": "communication sending",
-  "calls.place": "calls",
-  "files.read": "file reading",
-  "files.write": "file writing",
-  "pc.control": "computer control",
-  "spending.propose": "spending proposals",
-  "destructive.propose": "destructive action proposals",
-});
 
 function invalidInput(): never {
   throw new TypeError("owner_access_input_invalid");
@@ -383,20 +375,32 @@ function dateEpoch(value: unknown): number {
   return epoch;
 }
 
-function captureStringArray(value: unknown): readonly string[] {
+/**
+ * The capability ids the model named, checked only for shape and membership.
+ *
+ * `GUEST_CAPABILITY_IDS` is the validation set: an id outside it, including the
+ * owner-only `access.manage`, is refused rather than mapped from a phrase table.
+ * Which capability Sid's words mean is the model's judgment (#200); this is the
+ * boundary that stops it granting something a guest can never hold.
+ */
+function captureCapabilityIds(value: unknown): readonly GuestCapabilityId[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 32) invalidInput();
   const result: string[] = [];
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) invalidInput();
-    const phrase = descriptor.value;
+    const capability = descriptor.value;
     if (
-      typeof phrase !== "string" || phrase.length > 64 || !phrase.isWellFormed()
-      || phrase !== phrase.normalize("NFC") || !PERMISSION_PHRASE.test(phrase)
+      typeof capability !== "string" || capability.length === 0 || capability.length > 128
+      || !capability.isWellFormed() || capability !== capability.normalize("NFC")
+      || !CAPABILITY_ID.test(capability)
     ) {
       invalidInput();
     }
-    result.push(phrase);
+    // A well-formed id a guest can never hold, including the owner-only
+    // `access.manage`, is a permission refusal rather than a malformed input.
+    if (!GUEST_CAPABILITIES.has(capability)) throw safeError("owner_access_permission_invalid");
+    result.push(capability);
   }
   if (
     Reflect.ownKeys(value).some((key) => key !== "length"
@@ -405,7 +409,7 @@ function captureStringArray(value: unknown): readonly string[] {
   ) {
     invalidInput();
   }
-  return Object.freeze(result);
+  return Object.freeze(result as GuestCapabilityId[]);
 }
 
 function captureDraft(value: unknown): CapturedDraft {
@@ -432,7 +436,7 @@ function captureDraft(value: unknown): CapturedDraft {
     return Object.freeze({
       kind,
       providerE164: captured.providerE164,
-      permissionPhrases: captureStringArray(captured.permissionPhrases),
+      capabilityIds: captureCapabilityIds(captured.capabilityIds),
       resourceScopes: resourceScopesDescriptor === undefined
         ? null
         : captureResourceScopes(captured.resourceScopes),
@@ -577,26 +581,14 @@ export class OwnerAccessService {
   }
 
   async #snapshot(
-    permissionPhrases: readonly string[],
+    capabilityIds: readonly GuestCapabilityId[],
     providerE164: string,
     requestedScopes: VoiceResourceScopesV1 | null,
   ): Promise<CapabilitySnapshot> {
-    let requested: readonly string[] | "everything";
-    if (permissionPhrases.length === 1 && permissionPhrases[0] === "everything") {
-      requested = "everything";
-    } else {
-      const capabilities: string[] = [];
-      for (const phrase of permissionPhrases) {
-        const capability = PERMISSION_CAPABILITIES[phrase as keyof typeof PERMISSION_CAPABILITIES];
-        if (capability === undefined) throw safeError("owner_access_permission_invalid");
-        capabilities.push(capability);
-      }
-      requested = Object.freeze(capabilities);
-    }
     try {
-      const capabilityIds = this.#registry.resolve(requested);
-      const resourceScopes = this.#scopeResolver.resolve(providerE164, capabilityIds, requestedScopes);
-      return await this.#registry.snapshot(capabilityIds, resourceScopes);
+      const resolved = this.#registry.resolve(capabilityIds);
+      const resourceScopes = this.#scopeResolver.resolve(providerE164, resolved, requestedScopes);
+      return await this.#registry.snapshot(resolved, resourceScopes);
     } catch {
       throw safeError("owner_access_permission_invalid");
     }
@@ -626,11 +618,11 @@ export class OwnerAccessService {
     }
     if (draft.kind === "add") {
       if (target !== null) throw safeError("owner_access_target_unavailable");
-      snapshot = await this.#snapshot(draft.permissionPhrases, draft.providerE164, draft.resourceScopes);
+      snapshot = await this.#snapshot(draft.capabilityIds, draft.providerE164, draft.resourceScopes);
       grantId = safeUlid(this.#idFactory(new Date(nowEpoch)));
     } else if (draft.kind === "replace_permissions") {
       if (target === null || target.status === "revoked") throw safeError("owner_access_target_unavailable");
-      snapshot = await this.#snapshot(draft.permissionPhrases, draft.providerE164, draft.resourceScopes);
+      snapshot = await this.#snapshot(draft.capabilityIds, draft.providerE164, draft.resourceScopes);
       grantId = target.grantId;
     } else if (draft.kind === "rotate_pin" || draft.kind === "revoke") {
       if (target === null || target.status === "revoked") throw safeError("owner_access_target_unavailable");
@@ -649,7 +641,6 @@ export class OwnerAccessService {
       capabilityIds: snapshot?.capabilityIds ?? target?.capabilityIds ?? Object.freeze([] as GuestCapabilityId[]),
       accessDocumentHash: snapshot?.accessDocumentHash ?? target?.accessDocumentHash ?? null,
       createdAt,
-      expiresAt: new Date(nowEpoch + 60_000).toISOString(),
     });
     const state: PreparedState = Object.freeze({
       proposal,
@@ -673,22 +664,33 @@ export class OwnerAccessService {
     ]));
   }
 
-  #result(outcome: OwnerAccessExecutionResult["outcome"], speech: string): OwnerAccessExecutionResult {
-    return Object.freeze({ outcome, speech });
+  #result(
+    outcome: OwnerAccessExecutionResult["outcome"],
+    operation: OwnerAccessExecutionResult["operation"],
+    maskedTarget: string | null,
+    noticeUnconfirmed = false,
+    guests?: readonly OwnerAccessGuestSummary[],
+  ): OwnerAccessExecutionResult {
+    return Object.freeze({
+      outcome, operation, maskedTarget, noticeUnconfirmed,
+      ...(guests === undefined ? {} : { guests }),
+    });
   }
 
+  /** True when the mutation committed but its independent Telegram notice did not. */
   async #notice(
     mutationId: Ulid,
     now: Date,
-  ): Promise<string> {
-    if (this.#notices === undefined) return "";
+  ): Promise<boolean> {
+    if (this.#notices === undefined) return false;
     try {
       await this.#notices.notify({ mutationId, now });
-      return "";
+      return false;
     } catch {
       // The grant mutation has already committed and cannot be rolled back.
-      // Tell the owner on the call that the independent notice was not confirmed.
-      return " The Telegram notice could not be confirmed.";
+      // The receipt says the independent notice was not confirmed; the model
+      // decides how to tell Sid.
+      return true;
     }
   }
 
@@ -696,15 +698,15 @@ export class OwnerAccessService {
     mutationId: Ulid,
     now: Date,
     mutation: () => Promise<unknown>,
-  ): Promise<string> {
+  ): Promise<boolean> {
     let failure: Readonly<{ error: unknown }> | null = null;
     try { await mutation(); }
     catch (error) { failure = Object.freeze({ error }); }
     // A D1 batch can commit before its response is lost. Always consult the
     // mutation-owned outbox row, including when the repository call throws.
-    const notice = await this.#notice(mutationId, now);
+    const noticeUnconfirmed = await this.#notice(mutationId, now);
     if (failure !== null) throw failure.error;
-    return notice;
+    return noticeUnconfirmed;
   }
 
   async execute(input: {
@@ -727,10 +729,8 @@ export class OwnerAccessService {
       ) {
         throw safeError("owner_access_proposal_invalid");
       }
-      if (new Date(state.proposal.expiresAt).valueOf() <= nowEpoch) {
-        this.invalidate(state.proposal);
-        throw safeError("owner_access_proposal_expired");
-      }
+      // No wall clock expiry: the call's own lifecycle is the bound, and a
+      // pending proposal cannot outlive the authority that issued it.
       if (state.ownerAuthority !== captured.ownerAuthority) throw safeError("owner_access_authority_invalid");
       const now = new Date(nowEpoch);
       let persisted;
@@ -770,10 +770,12 @@ export class OwnerAccessService {
             ownerIdentityId: state.proposal.ownerIdentityId,
             now,
           });
-          const speech = guests.length === 0
-            ? "There are no allowed callers."
-            : `Allowed callers: ${guests.map((guest) => `${guest.maskedNumber}, ${guest.status}, ${guest.capabilityIds.map((id) => CAPABILITY_LABELS[id]).join(", ")}`).join("; ")}.`;
-          return this.#result("listed", speech);
+          return this.#result("listed", "list", null, false, Object.freeze(guests.map((guest) =>
+            Object.freeze({
+              maskedNumber: guest.maskedNumber,
+              status: guest.status,
+              capabilityIds: guest.capabilityIds,
+            }))));
         }
 
         const mutationId = safeUlid(this.#idFactory(new Date(nowEpoch)));
@@ -785,7 +787,7 @@ export class OwnerAccessService {
           const snapshot = state.snapshot;
           const pinVerifier = await this.#verifier.create(grantId, pinBytes);
           const requestHash = await this.#requestHash(state, mutationId, pinVerifier.digestBase64);
-          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.createGuestGrant({
+          const noticeUnconfirmed = await this.#mutateAndNotice(mutationId, now, () => this.#repository.createGuestGrant({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
@@ -800,7 +802,7 @@ export class OwnerAccessService {
             pinVerifier,
             now,
           }));
-          return this.#result("created", `Caller ${state.proposal.maskedTarget ?? "masked"} is allowed.${notice}`);
+          return this.#result("created", "add", state.proposal.maskedTarget, noticeUnconfirmed);
         }
         if (state.expectedGrantVersion === null) throw safeError("owner_access_operation_failed");
         const expectedGrantVersion = state.expectedGrantVersion;
@@ -808,7 +810,7 @@ export class OwnerAccessService {
           if (state.snapshot === null) throw safeError("owner_access_operation_failed");
           const snapshot = state.snapshot;
           const requestHash = await this.#requestHash(state, mutationId, null);
-          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.replacePermissions({
+          const noticeUnconfirmed = await this.#mutateAndNotice(mutationId, now, () => this.#repository.replacePermissions({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
@@ -820,13 +822,13 @@ export class OwnerAccessService {
             accessDocumentHash: snapshot.accessDocumentHash,
             now,
           }));
-          return this.#result("changed", `Permissions changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
+          return this.#result("changed", "replace_permissions", state.proposal.maskedTarget, noticeUnconfirmed);
         }
         if (state.draft.kind === "rotate_pin") {
           if (pinBytes === null) throw safeError("owner_access_operation_failed");
           const pinVerifier = await this.#verifier.create(grantId, pinBytes);
           const requestHash = await this.#requestHash(state, mutationId, pinVerifier.digestBase64);
-          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.rotatePin({
+          const noticeUnconfirmed = await this.#mutateAndNotice(mutationId, now, () => this.#repository.rotatePin({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
@@ -836,10 +838,10 @@ export class OwnerAccessService {
             pinVerifier,
             now,
           }));
-          return this.#result("rotated", `The PIN changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
+          return this.#result("rotated", "rotate_pin", state.proposal.maskedTarget, noticeUnconfirmed);
         }
         const requestHash = await this.#requestHash(state, mutationId, null);
-        const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.revokeGrant({
+        const noticeUnconfirmed = await this.#mutateAndNotice(mutationId, now, () => this.#repository.revokeGrant({
           mutationId,
           requestHash,
           ownerAuthority: persisted,
@@ -848,7 +850,7 @@ export class OwnerAccessService {
           expectedGrantVersion,
           now,
         }));
-        return this.#result("revoked", `Access revoked for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
+        return this.#result("revoked", "revoke", state.proposal.maskedTarget, noticeUnconfirmed);
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("owner_access_")) throw error;
         throw safeError("owner_access_operation_failed");

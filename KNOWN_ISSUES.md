@@ -18,16 +18,14 @@ outside the tier registry and are not changed by it:
   [`memory-owner-controls.ts`](apps/cloud-gateway/src/memory/memory-owner-controls.ts)),
   so forgetting several without the tap needs a per-item idempotency key, a
   ledger change of its own. Forgetting one memory never asks.
-- **Changing guest access on a call ends with "Say confirm".**
-  `#confirmOwnerAccess` in
-  [`call-session-do.ts`](apps/cloud-gateway/src/voice/call-session-do.ts).
-  Granting a guest access is Sid's own action, so by his rule it should not
-  ask. It stays because the flow starts from a phrase grammar
-  (`parseOwnerAccessIntent`), itself on the removal list of Sid's rules
-  (code deciding what he meant). Removing only the confirm would let a
-  misheard phone number grant a stranger guest access with nothing read back.
-  The fix is to replace the grammar with a tool the AI calls. Guest PINs and
-  guest isolation are not affected either way.
+- **Changing guest access on a call no longer ends with "Say confirm".**
+  Removed in the calls judgment batch (2026-09-25): `#confirmOwnerAccess`, the
+  `parseOwnerAccessIntent` grammar and the 60-second proposal expiry are
+  deleted, and the model calls the `owner_access` tool instead. The model
+  decides whether to read the number back or ask Sid to confirm, and a guest
+  still passes their own PIN at the start of a call (`GuestPinVerifier`), so a
+  misheard number cannot grant a stranger access by itself. Guest PINs and
+  guest isolation are unchanged.
 - **`/call <reason> --confirm` in Telegram, and `jarvis call-me` on the
   PC.** Both place a call to Sid's own verified phone and both need an
   explicit confirm. They are kept as action 3, "making a call". If Sid means

@@ -3,6 +3,37 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: calls judgment batch (`codex/calls-judgment-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **Owner access is a tool now.** `parseOwnerAccessIntent`, `PERMISSION_CAPABILITIES` and the
+  60-second `expiresAt` are deleted (`owner-access-intent.ts` removed). The model calls
+  `owner_access` with `{operation, phone, capabilities, pin}` on a call; code keeps E.164,
+  capability-membership (`GUEST_CAPABILITY_IDS`, so the owner-only `access.manage` is refused)
+  and the voice-access authority check. The model passes capability ids, not phrases.
+- **No confirm/cancel word match.** The two-phase prepare/confirm step and its fixed spoken
+  lines are gone; the model decides whether to read the number back or ask Sid to confirm, and a
+  guest still passes their own PIN (`GuestPinVerifier`). `pin: "default" | "digits"` is the
+  model's argument; `digits` opens a PIN question on the call, and the answer is consumed by
+  `CallSessionCore` before it can become a turn, event or model input.
+- **Receipts, not sentences.** `OwnerAccessService.execute` returns `{outcome, operation,
+  maskedTarget, guests, noticeUnconfirmed}`; the agent mints a receipt id but speaks no
+  code-authored sentence, so the model phrases the outcome. The `maskedTarget ?? "the caller"`
+  guess and every fixed instruction line are gone.
+- **No silent drops.** An utterance arriving while a turn owns the slot is queued as the next
+  turn (one slot; a third displaces the queued one and that displacement is spoken). A failed
+  voice retrieval now puts a "Memory could not be read this turn" notice in the model's context
+  instead of silently empty memory; the 750 ms bound stays.
+- **Migration `0054_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
+  tool is a classified capability; it is the next free number (open #201 holds `0053`). All the
+  hand-kept migration lists, the backup seed list and the pinned schema-version tests are
+  updated with it.
+- **Verified here:** gateway `tsc` 0; focused suites (voice, autonomy, conversation, security,
+  backup, owner-telegram-agent, relay fixes, owner-access tool/service/security) green;
+  `mutate.ps1` with `mutation-specs-calls-judgment.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
 ## 2026-09-25 — Claude builder: #199 round 2 (DeepSeek audit of `b5950275`, main merged after #190)
 
 Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.

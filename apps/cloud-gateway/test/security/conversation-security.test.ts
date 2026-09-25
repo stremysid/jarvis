@@ -626,7 +626,11 @@ describe("conversation capture-once security", () => {
       });
       expect(beginCalls).toBe(1);
       expect(modelCalls).toBe(1);
-      expect(modelContext).toEqual([]);
+      expect(modelContext).toEqual([expect.objectContaining({
+        sourceEventId: turnId,
+        sensitivity: "personal",
+        text: expect.stringContaining("Memory could not be read this turn"),
+      })]);
       expect(settlementCalls).toBe(0);
       expect(sequence).toEqual(["fallback", "begin"]);
       expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {

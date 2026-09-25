@@ -760,7 +760,15 @@ export class DefaultConversationService implements ConversationService {
         reason,
       });
     } catch { /* Recording failure cannot turn a bounded fallback into a failed turn. */ }
-    return Object.freeze([]);
+    // The failed read is stated, not swallowed: an empty context and a context
+    // that was never read look identical to the model, and it would answer
+    // "I don't know that" about something stored. The 750 ms bound stays; this
+    // is the notice the model was missing, sourced to this turn's own event.
+    return Object.freeze([Object.freeze({
+      sourceEventId: input.turnId,
+      text: `[Memory could not be read this turn (${reason}). Do not answer from memory as if it were checked; say the lookup failed and ask Sid to repeat it if it matters.]`,
+      sensitivity: "personal" as const,
+    })]);
   }
 
   async handleTurn(input: ConversationHandleTurnInput): Promise<ConversationTurnResult> {
