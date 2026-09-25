@@ -114,7 +114,7 @@ async function relayHarness(kind: "owner" | "guest", options: {
   const close = vi.fn<(code?: number, reason?: string) => void>();
   const socket = { send, close, deserializeAttachment: () => ({ sessionId: stored.sessionId }) } as unknown as WebSocket;
   return {
-    stored, provider, handleTurn, send, close, ownerStepUp,
+    stored, provider, handleTurn, send, close, ownerStepUp, repository,
     atOffset(milliseconds: number) { observedAt = new Date(NOW.valueOf() + milliseconds); },
     async run(action: (message: (frame: Record<string, unknown>) => Promise<void>) => Promise<void>) {
       const stub = env.CALL_SESSION.getByName(stored.sessionId) as DurableObjectStub<CallSession>;
@@ -219,6 +219,7 @@ describe("CallSession relay fixes", () => {
 
   it("sends the rejection speech, a fixed guest handoff, and closes after the third bad guest candidate", async () => {
     const harness = await relayHarness("guest");
+    const transition = vi.spyOn(harness.repository, "transitionCallSession");
     await harness.run(async message => {
       // Synthetic all-zero spoken input cannot match the shared synthetic verifier.
       const badCandidate = () => message(prompt(String(0).repeat(4)));
@@ -239,6 +240,13 @@ describe("CallSession relay fixes", () => {
       for (const order of harness.send.mock.invocationCallOrder) {
         expect(order).toBeLessThan(harness.close.mock.invocationCallOrder[0]!);
       }
+      // The rejection is recorded before anything is spoken: a close can make the
+      // socket handler fail a pre_auth session, which must not win over "rejected".
+      const rejected = transition.mock.calls.findIndex(([input]) => input.nextPhase === "rejected");
+      expect(rejected).toBeGreaterThanOrEqual(0);
+      await expect(transition.mock.results[rejected]!.value).resolves.toMatchObject({ phase: "rejected" });
+      expect(transition.mock.invocationCallOrder[rejected]!)
+        .toBeLessThan(harness.send.mock.invocationCallOrder[0]!);
       expect(await env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?")
         .bind(harness.stored.sessionId).first()).toEqual({ phase: "rejected" });
       expect(await env.DB.prepare("SELECT count(*) AS count FROM authentication_attempt_reservations").first())
@@ -280,11 +288,102 @@ describe("CallSession relay fixes", () => {
       // slot. Without the bounded wait it is dropped here and never reaches the model.
       await new Promise((resolve) => setTimeout(resolve, 250));
       release();
+      // Admitted when turn 1 settles, not when the 2 s bound runs out.
+      const admitted = await Promise.race([
+        second.then(() => "settled"),
+        new Promise((resolve) => setTimeout(() => resolve("still waiting"), 500)),
+      ]);
+      expect(admitted).toBe("settled");
       await expect(second).resolves.toBeUndefined();
       await expect(first).resolves.toBeUndefined();
       expect(harness.close).not.toHaveBeenCalled();
       expect(harness.provider.requests).toHaveLength(1);
       expect(harness.provider.requests[0]).toMatchObject({ userText: "And after that?" });
+    });
+  });
+
+  it("drops a prompt after barge-in when the aborted turn outlives the bound, and keeps the call open", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const harness = await relayHarness("owner", { holdFirstTurn: held });
+    harness.atOffset(4_000);
+    const repeatStatus = vi.spyOn(harness.ownerStepUp, "repeatStatus");
+    await harness.run(async message => {
+      const first = message(prompt("Tell me what is next."));
+      try {
+        await vi.waitFor(() => expect(harness.handleTurn).toHaveBeenCalledTimes(1));
+        await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
+        repeatStatus.mockClear();
+        // Turn 1 is still held, so this resolves only because the 2 s bound expired.
+        await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
+        // Dropped at the slot, before it spends the passphrase repeat check.
+        expect(repeatStatus).not.toHaveBeenCalled();
+        expect(harness.close).not.toHaveBeenCalled();
+        expect(harness.provider.requests).toHaveLength(0);
+      } finally {
+        release();
+        await expect(first).resolves.toBeUndefined();
+      }
+      await expect(message(prompt("Thanks."))).resolves.toBeUndefined();
+      expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.provider.requests).toHaveLength(1);
+      expect(harness.provider.requests[0]).toMatchObject({ userText: "Thanks." });
+    });
+  });
+
+  it("two owner prompts racing the D1 repeat check never both start a turn", async () => {
+    let releaseCapacity!: () => void;
+    const capacityGate = new Promise<void>((resolve) => { releaseCapacity = resolve; });
+    const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await capacityGate; }) };
+    const harness = await relayHarness("owner", { capacity });
+    harness.atOffset(4_000);
+    let releaseRepeat!: () => void;
+    const repeatGate = new Promise<void>((resolve) => { releaseRepeat = resolve; });
+    const real = harness.ownerStepUp.repeatStatus.bind(harness.ownerStepUp);
+    let firstRepeat = true;
+    // Holds prompt A inside its repeat lookup, the way D1 latency would.
+    vi.spyOn(harness.ownerStepUp, "repeatStatus").mockImplementation(async (...args) => {
+      if (firstRepeat) {
+        firstRepeat = false;
+        await repeatGate;
+      }
+      return real(...args);
+    });
+    await harness.run(async message => {
+      const a = message(prompt("Question A."));
+      await vi.waitFor(() => expect(harness.ownerStepUp.repeatStatus).toHaveBeenCalledTimes(1));
+      const b = message(prompt("Question B."));
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledTimes(1));
+      releaseRepeat();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const turnsStarted = capacity.assertAcceptingNewTurn.mock.calls.length;
+      releaseCapacity();
+      await a;
+      await b;
+      expect(harness.close).not.toHaveBeenCalled();
+      expect({ turnsStarted, modelRequests: harness.provider.requests.length })
+        .toEqual({ turnsStarted: 1, modelRequests: 1 });
+    });
+  });
+
+  it("two prompts after one barge-in never both start a turn", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const harness = await relayHarness("owner", { holdFirstTurn: held });
+    harness.atOffset(4_000);
+    await harness.run(async message => {
+      const first = message(prompt("Tell me what is next."));
+      await vi.waitFor(() => expect(harness.handleTurn).toHaveBeenCalledTimes(1));
+      await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
+      const b = message(prompt("Question B."));
+      const c = message(prompt("Question C."));
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      release();
+      await b;
+      await c;
+      await first;
+      expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.provider.requests).toHaveLength(1);
     });
   });
 

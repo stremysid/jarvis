@@ -1482,6 +1482,9 @@ export class CallSessionCore {
     }
 
     if (this.#conversation === null) throw new Error("conversation_unavailable");
+    // Re-check in the same synchronous run as the claim below: the awaits above
+    // (the slot wait, the repeat guard) let a competing prompt claim the slot first.
+    if (this.#activeTurnAbort !== null) throw new TurnInProgressError();
     const lifecycleGeneration = this.#lifecycleGeneration;
     const controller = new AbortController();
     let settleTurn!: () => void;
