@@ -106,7 +106,9 @@ and explicit owner authority. Offline passes do not establish live acceptance.
 
 ## Observations and fault probes
 
-This audit observed `typecheck:tests` exit 1: **144 diagnostics in 32 files**.
+`typecheck:tests` remains red: **143 as measured on 2026-09-24 by the builders**.
+The carrier refresh could not remeasure because `node_modules/.bin/tsc` is absent
+in its cloud container; the earlier 144-diagnostic count is superseded.
 The old September 3 suite counts were removed because they did not describe the
 audited tree. Exact executed-gate counts are recorded in the signed
 [audit entry](docs/AGENT_LOG.md#docs-verify-2026-09-23) rather than promised as a

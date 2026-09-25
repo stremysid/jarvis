@@ -10,6 +10,16 @@ from jarvis_local.memory.projection_policy import redaction_would_change, repres
 VECTORS = json.loads(
     (Path(__file__).resolve().parents[4] / "tests/fixtures/memory-projection-policy.json").read_text("utf-8")
 )
+GAPS = json.loads(
+    (Path(__file__).resolve().parents[4] / "tests/fixtures/redaction-gaps.json").read_text("utf-8")
+)
+
+
+@pytest.mark.parametrize("case", GAPS, ids=lambda case: case["name"])
+def test_redaction_gaps_match_the_gateway_decision(case: dict[str, str | bool]) -> None:
+    text = str(case["text"])
+    assert redaction_would_change(text) is case["refuse"]
+    assert (text != case["expected"]) is case["refuse"]
 
 
 def expand(text: str) -> str:
