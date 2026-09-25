@@ -201,7 +201,7 @@ beforeAll(async () => {
 });
 
 it("keeps production voice pipelines authoritative with thinking disabled", () => {
-  const composition = /createOwnerPipelineModels\(env, new DeepSeekModelAdapter\(\{[\s\S]*?telegramTurn: true, telegramThinking: "disabled"[\s\S]*?\}\), new Redactor\(\), ownerPrincipalId, true, now\)/u
+  const composition = /createOwnerPipelineModels\(env, new DeepSeekModelAdapter\(\{[\s\S]*?telegramTurn: true, telegramThinking: "disabled"[\s\S]*?\}\), new Redactor\("owner"\), ownerPrincipalId, true, now\)/u
     .exec(productionRuntimeSource)?.[0];
   expect(composition).toBeDefined();
   expect(composition).not.toContain("DEEPSEEK_TELEGRAM_THINKING");
