@@ -82,7 +82,7 @@ function pinAskingConversation(
       turnSignals.push(input.signal);
       outcomes.push(await gate.authorizeToolCall({
         principalId: OWNER_PRINCIPAL, toolName: "send_email",
-        capability: "contact.third_party", argumentsHash: "a".repeat(64), signal: input.signal,
+        capability: "send.email", argumentsHash: "a".repeat(64), signal: input.signal,
       }));
       await afterAnswer();
       return Object.freeze({
@@ -135,7 +135,7 @@ function harness(options: {
     core, gate, spoken, sent, sessionId, outcomes, turnSignals,
     authorize: () => gate.authorizeToolCall({
       principalId: OWNER_PRINCIPAL, toolName: "send_email",
-      capability: "contact.third_party", argumentsHash: "a".repeat(64),
+      capability: "send.email", argumentsHash: "a".repeat(64),
     }),
   };
 }

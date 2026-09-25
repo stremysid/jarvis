@@ -3,6 +3,28 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #199 round 2 (DeepSeek audit of `b5950275`, main merged after #190)
+
+Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.
+
+- **Merge:** main `f43fcf42` (#190, `0052`) merged normally. `0051` sorts before `0052` wherever both appear (the restore operator, the newest and full fixture chains, the remote-D1 inventory). `0051` is deliberately not in the memory-ingress chain, which holds `0052`. `send_email` stays `send.email` (tier 3) over #190's `contact.third_party`. `email_inbox_*` map to `email.read`, tier 1.
+- **Findings 1, 2, 5 fixed:** the CODE-VS-JUDGMENT collector line now says the revoke no longer asks. ARCHITECTURE says "no other registered capability asks" and links KNOWN_ISSUES. Five fixture pairs of `send_email` with `contact.third_party` now use `send.email`.
+- **Finding 3:** met by the merge. `0052` is in the memory-ingress chain, and the memory-chain parity case passes run alone (`-t "memory fixture chain"`: 1 passed, 4 skipped).
+- **Finding 4:** tier 2 now means "not one of the five: runs without asking once shadow mode is off". This is written in `autonomy-types.ts`, `0051`, ARCHITECTURE and KNOWN_ISSUES. `0008` is applied and left as written.
+- **Finding 6:** CODE-VS-JUDGMENT row 13, `OwnerAgentCore.forget`.
+- **Verified here:** 29 focused files, 421 passed; gateway `tsc` 0; test typecheck 140 errors, none new; `check-state` pass.
+
+## 2026-09-25 — Claude builder: confirm only Sid's five actions (#199, migration 0051)
+
+Signed: Claude (builder agent), `codex/five-action-gates` from main `9ea215b`. Touches Sid's rules 1, 3, 4, 8, 9.
+
+- **What:** `0051_confirm_only_five_actions.sql` makes tier 3 exactly `spend.money`, `send.email` (new), `place.call` (new), `submit.school_work` (new), `contact.third_party` (reworded). `school.collector.revoke` 3 to 1; `delete.data`, `write.production`, `vehicle.unlock` 3 to 2. Reserved `send_email` now maps to `send.email`. The revoke tool description no longer tells the model to ask for a tap.
+- **Premise found wrong:** the brief said tier 2 is "just do it". It is only while `/shadow` is off; in shadow mode tier 2 is withheld. So the one dispatchable dropped tool (collector revoke) went to tier 1, not 2.
+- **Principles conflict, flagged not resolved:** `sid-principles.md` rule 4 (Sep 17, exact words not recorded) lists deleting, unlocking and booking as outward actions that ask. Sid's Sep 24 verbatim rule is newer and says only the five; this PR follows Sep 24. That principles file lives in a scratchpad, not the repo.
+- **Not changed, in KNOWN_ISSUES:** the multi-memory forget tap, the guest-access "Say confirm" on calls, `/call --confirm` and `jarvis call-me` (kept as "making a call"), and the `/shadow` switch.
+- **Verified here:** focused autonomy, persistence-list, rollout and collector-wiring files 13 files / 201 tests passed; backup-restore 12/12; gateway `tsc` exit 0; test typecheck 140 errors, none in changed files. `mutate.ps1`: 9/9 killed and confirmed (first sweep 8 killed, 1 survived because the wiring test's `afterEach` hard-coded tier 1; fixed to restore the migrated tier, then killed). Full suites on CI. First CI run failed one test, `memory-backup.test.ts` pinning the newest schema version as `0048`. It was updated to `0051` and passes locally 30/30. Then main (#195, #197, #168, #198) was merged normally. `0051` is kept out of the memory-ingress fixture chain because that chain runs before `0040`. The new tools map to tier 1: reminders to `notify.owner`, web to `read.web`, `history_search` to `memory.read`. A test now pins `send_email` to `send.email`, because #190 still maps it to `contact.third_party`.
+- Claude-authored: needs a non-Claude review. Not merged, deployed or applied.
+
 ## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`

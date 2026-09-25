@@ -45,6 +45,7 @@ import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_c
 import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
 import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
 import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
+import confirmOnlyFiveActionsSql from "../../src/persistence/migrations/0051_confirm_only_five_actions.sql?raw";
 import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
@@ -155,6 +156,12 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     // would make its first DROP fail rather than exercise memory ingress. The
     // current-schema and full-schema fixtures below both apply 0044.
     { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+    // 0051 is deliberately NOT here. It UPDATEs the collector row 0040 seeds,
+    // and this chain runs before the newest chain applies 0040: recorded here
+    // first, 0051 would be skipped there and leave the revoke at tier 3. The
+    // list-parity guard's memory-chain case is met by 0052, which this chain
+    // owns: it passes run alone (-t "memory fixture chain"), not only after the
+    // terminal-chain case has left the newest receipt.
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await memoryIngressMigrated;
@@ -355,6 +362,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       queries: splitMigration(callPinAndOwnerAuthoritySql),
     },
     { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+    { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await newestRuntimeMigrated;
@@ -416,6 +424,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
   { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
   { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+  { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
   { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
 ]);
 

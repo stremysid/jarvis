@@ -107,7 +107,7 @@ async function harness(input: {
     spoken,
     request: (signal?: AbortSignal) => gate.authorizeToolCall({
       principalId: PRINCIPAL, toolName: "send_email",
-      capability: "contact.third_party", argumentsHash: "a".repeat(64),
+      capability: "send.email", argumentsHash: "a".repeat(64),
       ...(signal === undefined ? {} : { signal }),
     }),
   };
@@ -415,7 +415,7 @@ describe("the tier-3 PIN gate on a call", () => {
     gate.attachSession({ sessionId: newUlid(), speak: async (text) => { spoken.push(text); } });
     const pending = gate.authorizeToolCall({
       principalId: PRINCIPAL, toolName: "send_email",
-      capability: "contact.third_party", argumentsHash: "a".repeat(64),
+      capability: "send.email", argumentsHash: "a".repeat(64),
     });
     await settle();
     await gate.submitSpoken("1111", NOW);

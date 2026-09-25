@@ -37,11 +37,19 @@
  * owner-scoped, reversible operation is the observing one -- and the owner, not
  * this file, decides if he wants them stricter.
  *
- * Note `memory_forget` is tier 1 and not the tier-3 `delete.data`: forget is
+ * Note `memory_forget` is `memory.write` and not `delete.data`: forget is
  * hiding by transition and suppression, never erasure, and its own receipt says
  * the original conversation remains retained.
- * Collector revocation has its own tier-3 registry entry because it disables a
- * credential rather than changing conversational state.
+ * Collector revocation has its own registry entry because it disables a
+ * credential rather than changing conversational state. It is tier 1 since
+ * `0051`: it is not one of the five actions Sid wants asked about.
+ *
+ * Tier 3 -- the tap on Telegram, the PIN on a call -- belongs to exactly five
+ * capabilities, one per action Sid named on 2026-09-24: `spend.money`,
+ * `send.email`, `place.call`, `submit.school_work` and
+ * `contact.third_party`. `five-confirmed-actions.test.ts` pins that set against the
+ * migrated database, so mapping a tool here to a capability outside it can
+ * never make the tool ask, and adding a sixth tier-3 row fails a named test.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
   // Tier 1: reading the inbox changes nothing and reaches nobody. The rows
@@ -81,7 +89,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
   // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
-  // authority still applies, and collector revocation stays gated. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
+  // authority still applies. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
   school_collector_revoke: "school.collector.revoke",
   reminder_schedule: "notify.owner",
@@ -101,9 +109,10 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  *
  * These are classified BEFORE the tools exist, which is the whole point: the
  * gate is only a backstop if a new hand inherits a classification rather than
- * arriving unregistered. `email` reaches a third party and is tier 3.
- * `tesla_precondition` is the reversible vehicle action `0008` already seeds as
- * tier 2. `tesla_unlock` moves the car and is tier 3.
+ * arriving unregistered. `send_email` is `send.email`, one of Sid's five, so
+ * tier 3 whoever it is addressed to. `tesla_precondition` and `tesla_unlock`
+ * are the vehicle actions `0008` seeds, both tier 2 since `0051`: neither is
+ * one of the five, so neither asks.
  *
  * A model cannot reach any of these through the agent today -- they are absent
  * from `OWNER_TOOL_DEFINITIONS`, so an attempt falls through to the
@@ -112,9 +121,9 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  * hurry at the same time as the integration.
  */
 const RESERVED_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
-  // `send_email` is the sending hand, not the inbox read above: sending reaches
-  // a third party and stays tier 3.
-  send_email: "contact.third_party",
+  // `send_email` is the sending hand, not the inbox read above. Sending an
+  // email is one of Sid's five, so it has its own tier-3 row whoever it is to.
+  send_email: "send.email",
   tesla_precondition: "vehicle.precondition",
   tesla_unlock: "vehicle.unlock",
 });
