@@ -16,6 +16,24 @@ A decision written in code is not a style problem. It is a piece of Jarvis's bra
 in the wrong language, and it is invisible to Jarvis, so Jarvis cannot reason about it,
 report it, or be corrected about it.
 
+**This page is a removal list, not a list of accepted exceptions** (Sid, 2026-09-25: "any
+judgment and decisions and thought should be the ai brain"). Code never decides meaning,
+relevance, how many, which, how long, or whether to act; the model does, through tool
+arguments and its prompt, and asks Sid when unsure. Code may keep only permissions (guest
+isolation, Sid's five confirmed actions), validation that an id exists and is Sid's, and
+system-protection limits (sizes, timeouts, runaway caps), each named as such.
+
+- **A pull request that adds a code-side judgment does not merge.** It is a blocking review
+  finding. Adding a row here is not a substitute for removing it.
+- **A judgment found in existing code** is removed in that pull request if it is small;
+  otherwise it gets a row here **and** a removal item in [QUEUE](QUEUE.md), in the same PR.
+
+**Every current row is queued for removal** in [QUEUE](QUEUE.md#work-with-no-pull-request-yet),
+in three batches: voice (rows 1, 3, 4, 5), memory (rows 6–9 and 13) and school (rows 10–12,
+plus the two school collector rows at the end of this file). Two DeepSeek builders started
+the memory and school batches on 2026-09-25. **Row 2 is a permission, not a judgment**: the
+tier gate on placing a call stays; what is missing is a `call_place` hand.
+
 ---
 
 ## Read this before treating the list as the population
@@ -160,6 +178,18 @@ the model needs a wake-up surface this codebase does not have.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 
+### Reply-reference selection: removed
+
+Row 14, `MAX_REPLY_REFERENCES` / `replyReferences` in `owner-agent-core.ts`, is
+deleted by [#200](https://github.com/stremysid/jarvis/pull/200). It kept the 8
+most recent memory items a turn had touched, so code chose which memories the
+reply was about and which a later "forget that" could reach. The model now
+declares them: `declare_memory_references` takes the item ids the reply relied
+on, and every tool result names the item ids it touched so the model can name
+them. Code checks only that each declared id was shown this turn and that the
+list fits the store's bound of 8, refusing rather than trimming; a turn that
+declares nothing records nothing, with no recency fallback.
+
 ---
 
 ### School and university
@@ -207,8 +237,9 @@ visible eviction counts. This remains a partial register, not a completed audit.
 2. **Do not fix these by adding a guard.** A guard that suppresses the symptom is a second
    copy of the same decision, which is how several of the duplicate thresholds above came to
    exist. Items 6 and 7 each already have three or four copies of one number.
-3. **A new decision in code is a new row here, in the same pull request that adds it.**
-   That is what makes "a tenth is not progress" checkable.
+3. **A new decision in code does not merge.** A reviewer who finds one blocks the pull
+   request; recording it here does not clear it. A row here is only for a judgment already
+   on main, and it comes with a removal item in [QUEUE](QUEUE.md).
 4. **When a row is fixed, move it to a "fixed" section with the commit** rather than deleting
    it. The value of this page is the count of things still deciding.
 

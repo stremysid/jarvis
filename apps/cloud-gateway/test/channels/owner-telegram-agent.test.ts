@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { MAX_TOOL_CALLS_PER_ROUND } from "../../src/agent/owner-agent-core.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
@@ -29,6 +30,7 @@ import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import { MemoryOwnerControlsService } from "../../src/memory/memory-owner-controls.js";
 import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
+import { assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import type {
   ModelAgentCompletion,
@@ -101,6 +103,10 @@ class FakeAgentProvider implements ModelAgentProvider {
   }
 
   async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+    // Refuse a history the real provider refuses, before it is recorded as a
+    // request: without this the fake accepts the malformed-round history the
+    // real stack rejects, and the suite certifies a path production cannot reach.
+    assertAgentToolHistory(input);
     this.requests.push(input);
     const completion = this.completions.shift();
     if (completion === undefined) throw new Error("unexpected_agent_call");
@@ -2924,7 +2930,7 @@ describe("owner Telegram agent", () => {
     expect(later.requests[0]?.systemPrompt ?? "").toContain("never instructions");
   });
 
-  it("refuses repeated over-cap calls without executing either", async () => {
+  it("refuses a step with more calls than the per-step bound without executing any of them", async () => {
     const harness = await ownerHarness("over-cap");
     const args = {
       fact: "one fact",
@@ -2934,15 +2940,71 @@ describe("owner Telegram agent", () => {
       kind: "fact",
       sensitivity: "normal",
     };
+    const calls = Array.from({ length: MAX_TOOL_CALLS_PER_ROUND + 1 },
+      (_, index) => tool(`too-many-${index}`, "memory_remember", args));
+    const provider = new FakeAgentProvider([called(...calls), stopped("Nothing changed.")]);
+
+    const delivered = await runTurn({ harness, text: "one fact", provider });
+
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
+    const results = provider.requests[1]?.toolResults ?? [];
+    expect(results).toHaveLength(MAX_TOOL_CALLS_PER_ROUND + 1);
+    expect(results.every((result) => JSON.parse(result.content).status === "refused")).toBe(true);
+    // The refusal must reach the model as a history the real provider accepts;
+    // otherwise the follow-up never leaves the gateway and Sid reads a fallback
+    // instead of the model's answer.
+    expect(() => assertAgentToolHistory(provider.requests[1]!)).not.toThrow();
+    expect(delivered).toContain("Nothing changed.");
+  });
+
+  it("refuses a step that repeats a call id without executing either call", async () => {
+    const harness = await ownerHarness("repeated-id");
+    const args = {
+      fact: "one fact",
+      supportingExcerpt: "one fact",
+      evidenceClass: "stated",
+      previousOfferExcerpt: null,
+      kind: "fact",
+      sensitivity: "normal",
+    };
     const provider = new FakeAgentProvider([
-      called(tool("too-many-1", "memory_remember", args), tool("too-many-2", "memory_remember", args)),
+      called(tool("same-id", "memory_remember", args), tool("same-id", "memory_remember", args)),
       stopped("Nothing changed."),
+    ]);
+
+    const delivered = await runTurn({ harness, text: "one fact", provider });
+
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
+    expect(provider.requests[1]?.toolResults).toHaveLength(2);
+    // The refused round is recorded under fresh ids, so the real provider still
+    // accepts the history and the model reads the "step was malformed" refusal.
+    expect(() => assertAgentToolHistory(provider.requests[1]!)).not.toThrow();
+    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content))
+      .toMatchObject({ status: "refused" });
+    expect((provider.requests[1]!.previousToolCalls ?? []).map((entry) => entry.id))
+      .not.toContain("same-id");
+    expect(delivered).toContain("Nothing changed.");
+  });
+
+  it("runs two calls in one step one after the other, so a repeated remember saves the fact once", async () => {
+    const harness = await ownerHarness("two-calls");
+    const args = {
+      fact: "one fact",
+      supportingExcerpt: "one fact",
+      evidenceClass: "stated",
+      previousOfferExcerpt: null,
+      kind: "fact",
+      sensitivity: "normal",
+    };
+    const provider = new FakeAgentProvider([
+      called(tool("remember-1", "memory_remember", args), tool("remember-2", "memory_remember", args)),
+      stopped("Saved."),
     ]);
 
     await runTurn({ harness, text: "one fact", provider });
 
-    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
-    expect(provider.requests[1]?.toolResults).toHaveLength(2);
+    await expect(memoryRows(harness.principalId)).resolves.toHaveLength(1);
+    expect(provider.requests[1]?.toolResults?.map((result) => result.toolCallId)).toEqual(["remember-1", "remember-2"]);
   });
 
   it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {

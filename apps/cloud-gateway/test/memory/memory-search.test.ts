@@ -818,14 +818,12 @@ describe("memory_search through the owner agent", () => {
     expect(result.receipt).toContain("no memory index bound");
   });
 
-  it("records what a search found as a durable reference on the turn", async () => {
+  it("records the memory the model declares as the turn's reference", async () => {
     // The relay this closes: `findControlTargets` for a later turn reads the
     // item ids out of the *previous* turn's staged assistant event, so a fact
     // the model only saw in a tool result is otherwise unnameable -- Sid could
-    // not forget or correct something Jarvis had just found. The assertion is on
-    // the stored envelope rather than on a following turn, because a following
-    // turn would also need the real retriever wired in, and what this change
-    // contributes is the id being recorded.
+    // not forget or correct something Jarvis had just found. The model declares
+    // which items its reply relied on; code records the declaration.
     const harness = await ownerHarness("reference");
     const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const found = await remember(harness.principalId, controls, "my spare key is under the mat");
@@ -837,12 +835,110 @@ describe("memory_search through the owner agent", () => {
       text: "where is my spare key?",
       provider: new FakeAgentProvider([
         called(tool("search-ref", "memory_search", { query: "spare key" })),
+        called(tool("declare-ref", "declare_memory_references", { itemIds: [found.itemId] })),
         stopped("Under the mat."),
       ]),
       memorySearch: index,
     });
 
     expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
+  });
+
+  it("records nothing when the model declares no references, even after a search found one", async () => {
+    // No recency fallback: searching is not a declaration of what the reply is
+    // about, so a turn that never calls declare_memory_references records no
+    // reference and a later "forget that" has nothing to name.
+    const harness = await ownerHarness("reference-undeclared");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    await runOwnerTurn({
+      harness,
+      text: "where is my spare key?",
+      provider: new FakeAgentProvider([
+        called(tool("search-undeclared", "memory_search", { query: "spare key" })),
+        stopped("Under the mat."),
+      ]),
+      memorySearch: index,
+    });
+
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
+  });
+
+  it("keeps what the model declared as the turn's reference when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, and the declaration is
+    // the whole set: a later step (an inbox read here) must not erase the item
+    // the model declared, and "forget that" must still reach it.
+    const harness = await ownerHarness("reference-chain");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my locker code is on a sticky note");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    await runOwnerTurn({
+      harness,
+      text: "where is my locker code, and anything in my inbox?",
+      provider: new FakeAgentProvider([
+        called(tool("search-chain", "memory_search", { query: "locker code" })),
+        called(tool("inbox-chain", "email_inbox_list", {})),
+        called(tool("declare-chain", "declare_memory_references", { itemIds: [found.itemId] })),
+        stopped("On a sticky note, and your inbox is quiet."),
+      ]),
+      memorySearch: index,
+    });
+
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
+  });
+
+  it("refuses a declared id the turn never showed the model, and records nothing", async () => {
+    const harness = await ownerHarness("reference-untouched");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+    const invented = newUlid();
+
+    const provider = new FakeAgentProvider([
+      called(tool("search-untouched", "memory_search", { query: "spare key" })),
+      called(tool("declare-untouched", "declare_memory_references", { itemIds: [invented] })),
+      stopped("I could not name that."),
+    ]);
+    await runOwnerTurn({
+      harness, text: "where is my spare key?", provider, memorySearch: index,
+    });
+
+    const refusal = JSON.parse(provider.requests[2]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(refusal.status).toBe("refused");
+    expect(refusal.receipt).toContain("not shown to you this turn");
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
+  });
+
+  it("refuses a declaration that repeats one id, and records nothing", async () => {
+    const harness = await ownerHarness("reference-duplicate");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    const provider = new FakeAgentProvider([
+      called(tool("search-duplicate", "memory_search", { query: "spare key" })),
+      called(tool("declare-duplicate", "declare_memory_references", {
+        itemIds: [found.itemId, found.itemId],
+      })),
+      stopped("I could not name that."),
+    ]);
+    await runOwnerTurn({
+      harness, text: "where is my spare key?", provider, memorySearch: index,
+    });
+
+    const refusal = JSON.parse(provider.requests[2]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(refusal.status).toBe("refused");
+    expect(refusal.receipt).toContain("repeated one id");
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
   });
 
   it("records nothing when the search found nothing", async () => {
