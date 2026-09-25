@@ -57,8 +57,10 @@ the PC for everything else. **Do not default to the cloud because the PC sleeps.
 
 ### The Linux node is a planning-session decision, not his
 
-`jarvis node` refuses to start on anything but Linux
-(`jarvis_local/node.py`, as of `0611803`) because a deleted plan assumed "one small
+`jarvis node` remains a Linux-only command, but **`jarvis serve` is the Windows
+launcher** added by #145. `apps/local-agent/jarvis_local/node.py` now accepts Windows
+in `NodeSettings.from_config` and binds `NamedPipeServer` through `run_serve`;
+`_serve` still refuses the `node` command on Windows. The deleted plan assumed "one small
 Linux server", attributed to Sid and never provisioned. Sid says he never asked for
 it and told the original planning chat he is on Windows. The requirement behind it
 is real and is his — memory must work from the phone with every PC off — but it is
@@ -123,7 +125,7 @@ characters. Use the file-writing tool for anything containing escapes.
 ### The gateway's tests were never typechecked
 
 `tsconfig.json` covers only `src/**`. `tsconfig.test.json` covers the tests
-and reports 144 pre-existing errors (see `docs/STATE.md`), so it is not yet a CI gate. New code
+and reports 143 as measured on 2026-09-24 by the builders (see `docs/STATE.md`), so it is not yet a CI gate. New code
 should keep its own directory clean:
 
 ```bash

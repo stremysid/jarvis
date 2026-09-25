@@ -42,6 +42,10 @@ describe("deadline review round seven", () => {
     ["an ellipsis", "Math quiz … English essay due Friday at 3pm"],
     ["parentheses", "Math quiz (English essay due Friday at 3pm)"],
     ["a Unicode line separator", "Math quiz\u2028English essay due Friday at 3pm"],
+    ["a vertical tab", "Math quiz\vEnglish essay due Friday at 3pm"],
+    ["a form feed", "Math quiz\fEnglish essay due Friday at 3pm"],
+    ["a Unicode paragraph separator", "Math quiz\u2029English essay due Friday at 3pm"],
+    ["a bare carriage return", "Math quiz\rEnglish essay due Friday at 3pm"],
   ])("refuses %s from tying Math quiz to the essay's due phrase", async (_label, message) => {
     const result = await record(message, "Math", "quiz");
     expect(result.providerResult.content).toContain("deadline_ambiguous_date");
@@ -70,6 +74,13 @@ describe("deadline review round seven", () => {
 
   it("accepts an unpunctuated unit number between the course and title", async () => {
     const message = "Math unit 3 quiz due Friday at 3pm";
+    const result = await record(message, "Math", "quiz");
+    expect(JSON.parse(result.providerResult.content)).toMatchObject({ status: "completed" });
+    expect(await rows()).toMatchObject([{ course: "Math", title: "quiz", due_at: fridayDueAt }]);
+  });
+
+  it("accepts an apostrophe-only gap containing a content word between the course and title", async () => {
+    const message = "Math Mr O’Brien’s quiz due Friday at 3pm";
     const result = await record(message, "Math", "quiz");
     expect(JSON.parse(result.providerResult.content)).toMatchObject({ status: "completed" });
     expect(await rows()).toMatchObject([{ course: "Math", title: "quiz", due_at: fridayDueAt }]);
