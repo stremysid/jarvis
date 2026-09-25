@@ -7,7 +7,7 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.
 
-- **Merge:** main `f43fcf42` (#190, `0052`) merged normally. `0051` sorts before `0052` in every list. `send_email` stays `send.email` (tier 3) over #190's `contact.third_party`. `email_inbox_*` map to `email.read`, tier 1.
+- **Merge:** main `f43fcf42` (#190, `0052`) merged normally. `0051` sorts before `0052` wherever both appear (the restore operator, the newest and full fixture chains, the remote-D1 inventory). `0051` is deliberately not in the memory-ingress chain, which holds `0052`. `send_email` stays `send.email` (tier 3) over #190's `contact.third_party`. `email_inbox_*` map to `email.read`, tier 1.
 - **Findings 1, 2, 5 fixed:** the CODE-VS-JUDGMENT collector line now says the revoke no longer asks. ARCHITECTURE says "no other registered capability asks" and links KNOWN_ISSUES. Five fixture pairs of `send_email` with `contact.third_party` now use `send.email`.
 - **Finding 3:** met by the merge. `0052` is in the memory-ingress chain, and the memory-chain parity case passes run alone (`-t "memory fixture chain"`: 1 passed, 4 skipped).
 - **Finding 4:** tier 2 now means "not one of the five: runs without asking once shadow mode is off". This is written in `autonomy-types.ts`, `0051`, ARCHITECTURE and KNOWN_ISSUES. `0008` is applied and left as written.
