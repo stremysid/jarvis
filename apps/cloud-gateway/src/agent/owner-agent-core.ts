@@ -83,6 +83,76 @@ const encoder = new TextEncoder();
 const POST_COMMIT_FALLBACK = "Done — I couldn't write a longer reply.";
 const NOT_SAVED_FALLBACK = "I couldn't finish that, and nothing was saved.";
 const DEADLINE_FALLBACK = "I couldn't finish that turn before the deadline. Nothing changed.";
+const TURN_ENDED_REFUSAL = "That turn ended before the action could run, so nothing changed.";
+/**
+ * The least time a turn has left once a held deadline restarts.
+ *
+ * A turn clock is held while Sid answers a channel question (the spoken PIN),
+ * and whatever was left before the hold may be a sliver by then. The action has
+ * already been authorized at that point, so the turn needs room to run it and
+ * say what happened rather than hitting the deadline straight after.
+ */
+const TURN_RESUME_FLOOR_MS = 10_000;
+
+/**
+ * The turn's deadline, which a channel question can hold.
+ *
+ * A plain timer here meant the 20 s budget -- started before the model's first
+ * round -- also bounded how long Sid had to say his PIN, and it could fire in
+ * the middle of his answer. Holding it hands that decision to the question's
+ * own timer, which is re-armed on every re-prompt and bounded by its attempt
+ * cap, so the turn is still finite.
+ */
+class TurnDeadline {
+  #timer: ReturnType<typeof setTimeout> | null = null;
+  #remainingMs: number;
+  #armedAt = 0;
+  #holds = 0;
+  #finished = false;
+
+  constructor(
+    timeoutMs: number,
+    private readonly floorMs: number,
+    private readonly expire: () => void,
+  ) {
+    this.#remainingMs = timeoutMs;
+    this.#arm();
+  }
+
+  hold(): () => void {
+    if (this.#finished) return () => undefined;
+    this.#holds += 1;
+    if (this.#holds === 1 && this.#timer !== null) {
+      clearTimeout(this.#timer);
+      this.#timer = null;
+      this.#remainingMs = Math.max(0, this.#remainingMs - (Date.now() - this.#armedAt));
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.#holds -= 1;
+      if (this.#holds > 0 || this.#finished) return;
+      this.#remainingMs = Math.max(this.#remainingMs, this.floorMs);
+      this.#arm();
+    };
+  }
+
+  cancel(): void {
+    this.#finished = true;
+    if (this.#timer !== null) clearTimeout(this.#timer);
+    this.#timer = null;
+  }
+
+  #arm(): void {
+    this.#armedAt = Date.now();
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      this.#finished = true;
+      this.expire();
+    }, this.#remainingMs);
+  }
+}
 const NEGATION = /\b(?:no|not|never|cannot|can't|don't|doesn't|didn't|won't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't)\b|n['’]t\b/iu;
 const CONTENT_WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
 const CONTENT_STOP_WORDS = new Set([
@@ -761,6 +831,8 @@ function confirmationExcerpt(
  */
 export abstract class OwnerAgentCore implements ModelAdapter {
   private readonly turnTimeoutMs: number;
+  /** Each running turn's deadline, keyed by the bounded input its tools receive. */
+  private readonly turnDeadlines = new WeakMap<object, TurnDeadline>();
   protected readonly dependencies: OwnerAgentCoreDependencies;
 
   protected constructor(
@@ -845,16 +917,17 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       basePrompt,
       ownerTurn ? port.channelPrompt : "", coreProfile, coreProfileFailed,
     ) + assignmentReferences + (ownerTurn ? await this.previousReplyReference(input, port) : "");
-    const timer = setTimeout(() => {
+    const deadline = new TurnDeadline(timeoutMs, Math.min(TURN_RESUME_FLOOR_MS, timeoutMs), () => {
       deadlineHit = true;
       controller.abort();
-    }, timeoutMs);
+    });
     const boundedInput = Object.freeze({
       ...input,
       firstTokenTimeoutMs: Math.min(input.firstTokenTimeoutMs, timeoutMs),
       timeoutMs,
       signal: controller.signal,
     });
+    this.turnDeadlines.set(boundedInput, deadline);
     try {
       if (streaming !== null) {
         yield* this.streamVoiceReply(
@@ -949,7 +1022,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         })),
       });
     } finally {
-      clearTimeout(timer);
+      deadline.cancel();
       input.signal.removeEventListener("abort", onAbort);
     }
   }
@@ -1201,10 +1274,17 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool | null> {
     let decision: ToolGateDecision;
     try {
+      const deadline = this.turnDeadlines.get(input);
       decision = await this.dependencies.autonomy.evaluateToolCall({
         toolName: call.name,
         principalId: input.principalId,
         arguments: call.arguments,
+        // A PIN question is tied to this turn: it closes when the turn ends,
+        // and the turn's clock waits while Sid answers it.
+        turn: Object.freeze({
+          signal: input.signal,
+          holdDeadline: () => deadline?.hold() ?? ((): void => undefined),
+        }),
       });
     } catch {
       // The gate throws when its audit row could not be written, and the
@@ -1212,6 +1292,11 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       // cannot be recorded is not allowed to run.
       return refusedTool(call, "I could not record the safety check for that action, so nothing changed.");
     }
+    // Checked after the gate and immediately before the caller runs the body.
+    // A turn that was cancelled or hung up while the gate waited cannot speak a
+    // receipt, so an action run now would be invisible and Sid asking again
+    // would run it twice.
+    if (input.signal.aborted) return refusedTool(call, TURN_ENDED_REFUSAL);
     if (decision.verdict === "permit") return null;
     if (decision.verdict === "confirm") return this.raiseTier3Confirmation(input, port, call, decision);
     return refusedTool(call, decision.receipt);

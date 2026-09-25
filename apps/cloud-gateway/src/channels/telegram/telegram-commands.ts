@@ -18,10 +18,6 @@
  * bot silently ignores half of them.
  */
 const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
-// Migration 0017 binds the state change to one exact lowercase bare receipt.
-// Near forms still route here so the model cannot improvise around the gate.
-const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/iu;
-const OWNER_STEP_UP_NEAR_PATTERN = /^\/disable[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]owner[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]step(?:[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]?)up(?:@([A-Za-z0-9_]{1,32}))?[\s\S]*$/iu;
 
 export type CommandName =
   | "help"
@@ -31,7 +27,6 @@ export type CommandName =
   | "exam"
   | "shadow"
   | "call"
-  | "disable-owner-step-up"
   | "vault";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
@@ -42,7 +37,6 @@ const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
   "exam",
   "shadow",
   "call",
-  "disable-owner-step-up",
   "vault",
 ]);
 
@@ -86,23 +80,18 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // Only the first line. Telegram sends a command and its argument in one
   // message, and a pasted block below a command should not become part of it.
   const firstLine = line.split("\n", 1)[0] ?? "";
-  const ownerStepUpMatch = OWNER_STEP_UP_COMMAND_PATTERN.exec(firstLine);
-  const ownerStepUpNearMatch = ownerStepUpMatch === null ? OWNER_STEP_UP_NEAR_PATTERN.exec(firstLine) : null;
-  const ownerStepUpLike = ownerStepUpMatch ?? ownerStepUpNearMatch;
-  const ordinaryMatch = ownerStepUpLike === null ? COMMAND_PATTERN.exec(firstLine) : null;
+  const ordinaryMatch = COMMAND_PATTERN.exec(firstLine);
   // A slash followed by something that is not a command shape -- "/", "/123",
   // or any other hyphenated name -- is text. Reporting it as unknown would mean
   // replying "unknown command" to a message that never was one.
-  if (ownerStepUpLike === null && ordinaryMatch === null) return { kind: "text" };
+  if (ordinaryMatch === null) return { kind: "text" };
 
-  const matchedName = ownerStepUpMatch?.[1] ?? ordinaryMatch?.[1] ?? "";
-  const name = ownerStepUpLike === null ? matchedName : "disable-owner-step-up";
-  const addressed = ownerStepUpMatch?.[2] ?? ownerStepUpNearMatch?.[1] ?? ordinaryMatch?.[2];
-  const rest = ownerStepUpMatch?.[3] ?? ordinaryMatch?.[3];
+  const name = ordinaryMatch[1] ?? "";
+  const addressed = ordinaryMatch[2];
+  const rest = ordinaryMatch[3];
   if (
     addressed !== undefined
     && botUsername !== null
-    && ownerStepUpLike === null
     // Telegram usernames are case-insensitive.
     && addressed.toLowerCase() !== botUsername.toLowerCase()
   ) {
@@ -116,12 +105,8 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     name: name as CommandName,
     // A call must validate all the supplied text. Truncation or ignoring a
     // second line could turn a non-final --confirm into permission to dial.
-    argument: name === "disable-owner-step-up"
-      ? ownerStepUpMatch !== null && matchedName === name && addressed === undefined
-        ? line.slice(1 + name.length).trim()
-        : ""
-      : name === "call"
-        ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
+    argument: name === "call"
+      ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
       : (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
     addressedTo: addressed ?? null,
   };
@@ -153,6 +138,5 @@ export const COMMAND_HELP: string = [
   "/shadow on|off - whether Jarvis acts or only reports",
   "/vault <query> - search your notes",
   "/call <reason> --confirm - call your verified phone (owner only)",
-  "/disable-owner-step-up --confirm - disable spoken owner-call step-up",
   "/help - this",
 ].join("\n");

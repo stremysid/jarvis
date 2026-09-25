@@ -15,6 +15,15 @@ export interface Env {
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
   /** 32 random bytes, base64. Used only for the owner-passphrase verifier. */
   OWNER_PASSPHRASE_PEPPER_V1?: string;
+  /**
+   * The four digit PIN a sensitive action on a call is authorized with.
+   *
+   * A Worker secret, set by Sid, exactly four digits. Unset or malformed is not
+   * a startup failure: an ordinary call still works and every sensitive action
+   * on a call refuses, which is the direction that cannot run unguarded. See
+   * docs/OWNER-ACTIONS.md.
+   */
+  OWNER_ACTION_PIN?: string;
   /** Dormant caller-attestation waiver policy. Missing remains passphrase_always. */
   OWNER_CALLER_ID_POLICY?: string;
   /** Explicit rotation version shared by challenge issuance, inbound admission and confirmation. */

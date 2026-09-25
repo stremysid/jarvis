@@ -1,40 +1,25 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { createFakeCallingSystem } from "../../../../tests/acceptance/fake/voice-call-system.js";
 import {
-  FAKE_OWNER_PASSPHRASE_PEPPER,
-  seedFakeGuest,
-} from "../../../../tests/acceptance/fake/voice-access-system.js";
-import { CallRepository } from "../../src/persistence/call-repository.js";
-import { EventRepository } from "../../src/persistence/event-repository.js";
-import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
-import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
-import { applyOwnerCallStepUpMigration } from "./migration.js";
+  applyOwnerCallStepUpMigration,
+  clearCallSessionsForTest,
+  clearVoiceAccessDataForTest,
+} from "./migration.js";
 
-const NOW = "2026-08-30T12:00:00.000Z";
-const WRONG = "ablaze abrasion active";
-const CORRECT = "ablaze abrasion abrasive";
-
-async function openPreAuth() {
-  const system = await createFakeCallingSystem();
-  expect((await system.inbound()).status).toBe(200);
-  const call = await system.openRelay();
-  await call.setup();
-  expect(await call.phase()).toBe("pre_auth");
-  return { system, call };
-}
-
-async function expectUpdateAndDeleteRejected(
-  table: string,
-  update: string,
-  updateError: string,
-  deleteError: string,
-): Promise<void> {
-  if (!/^[a-z0-9_]+$/u.test(table)) throw new Error("unsafe_test_table");
-  await expect(env.DB.prepare(update).run()).rejects.toThrow(updateError);
-  await expect(env.DB.prepare(`DELETE FROM ${table}`).run()).rejects.toThrow(deleteError);
-}
-
+/**
+ * The step-up tables remain after the per-call passphrase gate was removed.
+ *
+ * Sid, 2026-09-24: an ordinary owner call goes straight to Jarvis, so nothing
+ * writes these tables any more. They stay because the brief that removed the
+ * gate says not to drop them, and a later credential design may want them. What
+ * is still worth pinning is the schema's own shape, the fact that `0047`
+ * has replaced `0018`'s owner-authority guard, and that the replacement still
+ * refuses owner authority to anyone but the enrolled owner identity.
+ *
+ * The service that used to be tested here -- `OwnerCallStepUpService` and its
+ * bind/begin/expire retries -- is deleted with the gate, so those tests are
+ * gone rather than rewritten around a code path that no longer exists.
+ */
 describe("owner call step-up migration", () => {
   it("installs durable step-up tables and only remote-safe authority trigger syntax", async () => {
     await applyOwnerCallStepUpMigration();
@@ -62,279 +47,135 @@ describe("owner call step-up migration", () => {
         .bind(name).first<{ sql: string }>();
       expect(schema?.sql, name).toContain("WITHOUT ROWID");
     }
+  });
+
+  it("replaces the owner-authority guard with one no step-up row can satisfy", async () => {
+    await applyOwnerCallStepUpMigration();
     const authority = await env.DB.prepare(`SELECT sql FROM sqlite_schema
       WHERE type = 'trigger' AND name = 'call_session_authorities_require_current_lineage'`)
       .first<{ sql: string }>();
-    expect(authority?.sql).toContain("owner_call_step_up_successes");
-    expect(authority?.sql).toContain("binding.requirement = 'waived_passed_a'");
+    // The two clauses that could only ever be satisfied by a passphrase match
+    // are gone. An owner call mints its authority from relay setup, so a guard
+    // that still named them would abort every owner call.
+    expect(authority?.sql).not.toContain("owner_call_step_up_successes");
+    expect(authority?.sql).not.toContain("owner_call_step_up_bindings");
+    expect(authority?.sql).not.toContain("owner_passphrase_");
+    // What remains is still the real lineage check, and the guest branch is
+    // untouched: a guest authority still needs the exact bound grant.
+    expect(authority?.sql).toContain("voice_owner_identity");
+    expect(authority?.sql).toContain("voice_access_grants");
+    expect(authority?.sql).toContain("session.guest_grant_id = NEW.grant_id");
     expect(authority?.sql).not.toMatch(/CASE[\s\S]*RAISE/iu);
   });
 
-  it("pins the immutable owner binding to the exact stored owner-session snapshot", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const repository = new CallRepository(env.DB, new EventRepository(env.DB));
-      const session = await repository.getOrCreateInboundSession({
-        callSid: `CA${"9".repeat(32)}`,
-        callerE164: "+14165550123",
-        ownerIdentityId: "identity:voice",
-        currentChallengeHmacKeyVersion: "hmac-v1",
-        now: new Date(NOW),
-      });
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
-        session_id, call_sid, owner_principal_id, owner_identity_id, direction,
-        lifecycle_generation, requirement, attestation_class, policy, created_at
-      ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'absent', 'waive_on_passed_a', ?)`)
-        .bind(session.sessionId, session.callSid, session.binding.principalId,
-          session.binding.identityId, session.createdAt).run())
-        .rejects.toThrow("owner_call_step_up_binding_invalid");
+  it("refuses an owner authority for any voice identity that is not the enrolled owner, and admits the enrolled one", async () => {
+    await applyOwnerCallStepUpMigration();
+    await clearCallSessionsForTest();
+    await clearVoiceAccessDataForTest();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at)
+        VALUES (?, 'human', 'active', 'owner', ?, ?), (?, 'human', 'active', 'stranger', ?, ?)`)
+        .bind(OWNER_PRINCIPAL_ID, CONNECTED_AT, CONNECTED_AT, STRANGER_PRINCIPAL_ID, CONNECTED_AT, CONNECTED_AT),
+      // Every identity is an active, verified voice identity of a human, so the
+      // ONLY thing separating them is the enrolment row below. Anything weaker
+      // would let a different clause of the trigger do the refusing.
+      env.DB.prepare(`INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at)
+        VALUES (?, ?, 'voice', '+14165550181', 'active', ?, ?), (?, ?, 'voice', '+14165550182', 'active', ?, ?),
+          (?, ?, 'voice', '+14165550183', 'active', ?, ?)`)
+        .bind(
+          OWNER_IDENTITY_ID, OWNER_PRINCIPAL_ID, CONNECTED_AT, CONNECTED_AT,
+          STRANGER_IDENTITY_ID, STRANGER_PRINCIPAL_ID, CONNECTED_AT, CONNECTED_AT,
+          OWNER_SECOND_IDENTITY_ID, OWNER_PRINCIPAL_ID, CONNECTED_AT, CONNECTED_AT,
+        ),
+      env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, ?, ?)")
+        .bind(OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, CONNECTED_AT),
+    ]);
 
-      await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
-        session_id, call_sid, owner_principal_id, owner_identity_id, direction,
-        lifecycle_generation, requirement, attestation_class, policy, created_at
-      ) VALUES (?, ?, ?, ?, 'inbound', 1, 'required', 'absent', 'passphrase_always', ?)`)
-        .bind(session.sessionId, session.callSid, session.binding.principalId,
-          session.binding.identityId, session.createdAt).run();
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_bindings",
-        "UPDATE owner_call_step_up_bindings SET policy = 'invalid'",
-        "owner_call_step_up_binding_immutable",
-        "owner_call_step_up_binding_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
+    // The session-side guards (0006) already refuse an owner session for a
+    // non-enrolled identity, so no real code path can reach 0047 with one. The
+    // authority trigger is the last line behind them: this forges the session
+    // row past those guards, exactly the state a future bug in them would
+    // leave, and restores them byte-for-byte afterwards.
+    await withTriggersSuspended(SESSION_OWNER_GUARDS, async () => {
+      await seedOwnerAccessSession(STRANGER_SESSION_ID, "e", STRANGER_PRINCIPAL_ID, STRANGER_IDENTITY_ID);
+      await seedOwnerAccessSession(OWNER_SECOND_SESSION_ID, "f", OWNER_PRINCIPAL_ID, OWNER_SECOND_IDENTITY_ID);
+    });
+    await seedOwnerAccessSession(OWNER_SESSION_ID, "d", OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID);
+
+    // Without the enrolment match, any enrolled owner anywhere would satisfy the
+    // EXISTS and a stranger's call would be minted Sid's owner authority.
+    await expect(insertOwnerAuthority(STRANGER_SESSION_ID, STRANGER_PRINCIPAL_ID, STRANGER_IDENTITY_ID))
+      .rejects.toThrow(/call_session_authority_requires_current_lineage/u);
+    // Sid's own principal on a second, unenrolled number is refused as well: the
+    // enrolment names one identity, not every identity the principal owns.
+    await expect(insertOwnerAuthority(OWNER_SECOND_SESSION_ID, OWNER_PRINCIPAL_ID, OWNER_SECOND_IDENTITY_ID))
+      .rejects.toThrow(/call_session_authority_requires_current_lineage/u);
+    // The control: the same insert for the enrolled owner is admitted, so the
+    // refusal above is the enrolment match and not some unrelated clause.
+    await expect(insertOwnerAuthority(OWNER_SESSION_ID, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID))
+      .resolves.toMatchObject({ success: true });
   });
-
-  it("keeps bind, begin, and expiry retries idempotent with guarded inserts", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      const service = new OwnerCallStepUpService(
-        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
-      );
-      const binding = await service.binding(call.sessionId);
-      if (binding === null) throw new Error("owner_step_up_binding_missing");
-      await expect(service.bind(binding)).resolves.toEqual(binding);
-      await expect(service.bind({ ...binding, policy: "invalid" }))
-        .rejects.toThrow("owner_step_up_binding_conflict");
-
-      const first = await service.begin(call.sessionId, new Date("2026-08-30T12:00:30.000Z"));
-      const second = await service.begin(call.sessionId, new Date("2026-08-30T12:00:45.000Z"));
-      expect(second).toEqual(first);
-
-      const expiredAt = new Date("2026-08-30T12:01:00.001Z");
-      await service.expire(call.sessionId, expiredAt);
-      await service.expire(call.sessionId, expiredAt);
-      await expect(env.DB.prepare(`SELECT count(*) AS count FROM owner_call_step_up_rejections
-        WHERE session_id = ?`).bind(call.sessionId).first()).resolves.toEqual({ count: 1 });
-    } finally { await system.cleanup(); }
-  }, 15_000);
-
-  it("pins the 60-second window guard and window immutability", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      expect((await system.inbound()).status).toBe(200);
-      const session = (await env.DB.prepare("SELECT session_id FROM call_sessions").first<{ session_id: string }>())!;
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_windows (
-        session_id, lifecycle_generation, verifier_version, prompted_at, deadline_at
-      ) VALUES (?, 1, 1, ?, ?)`).bind(session.session_id, NOW, "2026-08-30T12:01:01.000Z").run())
-        .rejects.toThrow("owner_call_step_up_window_invalid");
-
-      const call = await system.openRelay();
-      await call.setup();
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_windows",
-        "UPDATE owner_call_step_up_windows SET deadline_at = '2026-08-30T12:01:01.000Z'",
-        "owner_call_step_up_window_immutable",
-        "owner_call_step_up_window_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("pins attempt reservation, one-way resolution, and deletion guards", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_attempts (
-        session_id, lifecycle_generation, attempt_ordinal, verifier_version, attempted_at, outcome, resolved_at
-      ) VALUES (?, 1, 1, 1, ?, 'mismatched', ?)`).bind(call.sessionId, NOW, NOW).run())
-        .rejects.toThrow("owner_call_step_up_attempt_invalid");
-      await call.prompt(WRONG);
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_attempts",
-        "UPDATE owner_call_step_up_attempts SET attempted_at = '2026-08-30T12:00:00.001Z'",
-        "owner_call_step_up_attempt_transition_invalid",
-        "owner_call_step_up_attempt_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("pins success provenance plus immutable success receipts", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      await call.prompt(WRONG);
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_successes (
-        session_id, lifecycle_generation, call_sid, direction, owner_principal_id,
-        owner_identity_id, verifier_version, attempt_ordinal, verified_at
-      ) SELECT binding.session_id, 1, binding.call_sid, binding.direction, binding.owner_principal_id,
-        binding.owner_identity_id, 1, 1, ? FROM owner_call_step_up_bindings binding
-        WHERE binding.session_id = ?`).bind(NOW, call.sessionId).run())
-        .rejects.toThrow("owner_call_step_up_success_invalid");
-    } finally { await system.cleanup(); }
-
-    const verified = await openPreAuth();
-    try {
-      await verified.call.prompt(CORRECT);
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_successes",
-        "UPDATE owner_call_step_up_successes SET verified_at = '2026-08-30T12:00:00.001Z'",
-        "owner_call_step_up_success_immutable",
-        "owner_call_step_up_success_delete_forbidden",
-      );
-    } finally { await verified.system.cleanup(); }
-  }, 30_000);
-
-  it("pins reprompt order, exhaustion, immutability, and deletion", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_reprompts (
-        session_id, lifecycle_generation, reprompt_ordinal, prompted_at
-      ) VALUES (?, 1, 2, ?)`).bind(call.sessionId, NOW).run())
-        .rejects.toThrow("owner_call_step_up_reprompt_invalid");
-      await call.prompt("ablaze abrasion abrasive absolute");
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_reprompts",
-        "UPDATE owner_call_step_up_reprompts SET prompted_at = '2026-08-30T12:00:00.001Z'",
-        "owner_call_step_up_reprompt_immutable",
-        "owner_call_step_up_reprompt_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("pins rejection provenance, terminalization, immutability, and deletion", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_rejections (
-        session_id, lifecycle_generation, reason, rejected_at
-      ) VALUES (?, 1, 'attempts_exhausted', ?)`).bind(call.sessionId, NOW).run())
-        .rejects.toThrow("owner_call_step_up_rejection_invalid");
-      for (let attempt = 0; attempt < 3; attempt += 1) await call.prompt(WRONG);
-      await expect(call.phase()).resolves.toBe("rejected");
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_rejections",
-        "UPDATE owner_call_step_up_rejections SET rejected_at = '2026-08-30T12:00:00.001Z'",
-        "owner_call_step_up_rejection_immutable",
-        "owner_call_step_up_rejection_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("pins repeat-check timing, one-way resolution, and deletion", async () => {
-    const { system, call } = await openPreAuth();
-    try {
-      await call.prompt(CORRECT);
-      await expect(env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
-        session_id, lifecycle_generation, verifier_version, reserved_at, outcome, resolved_at
-      ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(call.sessionId, NOW).run())
-        .rejects.toThrow("owner_call_step_up_repeat_invalid");
-      const reservedAt = "2026-08-30T12:00:03.000Z";
-      await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
-        session_id, lifecycle_generation, verifier_version, reserved_at, outcome, resolved_at
-      ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(call.sessionId, reservedAt).run();
-      await env.DB.prepare(`UPDATE owner_call_step_up_repeat_checks
-        SET outcome = 'mismatched', resolved_at = ? WHERE session_id = ?`)
-        .bind(reservedAt, call.sessionId).run();
-      await expectUpdateAndDeleteRejected(
-        "owner_call_step_up_repeat_checks",
-        "UPDATE owner_call_step_up_repeat_checks SET outcome = 'matched'",
-        "owner_call_step_up_repeat_transition_invalid",
-        "owner_call_step_up_repeat_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("pins durable guest PIN attempt order, immutability, and deletion", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      const guest = await seedFakeGuest("a");
-      expect((await system.inbound(guest.caller)).status).toBe(200);
-      const call = await system.openRelay();
-      await call.setup();
-      await expect(env.DB.prepare(`INSERT INTO guest_call_pin_attempts (
-        session_id, attempt_ordinal, attempted_at
-      ) VALUES (?, 2, ?)`).bind(call.sessionId, NOW).run())
-        .rejects.toThrow("guest_call_pin_attempt_invalid");
-      await call.pin(new TextEncoder().encode("2468"));
-      await expectUpdateAndDeleteRejected(
-        "guest_call_pin_attempts",
-        "UPDATE guest_call_pin_attempts SET attempted_at = '2026-08-30T12:00:00.001Z'",
-        "guest_call_pin_attempt_immutable",
-        "guest_call_pin_attempt_delete_forbidden",
-      );
-    } finally { await system.cleanup(); }
-  });
-
-  it("rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys", async () => {
-    const system = await createFakeCallingSystem();
-    try {
-      expect((await system.inbound()).status).toBe(200);
-      const successful = await system.openRelay();
-      await successful.setup();
-      await successful.prompt(CORRECT);
-      system.advanceTime(2_001);
-      const repeatReservedAt = "2026-08-30T12:00:02.001Z";
-      await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
-        session_id, lifecycle_generation, verifier_version, reserved_at, outcome, resolved_at
-      ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(successful.sessionId, repeatReservedAt).run();
-
-      expect((await system.inbound()).status).toBe(200);
-      const rejected = await system.openRelay();
-      await rejected.setup();
-      await rejected.prompt("ablaze abrasion abrasive active");
-      for (const candidate of [
-        "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
-      ]) await rejected.prompt(candidate);
-
-      expect((await system.inbound()).status).toBe(200);
-      const preAuth = await system.openRelay();
-      await preAuth.setup();
-      expect(await preAuth.phase()).toBe("pre_auth");
-      for (const [statement, error] of [
-        [`INSERT OR REPLACE INTO owner_call_step_up_bindings
-          SELECT * FROM owner_call_step_up_bindings WHERE session_id = ?`, "owner_call_step_up_binding_invalid"],
-        [`INSERT OR REPLACE INTO owner_call_step_up_windows
-          SELECT * FROM owner_call_step_up_windows WHERE session_id = ?`, "owner_call_step_up_window_invalid"],
-      ] as const) {
-        await expect(env.DB.prepare(statement).bind(preAuth.sessionId).run()).rejects.toThrow(error);
-      }
-      await expect(env.DB.prepare(`INSERT OR REPLACE INTO owner_call_step_up_repeat_checks
-        SELECT * FROM owner_call_step_up_repeat_checks WHERE session_id = ?`).bind(successful.sessionId).run())
-        .rejects.toThrow("owner_call_step_up_repeat_invalid");
-      await preAuth.terminate("failed");
-
-      const guest = await seedFakeGuest("a");
-      expect((await system.inbound(guest.caller)).status).toBe(200);
-      const guestCall = await system.openRelay();
-      await guestCall.setup();
-      await guestCall.pin(new TextEncoder().encode("1357"));
-
-      await env.DB.prepare(`INSERT INTO owner_call_step_up_alerts (
-        owner_principal_id, alert_class, direction, attestation_class,
-        first_observed_at, last_observed_at, observation_count, last_sent_at, claim_id, claim_expires_at
-      ) VALUES ('principal:owner', 'rejected', 'inbound', 'absent', ?, ?, 1, NULL, NULL, NULL)`)
-        .bind(NOW, NOW).run();
-
-      for (const [table, error] of [
-        ["owner_call_step_up_attempts", "owner_call_step_up_attempt_invalid"],
-        ["owner_call_step_up_reprompts", "owner_call_step_up_reprompt_invalid"],
-        ["owner_call_step_up_successes", "owner_call_step_up_success_invalid"],
-        ["owner_call_step_up_rejections", "owner_call_step_up_rejection_invalid"],
-        ["guest_call_pin_attempts", "guest_call_pin_attempt_invalid"],
-        ["owner_call_step_up_alerts", "owner_step_up_alert_insert_invalid"],
-      ] as const) {
-        await expect(env.DB.prepare(`INSERT OR REPLACE INTO ${table} SELECT * FROM ${table}`).run())
-          .rejects.toThrow(error);
-      }
-      await expect(env.DB.prepare(`UPDATE owner_call_step_up_alerts SET alert_class = 'configuration'
-        WHERE owner_principal_id = 'principal:owner' AND alert_class = 'rejected' AND direction = 'inbound'`).run())
-        .rejects.toThrow("owner_step_up_alert_key_immutable");
-    } finally { await system.cleanup(); }
-  }, 30_000);
 });
+
+const CONNECTED_AT = "2026-08-30T00:00:00.000Z";
+const AUTHORITY_EXPIRES_AT = "2026-08-30T00:30:00.000Z";
+const RELAY_DEADLINE = "2026-08-30T00:05:00.000Z";
+const OWNER_PRINCIPAL_ID = "principal:0047-owner";
+const OWNER_IDENTITY_ID = "identity:0047-owner";
+const STRANGER_PRINCIPAL_ID = "principal:0047-stranger";
+const STRANGER_IDENTITY_ID = "identity:0047-stranger";
+const OWNER_SECOND_IDENTITY_ID = "identity:0047-owner-second";
+const OWNER_SESSION_ID = "01k3w1t4000000000000004700";
+const STRANGER_SESSION_ID = "01k3w1t4000000000000004701";
+const OWNER_SECOND_SESSION_ID = "01k3w1t4000000000000004702";
+/** The three session-side guards that each refuse an owner session for a non-enrolled identity. */
+const SESSION_OWNER_GUARDS = [
+  "call_sessions_require_inbound_lineage",
+  "call_sessions_voice_access_required",
+  "call_sessions_provider_binding_eligible",
+] as const;
+
+/** Drops the named triggers for `run`, then recreates each from its own stored SQL. */
+async function withTriggersSuspended(names: readonly string[], run: () => Promise<void>): Promise<void> {
+  const placeholders = names.map(() => "?").join(", ");
+  const saved = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND name IN (${placeholders})`)
+    .bind(...names).all<{ name: string; sql: string }>();
+  // If a guard is renamed, this fails loudly; otherwise the rename would leave it
+  // in place and the forged session insert would abort for the wrong reason.
+  expect(saved.results.map((row) => row.name).sort()).toEqual([...names].sort());
+  for (const { name } of saved.results) await env.DB.prepare(`DROP TRIGGER ${name}`).run();
+  try {
+    await run();
+  } finally {
+    for (const { sql } of saved.results) await env.DB.prepare(sql).run();
+  }
+}
+
+/** Seeds an inbound owner-access session and walks it to `pre_auth`, the phase an authority is minted in. */
+async function seedOwnerAccessSession(sessionId: string, callHex: string, principalId: string, identityId: string): Promise<void> {
+  await env.DB.prepare(`INSERT INTO call_sessions (
+    session_id, call_sid, expected_attempt_id, principal_id, identity_id, destination_identity_id,
+    direction, activation_only, activation_challenge_id, activation_hmac_key_version, relay_nonce,
+    nonce_expires_at, relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+    access_kind, guest_grant_id, guest_grant_version, access_document_hash
+  ) VALUES (?, ?, NULL, ?, ?, ?, 'inbound', 0, NULL, NULL, ?, ?, ?, NULL, 'created', ?, ?, 'owner', NULL, NULL, NULL)`)
+    .bind(
+      sessionId, `CA${callHex.repeat(32)}`, principalId, identityId, identityId, `${callHex.repeat(42)}A`,
+      RELAY_DEADLINE, RELAY_DEADLINE, CONNECTED_AT, CONNECTED_AT,
+    ).run();
+  await env.DB.prepare(`UPDATE call_sessions
+    SET provider_session_id = 'VX' || substr(call_sid, 3), provider_connected_at = ?, updated_at = ?
+    WHERE session_id = ?`).bind(CONNECTED_AT, CONNECTED_AT, sessionId).run();
+  await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting', updated_at = ? WHERE session_id = ?")
+    .bind(CONNECTED_AT, sessionId).run();
+  await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
+    .bind(CONNECTED_AT, sessionId).run();
+}
+
+function insertOwnerAuthority(sessionId: string, principalId: string, identityId: string): Promise<D1Result<unknown>> {
+  return env.DB.prepare(`INSERT INTO call_session_authorities (
+    session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
+    access_document_hash, authenticated_at, expires_at
+  ) VALUES (?, 'owner', ?, ?, NULL, NULL, NULL, ?, ?)`)
+    .bind(sessionId, principalId, identityId, CONNECTED_AT, AUTHORITY_EXPIRES_AT).run();
+}
