@@ -120,7 +120,7 @@ describe("The frozen round-three corpus", () => {
   it.each(ROUND_THREE_FALSE_CLAIMS)("catches the new held-out false claim: %s", (sentence) => {
     expect(guardReplyClaims(sentence)).not.toBe(sentence);
   });
-  it.each(ROUND_THREE_TUTORING)("keeps the new held-out tutoring sentence: %s", (sentence) => {
-    expect(guardReplyClaims(sentence)).toBe(sentence);
+  it.each(ROUND_THREE_TUTORING)("keeps the new held-out tutoring sentence the model declares: %s", (sentence) => {
+    expect(guardReplyClaims(sentence, { workedExplanations: [sentence] })).toBe(sentence);
   });
 });

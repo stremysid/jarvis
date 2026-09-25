@@ -279,12 +279,15 @@ describe("school assignment pastes", () => {
     expect((await h.repository.readSnapshot(h.principalId, TODAY)).courses).toHaveLength(2);
   });
 
-  it("refuses the same paste in university scope without calling the model", async () => {
+  it("sends the same paste in university scope to the model instead of refusing it in code", async () => {
     const h = await harness({ scope: "university" });
     const result = await collect(h.adapter.streamOwnerTool(h.input));
-    expect(result.text).toContain("I can't do that for you");
+    // Row 12 removed the pre-model regex refusal. The model now decides, and
+    // the selected-scope check is what keeps a school update out of the
+    // university store; the tool reports that it saved nothing.
+    expect(h.requests).toHaveLength(1);
+    expect(result.text).toContain("I couldn't validate that as a university update, so I didn't save it.");
     expect(result.tokens[0]).toMatchObject({ toolOutcome: "not_saved" });
-    expect(h.requests).toHaveLength(0);
   });
 
   it("lists only the three stored blocks when a fourth overloaded block was dropped", async () => {

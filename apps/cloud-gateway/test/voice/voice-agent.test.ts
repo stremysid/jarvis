@@ -958,14 +958,20 @@ describe("the voice agent adapter", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_item_pins WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
-  it("delivers every sentence of a worked explanation on an ordinary owner voice turn", async () => {
-    const provider = new FakeAgentProvider([stopped(WORKED_REPLY)]);
+  // The model declares a worked explanation by wrapping its one sentence in a
+  // [[worked]] marker; code no longer parses the sentence to guess. Splitting
+  // on sentence boundaries reproduces what the model emits for a worked turn.
+  const declareWorked = (text: string): string =>
+    text.split(/(?<=[.!?])\s+/u).map((sentence) => `[[worked]]${sentence}[[/worked]]`).join(" ");
+
+  it("delivers every sentence of a worked explanation the model declares", async () => {
+    const provider = new FakeAgentProvider([stopped(declareWorked(WORKED_REPLY))]);
     await expect(runVoiceTurn({ text: "Explain the homework step by step.", provider })).resolves.toBe(WORKED_REPLY);
     expect(provider.requests).toHaveLength(1);
   });
 
-  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question over voice: %s", async (reply) => {
-    const provider = new FakeAgentProvider([stopped(reply)]);
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question the model declares: %s", async (reply) => {
+    const provider = new FakeAgentProvider([stopped(declareWorked(reply))]);
     await expect(runVoiceTurn({ text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
     expect(provider.requests).toHaveLength(1);
   });
@@ -1163,7 +1169,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(26);
+    expect(request?.tools).toHaveLength(27);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
@@ -1172,7 +1178,7 @@ describe("the voice agent adapter", () => {
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
-      "school_d2l_status", "school_collector_revoke",
+      "school_d2l_status", "school_collector_revoke", "school_work_evidence",
       "email_inbox_list", "email_inbox_read",
     ]));
     const telegramRequests: ModelAgentCompletionInput[] = [];

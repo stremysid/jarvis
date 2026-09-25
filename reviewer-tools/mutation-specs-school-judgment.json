@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Worked declaration exempts a first-person claim",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (worked.has(sentence.text.trim())) continue;",
+    "replace": "if (false) continue;",
+    "expect": "keeps the complete maths explanation the model declares: I applied the chain rule for you.",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts"
+  },
+  {
+    "name": "Declared worked sentences are blanked before the external backstop",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "const index = reply.indexOf(sentence);",
+    "replace": "const index = -1;",
+    "expect": "keeps the complete maths explanation the model declares: Applied the chain rule for you.",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts"
+  },
+  {
+    "name": "Voice worked marker exempts its sentence",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "if (workedStart < end && workedEnd > start) worked = true;",
+    "replace": "if (workedStart < end && workedEnd > start) worked = false;",
+    "expect": "delivers every sentence of a worked explanation the model declares",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts"
+  },
+  {
+    "name": "Row 12 prompt says no tool can execute externally",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "No tool can email, submit, upload, pay, sign up, or contact anyone",
+    "replace": "Some tools can email, submit, upload, pay, sign up, or contact anyone",
+    "expect": "tells the owner model no tool can execute externally and not to refuse on wording",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts"
+  },
+  {
+    "name": "Work evidence reports a bounded page overflow",
+    "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+    "find": "hasMore: found.length > limit,",
+    "replace": "hasMore: false,",
+    "expect": "bounds the evidence page and reports that more matches exist",
+    "testPath": "apps/cloud-gateway/test/school/school-observation-repository.test.ts"
+  },
+  {
+    "name": "Work evidence passes the source submission state through",
+    "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+    "find": "submissionState: state(row.submission_state),",
+    "replace": "submissionState: state(\"new\"),",
+    "expect": "reads raw submission evidence for the model without writing a missing-work judgment",
+    "testPath": "apps/cloud-gateway/test/school/school-observation-repository.test.ts"
+  },
+  {
+    "name": "The evidence tool names the model's judgment",
+    "file": "apps/cloud-gateway/src/school/school-work-tools.ts",
+    "find": "You decide whether work is missed; code does not.",
+    "replace": "Code decides whether work is missed.",
+    "expect": "hands the model raw Classroom work evidence without an action receipt",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts"
+  }
+]

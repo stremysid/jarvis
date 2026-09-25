@@ -1,0 +1,3 @@
+
+MUTATE ABORTED: gate directory has uncommitted changes; a mutation result on top of them would not be about the commit under test:
+?? .mutate.txt
