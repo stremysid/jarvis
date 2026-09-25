@@ -1869,6 +1869,31 @@ describe("automatic memory distillation", () => {
     expect(provider.requests).toHaveLength(0);
   });
 
+  it("keeps a guest voice turn out of the owner's automatic extraction and memory", async () => {
+    const ownerPrincipalId = await principal();
+    const guestPrincipalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I keep my guest notes in a green folder.";
+    const event = await appendConversation(events, guestPrincipalId, text, {
+      channelCode: 1,
+      directOwnerText: true,
+    });
+    const provider = new FakeModelProvider({ completeJson: [proposal(event, text)] });
+
+    const result = await workflow(ownerPrincipalId, provider)
+      .runNext({ runKey: `guest-voice:${newUlid()}` });
+
+    expect(result).toMatchObject({
+      outcome: "nothing_new",
+      inputEventCount: 1,
+      skippedEventCount: 1,
+      skippedReasonCounts: { owner_scope_ineligible: 1 },
+    });
+    expect(provider.requests).toHaveLength(0);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?1")
+      .bind(ownerPrincipalId).first()).toEqual({ count: 0 });
+  });
+
   it("revalidates the stored source before the fake provider can see conversation text", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);

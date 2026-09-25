@@ -24,6 +24,7 @@ import {
   type MemoryBackupRestorePointer,
 } from "../../src/backup/memory-backup-restore.js";
 import memoryBackupRestoreOperator from "../../src/backup/memory-backup-restore-operator.js";
+import { MEMORY_BACKUP_RESTORE_MIGRATIONS } from "../../src/backup/memory-backup-restore-migrations.js";
 import {
   MEMORY_BACKUP_LATEST_KEY,
   MEMORY_BACKUP_SELF_REFERENCES,
@@ -660,7 +661,7 @@ describe("verified memory backup restore", () => {
       database: env.DB,
       bucket,
       pointer,
-      migrationSql: namedMigrationSources,
+      migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
       maxObjectsPerStep: 2,
     });
     for (let step = 0; step < 500 && cached.outcome === "pending"; step += 1) {
@@ -668,7 +669,7 @@ describe("verified memory backup restore", () => {
         database: env.DB,
         bucket,
         pointer,
-        migrationSql: namedMigrationSources,
+        migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
         maxObjectsPerStep: 2,
       });
     }
@@ -677,7 +678,7 @@ describe("verified memory backup restore", () => {
       database: env.DB,
       bucket,
       pointer,
-      migrationSql: namedMigrationSources,
+      migrationSql: MEMORY_BACKUP_RESTORE_MIGRATIONS,
       maxObjectsPerStep: 2,
     });
     expect(repeated.outcome).toBe("ready");

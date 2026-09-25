@@ -3,12 +3,9 @@ import type { ModelFunctionDefinition } from "../providers/provider-types.js";
 /**
  * The memory tools, defined once for every channel.
  *
- * These live here rather than in the Telegram adapter because Phase 1's tools
- * landed on Telegram on 2026-09-16 and the voice path was composed on
- * 2026-09-13, and nobody went back: a phone call today can talk and cannot act,
- * with zero tool dispatch under `src/voice`. A tool defined inside a channel
- * adapter is a tool the other channel will not get, so the definition belongs
- * where both can import it and only the *dispatch* is per-channel.
+ * The shared owner catalogue includes this subset once, so adding a memory
+ * capability cannot leave the other communication adapter without its tool.
+ * The owner core also owns dispatch and its proof boundaries.
  *
  * The descriptions are the product. `docs/plan/2026-09-19-jarvis-roadmap.md`
  * says most of the "feels like a real person" quality comes from the system
