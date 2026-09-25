@@ -1,5 +1,36 @@
 # Known issues
 
+## Literal-history rows that cannot be decoded are skipped, not surfaced to search (2026-09-25)
+
+Since #194 round 2, `indexSequences` in
+[`literal-history.ts`](apps/cloud-gateway/src/memory/literal-history.ts) records a
+row it cannot decode (an envelope that fails validation, a control character
+other than a line break or tab, non-NFC or oversize text, a payload that is not
+history-eligible) as a `failed` row in `memory_history_coverage`, with a named
+`failure_code` such as `history_row_text_invalid`, and moves the cursor past it.
+The hourly job reports the count as "rows skipped". What is not done yet:
+
+- `searchLiteral` does not tell the model that a skipped row exists, so a
+  `no_hit` covers every row that was indexed, not literally every row.
+- An exhaustive search job still fails as `history_step_corrupt` when its walk
+  reaches such a row.
+- A skipped archived row settles on its segment id alone, and no test drives a
+  skipped row through the archive path.
+
+Line breaks themselves are no longer a problem: the search copy stores them as
+spaces (the 0016 and 0025 CHECKs refuse them) and the event keeps the original.
+
+## Restoring a set at an older schema version still checks today's seeded rows (2026-09-25)
+
+Since #194 round 2, the restore accepts a set whose table cuts are a subset of
+`MEMORY_BACKUP_TABLES`, restores each table it holds by name, and skips backup
+tables the target schema does not have. `assertFreshRestoreTarget` still
+compares the migration-seeded rows (`capability_tiers` and the singletons) with
+the list in the current code. A target migrated only to an older set's schema
+version, from before a migration that seeded new capabilities, fails that check
+as `memory_backup_restore_target_not_fresh:capability_tiers`. This is older
+than #194 and applies to any older-version set.
+
 ## Tier-3 confirmations issued before tool binding (2026-09-24)
 
 #182 changes confirmation references from
