@@ -2000,12 +2000,19 @@ function Assert-SafeUvMembers {
 }
 
 function Get-HermesSystemTarPath {
-  $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot', [EnvironmentVariableTarget]::Machine)
-  if ([string]::IsNullOrEmpty($systemRoot)) { $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot', [EnvironmentVariableTarget]::Process) }
-  if ([string]::IsNullOrEmpty($systemRoot)) { $systemRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows) }
-  if ([string]::IsNullOrEmpty($systemRoot) -or -not [IO.Path]::IsPathFullyQualified($systemRoot)) { throw 'System tar host root is unavailable.' }
-  $full = [IO.Path]::GetFullPath((Join-Path $systemRoot 'System32\tar.exe'))
-  if (-not [IO.Path]::IsPathFullyQualified($full) -or [IO.Path]::GetExtension($full) -cne '.exe') { throw 'System tar host path is not the reviewed exact absolute executable.' }
+  # [Environment]::SystemDirectory calls GetSystemDirectoryW and returns the
+  # directory the loader itself uses. It is preferred over the obvious
+  # `$env:SystemRoot` + `\System32` because SystemRoot at Machine scope is empty
+  # on this PC -- HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment
+  # carries `windir` and no `SystemRoot` -- so an environment chain reads the
+  # process environment, which any caller can set, and a call site could then
+  # substitute its own host and be believed.
+  $full = Join-Path ([Environment]::SystemDirectory) 'tar.exe'
+  if (-not [IO.Path]::IsPathFullyQualified($full)) { throw 'System tar host path is not absolute.' }
+  # The reparse walk is the guard that matters: a junction standing in for a real
+  # system directory would send every listing below to an arbitrary tar. It
+  # throws when it fires. No test pins it -- reaching it means rewriting HKLM --
+  # so its presence is not coverage. See docs/AGENT_LOG.md.
   $cursor = $full
   $leaf = $true
   while ($true) {
