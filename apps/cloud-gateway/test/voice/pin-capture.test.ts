@@ -61,6 +61,29 @@ describe("normalizeSpokenPin", () => {
     expect(normalizeSpokenPin("Four eight two seven")).toEqual(Uint8Array.from([52, 56, 50, 55]));
   });
 
+  it("reads the capitals and punctuation a transcript adds, which Sid never said", () => {
+    const pin4821 = Uint8Array.from([52, 56, 50, 49]);
+    for (const heard of [
+      "Four eight two one.",
+      "4821.",
+      "48 21.",
+      "forty-eight twenty-one.",
+      "four, eight, two, one",
+      "4,821",
+      "4 8 2 1",
+      "Four. Eight. Two. One.",
+      "48-21",
+      "4821\n",
+      "FOUR EIGHT TWO ONE!",
+      "four eight two one?",
+    ]) {
+      expect(normalizeSpokenPin(heard), heard).toEqual(pin4821);
+    }
+    // "oh" is how a zero is often said in a number.
+    expect(normalizeSpokenPin("four oh two one")).toEqual(Uint8Array.from([52, 48, 50, 49]));
+    expect(normalizeSpokenPin("Oh four two one.")).toEqual(Uint8Array.from([48, 52, 50, 49]));
+  });
+
   it("refuses a candidate that does not resolve to exactly four digits", () => {
     for (const rejected of [
       // A word that is not a number makes the whole candidate unreadable rather
@@ -68,12 +91,13 @@ describe("normalizeSpokenPin", () => {
       "for eight to seven",
       "my pin is four eight two seven",
       "four eight two seven please",
-      "four, eight, two, seven",
+      "um four eight two seven",
       "four eight two",
       "four eight two seven eight",
       "twenty-four sixty-eight these",
       "４８２７",
-      "4827\n",
+      "4827a",
+      "48.27.1",
       null,
       undefined,
       4827,

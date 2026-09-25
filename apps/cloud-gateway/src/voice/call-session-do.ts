@@ -692,7 +692,8 @@ export class CallSessionCore {
         && (typeof input.sensitiveActionPin.attachSession !== "function"
           || typeof input.sensitiveActionPin.hasPendingPrompt !== "function"
           || typeof input.sensitiveActionPin.submitSpoken !== "function"
-          || typeof input.sensitiveActionPin.submitKeypad !== "function")
+          || typeof input.sensitiveActionPin.submitKeypad !== "function"
+          || typeof input.sensitiveActionPin.claimLateAnswer !== "function")
       || typeof input.expectedAccountSid !== "string"
       || !ACCOUNT_SID.test(input.expectedAccountSid)
     ) {
@@ -733,6 +734,8 @@ export class CallSessionCore {
     this.#sensitiveActionPin?.attachSession({
       sessionId: this.#session.sessionId,
       speak: (text: string) => this.#relay.sendNeutralText(text),
+      // Keys pressed before this question are not part of its answer.
+      questionOpened: () => { this.#sensitiveActionPinKeypad.clear(); },
     });
   }
 
@@ -772,6 +775,14 @@ export class CallSessionCore {
         await this.#handlePrompt(event);
         return;
       case "interrupt":
+        // Speaking over the PIN prompt is how Sid answers it early, so while a
+        // question is open an interrupt stops the prompt's audio only. Aborting
+        // the turn here would close the question he is in the middle of
+        // answering.
+        if (this.#session.phase === "active" && this.#sensitiveActionPin?.hasPendingPrompt() === true) {
+          await this.#relay.cancelOutput();
+          return;
+        }
         await this.#cancelCurrentOutput();
         return;
       case "error":
@@ -1053,6 +1064,12 @@ export class CallSessionCore {
       return;
     }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+    // Four digits said just after a PIN question closed are still the
+    // credential: consumed here, before the turn-in-progress check, so a late
+    // PIN neither becomes a turn nor ends the call.
+    if (this.#sensitiveActionPin !== null && await this.#sensitiveActionPin.claimLateAnswer(event.text, this.#now())) {
+      return;
+    }
     const promptText = event.text;
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
     if (Array.from(promptText).length > 8_000 || encoder.encode(promptText).byteLength > 65_536) {

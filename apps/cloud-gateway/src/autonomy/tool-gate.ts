@@ -63,7 +63,40 @@ export interface ToolGateEvaluationRequest {
   readonly principalId: string;
   /** The raw JSON the model supplied. Fingerprinted, never stored or decided on. */
   readonly arguments: string;
+  /**
+   * The agent turn that asked, when the channel may have to ask Sid a question
+   * before answering. Optional because most callers never reach a channel.
+   */
+  readonly turn?: ToolGateTurn;
 }
+
+/**
+ * The turn a tool call belongs to, as the gate needs it.
+ *
+ * `signal` is the turn's own abort signal. A channel question is tied to it,
+ * so a turn that ends -- the call hung up, the turn was cancelled -- closes
+ * the question and nothing it asked about can run afterwards.
+ *
+ * `holdDeadline` stops the turn's clock while the question is open and
+ * returns the function that restarts it. Without it the turn budget, which
+ * started before the model's first round, decides how long Sid has to answer
+ * instead of the question's own forgiving timer.
+ */
+export interface ToolGateTurn {
+  readonly signal: AbortSignal;
+  holdDeadline(): () => void;
+}
+
+/**
+ * What a channel answers when it asked Sid and he did not authorize: he said
+ * cancel, ran out of attempts, did not answer, or the turn ended.
+ *
+ * Distinct from null, which means the channel could not ask at all (no PIN
+ * configured, say). After a refusal the action is simply not done; it is not
+ * turned into a Telegram card for something Sid just declined.
+ */
+export const CHANNEL_REFUSED: Readonly<{ refused: true }> = Object.freeze({ refused: true });
+export type ToolChannelAuthorization = string | typeof CHANNEL_REFUSED | null;
 
 /**
  * How a channel authorizes a tier-3 call when no standing tap can be spent.
@@ -81,15 +114,18 @@ export interface ToolChannelAuthorizationRequest {
   readonly toolName: string;
   readonly capability: string;
   readonly argumentsHash: string;
+  /** The asking turn's signal. The channel must stop asking when it aborts. */
+  readonly signal?: AbortSignal;
 }
 
 export interface ToolChannelAuthorizationPort {
   /**
-   * The single-use authorization id, or null when this channel will not
-   * authorize the call. A throw is a denial: `ToolAutonomyGate` does not catch
-   * it, and the dispatcher turns it into a refusal.
+   * The single-use authorization id; `CHANNEL_REFUSED` when the channel asked
+   * and was not given one; or null when this channel cannot ask. A throw is a
+   * denial: `ToolAutonomyGate` does not catch it, and the dispatcher turns it
+   * into a refusal.
    */
-  authorizeToolCall(request: ToolChannelAuthorizationRequest): Promise<string | null>;
+  authorizeToolCall(request: ToolChannelAuthorizationRequest): Promise<ToolChannelAuthorization>;
 }
 
 export interface ToolAutonomyGateContract {
@@ -228,14 +264,49 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     // already gave on the other channel keeps working and the call does not ask
     // him for a PIN it did not need.
     let via: "tap" | "pin" = "tap";
+    let channelRefused = false;
     if (decisionId === null && this.#channel !== null) {
-      decisionId = await this.#channel.authorizeToolCall({
-        principalId: request.principalId,
-        toolName: request.toolName,
-        capability,
-        argumentsHash,
+      const turn = request.turn;
+      const resumeDeadline = turn?.holdDeadline() ?? ((): void => undefined);
+      let answer: ToolChannelAuthorization;
+      try {
+        answer = turn !== undefined && turn.signal.aborted
+          ? CHANNEL_REFUSED
+          : await this.#channel.authorizeToolCall({
+            principalId: request.principalId,
+            toolName: request.toolName,
+            capability,
+            argumentsHash,
+            ...(turn === undefined ? {} : { signal: turn.signal }),
+          });
+      } finally {
+        resumeDeadline();
+      }
+      if (typeof answer === "string") {
+        decisionId = answer;
+        via = "pin";
+      } else if (answer !== null) {
+        channelRefused = true;
+      }
+    }
+    // The turn that asked is over. Whatever answered, nothing it asked about
+    // may run now: the reply that would have said so is gone, and Sid asking
+    // again would run it a second time.
+    if (request.turn?.signal.aborted === true) {
+      return Object.freeze({
+        verdict: "deny",
+        evaluation: first,
+        receipt: `Nothing happened: ${request.toolName} did not run because its turn ended before it could. ${evaluationAudit(first)}`,
+        confirmedBy: null,
       });
-      via = "pin";
+    }
+    if (channelRefused) {
+      return Object.freeze({
+        verdict: "deny",
+        evaluation: first,
+        receipt: `Nothing happened: ${request.toolName} was not confirmed on this call, so it did not run. ${evaluationAudit(first)}`,
+        confirmedBy: null,
+      });
     }
     if (decisionId === null) {
       return Object.freeze({
@@ -262,7 +333,7 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       return Object.freeze({
         verdict: "deny",
         evaluation: confirmed,
-        receipt: `Nothing happened: ${request.toolName} was refused because its safety outcome changed from ${first.outcome} to ${confirmed.outcome} during confirmation. The tap was spent and cannot be reused. ${evaluationAudit(confirmed)}`,
+        receipt: `Nothing happened: ${request.toolName} was refused because its safety outcome changed from ${first.outcome} to ${confirmed.outcome} during confirmation. ${via === "pin" ? "The PIN authorization" : "The tap"} was spent and cannot be reused. ${evaluationAudit(confirmed)}`,
         confirmedBy: null,
       });
     }

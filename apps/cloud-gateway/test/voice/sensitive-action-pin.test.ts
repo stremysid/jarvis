@@ -3,8 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
+import { CHANNEL_REFUSED } from "../../src/autonomy/tool-gate.js";
 import {
   SENSITIVE_ACTION_PIN_CANCELLED,
+  SENSITIVE_ACTION_PIN_LATE_GRACE_MS,
+  SENSITIVE_ACTION_PIN_TOO_LATE,
   SENSITIVE_ACTION_PIN_EXPIRED,
   SENSITIVE_ACTION_PIN_MAX_ATTEMPTS,
   SENSITIVE_ACTION_PIN_PROMPT,
@@ -79,7 +82,7 @@ async function seedCallSession(): Promise<Ulid> {
 interface Harness {
   readonly gate: SensitiveActionPinGate;
   readonly spoken: string[];
-  request(): Promise<string | null>;
+  request(signal?: AbortSignal): ReturnType<SensitiveActionPinGate["authorizeToolCall"]>;
 }
 
 async function harness(input: {
@@ -102,11 +105,16 @@ async function harness(input: {
   return {
     gate,
     spoken,
-    request: () => gate.authorizeToolCall({
+    request: (signal?: AbortSignal) => gate.authorizeToolCall({
       principalId: PRINCIPAL, toolName: "send_email",
       capability: "contact.third_party", argumentsHash: "a".repeat(64),
+      ...(signal === undefined ? {} : { signal }),
     }),
   };
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe("the tier-3 PIN gate on a call", () => {
@@ -196,7 +204,7 @@ describe("the tier-3 PIN gate on a call", () => {
     for (let attempt = 0; attempt < SENSITIVE_ACTION_PIN_MAX_ATTEMPTS; attempt += 1) {
       await h.gate.submitSpoken("1111", NOW);
     }
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toBe(CHANNEL_REFUSED);
     expect(h.spoken.at(-1)).toBe(SENSITIVE_ACTION_PIN_REFUSED);
     expect(h.gate.hasPendingPrompt()).toBe(false);
   });
@@ -208,7 +216,7 @@ describe("the tier-3 PIN gate on a call", () => {
     for (let attempt = 0; attempt < SENSITIVE_ACTION_PIN_MAX_ATTEMPTS; attempt += 1) {
       await h.gate.submitSpoken("mumble mumble", NOW);
     }
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toBe(CHANNEL_REFUSED);
     const rows = await env.DB.prepare("SELECT count(*) AS count FROM sensitive_action_pin_attempts")
       .first<{ count: number }>();
     expect(rows?.count).toBe(0);
@@ -216,7 +224,7 @@ describe("the tier-3 PIN gate on a call", () => {
 
   it("refuses rather than hanging when the question is never answered", async () => {
     const h = await harness({ promptTimeoutMs: 5 });
-    await expect(h.request()).resolves.toBeNull();
+    await expect(h.request()).resolves.toBe(CHANNEL_REFUSED);
     expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT, SENSITIVE_ACTION_PIN_EXPIRED]);
   });
 
@@ -236,7 +244,7 @@ describe("the tier-3 PIN gate on a call", () => {
       ) VALUES (?, ?, ?, ?, 'mismatched')`)
         .bind(newUlid(), sessionId, PRINCIPAL, NOW.toISOString()).run();
     }
-    await expect(h.request()).resolves.toBeNull();
+    await expect(h.request()).resolves.toBe(CHANNEL_REFUSED);
     expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_RATE_LIMITED]);
   });
 
@@ -263,8 +271,104 @@ describe("the tier-3 PIN gate on a call", () => {
     const pending = h.request();
     await settle();
     await h.gate.submitSpoken("cancel", NOW);
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toBe(CHANNEL_REFUSED);
     expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT, SENSITIVE_ACTION_PIN_CANCELLED]);
+  });
+
+  it.each(["Cancel.", "cancel", "CANCEL!", "cancel that", "Cancel it, please.", "cancelled", "Stop."])(
+    "understands %j as the prompt's cancel", async (answer) => {
+      const h = await harness();
+      const pending = h.request();
+      await settle();
+      await h.gate.submitSpoken(answer, NOW);
+      await expect(pending).resolves.toBe(CHANNEL_REFUSED);
+      expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT, SENSITIVE_ACTION_PIN_CANCELLED]);
+    },
+  );
+
+  it.each([
+    "Two four six eight.", "2468.", "24 68.", "twenty-four sixty-eight.",
+    "two, four, six, eight", "2,468", "2 4 6 8", "Two four six eight!",
+  ])("authorizes the PIN given as the transcript %j", async (answer) => {
+    const h = await harness();
+    const pending = h.request();
+    await settle();
+    await h.gate.submitSpoken(answer, NOW);
+    await expect(pending).resolves.toEqual(expect.any(String));
+    expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT]);
+  });
+
+  it("gives every attempt the full wait, so five slow tries still authorize on the fifth", async () => {
+    // 500 ms per attempt, and each answer comes 300 ms after the last. The
+    // whole exchange takes well over 500 ms, which a single question-wide
+    // timer would have cut off after the first or second try.
+    const h = await harness({ promptTimeoutMs: 500 });
+    const pending = h.request();
+    await settle();
+    for (let attempt = 1; attempt < SENSITIVE_ACTION_PIN_MAX_ATTEMPTS; attempt += 1) {
+      await sleep(300);
+      expect(h.gate.hasPendingPrompt()).toBe(true);
+      await h.gate.submitSpoken(attempt % 2 === 0 ? "mumble" : "1111", NOW);
+    }
+    await sleep(300);
+    expect(h.gate.hasPendingPrompt()).toBe(true);
+    await h.gate.submitSpoken("2468", NOW);
+    await expect(pending).resolves.toEqual(expect.any(String));
+  });
+
+  it("closes the question silently when the asking turn ends, and a PIN after that authorizes nothing", async () => {
+    const h = await harness();
+    const turn = new AbortController();
+    const pending = h.request(turn.signal);
+    await settle();
+    expect(h.gate.hasPendingPrompt()).toBe(true);
+    turn.abort();
+    await expect(pending).resolves.toBe(CHANNEL_REFUSED);
+    expect(h.gate.hasPendingPrompt()).toBe(false);
+    await h.gate.submitSpoken("2468", NOW);
+    expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT]);
+  });
+
+  it("never asks for a turn that has already ended", async () => {
+    const h = await harness();
+    const turn = new AbortController();
+    turn.abort();
+    await expect(h.request(turn.signal)).resolves.toBe(CHANNEL_REFUSED);
+    expect(h.spoken).toEqual([]);
+    expect(h.gate.hasPendingPrompt()).toBe(false);
+  });
+
+  it("consumes four digits said just after the question expired, and says it came too late", async () => {
+    const h = await harness({ promptTimeoutMs: 5 });
+    await expect(h.request()).resolves.toBe(CHANNEL_REFUSED);
+    await expect(h.gate.claimLateAnswer("Two four six eight.", NOW)).resolves.toBe(true);
+    expect(h.spoken).toEqual([
+      SENSITIVE_ACTION_PIN_PROMPT, SENSITIVE_ACTION_PIN_EXPIRED, SENSITIVE_ACTION_PIN_TOO_LATE,
+    ]);
+    for (const text of h.spoken) expect(text).not.toMatch(/2468|two four six eight/iu);
+  });
+
+  it("leaves ordinary speech and anything outside the grace window alone", async () => {
+    const h = await harness({ promptTimeoutMs: 5 });
+    await expect(h.request()).resolves.toBe(CHANNEL_REFUSED);
+    await expect(h.gate.claimLateAnswer("what time is it", NOW)).resolves.toBe(false);
+    const later = new Date(NOW.valueOf() + SENSITIVE_ACTION_PIN_LATE_GRACE_MS + 1);
+    await expect(h.gate.claimLateAnswer("2468", later)).resolves.toBe(false);
+  });
+
+  it("consumes a repeated PIN after an authorized question without saying it was late", async () => {
+    const h = await harness();
+    const pending = h.request();
+    await settle();
+    await h.gate.submitSpoken("2468", NOW);
+    await expect(pending).resolves.toEqual(expect.any(String));
+    await expect(h.gate.claimLateAnswer("2468", NOW)).resolves.toBe(true);
+    expect(h.spoken).toEqual([SENSITIVE_ACTION_PIN_PROMPT]);
+  });
+
+  it("claims nothing before any question has been asked", async () => {
+    const h = await harness();
+    await expect(h.gate.claimLateAnswer("2468", NOW)).resolves.toBe(false);
   });
 
   it("mints a fresh single-use authorization for each question", async () => {
@@ -315,7 +419,7 @@ describe("the tier-3 PIN gate on a call", () => {
     });
     await settle();
     await gate.submitSpoken("1111", NOW);
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).resolves.toBe(CHANNEL_REFUSED);
     expect(spoken.at(-1)).toBe(SENSITIVE_ACTION_PIN_REFUSED);
   });
 

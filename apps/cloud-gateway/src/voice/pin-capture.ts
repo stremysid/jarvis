@@ -11,7 +11,7 @@
  * rather than guessed at.
  */
 const SPOKEN_NUMBERS = Object.freeze({
-  zero: 0, one: 1, two: 2, three: 3, four: 4,
+  zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4,
   five: 5, six: 6, seven: 7, eight: 8, nine: 9,
   ten: 10,
   eleven: 11,
@@ -85,8 +85,10 @@ function readNumberTokens(tokens: readonly string[]): readonly number[] | null {
   const numbers: number[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!;
-    if (/^[0-9]{1,4}$/u.test(token)) {
-      numbers.push(Number(token));
+    // A digit run is its digits, one by one, so "4821", "48 21" and "4 8 2 1"
+    // all read the same. Folding "4821" into one number would refuse it.
+    if (/^[0-9]+$/u.test(token)) {
+      for (const digit of token) numbers.push(digit.charCodeAt(0) - 0x30);
       continue;
     }
     const value = numberFromToken(token);
@@ -121,12 +123,34 @@ function digitsFromNumbers(numbers: readonly number[]): Uint8Array | null {
 }
 
 /**
+ * The words of an answer given at a PIN prompt, with the transcript's
+ * formatting taken off.
+ *
+ * Speech-to-text capitalises and punctuates what it hears ("Four eight two
+ * one.", "4,821", "Cancel."), and none of that formatting is something Sid
+ * said. So this lowercases and turns sentence punctuation and hyphens into
+ * spaces ("4,821" reads as "4 821", which is the same four digits because a
+ * digit run is read digit by digit). It changes formatting only: no word is
+ * removed, replaced or read for meaning, which is why a filler word still
+ * makes a PIN unreadable and the caller is asked again.
+ */
+export function pinAnswerWords(text: string): readonly string[] {
+  return Object.freeze(text
+    .toLowerCase()
+    .replace(/[.,!?;:\-\u2010-\u2014]/gu, " ")
+    .split(/\s+/u)
+    .filter((word) => word.length > 0));
+}
+
+/**
  * The four digits a spoken candidate names, or null when it does not name
  * exactly four.
  *
- * Accepted: the four digits as digits ("4821", "4 8 2 1"), as four digit words
- * ("four eight two one"), as two two-digit numbers ("forty-eight twenty-one",
- * "48 21"), and as any mix that still resolves to exactly four digits.
+ * Accepted: the four digits as digits ("4821", "4 8 2 1", "4,821"), as four
+ * digit words ("four eight two one", with "oh" as zero), as two two-digit
+ * numbers ("forty-eight twenty-one", "48 21"), and as any mix that still
+ * resolves to exactly four digits, with or without the capitals and
+ * punctuation a transcript adds ("Four eight two one.").
  */
 export function normalizeSpokenPin(text: unknown): Uint8Array | null {
   if (
@@ -137,11 +161,7 @@ export function normalizeSpokenPin(text: unknown): Uint8Array | null {
     return null;
   }
 
-  if (/^[0-9]{4}$/u.test(text)) {
-    return Uint8Array.from(text, (digit) => digit.charCodeAt(0));
-  }
-
-  const tokens = text.toLowerCase().replace(/-/gu, " ").split(" ").filter((token) => token.length > 0);
+  const tokens = pinAnswerWords(text);
   if (tokens.length === 0) return null;
   const numbers = readNumberTokens(tokens);
   return numbers === null ? null : digitsFromNumbers(numbers);

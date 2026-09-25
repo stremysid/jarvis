@@ -28,15 +28,23 @@
  * fifteen minute window that always slides, so the worst case is a wait, never
  * a permanent lock. The numbers and why are in the constants below.
  *
- * The PIN itself is a deployment secret, like the peppers already used for the
- * guest PIN and the owner passphrase. No derived material is stored: with only
- * 10,000 possible values a salted verifier is offline-guessable in hours, so it
- * would add a table and a slow hash without adding secrecy. What is stored is
- * the attempt ledger, which holds an outcome and a timestamp and no candidate.
+ * The question belongs to the turn that asked. When that turn ends -- the
+ * call hangs up, the turn is cancelled -- the question closes with a refusal,
+ * and `ToolAutonomyGate` and the agent core both re-check the turn before any
+ * tool body runs. A PIN said after that can never run the action.
+ *
+ * The PIN itself is a Cloudflare Worker secret (`OWNER_ACTION_PIN`), like the
+ * peppers already used for the guest PIN and the owner passphrase. Reviewer
+ * decision on #196 round 2, under Sid's minimal-security rule: a plain secret
+ * is acceptable. What this module owes it instead is that it is compared in
+ * constant time (`candidateMatches`), never logged, never stored and never
+ * spoken back. What is stored is the attempt ledger, which holds an outcome
+ * and a timestamp and no candidate.
  */
 
 import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
-import { normalizeSpokenPin } from "./pin-capture.js";
+import { CHANNEL_REFUSED, type ToolChannelAuthorization } from "../autonomy/tool-gate.js";
+import { normalizeSpokenPin, pinAnswerWords } from "./pin-capture.js";
 
 /** Spoken when a tier-3 action is about to run and no tap authorized it. */
 export const SENSITIVE_ACTION_PIN_PROMPT =
@@ -60,6 +68,9 @@ export const SENSITIVE_ACTION_PIN_EXPIRED =
 export const SENSITIVE_ACTION_PIN_CANCELLED = "Cancelled. Nothing was done.";
 export const SENSITIVE_ACTION_PIN_RATE_LIMITED =
   "There have been too many wrong PINs, so I will not ask again for a few minutes. Nothing was done.";
+/** Spoken when four digits arrive just after a question closed without them. */
+export const SENSITIVE_ACTION_PIN_TOO_LATE =
+  "That came too late, so nothing was done. Ask me again if you still want it.";
 
 /**
  * How many candidates one question accepts.
@@ -73,15 +84,28 @@ export const SENSITIVE_ACTION_PIN_RATE_LIMITED =
 export const SENSITIVE_ACTION_PIN_MAX_ATTEMPTS = 5;
 
 /**
- * How long a question waits for an answer before refusing.
+ * How long each attempt waits for an answer before the question refuses.
  *
- * Deliberately shorter than the 20 s owner-agent turn budget. The turn that
- * called the tool is suspended while the question is open, and a question that
- * outlived the turn would be resolved by the turn's own deadline instead --
- * refusing nothing and saying nothing. Fifteen seconds is longer than any
- * spoken answer takes, and it makes this gate the one that decides.
+ * Per attempt, not per question: the timer is re-armed after every re-prompt,
+ * so five slow tries all get the full wait. It starts when the prompt is sent,
+ * and the prompt itself takes a few seconds to play, so this leaves Sid well
+ * over ten seconds to answer each time. The owner-agent turn clock is held
+ * while a question is open (`ToolGateTurn.holdDeadline`), so this timer, not
+ * the turn budget, decides. The whole question is still bounded: at most
+ * `MAX_ATTEMPTS` of these.
  */
-export const SENSITIVE_ACTION_PIN_PROMPT_TIMEOUT_MS = 15_000;
+export const SENSITIVE_ACTION_PIN_PROMPT_TIMEOUT_MS = 20_000;
+
+/**
+ * How long after a question closes an utterance of four digits is still
+ * treated as an answer to it.
+ *
+ * A PIN said just after the timeout, or while the refusal is being spoken, is
+ * still the credential. Without this window it became an ordinary utterance:
+ * a conversation turn, a transcript row and model input -- or, if the turn
+ * was still running, a "turn in progress" error that ended the call.
+ */
+export const SENSITIVE_ACTION_PIN_LATE_GRACE_MS = 10_000;
 
 /**
  * The cross-question rate limit: at most this many wrong candidates for one
@@ -101,6 +125,8 @@ export interface SensitiveActionPinSession {
   readonly sessionId: Ulid;
   /** Speaks code-authored text on the relay. Never carries a candidate. */
   speak(text: string): Promise<void>;
+  /** Told when a question opens, so keypad digits from before it are dropped. */
+  questionOpened?(): void;
 }
 
 /**
@@ -112,6 +138,11 @@ export interface SensitiveActionPinPort {
   hasPendingPrompt(): boolean;
   submitSpoken(text: string, now: Date): Promise<void>;
   submitKeypad(digits: Uint8Array, now: Date): Promise<void>;
+  /**
+   * True when `text` is four digits said just after a question closed, in
+   * which case it has been consumed and must not become a turn.
+   */
+  claimLateAnswer(text: string, now: Date): Promise<boolean>;
 }
 
 export interface SensitiveActionPinDependencies {
@@ -140,7 +171,27 @@ interface PendingQuestion {
   settled: boolean;
   authorizationId: Ulid | null;
   resolve: () => void;
+  /** Resolves the current attempt's wait as expired. */
+  expire: (() => void) | null;
   timer: ReturnType<typeof setTimeout> | null;
+}
+
+/** Read through a call so a check after an await is not narrowed away. */
+function signalAborted(signal: AbortSignal | undefined): boolean {
+  return signal !== undefined && signal.aborted;
+}
+
+/**
+ * Whether an answer at the prompt is the prompt's own "cancel".
+ *
+ * The prompt tells Sid to say cancel, so any form of that word -- "Cancel.",
+ * "cancel that", "cancelled" -- closes the question, as does the whole answer
+ * "stop". These are the prompt's control words, not a reading of what he
+ * meant: an answer holding "cancel" cannot be a PIN.
+ */
+function isCancelAnswer(words: readonly string[]): boolean {
+  return words.some((word) => /^cancel(?:l?ed|l?ing|s)?$/u.test(word))
+    || words.length === 1 && words[0] === "stop";
 }
 
 function isoDate(value: unknown): Date | null {
@@ -173,6 +224,8 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
   readonly #promptTimeoutMs: number;
   #session: SensitiveActionPinSession | null = null;
   #pending: PendingQuestion | null = null;
+  /** When the last question closed, and whether it closed authorized. */
+  #lastClosed: Readonly<{ at: number; authorized: boolean }> | null = null;
 
   constructor(dependencies: SensitiveActionPinDependencies) {
     const pin = dependencies.pin;
@@ -190,7 +243,11 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
   }
 
   attachSession(input: SensitiveActionPinSession): void {
-    this.#session = Object.freeze({ sessionId: input.sessionId, speak: input.speak });
+    this.#session = Object.freeze({
+      sessionId: input.sessionId,
+      speak: input.speak,
+      ...(input.questionOpened === undefined ? {} : { questionOpened: input.questionOpened }),
+    });
   }
 
   hasPendingPrompt(): boolean {
@@ -198,28 +255,33 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
   }
 
   /**
-   * A single-use authorization id, or null when this call cannot authorize the
-   * action.
+   * A single-use authorization id; `CHANNEL_REFUSED` when Sid was asked and
+   * did not authorize; or null when this call cannot ask at all.
    *
-   * Null is the answer for every condition this service does not own: no PIN
-   * configured, no session attached, a question already open, or a wrong PIN
-   * that ran out of attempts. The caller treats null as "no authorization
-   * here", which leaves the tap route open and never runs the tool.
+   * Null covers every condition in which no question was put to him: no PIN
+   * configured, no session attached, or a question already open. The gate
+   * then keeps the tap route open. `CHANNEL_REFUSED` covers a question he
+   * cancelled, ran out of attempts on or did not answer, a rate-limited
+   * question, and a question whose turn ended: the action is not done, and he
+   * is not also sent to Telegram for something he just declined.
    */
   async authorizeToolCall(request: Readonly<{
     readonly principalId: string;
     readonly toolName: string;
     readonly capability: string;
     readonly argumentsHash: string;
-  }>): Promise<string | null> {
+    readonly signal?: AbortSignal;
+  }>): Promise<ToolChannelAuthorization> {
     const session = this.#session;
     const pin = this.#pin;
     if (session === null || pin === null || this.#pending !== null) return null;
+    const signal = request.signal;
+    if (signalAborted(signal)) return CHANNEL_REFUSED;
     const now = isoDate(this.#now());
     if (now === null) return null;
     if (await this.#rateLimited(request.principalId, now)) {
       await this.#speak(SENSITIVE_ACTION_PIN_RATE_LIMITED);
-      return null;
+      return CHANNEL_REFUSED;
     }
 
     let resolve!: () => void;
@@ -231,28 +293,58 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
       settled: false,
       authorizationId: null,
       resolve,
+      expire: null,
       timer: null,
     };
+    // The turn that asked has ended: close the question silently. Nothing is
+    // spoken because the turn's audio is already gone, and the authorization
+    // stays null, so a PIN said after this cannot run the action.
+    const onAbort = (): void => { this.#settle(pending, null); };
     this.#pending = pending;
+    this.#lastClosed = null;
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      await this.#speak(SENSITIVE_ACTION_PIN_PROMPT);
-      await Promise.race([
-        answered,
-        new Promise<void>((expire) => {
-          pending.timer = setTimeout(expire, this.#promptTimeoutMs);
-        }),
-      ]);
-      // A timeout settles nothing, so the caller gets null and the action is
-      // refused rather than left waiting on a question nobody answered.
+      session.questionOpened?.();
+      // The rate-limit read awaited before the listener existed, so an abort
+      // during it is caught here rather than by the listener.
+      if (signalAborted(signal)) this.#settle(pending, null);
+      if (!pending.settled) await this.#speak(SENSITIVE_ACTION_PIN_PROMPT);
+      const expired = new Promise<void>((expire) => { pending.expire = expire; });
+      this.#armAttemptTimer(pending);
+      await Promise.race([answered, expired]);
+      // A timeout settles nothing, so the caller is refused rather than left
+      // waiting on a question nobody answered.
       if (!pending.settled) {
-        pending.settled = true;
+        this.#settle(pending, null);
         await this.#speak(SENSITIVE_ACTION_PIN_EXPIRED);
       }
-      return pending.authorizationId;
+      return pending.authorizationId ?? CHANNEL_REFUSED;
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       if (pending.timer !== null) clearTimeout(pending.timer);
+      pending.timer = null;
       if (this.#pending === pending) this.#pending = null;
     }
+  }
+
+  /**
+   * Four digits said just after a question closed. Consumed, so the credential
+   * never becomes a turn, and answered with a fixed sentence when the question
+   * had not been authorized. After an authorized question it is consumed
+   * silently: the action's own receipt is what Sid needs to hear.
+   */
+  async claimLateAnswer(text: string, now: Date): Promise<boolean> {
+    if (this.hasPendingPrompt()) return false;
+    const closed = this.#lastClosed;
+    const at = isoDate(now);
+    if (closed === null || at === null) return false;
+    const elapsed = at.valueOf() - closed.at;
+    if (elapsed < 0 || elapsed > SENSITIVE_ACTION_PIN_LATE_GRACE_MS) return false;
+    const digits = normalizeSpokenPin(text);
+    if (digits === null) return false;
+    digits.fill(0);
+    if (!closed.authorized) await this.#speak(SENSITIVE_ACTION_PIN_TOO_LATE);
+    return true;
   }
 
   /**
@@ -262,10 +354,7 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
   async submitSpoken(text: string, now: Date): Promise<void> {
     const pending = this.#pending;
     if (pending === null || pending.settled) return;
-    // "cancel" and "stop" are control words of this prompt, like "confirm" is a
-    // control word of the owner-access prompt. They are not an interpretation
-    // of intent; the question named them.
-    if (text === "cancel" || text === "stop") {
+    if (typeof text === "string" && isCancelAnswer(pinAnswerWords(text))) {
       this.#settle(pending, null);
       await this.#speak(SENSITIVE_ACTION_PIN_CANCELLED);
       return;
@@ -323,12 +412,28 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
       return;
     }
     await this.#speak(reprompt);
+    // Each attempt gets the full wait. A single timer for the whole question
+    // left about two tries once the re-prompts had been spoken.
+    this.#armAttemptTimer(pending);
+  }
+
+  #armAttemptTimer(pending: PendingQuestion): void {
+    if (pending.settled) return;
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    const expire = pending.expire;
+    pending.timer = expire === null ? null : setTimeout(expire, this.#promptTimeoutMs);
   }
 
   #settle(pending: PendingQuestion, authorizationId: Ulid | null): void {
     if (pending.settled) return;
     pending.settled = true;
     pending.authorizationId = authorizationId;
+    if (pending.timer !== null) clearTimeout(pending.timer);
+    pending.timer = null;
+    const closedAt = isoDate(this.#now());
+    this.#lastClosed = closedAt === null
+      ? null
+      : Object.freeze({ at: closedAt.valueOf(), authorized: authorizationId !== null });
     pending.resolve();
   }
 

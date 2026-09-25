@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { D1ToolConfirmationStore } from "../../src/autonomy/tool-confirmations.js";
-import { ToolAutonomyGate, type ToolChannelAuthorizationRequest } from "../../src/autonomy/tool-gate.js";
+import {
+  CHANNEL_REFUSED,
+  ToolAutonomyGate,
+  type ToolChannelAuthorization,
+  type ToolChannelAuthorizationRequest,
+} from "../../src/autonomy/tool-gate.js";
 import { applyAutonomyToolCapabilitiesMigration } from "../persistence/migration.js";
 
 const PRINCIPAL = "principal:owner";
@@ -11,7 +16,7 @@ const TIER3_TOOL = "send_email";
 const TIER1_TOOL = "memory_search";
 const ARGUMENTS = JSON.stringify({ to: "someone@example.test", body: "hello" });
 
-function gateWithChannel(authorize: (request: ToolChannelAuthorizationRequest) => Promise<string | null>) {
+function gateWithChannel(authorize: (request: ToolChannelAuthorizationRequest) => Promise<ToolChannelAuthorization>) {
   return new ToolAutonomyGate(
     new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
     new D1ToolConfirmationStore(env.DB),
@@ -56,6 +61,61 @@ describe("the tier-3 gate's channel authorization", () => {
     });
     expect(decision).toMatchObject({ verdict: "confirm", confirmedBy: null });
     expect(decision.receipt).toContain("needs your tap");
+  });
+
+  it("denies without raising a tap when the channel asked and was refused", async () => {
+    const decision = await gateWithChannel(async () => CHANNEL_REFUSED).evaluateToolCall({
+      toolName: TIER3_TOOL, principalId: PRINCIPAL, arguments: ARGUMENTS,
+    });
+    expect(decision).toMatchObject({ verdict: "deny", confirmedBy: null });
+    expect(decision.receipt).toContain("was not confirmed on this call");
+    expect(decision.receipt).not.toContain("needs your tap");
+  });
+
+  it("hands the channel the turn's signal and holds the turn deadline only while it asks", async () => {
+    const turn = new AbortController();
+    const events: string[] = [];
+    const decision = await gateWithChannel(async (request) => {
+      events.push(request.signal === turn.signal ? "asked with the turn signal" : "asked without it");
+      return "pin-authorization-2";
+    }).evaluateToolCall({
+      toolName: TIER3_TOOL, principalId: PRINCIPAL, arguments: ARGUMENTS,
+      turn: {
+        signal: turn.signal,
+        holdDeadline: () => {
+          events.push("held");
+          return () => { events.push("resumed"); };
+        },
+      },
+    });
+    expect(decision.verdict).toBe("permit");
+    expect(events).toEqual(["held", "asked with the turn signal", "resumed"]);
+  });
+
+  it("denies a channel authorization that arrives after the asking turn ended", async () => {
+    const turn = new AbortController();
+    const decision = await gateWithChannel(async () => {
+      // The call hung up while the question was open; a PIN still came back.
+      turn.abort();
+      return "pin-authorization-late";
+    }).evaluateToolCall({
+      toolName: TIER3_TOOL, principalId: PRINCIPAL, arguments: ARGUMENTS,
+      turn: { signal: turn.signal, holdDeadline: () => () => undefined },
+    });
+    expect(decision).toMatchObject({ verdict: "deny", confirmedBy: null });
+    expect(decision.receipt).toContain("its turn ended");
+  });
+
+  it("does not ask at all when the turn has already ended", async () => {
+    const turn = new AbortController();
+    turn.abort();
+    const authorize = vi.fn(async () => "pin-authorization-3");
+    const decision = await gateWithChannel(authorize).evaluateToolCall({
+      toolName: TIER3_TOOL, principalId: PRINCIPAL, arguments: ARGUMENTS,
+      turn: { signal: turn.signal, holdDeadline: () => () => undefined },
+    });
+    expect(authorize).not.toHaveBeenCalled();
+    expect(decision.verdict).toBe("deny");
   });
 
   it("refuses rather than running when the channel throws", async () => {

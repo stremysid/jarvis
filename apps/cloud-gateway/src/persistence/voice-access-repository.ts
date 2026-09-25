@@ -1587,23 +1587,4 @@ export class VoiceAccessRepository {
     }
     return input;
   }
-
-  /** Waived caller-ID authority cannot change access grants without a phrase success receipt. */
-  async requireOwnerStepUpVerified(input: PersistedCallAuthority): Promise<void> {
-    if (input === null || typeof input !== "object" || !this.#issuedAuthorities.has(input) || input.kind !== "owner") {
-      throw new Error("call_authority_invalid");
-    }
-    const row = await this.#database.prepare(`SELECT success.session_id
-      FROM owner_call_step_up_successes success
-      JOIN owner_passphrase_heads head ON head.singleton_id = 1
-        AND head.owner_principal_id = success.owner_principal_id
-        AND head.owner_identity_id = success.owner_identity_id
-        AND head.verifier_version = success.verifier_version AND head.status = 'active'
-      JOIN owner_passphrase_verifiers verifier
-        ON verifier.owner_identity_id = head.owner_identity_id
-        AND verifier.verifier_version = head.verifier_version AND verifier.status = 'active'
-      WHERE success.session_id = ? AND success.owner_principal_id = ? AND success.owner_identity_id = ?`)
-      .bind(input.sessionId, input.principalId, input.identityId).first<{ session_id: string }>();
-    if (row === null) throw new Error("owner_step_up_required");
-  }
 }
