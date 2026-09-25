@@ -3,6 +3,32 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: #200 round 4 (model-declared reply references)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `7c23884b`.
+Touches Sid's rules 1, 2, 3 and 8.
+
+- **The blocker.** `replyReferences` kept the 8 most recent memory items a turn had touched, so
+  code chose which memories the reply was about -- and which a later "forget that" could reach.
+  Deleted, with `MAX_REPLY_REFERENCES`. Sid, 2026-09-25: "any judgment and decisions and thought
+  should be the ai brain".
+- **What replaced it.** The shared tool `declare_memory_references` (both channels, from
+  `OWNER_TOOL_DEFINITIONS`; capability `memory.read`, no migration). Every tool result now names
+  the item ids it touched in its content, so the model can name them even for an id a write just
+  committed. Code checks each declared id was shown this turn (context plus earlier tool results,
+  carried across rounds) and that the list is at most 8; a malformed, repeated, unseen or
+  over-bound list is refused back to the model with the reason, never trimmed. A turn that
+  declares nothing records nothing: no recency fallback. Malformed protocol and the tier gate for
+  real actions are unchanged; this tool is bookkeeping, not an action.
+- **Docs.** `docs/CODE-VS-JUDGMENT.md` row 14 removed, with a "Reply-reference selection: removed"
+  note. Also merged `origin/main` at `01dc06f1` (#203, docs) normally, no conflict.
+- **Verified here:** gateway `tsc` 0; focused vitest 5 files / 296 passed after the merge
+  (multi-step-tools, memory-search, voice-agent, owner-telegram-agent, telegram-memory), plus
+  11 further neighbour files / 274 passed and 10 more / 318 passed on the same tree;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` **16/16 KILLED** (M12 and M14-M16 are
+  the new guards), each confirmed, restore byte-identical. Full suites on CI; none run locally.
+- Not merged or deployed.
+
 ## 2026-09-25 — DeepSeek builder: #200 round 3 (main `3f3748c6` merged, test fix)
 
 Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `9289cd19`.
