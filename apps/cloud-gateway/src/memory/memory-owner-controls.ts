@@ -177,7 +177,8 @@ type MemoryTextSuppressedItem = Omit<CanonicalMemoryItem, "version" | "sources" 
 type JsonRecord = Readonly<Record<string, JsonValue>>;
 type DecodedForgetCommand = Omit<ForgetMemoryItemInput, "principalId" | "ownerAuthorizingEventId">;
 type DecodedLiftCommand = Omit<LiftMemoryItemInput, "principalId" | "ownerAuthorizingEventId">;
-const redactor = new Redactor();
+// Sid's memory: his reader.
+const redactor = new Redactor("owner");
 
 function refuse(): never {
   throw new MemoryRepositoryError("memory_refused");

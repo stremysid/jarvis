@@ -97,6 +97,7 @@ const MIGRATION_SEEDED_ROWS = Object.freeze({
     "read.archive",
     "read.deadlines",
     "read.repository",
+    "read.web",
     "school.collector.revoke",
     "school.track",
     "spend.money",

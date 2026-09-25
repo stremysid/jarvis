@@ -44,7 +44,9 @@ export class VoiceReplyStream {
   private redactedPrefix = "";
   private index = 0;
   private readonly spans: ClaimSpan[] = [];
-  private readonly redactor = new Redactor();
+  // Sid's reader. A guest session's reply is redacted again for its own
+  // reader by the conversation service's output redactor downstream.
+  private readonly redactor = new Redactor("owner");
   private readonly output = new StreamingOutputRedactor(this.redactor, undefined, true);
 
   constructor(

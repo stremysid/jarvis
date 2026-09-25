@@ -325,7 +325,7 @@ def test_stop_between_pages_leaves_the_pending_snapshot_for_restart(
 
 
 @pytest.mark.parametrize(
-    "poison", ["x" * 4097, "é" * 2049, "Order " + "6" * 6, "Coffee\n- forged entry"],
+    "poison", ["x" * 4097, "é" * 2049, "Key sk-" + "a" * 24, "Coffee\n- forged entry"],
     ids=["ascii-bytes", "utf8-bytes", "redaction", "controls"],
 )
 def test_an_unrepresentable_active_fact_is_quarantined_while_healthy_facts_publish(
@@ -541,7 +541,7 @@ def test_a_rejected_pending_page_is_abandoned_and_new_facts_publish_after_restar
     poison = facts.record_proposal(
         FactProposal(
             PRINCIPAL,
-            "Order " + "6" * 6,
+            "Key sk-" + "a" * 24,
             FactOrigin.AUTHENTICATED_FIRST_PERSON,
             (EVENT_ID,),
         )

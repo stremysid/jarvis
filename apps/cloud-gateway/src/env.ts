@@ -85,6 +85,22 @@ export interface Env {
   DEEPSEEK_API_KEY?: string;
 
   /**
+   * Optional web tools settings (`src/web/web-tools.ts`). None is required:
+   * web_read works with the `AI` binding alone and web_search works keyless.
+   *
+   * The Browser Rendering pair turns on web_read's JavaScript rendering path,
+   * and both are needed. The token needs only the "Browser Rendering - Edit"
+   * permission on this account. Without the pair the tool tells the model the
+   * path is not configured.
+   *
+   * EXA_API_KEY lifts web_search off Exa's shared keyless rate limit. It is
+   * sent as the `x-api-key` header to the same endpoint.
+   */
+  BROWSER_RENDERING_ACCOUNT_ID?: string;
+  BROWSER_RENDERING_API_TOKEN?: string;
+  EXA_API_KEY?: string;
+
+  /**
    * Overrides the model id. Sid chose deepseek-flash everywhere on 2026-09-20;
    * this exists so a provider rename can be corrected with a secret change
    * rather than a redeploy.

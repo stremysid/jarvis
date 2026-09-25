@@ -731,7 +731,8 @@ describe("automatic memory distillation", () => {
     const cases: readonly (readonly string[])[] = [
       ["One", "Two", "Three", "Four", "Five"],
       ["界".repeat(22)],
-      ["Ticket 482913"],
+      // A machine-credential shape is the one text the owner redactor still changes.
+      ["Key sk-aaaaaaaaaaaaaaaaaaaaaaaa"],
       ["School", "Unit\u20282"],
       ["School > Chemistry"],
     ];

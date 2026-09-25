@@ -72,6 +72,18 @@ than an undisclosed list of prose exceptions. Streaming retention only holds
 potentially unfinished credential context within the existing size limits.
 This register remains partial; this change is not a fresh audit of other rules.
 
+**Scope narrowed, 2026-09-24 (`codex/no-redaction-toward-sid`).** Sid: "there
+should be nothing between Jarvis and I interms of what he knows and I know".
+The grammar above now runs only for a reader who is not Sid (`RedactionAudience`
+`external`: guest call sessions, policy audit, provider callback telemetry).
+Toward Sid the boundary is not a word list at all: it asks who receives the
+text, and removes only machine-credential shapes (Jarvis's infrastructure
+secrets). A separate reply grader remains and is not removed here:
+`SECRET_REQUESTS`/`SECRET_REPLACEMENT` in `school/school-catchup-model.ts` rewrites
+a school reply that asks Sid for a password or MFA code into "I can't accept
+passwords...". It judges the model's wording and contradicts "Jarvis can say
+email codes and store them"; it is listed here for a follow-up.
+
 ## The list
 
 Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision

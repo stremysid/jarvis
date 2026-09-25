@@ -115,7 +115,8 @@ const AUTOMATIC_TOPIC_CREATION_LIMIT = 6;
 const MAX_TOPIC_PATH_DEPTH = 4;
 const MAX_TOPIC_PATH_JSON_BYTES = 320;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Sid's memory: his reader.
+const redactor = new Redactor("owner");
 
 export const AUTOMATIC_DISTILLATION_STEP_LIMITS = Object.freeze({
   d1Statements: STEP_FIXED_D1_STATEMENT_CEILING

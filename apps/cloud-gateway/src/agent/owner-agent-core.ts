@@ -55,6 +55,7 @@ import { VoiceReplyStream, type CheckedVoiceSentence } from "./voice-reply.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader, readGuidedAssignmentReferences } from "../school/guided-assignment.js";
 import { GUIDED_ASSIGNMENT_PROMPT, GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
+import { isWebToolName, runWebTool, type WebToolsDependencies } from "../web/web-tools.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 
@@ -406,6 +407,14 @@ export interface OwnerAgentCoreDependencies {
    * layer down, so a caller that forgets it is a compile error instead.
    */
   readonly autonomy: ToolAutonomyGateContract;
+  /**
+   * web_read and web_search's network, AI binding and optional secrets.
+   *
+   * Optional so a construction site without them still compiles, but not
+   * defaulted to "no results": a web call with nothing wired says so to the
+   * model, which is a different answer from "the web had nothing".
+   */
+  readonly web?: WebToolsDependencies;
   /** Test seam and an explicit cap below the channel's outer allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -1236,6 +1245,20 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
     }
+    if (isWebToolName(call.name)) {
+      // Reads of the public web, on every channel alike. No owner-turn proof is
+      // needed because nothing is written as Sid, but the tier gate still runs
+      // first so every call is audited before any request leaves the gateway.
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return runWebTool({
+        web: this.dependencies.web,
+        database: this.dependencies.database,
+        input,
+        call,
+        now: this.dependencies.now ?? (() => new Date()),
+      });
+    }
     const argumentTool = port.argumentTool?.(call);
     if (argumentTool != null) {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
@@ -1491,9 +1514,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
-    // Model arguments are separate from the redacted user text. Even a grounded
-    // excerpt must not let an inferred fact reintroduce raw credentials.
-    const checkedFact = sanitizeRedaction(fact);
+    // Sid's codes, PINs, numbers, passphrases and labelled values such as
+    // `api_key=...` or `client_secret=...` are his to remember, so the owner
+    // audience leaves them alone. It refuses only a value in a known machine
+    // shape: a private-key block, an `Authorization` or bearer header, or a
+    // pattern in `KNOWN_CREDENTIAL` (contracts calls.ts), because stored
+    // memory is a fixed point of the owner redactor. An opaque value behind a
+    // label is not recognised as a machine credential and is kept.
+    const checkedFact = sanitizeRedaction(fact, undefined, false, "owner");
     if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;

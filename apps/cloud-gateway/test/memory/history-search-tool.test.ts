@@ -23,7 +23,7 @@ import { ConversationRepository } from "../../src/conversation/conversation-repo
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import { createVoiceStreamDelivery } from "../../src/conversation/conversation-types.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../../src/conversation/outbox-dispatcher.js";
-import { buildTelegramConversationRepository } from "../../src/index.js";
+import { buildTelegramConversationRepository, telegramTurnRedactor } from "../../src/index.js";
 import { composeHistorySearchPage, HISTORY_SEARCH_PREFIX } from "../../src/memory/history-search.js";
 import { LiteralHistoryService, type HistorySearchPage } from "../../src/memory/literal-history.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
@@ -40,12 +40,15 @@ import type {
   TelegramSendMessageInput,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { voiceSessionAudience } from "../../src/voice/production-runtime.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-24T14:00:00.000Z");
 let serial = 7_300_000;
+/** Every Telegram message the owner turns delivered, newest last. */
+const telegramSent: string[] = [];
 
 interface Owner {
   readonly principalId: string;
@@ -98,10 +101,13 @@ async function telegramTurn(who: Owner, text: string, reply: string, call?: Mode
     },
   });
   const service = new DefaultConversationService({
-    repository, model, context: { async retrieve() { return []; } }, redactor: new Redactor(), now: () => NOW,
+    // The reader production picks for this principal: the owner's, since #197.
+    repository, model, context: { async retrieve() { return []; } },
+    redactor: telegramTurnRedactor(who.principalId, who.principalId), now: () => NOW,
     dispatcher: new DefaultOutboxDispatcher({
       repository, identityResolver: new D1TelegramIdentityResolver(env.DB),
-      channels: new Map([["telegram", { async sendMessage(_input: TelegramSendMessageInput) {
+      channels: new Map([["telegram", { async sendMessage(input: TelegramSendMessageInput) {
+        telegramSent.push(input.text);
         return { providerMessageId: String(++serial) };
       } }]]),
       circuitBreaker: new ProviderCircuitBreaker(), now: () => NOW,
@@ -141,7 +147,9 @@ async function callTurn(who: Owner, text: string, reply: string, call?: ModelFun
   });
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB));
   const service = new DefaultConversationService({
-    repository, model, context: { async retrieve() { return []; } }, redactor: new Redactor(), now: () => NOW,
+    // An owner call session's reader, as production-runtime chooses it.
+    repository, model, context: { async retrieve() { return []; } },
+    redactor: new Redactor(voiceSessionAudience({ accessKind: "owner" })), now: () => NOW,
     dispatcher: { async dispatch() { throw new Error("unexpected_telegram_dispatch"); } },
   });
   const turnId = newUlid();
@@ -354,6 +362,29 @@ describe("history_search through the owner agents", () => {
     expect(result.status).toBe("refused");
     expect(result.receipt).toContain("aroundEventId is not a valid event id");
     expect(result.receipt).not.toContain("the query has no letters or digits");
+  });
+
+  it("gives Sid his own code back unredacted from history_search, on a call and on Telegram", async () => {
+    // #197: toward Sid nothing of his is hidden. A guest turn gets no owner
+    // tools at all, so history_search never runs for one.
+    const who = await owner();
+    await telegramTurn(who, "My gym locker code is 4417.", "Noted.");
+    await indexHistory(who);
+
+    const fromCall = toolResult(await callTurn(
+      who, "what was my gym locker code?", "Your gym locker code is 4417.",
+      searchCall("history-code-call", { query: "gym locker code" }),
+    ));
+    const fromTelegram = toolResult(await telegramTurn(
+      who, "what was my gym locker code?", "Your gym locker code is 4417.",
+      searchCall("history-code-telegram", { query: "gym locker code" }),
+    ));
+
+    for (const result of [fromCall, fromTelegram]) {
+      expect(result.status).toBe("completed");
+      expect(result.receipt).toContain('Sid said: "My gym locker code is 4417."');
+    }
+    expect(telegramSent.at(-1)).toContain("Your gym locker code is 4417.");
   });
 
   it("returns a named failure rather than an empty result when the query has nothing to search for", async () => {

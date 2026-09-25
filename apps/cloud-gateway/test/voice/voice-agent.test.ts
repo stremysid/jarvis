@@ -1057,7 +1057,7 @@ describe("the voice agent adapter", () => {
   });
 
   it.each([
-    ['The file has password = "alpha. bravo charlie" inside. Continue safely.', "bravo charlie"],
+    ["The file has Bearer alpha.bravo-charlie0123 inside. Continue safely.", "bravo-charlie0123"],
     ["The header is Authorization: Digest a1b2c3. d4e5f6g7h8 secret.", "d4e5f6g7h8"],
   ])("never delivers the secret tail from the unsplit reply %s to the caller", async (text, tail) => {
     const provider = new FakeAgentProvider([]);
@@ -1163,14 +1163,14 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(19);
+    expect(request?.tools).toHaveLength(24);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "history_search", "memory_pin", "memory_unpin",
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
-      "deadline_record",
+      "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke",
     ]));

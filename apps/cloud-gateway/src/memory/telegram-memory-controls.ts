@@ -55,7 +55,8 @@ const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?[Mm]emory evidence \[[^\]]*\bitem (
 const MEMORY_CITATION_ITEM = /\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu;
 const MAX_RECORDED_REFERENCES = 8;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Sid's memory: his reader.
+const redactor = new Redactor("owner");
 
 interface OwnerTurnRow {
   readonly turn_id: unknown;

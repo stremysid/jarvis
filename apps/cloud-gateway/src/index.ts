@@ -79,6 +79,7 @@ import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
 import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
+import { webToolsFromEnv } from "./web/web-tools.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
@@ -131,6 +132,16 @@ export function buildTelegramConversationRepository(
       && accepted.isDirectText
       && accepted.isMemoryControlAuthoritative,
   });
+}
+
+/**
+ * The reader for one Telegram turn: Sid's only when the authenticated principal
+ * is the configured owner. A verified guest identity also reaches `replyTo`, and
+ * Sid's reader would store the guest's raw PIN and let a labelled credential
+ * through to the guest's reply.
+ */
+export function telegramTurnRedactor(principalId: string, ownerPrincipalId: string | undefined): Redactor {
+  return new Redactor(ownerPrincipalId !== undefined && principalId === ownerPrincipalId ? "owner" : "external");
 }
 
 export type TelegramReplyFailureReason = "identity_lookup" | "conversation" | "dispatcher" | "other";
@@ -217,7 +228,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         ownerPrincipalId,
       );
       const toolAuthority = ownerTelegramToolAuthority(accepted);
-      const redactor = new Redactor();
+      const redactor = telegramTurnRedactor(accepted.principalId, ownerPrincipalId);
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
         model: env.DEEPSEEK_MODEL,
@@ -269,6 +280,8 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
             new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
             new D1ToolConfirmationStore(env.DB),
           ),
+          // The same web tools a call gets, from the same environment.
+          web: webToolsFromEnv(env),
           ...pipelines,
           // Retrieval happens after construction. The adapter resolves the
           // remaining arrival-anchored budget when its stream actually starts.
@@ -712,7 +725,13 @@ export default {
       return handleTelegramWebhook(request, {
         webhookSecret,
         policy: new PolicyService(new DeviceRepository(env.DB)),
-        redactor: new Redactor(),
+        // The reader is the authenticated principal, not the channel: any
+        // active verified Telegram identity passes, so only the configured
+        // owner gets Sid's reader and everyone else the external one.
+        redactor: new Redactor("external"),
+        ...(env.OWNER_PRINCIPAL_ID === undefined || env.OWNER_PRINCIPAL_ID.length === 0
+          ? {}
+          : { owner: { principalId: env.OWNER_PRINCIPAL_ID, redactor: new Redactor("owner") } }),
         events: new EventRepository(env.DB),
         limiter: telegramLimiter,
         onAccepted: (accepted) => {

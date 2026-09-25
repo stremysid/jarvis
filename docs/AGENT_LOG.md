@@ -3,6 +3,20 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #198 merges main `cc398eba` (#195, #197, #168) after the re-audit PASS
+
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search` from `79d8676c`. Normal merge; no
+merge to main, deploy or migration. Touches Sid's rules 3, 4 and 8.
+
+- **Conflicts:** `voice-agent.test.ts` tool count (main 23, this branch 19) resolved to **24**; OWNER-ACTIONS
+  keeps main's `0048` row and adds the #198 deploy row; AGENT_LOG keeps both sides.
+- **Counts:** STATE's catalogue lines now say 24 (#174's 18, #195's 2 web tools, #168's 3 reminder tools,
+  `history_search`).
+- **#197 reader:** `history_search` adds no redactor; its text reaches Sid through the turn's reader, which
+  production sets to `owner` for Sid on both channels, and guests get no owner tools. The tests now build the
+  same readers production does (`telegramTurnRedactor`, `voiceSessionAudience`) instead of the new `external`
+  default, and a new test gives Sid his locker code back unredacted on a call and on Telegram.
+
 ## 2026-09-25 — Claude builder: #198 round 2 (DeepSeek audit findings 1–8)
 
 Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,
@@ -77,6 +91,113 @@ migration or production access.
   reported, not scanned (phase 4b). In KNOWN_ISSUES.
 - **Evidence:** in the PR body.
 
+## 2026-09-25 — Claude builder: #168 round 4, merge of main `8d7e2c02` after the DeepSeek PASS
+
+Signed: Claude (builder agent), on top of `26c8bd07` (DeepSeek audit PASS, 0 high, 0 medium, 3 low).
+**Claude-authored merge; needs the reviewer's read of the resolution.** Touches Sid's rules 3 and 8.
+No merge to main, deploy, migration apply or production access.
+
+- Normal merge of `origin/main` `8d7e2c02` (#196 call PIN with `0047`, #195 web tools with `0049`).
+- Conflicts: `owner-argument-tools.ts` keeps both `REMINDER_TOOL_DEFINITIONS` and
+  `WEB_TOOL_DEFINITIONS` in the shared catalogue; the restore list, `test/persistence/migration.ts`
+  and the remote-D1 syntax list carry `0047`, `0048`, `0049`, `0050` in order; the backup manifest
+  test expects `0050` as newest; the voice catalogue count is 23 (18 on the base + 3 reminder + 2 web).
+- The audit's three LOW items are fixed: the migration map in OWNER-ACTIONS and STATE, the stale
+  "`0044` remains on #174" clause, and the misnamed scheduling-boundary test.
+- No product behaviour changed beyond the union of both sides.
+
+## 2026-09-25 — Claude builder: #168 main merge, `0050` rename, reminder voice parity
+
+Signed: Claude (builder agent), branch `codex/owner-reminders-run` after `d2142167`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches Sid's rules 1, 2, 3, 7
+and 8. No merge to main, deploy, migration apply or production access.
+
+- Merged `origin/main` `976d5b2b` normally. #166 had landed as a squash and #193 then
+  removed its proof grammar, so the resolution is main's tree plus this branch's
+  reminder-only delta (`e2c484a5..d2142167`); nothing #193 deleted comes back.
+- Renamed `0041_owner_reminders.sql` to `0050_owner_reminders.sql` (Sid's 2026-09-24
+  renumbering decision). Checked: main tops out at `0048`; open PRs hold `0046` (#190),
+  `0047` (#196), `0049` (#195); no origin branch has a `005x` file.
+- Round-2 finding (channel parity): reminder tools now sit in main's shared owner
+  catalogue, so a call can schedule, list and cancel; delivery stays a Telegram message
+  and the receipt says so.
+- Removed the 400-day upper cap: how far ahead to remind is the model's and Sid's choice.
+  The five-minutes-in-the-past refusal stays, because the clock is a fact code owns.
+  The branch's CODE-VS-JUDGMENT "reminder contract" section is dropped, not carried.
+- Reminders to Sid himself stay ungated: `notify.owner` is tier 1, no tap.
+## 2026-09-25 — Claude builder: #197 merged with main after #196 and #195
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` from audited
+head `ba9be375`, normal merge of `origin/main` at `8d7e2c02`. Touches rules 4 and 8.
+
+- **Conflicts:** `KNOWN_ISSUES.md` (main's rows kept, including its removal of the
+  step-up rows whose code #196 deleted; this branch's "toward readers who are not Sid"
+  scoping reapplied to the two redaction-limit rows) and this log (both entries kept).
+  No code conflict; no code changed in the resolution.
+- **Audience wiring after main:** #195 `web-tools.ts` and #196 `sensitive-action-pin.ts`,
+  `pin-capture.ts`, `owner-call-alerts.ts`, `tool-gate.ts` construct no `Redactor` and call
+  no `sanitizeRedaction`. No `new Redactor()` default remains in gateway `src`. The call
+  PIN utterance and keypad digits are consumed in `call-session-do.ts` before
+  `handleTurn`, so the owner audience never stores them.
+- **Evidence:** gateway and contracts `typecheck` exit 0; focused Vitest 18 gateway files
+  1227/1227 and 4 contracts/acceptance files 107/107; `check-state` passed. Full suites
+  and the Python redaction differential on CI.
+- **Scope:** not merged, not deployed, no migration applied.
+
+## 2026-09-25 — Claude builder: #197 round 3 (parity script, guest Telegram text, stale comments)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
+`2dfc85ab`, plus a normal merge of `origin/main` (`976d5b2b`). Touches Sid's rules 3, 4, 8.
+Answers the DeepSeek re-audit of `2dfc85ab` (3 findings).
+
+- **Parity script:** `scripts/check-redaction-differential.mjs` names `new Redactor("owner")`.
+  Before: exit 1, 69 expectation failures; after: 0 differences, 0 failures, 13128 streams.
+  Now run in CI's local-agent job (both OSes) so it cannot go red unnoticed again.
+- **Guest Telegram:** a verified non-owner identity is a designed path (acceptance
+  "refuses an authenticated guest before outbound policy"), so it is not rejected.
+  `onAccepted` now carries the external reader's text for any non-owner, and
+  `replyTo` answers a guest turn with the external reader (`telegramTurnRedactor`);
+  this PR had made that reader `owner` for every principal. Sid's path is unchanged.
+- **Comments:** the two "default is Sid" comments now say the default is `external`.
+- **Evidence:** focused Vitest green locally; mutations via `reviewer-tools/mutate.ps1`
+  recorded in the PR comment. Full suites on CI.
+
+## 2026-09-25 — Claude builder: #197 audit round (reader named everywhere, external by default)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
+`9ff7ee34`, plus a normal merge of `origin/main` (`605c1773`). Touches Sid's rules 4, 8, 9.
+Answers the DeepSeek audit of `9ff7ee34`; no redaction toward Sid is re-added.
+
+- **Default reader is now `external`** for `sanitizeRedaction` and `Redactor`. Every
+  owner path names `owner` explicitly. The entry below saying `literal-history.ts`
+  "inherits the owner default" is superseded: #194 removed its redactor.
+- **Telegram webhook** chooses `owner` only for the configured `OWNER_PRINCIPAL_ID`;
+  any other verified identity, or every sender with no owner configured, gets `external`.
+- **Labelled `api_key=`/`client_secret=`/`access_token=`** of no known shape stay
+  visible to Sid (his rule); the remember-tool comment now says only `KNOWN_CREDENTIAL`
+  shapes are refused, pinned by a contracts test.
+- **`contextForAudience`** re-fits from the newest item and cuts at the first misfit.
+- **Evidence:** focused Vitest (17 PR-touched files plus the webhook test) green
+  locally; 8/8 mutations KILLED via `reviewer-tools/mutate.ps1`. Full suites on CI.
+
+## 2026-09-25 — Claude builder: #195 merged with main after #196
+
+Signed: Claude (builder agent), branch `codex/web-tools` from audited head `0b0e3f74`. Touches rule 8 only.
+
+- **Merged `origin/main` at `9ea215b2`** (#196, migration `0047`). Conflicts: `test/persistence/migration.ts` (newest-runtime list now `0045`, `0047`, `0049`), this log (union of whole entries, none removed) and `OWNER-ACTIONS.md` (#195's three web rows plus main's #193 row, which had replaced the #166 row). The backup-restore list and the remote-D1 syntax list auto-merged in order. No product code changed; main adds no owner tools, so the catalogue stays 18 + 2 = 20.
+- **Evidence:** focused vitest 13 files, 296/296; gateway `typecheck` exit 0; `typecheck:tests` 140 errors, none in touched files; `check-state` pass with its one FACTS warning.
+- **Not verified:** full suites (CI). Claude-authored merge delta. Not merged, deployed or migrated.
+
+## 2026-09-25 — Claude builder: #195 audit round (web tools own-origin fail-closed)
+
+Signed: Claude (builder agent), branch `codex/web-tools`. Touches rules 1, 2, 3, 8, 9. Answers the DeepSeek audit of `d18f05f5` (posted on [#195](https://github.com/stremysid/jarvis/pull/195)).
+
+- **Merged `origin/main` at `605c1773`** (#174, #194). The migration lists keep both `0048` (main) and `0049` (this PR). Since #174 both adapters use `OWNER_TOOL_DEFINITIONS`, so the web catalogue test now asserts that one list.
+- **F1, fixed.** When `PUBLIC_ORIGIN` is missing, blank, unparseable or not http(s), `web_read` now refuses every URL with an `own_origin_unknown` receipt and fetches nothing. The receipt tells Jarvis to tell Sid the secret needs setting. `web_search` is unaffected. Tested through `webToolsFromEnv`.
+- **F2, stated rather than fixed.** Cloudflare's browser follows redirects off this Worker, so this code cannot re-check them. The module doc, the result (`redirectsChecked: false`) and the entry below now say so.
+- **F3, F5 fixed; F4 documented** in the `0049` comments; F6 needs no code change.
+- **Evidence:** `web-tools.test.ts` 23/23 locally; gateway `typecheck` clean; `typecheck:tests` 143 errors, none in touched files. `mutate.ps1`: 7 killed, 0 survived, 0 not applied.
+- **Not verified:** whether production actually has `PUBLIC_ORIGIN` set. `docs/runbooks/deploy.md` lists it under calling secrets "set in production", but that was not checked live. If it is missing, `web_read` will say so.
 ## 2026-09-25 — Claude builder: #196 round 3 (0047 behavioural test, doc fixes)
 
 Signed: Claude (builder agent), `codex/call-pin` from audited head `4047e9d`. Touches Sid's rules 3, 4, 8, 9. Main then moved to `eb4c8e3` (#184), so it was merged normally in `68b52bc`.
@@ -216,6 +337,58 @@ NOT applied; Sid applies it only after review.
   (backup file), 26 passed (living-notes migration), 77 passed (parity + syntax +
   restore). `pnpm --filter @jarvis/cloud-gateway typecheck` clean. Mutation
   results are in the PR body.
+
+## 2026-09-24 — No redaction toward Sid; guests and telemetry keep it
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid`,
+worktree `C:\w\no-redaction`, based on `origin/main` `7d773d3` (#183). Touches
+Sid's principles 3, 4 and 8. Claude-built; needs a DeepSeek audit before merge.
+
+**Why.** Sid, 2026-09-24 ~11 PM: "Yes Jarvis can say email codes and store them
+… there should be nothing between Jarvis and I interms of what he knows and I
+know". At `7d773d3` every caller of `sanitizeRedaction` hid Sid's six-digit
+codes, contextual PINs, labelled passwords, passphrases and phone numbers from
+Sid himself: in the event log and archive, the model prompt, recall, memory
+writes (refused), Python projection (refused) and every Telegram and spoken reply.
+
+**What changed.** One question decides: who is receiving this text?
+`RedactionAudience` in `packages/contracts/src/calls.ts`:
+- `owner` (default): Sid's own chat, calls, memory, store and PC. Only machine
+  credentials go: private keys, `Authorization` headers, bearer tokens, known
+  API-key shapes, and now the Telegram bot-token shape.
+- `external`: guest call sessions (ingress, stored turn, model context, spoken
+  reply; composed by `voiceSessionAudience` in `voice/production-runtime.ts`),
+  `policy/policy-audit.ts` and `http/voice-callback-recorder.ts`. All 12 rules
+  still apply; the 136-case gap table's external output is byte-for-byte
+  unchanged.
+- Python `projection_policy.py` mirrors the owner reader: 8 of its 11 patterns
+  were deleted as dead.
+
+**Kept on purpose.** The owner passphrase and guest PIN verifiers stay hashed
+(authentication, not hiding data). The voice DTMF field marker stays (it is the
+keypad verification input). No tool gate or confirmation tier was touched.
+
+**Evidence.** Focused vitest: 21 files, 1200 passed (security, contracts,
+context retriever, voice reply, packages/contracts) and 25 files, 1528 passed
+on the neighbouring set. pytest `tests/memory tests/sync`: 477 passed. ruff
+clean, mypy clean, gateway `tsc` 0. Differential: 136 gap cases, 181 decisions,
+0 runtime differences, 13,128 streams match for both readers. Mutations via
+`reviewer-tools/mutate.ps1`: 6 of 6 killed by the named tests; one manual Python
+mutation (bot-token pattern) killed 2 named tests.
+
+**Disclosed slip.** While editing, one PowerShell `[IO.File]` call resolved a
+relative path against the process directory and wrote
+`apps/cloud-gateway/src/conversation/context-retriever.ts` in **`C:\javis`**. It
+was restored with `git -C C:\javis checkout --` of that one file within about a
+minute. `C:\javis` status before and after: only its three untracked files.
+
+**Deploy order.** Gateway before local agent: an old gateway rejects projected
+facts that a new agent now sends. Stored data redacted before this change stays
+redacted; it cannot be recovered.
+
+**Coordination.** `literal-history.ts` is untouched (PR #194 owns it); it
+inherits the owner default. #190 re-merges main after this lands.
+
 ## 2026-09-24 — Claude builder: #174 merges main `2e12b3b` (#179, #180, #183, #188, #191)
 
 Signed: Claude (builder agent), `codex/channel-parity` after reviewed head `ca14f01`.
@@ -235,6 +408,37 @@ Touches Sid's rules 3, 4 and 8. A normal merge commit; no rebase, no force.
   1589/1589; gateway `tsc` exit 0; `check-state` pass with its one FACTS warning.
 - **Not verified:** full suites (CI), live Telegram or calls. Claude-authored merge delta:
   needs a DeepSeek audit before merge. Not merged or deployed.
+
+## 2026-09-24 — Claude builder: web_read and web_search on calls and Telegram ([#195](https://github.com/stremysid/jarvis/pull/195))
+
+Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid approved the build on 2026-09-24. Touches rules 1, 2, 3, 4, 8, 9. **Claude-built: needs a DeepSeek audit before merge.**
+
+- **What:** two read-only owner tools in `OWNER_ARGUMENT_TOOL_DEFINITIONS`, so both channel catalogues carry the same definitions.
+  - `web_read(url, offset?, renderJavaScript?)` fetches the page in the gateway, converts HTML or PDF with Workers AI `toMarkdown`, and returns the text, final URL and title.
+  - `web_search(query, numResults?)` sends a plain JSON-RPC `tools/call` to Exa's hosted MCP endpoint.
+  - The code is in `apps/cloud-gateway/src/web/web-tools.ts`. `OwnerAgentCore.executeCall` dispatches both tools after the tier gate.
+- **The AI decides.** No topic, keyword or site rules. The only limits:
+  - http/https only;
+  - never `PUBLIC_ORIGIN`'s host, with every redirect re-checked on the direct path (not on the Browser Rendering path, and `web_read` refuses outright when `PUBLIC_ORIGIN` is unset: corrected in the audit round below);
+  - timeouts;
+  - a 5 MB download cap and a 20,000-character reply cap.
+
+  When text is cut, the result says `truncated: true` and gives the offset for the next part.
+- **Web content is data.** Every result carries `untrustedWebContent: true` and a notice. Neither tool can act.
+- **Receipts.** Migration `0049_web_tools.sql` (first opened as `0047`, renumbered because #196 uses `0047` and #194 uses `0048`) seeds `read.web` at tier 1 and adds the append-only `web_tool_receipts` table. Every call writes one row, refused and failed calls included. The row holds the URL or query, final URL, method, outcome, HTTP status, bytes and truncation. The backup inventory and the restore list include the new migration and table.
+- **Exa, verified from docs and source only.**
+  - The docs give `https://mcp.exa.ai/mcp`, a keyless free tier, and the `x-api-key` header.
+  - The source at `exa-labs/exa-mcp-server@f3d71fb` (`api/mcp.ts`) builds a fresh MCP handler per request. The free tier is IP rate-limited on `tools/call` and answers 429.
+  - **Unverified:** a live keyless call from a Worker (no service was contacted), and whether `tools/call` without `initialize` succeeds live.
+- **Limit found, not changed.** The core allows one tool call per turn (`MAX_TOOL_CALLS = 1`, one round), so "search, then read a result" takes two turns.
+- **Evidence.**
+  - `test/web/web-tools.test.ts` passes 18/18.
+  - Neighbour files pass 415/415 (18 files).
+  - `mutate.ps1` at `8e9a0c0`: 16 mutations, all 16 KILLED by the named test and confirmed on a second run.
+  - `tsc` is clean. `check-state` passes with its one existing FACTS warning.
+- **Owner actions:** apply `0049` with the deploy. Optionally set a Browser Rendering token and an Exa key.
+- **Scope:** no merge, deploy, migration application, secret change or production access.
+
 
 ## 2026-09-24 — Claude builder: deadline_record lets the AI decide
 
@@ -1440,6 +1644,57 @@ Both adapters now import `OWNER_ARGUMENT_TOOL_DEFINITIONS` and `ownerArgumentToo
 
 Initial focused regressions: **83/0/0 in 4 files**. A broader deadline/school/adapter/classification run observed **303/0/0 in 16 files plus 9 worker-start ECONNRESET errors**; the nine unstarted files are not counted as passes or skips, and the cause is unproven. Further gates, mutations and the single full run will be recorded after execution. Source types passed with 0 diagnostics; test types have 143 existing diagnostics, none in the new deadline/voice fixture paths. The remaining earlier omitted-year/ordinal and bare-next-week bound conventions are explicitly recorded as judgment findings in CODE-VS-JUDGMENT, not owner-approved exceptions. No migration added, real database touched, live call/provider invoked, deployment or PC configuration operation. Ledger and `deadline-r2-*` evidence remain outside the repo.
 
+## 2026-09-24 — Codex builder: #168 independent-review gate receipts
+
+Signed: Codex, builder. At runtime commit `8d1ef90a`, `reviewer-tools/mutate.ps1` applied all **22** probes, each failed its named test twice, and restored all **6** affected files byte-identically. **22 killed / 0 wrong-test / 0 unconfirmed / 0 survived / 0 not-applied / 0 invalid**. Restored named files passed **41/0/0 in 3 files**. Probes cover past/future bounds, local zone receipt, adapter clock/zone, uncertain read-back (null and exception), rejected list wording, ten-row limit, empty batch, quiet/identity gates, authentication retry, rejection, both attempt/status fences, malformed-success classification and the rejected-attempt SQL constraint. Specs and full logs: `C:\Users\Sid\codex-ledgers\reminder-review-r1-mutations.json` and matching `.log`.
+
+The single full gateway run observed **5,344 passed / 1 failed / 0 skipped; 206 files passed / 1 failed (207 total)**. The sole failure was `recomputes the arrival-anchored budget when the agent stream starts`: exact error `expected vi.fn() to be called once, but got 2 times`. The new current-instant prompt necessarily reads the clock as well as the existing budget calculation. Replaced that incidental call-count assertion with the exact prompt instant `2026-09-17T14:00:03.300Z`, retaining the **16,700 ms** budget assertion. The entire affected owner-agent file then passed **102/0/0**. No runtime code changed after the full run, and no second full run was performed; the reported full count precedes this test-only correction. No flaky timeout occurred in this run.
+
+Final test typecheck still reports **143 existing diagnostics**, none in the touched/new paths. Source typecheck passed **0 diagnostics** on unchanged runtime source. Earlier focused results are **26/0/0**, **89/0/0**, **642/0/0 in 34 files** (deadlines/school/reminders/backup/parity/syntax/provider), and **17/0/0 in 2 files** (classification/shared drain). A fresh fetch still has main at `0d695563`; #169 remains open, so 0040 is unavailable. All present migration inventories and their ordered restore/fixture lists include 0039 before 0041. Owner rollout still requires reviewed 0041, including rejected, before deployment. A's head `e2c484a5b4e1303942c9273cf9c85bcd5f49c4fa` remains an ancestor. No real database, provider, production or PC configuration operation occurred.
+
+## 2026-09-24 — Codex builder: #168 independent-review fixes
+
+Signed: Codex, builder. Read review comment `5806195788` in full and verified its findings against B's current `723da078`, which already contains A's `e2c484a5b4e1303942c9273cf9c85bcd5f49c4fa` and #159/#164/#165. Recreated only `C:\w\deadlines-reminders-run`. Fresh main was `0d695563`; normal merge was already up to date. #169 remains open at `1b3302da`, so 0040 is not present to register yet. Existing complete migration lists register 0039 before 0041; a new order test checks the unsorted restore/fixture sequences as well as existing parity tests.
+
+Reminder tools now receive the same adapter clock and owner zone as deadline_record. The prompt provides current instant separately from message arrival; scheduling refuses before five minutes ago or beyond 400 days, and receipts retain UTC alongside local time and EDT/EST. No time or words are substituted. A committed INSERT whose read fails returns a specific may-have-saved/refetch-list refusal. Received authentication/rate-limit refusals reopen via attempts-fenced updates; invalid requests become terminal rejected/not delivered. Unknown delivery stays failed/fenced. Corrected Telegram's malformed JSON 2xx classification too: absence of the success marker cannot prove non-delivery. Due batches are limited to ten with one quiet and identity lookup per nonempty batch. Migration 0041 adds rejected and requires its attempt count; it must be applied before deploy. No migration was applied outside isolated local test D1.
+
+Observed before mutations: initial new regressions 26/0/0; reminder/provider focused 89/0/0; expanded deadline/school/reminder/backup/parity/syntax/provider gate 642/0/0 in 34 files; actual classification/guest-drain gate 17/0/0 in 2 files. The first expanded command named a nonexistent agent/classification path, so it was corrected in the separate 17-test gate rather than claiming it ran. Source typecheck passed, 0 diagnostics; test typecheck has 143 existing diagnostics and none in reminder/argument/provider paths. Full suite and mutation evidence follow after they run. Ledger/evidence prefix: `C:\Users\Sid\codex-ledgers\reminder-review-r1-*`. No real database, live provider, deploy or PC settings operation.
+
+## 2026-09-24 — Codex builder: #168 final calendar-feed integration
+
+Signed: Codex, builder. The required main fetch brought #165 (`0d695563`). Normally merged it as `ea821333`, then carried A's updated `e2c484a5b4e1303942c9273cf9c85bcd5f49c4fa` as `37fe9f50`. Only AGENT_LOG conflicted; both histories remain. Deadline/core/calendar/school source is identical to A. Final calendar/routes/reminder/classification gate: **68 passed / 0 failed / 0 skipped, 8 files**. Source types passed with 0 diagnostics; test types remain 143 existing diagnostics, none in the new/changed paths. State passed 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff passed. The earlier 590-test and 497-test integration gates remain green evidence for their scopes. The once-only full run remains explicitly **before #164/#165**; no exact-final-tree full claim is made. New mutation evidence remains 1/1 confirmed reminder gate kill plus A's 40 carried probes on unchanged proof code. No real database, live provider, deployment or PC settings action occurred. 0041-before-deploy and owner acceptance remain recorded.
+
+## 2026-09-24 — Codex builder: #168 final #164 integration
+
+Signed: Codex, builder. Normally merged A's final `4eddb684daa89439fbccde08f68c9d992e95e65b` as `3f78729f`, carrying main's newly merged #164 after the once-only full gate. The only conflict was this log; both complete histories remain. Deadline, shared core and school source are identical to A; the Telegram adapter retains only B's three reminder additions. Backup/migration code is unchanged from the passing 590-test gate.
+
+Final affected integration gate: **497 passed / 0 failed / 0 skipped, 27 files**, including deadlines, school, reminders, owner-pipeline integration and classification. Source types passed with 0 diagnostics; test types remain 143 existing diagnostics with none in the new/changed paths. State passed all 3 carriers and FACTS/links/size/BLOCKS, 0 warnings; diff passed. Full-run evidence remains **5,270/2/0 before #164**, followed by whole-file isolated passes of **71/0/0** (Hermes) and **70/0/0** (meaning-search). No second full run was performed, honoring the explicit once-only instruction; no exact-final-tree full-suite claim is made. Mutation evidence remains A's 40 carried probes plus B's 1 confirmed reminder-specific gate probe on unchanged core code. Owner-only rollout/acceptance steps and the 0041-before-deploy requirement remain in OWNER-ACTIONS. No live/production or PC permissions action occurred.
+
+## 2026-09-24 — Codex builder: #168 carries #166 round 1
+
+Signed: Codex, builder. Normally merged PR #166 head `50d5fe913898f70c9794b5385dcea0652bd9ea2b` into the existing reminder branch as `21dc779`, then added the reminder-specific argument-tier refusal regression in `e459a40`. #168 remains stacked on A and targets main. No force push. Deadline source and the shared core are byte-identical to A; Telegram retains the three reminder additions (import, tool definitions, dispatch alternative), and the fixture retains its callback call factory alongside A's timestamp/zone seams.
+
+Resolved integration keeps both 0039 tier-3 and 0041 reminder migrations in order in backup restore and test schemas, and retains the latest-schema expectation of 0041. 0040 remains assigned to the D2L collector. Both log histories and owner-action rows were retained, replacing only the obsolete full-date homework instruction with A's natural-language acceptance check. The reminder sender, quiet rule, cancellation and ambiguous-delivery fence are unchanged by this fix.
+
+Observed combined focused gate: **590 passed / 0 failed / 0 skipped, 31 files** (deadline/school/reminder/backup folders, guest drain, migration syntax/parity and classification). Source types passed with 0 diagnostics. Test types remain 143 existing diagnostics; no new deadline, reminder, argument-fixture or conflict-resolution diagnostics. `refuses a reminder when the argument tool tier gate fails after owner proof` passed baseline, failed with the gate removed, failed again on confirmation, and passed after byte-identical restoration in the 590-test gate. **1/1 confirmed mutation kill**, 0 survivor/wrong-test/unconfirmed/not-applied/invalid. A's 40 probes are carried as evidence on identical source; the original 32 reminder probes were not rerun.
+
+Single combined full gateway at `e459a40`: **5,270 passed / 2 failed / 0 skipped, 199 files passed / 2 failed**. Existing tests `retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery` and `keeps the 100-input bge-m3 request inside the byte ceiling and independent mutation cap` timed out at 15/30 seconds. Both have prior timeout evidence in this log. Each whole file was rerun alone: Hermes **71/0/0**, meaning-search **70/0/0**. No timeout cause is inferred. State passed 3 carriers plus FACTS/links/size/BLOCKS, 0 warnings; diff passed. The required final fetch then brought newly merged #164, so its integration and focused evidence follow separately; this full count precedes that upstream change. The external ledger and evidence are `C:\Users\Sid\codex-ledgers\deadlines-reminders-run.md` and `reminder-r1-*`.
+
+Migration **0041 must precede deployment**; remote D1 scratch proof and live Telegram acceptance remain owner actions. No real database, live provider, deployment, local-agent, permission, service, registry or logon operation occurred. The code still cannot guarantee delivery after an uncertain send; failed may mean delivered and is not automatically retried. P2 platform rows may duplicate owner-reported deadlines. No PR was merged.
+
+## 2026-09-24 — Codex builder: owner Telegram reminders, PR B stacked on #166
+
+Branch `codex/owner-reminders-run` was created from PR #166's branch at `a4af0baa190f1cfc7d8ada717e9231714cc15bc7` after A opened. Both PRs target main; review/merge A first. B reuses its argument-tool hook without another edit to `owner-agent-core.ts`. The model chooses the reminder's UTC instant and exact text through `reminder_schedule`; `reminder_list` and `reminder_cancel` share the existing tier-1 `notify.owner` capability. Distinct reminders in a turn are allowed; only an exact repeat of owner, turn, instant and text is deduplicated.
+
+The five-minute job runs reminders inside the existing guest-notice drain lease/retry path. A pending row is atomically fenced before sending to the owner's active verified Telegram identity. Existing non-urgent quiet windows defer before the fence. **Telegram has no idempotency support: uncertain delivery is never automatically retried.** Timeout, malformed success, lost acknowledgement or a crash can leave a `failed` row even if delivery occurred, or cause a missed reminder. Only an explicit branded rate-limit refusal returns to pending. This is an at-most-once dispatch policy for uncertain sends, not a promise of guaranteed delivery. Cancellation only succeeds before dispatch begins.
+
+Migration **0041_owner_reminders.sql must be applied before deployment**. It uses `SELECT RAISE(...) WHERE`, is registered for backup restore, and the table is in the authoritative backup inventory. Assigned numbers remain 0039 tier-3 taps (#159), 0040 D2L collector keys, 0041 reminders. An earlier #159 head used 0040; the fresh all-open-PR audit now confirms #159 head `ebd02ca` uses 0039 and no open PR uses 0041. The older #96 carries 0036; this task does not fill 0036/0037. The premise that the digest is the only proactive send is false: guest notices, backup notices and weekly retro already exist. `listReminderDue` remains unused.
+
+Observed focused gates: **59/59** (42 new reminder tests, 15 existing guest-drain tests, two classification tests), then **69/69** after refinement including A's 25 deadline tests; no failures/skips in those passing runs. Source typecheck passed with zero diagnostics; test typecheck reports 143 existing diagnostics and none in the new files. The one full gateway run on the final production implementation was **5,180 passed / 2 failed / 0 skipped**, 193 files passed/2 failed. Both failures were stale migration expectations: backup's manifest expected 0038 instead of the actual 0041, and the static migration-syntax inventory omitted 0041. The backup assertion was independently reproduced (0 passed/1 failed/26 skipped). After updating only those two test expectations, their whole files passed **27/27** and **53/53**, no failures/skips. No production code changed after the full run, and the full suite was not repeated under Sid's once-only rule. All reminder/mutation-named tests passed in that full run. State check passed 3 carriers; final remote head and retained `reminder-*` evidence are in PR B's body.
+
+Mutation evidence: **32 probes for the final implementation killed their named tests twice** and source restoration was byte-identical. The first sweep had 29 confirmed kills and one survivor: a SELECT owner-filter test proved delivery scope but not selection scope because the later row fence still protected delivery. The refined assertion catches the extra identity lookup. Four follow-up probes passed: that corrected filter, the replacement exact-replay unique constraint, and receipt time/text filters. The earlier one-reminder-per-turn constraint probe is superseded and excluded from the final 32. No invalid, not-applied, unconfirmed or wrong-test kills were counted. Logs/specs and continuity ledger are at `C:\Users\Sid\codex-ledgers\` (`reminder-*`, `deadlines-reminders-run.md`).
+
+Historical fixture failures are retained in the PR: initial 25 passed/1 failed (active-unverified identity violates schema), expanded 41 passed/1 failed and isolated 1 passed/1 failed (invalid synthetic token format), followed by fixed isolated job 2/2. Two new test typing diagnostics were fixed, reducing 145 to the existing 143. The mandatory final fetch brought main's #156 (`248c3de`): only Hermes, its reviewer tools and documentation changed upstream. The sole merge conflict was this log; both builders' complete entries are retained. Gateway source and test configuration were unchanged by that integration, so passing gateway checks were not repeated. No live Telegram/model test, remote D1 scratch proof, real migration, deployment, local-agent or Hermes execution, or PC permission change. Owner-only actions are in `OWNER-ACTIONS.md`. No changes to the parallel sync/device/store-permissions lanes. Signed: Codex.
 ## 2026-09-24 — Codex builder: #166 integrates newly merged #165
 
 Signed: Codex, builder. The next mandatory fetch brought `0d695563` (#165 calendar feed). Normally merged as `504cbf5f`, preserving both log histories. Deadline proof and shared core remain unchanged. Calendar feed/routes, deadline folder, school repository and classification gate: **235 passed / 0 failed / 0 skipped, 14 files**. Source types passed, 0 diagnostics; state passed 3 carriers/FACTS/links/size/BLOCKS with 0 warnings; diff passed. This local integration result supplements the 454-test #164 gate. The once-only full run remains explicitly before these upstream integrations, not an exact-final-tree claim. No new guard authored or production operation performed. #168 receives this A head before its final push.
