@@ -50,6 +50,73 @@ source `tsc --noEmit -p apps/cloud-gateway` exit 0; test tsconfig 143 diagnostic
 none in changed files; `check-state` and `git diff --check` pass; mutation kills
 recorded in the PR. No merge, deploy, live call, migration or credential.
 
+## 2026-09-24 10:19 PM — Claude builder: #191 review nits and main merge
+
+Signed: Claude (builder agent), `codex/d2l-ext-unblock` after `d97c77f`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches rules 4 and 8.
+
+- **Merge, not rebase.** `origin/main` (`e831e34`) merged normally. `docs/QUEUE.md`
+  conflicted with #179's regeneration: main's table kept, and its row "D2L extension
+  compatibility hold and host-failure emission" now says #191 deletes the hold and
+  host-only failure emission remains. `docs/AGENT_LOG.md` merged cleanly, both sides kept.
+- **N1:** `docs/runbooks/d2l-extension.md` drops "Held entries do not consume upload
+  attempts." (no held entries exist now).
+- **N2:** `receiver-contract.test.js` now asserts the pinned receiver refuses
+  `news/?x=1` with `school_route_invalid`, so the comment's "both halves" is true.
+- **N3:** new test "It feeds real collectHost output for both boards through the pinned
+  receiver parser and mapper." Both hosts, a good read with two folders (no mapping
+  failures) and a versions failure with cached courses (parsed, failures recorded).
+  Mutations planted by hand and restored: bare `submissions/` label, a query on the news
+  label, and `news` dropped from `ROUTES` each fail it (0 pass / 1 fail).
+- **Unchanged:** `protocol.js`, `delivery.js`, all other production files and the
+  receiver snapshots are byte-identical to `d97c77f`; snapshots still equal main's
+  `collector-protocol.ts` and `collector-mapping.ts`.
+- **Gates:** extension `npm test` 51 pass / 0 fail / 0 skip; `test:mutations` 133/133
+  killed, 0 not applied, 0 unconfirmed; `check-state.mjs` passed with its one existing
+  FACTS warning. No merge to main, deploy or migration.
+
+## 2026-09-24 — DeepSeek dsh headless builder: the D2L extension's receiver hold is gone
+
+Signed: DeepSeek (dsh headless builder, effort low), `codex/d2l-ext-unblock`.
+
+Read the brief, AGENTS.md, CODE-VS-JUDGMENT.md and the #170 review note, then verified
+every premise at `a7cd3553166e10293e27656c4b800f26b0dec7cb`, this branch's fork point
+of `origin/main`. No migration.
+
+- **Premises confirmed.** `protocol.js:uploadBlock` held every non-LDSB host and every
+  route outside its narrow regex; `collector.js:ROUTES` reads `news` and `quizzes`, so
+  every full Durham course batch was held. `delivery.js` used it in `enqueue` and
+  `flush`. The receiver at #175 (`c66c38709a9774e32546bfd7cbd7766995278a71`) has
+  `SCHOOL_HOSTS = [SCHOOL_HOST, "durham.elearningontario.ca"]` and a route regex with
+  `news\/` and `quizzes\/`; `collector-mapping.ts:199` maps quizzes; migration
+  `0045_school_collector_hosts.sql` exists.
+- **Path premise, reported not papered over.** The old hold allowed
+  `dropbox/folders/<id>/submissions/` without `mysubmissions/`, which the receiver
+  rejects. The extension never builds it: its only submissions route is
+  `dropbox/folders/<folder>/submissions/mysubmissions/` (`probe.js` `LABELS.submissions`).
+  No client-side filter was re-added; the receiver's schema is the only gate.
+- **Deleted:** `uploadBlock` and its comment, the `delivery.js` import, the `enqueue`
+  assignment, the `flush` hold check, the `blocked` flag and the
+  `receiver-contract-incompatible` result. `grep` finds no `uploadBlock` and no
+  production `receiver-contract-` reference left in the extension.
+- **N1 from the #170 review is closed by deletion.** The reviewer's M8 survived because
+  `continue` for a held entry ran before `attempts += 1`; with no held-entry path there
+  is nothing to count, and the 8-attempt bound now covers every batch the loop submits.
+  The runbook sentence "Held entries do not consume upload attempts" stays true.
+- **Tests:** `protocol.test.js` gains "It sends every board and tool the receiver now
+  accepts, including Durham, news and quizzes."; `queue.test.js` replaces the held-Durham
+  test with "It sends a Durham board batch and a news and quizzes batch instead of
+  holding them."; `receiver-contract.test.js` flips the Durham/news/quizzes and
+  myItems/empty-submission assertions to acceptance and keeps the wrong-host,
+  unknown-route, non-`mysubmissions` and empty-manifest refusals. Snapshots in
+  `test/receiver/` are refreshed verbatim (LF) from #175 and the README cites it.
+- **Observed gates:** extension suite 50 pass / 0 fail / 0 skip before and after;
+  mutations 133 selected / 133 killed / 0 NOT APPLIED / 0 unconfirmed; `check-state.mjs`
+  passed with its one existing FACTS advisory. Planting a host check and a news-route
+  check made the named queue test fail 0/1 and both restores passed 1/0 byte-exactly.
+- **Scope:** extension and documentation only. No merge, push of main, deploy,
+  migration, secret or production access, and no browser or live D2L session.
+
 ## 2026-09-24 — Hermes round 2: the tar host comes from the system directory
 
 Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not
@@ -1645,6 +1712,224 @@ warning; diff check clean. Runtime and mutation reruns remain unavailable here.
 then the same voice and fake acceptance directories, using the commands in
 `.codex-pr-body.md`; retain the mutation and independent-review steps above.
 Handoff files updated. Nothing staged and no Git writes.
+
+## 2026-09-24 — Codex builder: remaining redaction gaps, harness handoff
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/redaction-gaps.
+
+Based on `origin/main` at `f5ba9a8`, confirmed by read-only Git. No Git writes,
+PR creation, secret access, live call, migration or deployment. The root
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness.
+[Detailed evidence, limits and commands](reviews/2026-09-24-redaction-gaps.md).
+
+| Brief item | Result |
+|---|---|
+| 1. Assignment vocabulary and digit independence | #149 already catches contextual four-digit PINs in both runtimes. Added `pin`, `passphrase`, `passcode`, `code` and the `is` delimiter to generic assignments; numeric PIN/code markers retain their prefix and sentence punctuation at any length. Spoken multiword passphrases have an explicit punctuation boundary |
+| 2. Preserve bare four-digit values | Unchanged bare six-digit rule. Exact negative fixtures cover four-digit values, years, times, dates, quantities and course codes |
+| 3. Phone shapes in both runtimes | Added country-prefixed, parenthesized and hyphenated forms with identifier boundaries and a `phone_number` marker. Whole-number matching runs before assignments can consume a prefix and expose the tail. Python refuses matching facts instead of rewriting them |
+| 4. Newline bearer pairs | Header matching consumes bearer values across CR/LF, including short header values. Bare bearer matching accepts CR/LF. Python already refused headers on main but missed newline bare bearers; the TypeScript header leak is independently pinned by exact output |
+| 5. Production field | Re-aimed the old four-digit test from `guest.pin` to `conversation.turn.text`. Existing #149 real `handleTurn` integration tests are retained |
+| 6. Streaming | Voice's unsplit redaction applies the new grammar. Telegram now retains potential credential context across lines through EOF, while safe preceding lines still release. Every emitted prefix is tested against the final expected text |
+
+New/retargeted test names:
+
+- `redacts a contextual four-digit PIN in the production turn field while preserving a bare number and a year`
+- `marks phone numbers on both channels without changing the course code or year beside them`
+- `marks a spoken passphrase as a credential without retaining any of its words`
+- `holds a bearer label and its following value line until they can be redacted together`
+- `test_redaction_gaps_match_the_gateway_decision`, parametrized from the shared table.
+- The 69 full-sentence names in `tests/fixtures/redaction-gaps.json` also name
+  gateway contract tests and streaming tests with suffix `at every split and
+  character by character`, for both release modes. Examples include `redacts
+  a contextual four-digit code`, `redacts a header bearer whose value starts
+  on another line`, `redacts a spoken multiword passphrase in context`, and
+  `preserves a bare four-digit number`. The legacy whitespace test now also
+  exercises code assignments and quoted/unquoted passphrases.
+
+Executed: **371 differential decisions, zero differences/expectation failures;
+3,456 streams match exact expected text**. Main's same final corpus has zero
+boolean parity differences but **111 failed expectations**, demonstrating why
+parity alone cannot clear leaks. Eleven temporary-source mutations were killed:
+TypeScript assignment labels, phone rule, bare-four-digit overreach, header
+newline handling, bare-bearer newline handling, multiword passphrases, line
+retention and phone/assignment ordering; Python phone rule, assignment labels
+and bare-bearer newline handling.
+Source typecheck, Python syntax compilation, diff checks and state carriers
+pass. State check has one existing browser-background-access FACTS advisory.
+Gateway test typecheck reports **143 diagnostics, none in changed files**.
+
+Harness must run, in order: focused Vitest on `call-redaction`, `envelope`,
+`security/redaction`, `security/pin-redaction-turn`,
+`security/streaming-output-redactor` and `contracts/projection-policy`; focused
+Python `tests/memory/test_projection_policy.py` and
+`tests/sync/test_memory_projection.py`; the standalone Python/Node differential;
+then `pnpm test`, `pnpm typecheck`, gateway `typecheck:tests` (inspect its existing
+baseline), local-agent `uv run pytest -q --ignore=tests/integration`, Ruff and
+mypy, plus `node scripts/check-state.mjs`. Use the commands in the evidence
+page and the repository's supported Node 24.19+ runtime.
+
+Not verified here: Vitest/pnpm (forbidden by the harness brief), pytest
+(`No module named pytest`), Python lint/mypy, D1 integration behavior and live
+delivery. Container versions are Node 22.22.2 and Python 3.12.3. Explicit
+assignments remain syntactic: the original `pin is on` wording now has an exact
+fixture showing `on` redacted and the year retained. Unlabelled passphrases,
+complete spoken-word PIN sequences and phone formats beyond the listed shapes
+are outside the guarantee; see KNOWN_ISSUES. This is not independent clearance.
+
+- When the harness receives this worktree: run the outstanding gates and commit
+  with the supplied message/body.
+- When those gates pass: Claude reviews the exact resulting head before merge;
+  any later deployment remains a separate owner action.
+
+### Round 2
+
+Signed: Codex GPT-6 Astra, headless builder, 2026-09-24, `codex/redaction-gaps`.
+Applied [the independent review](https://github.com/stremysid/jarvis/pull/183#issuecomment-5822297715)
+after the harness merged `origin/main` (`a20f055`) as `2f11478`. Git remained
+read-only; the harness owns the commit. No migration or deployment.
+
+- **F1:** Generic assignments require `:`/`=`. Only `pin`, `passcode` and `code`
+  accept prose `is`, `was`, `'s` or `’s`, optionally after `number`, and their
+  numeric values require a word boundary. Explicit `code` assignments likewise
+  require digits. `passphrase is` retains quoted and unquoted multiword handling.
+  Restored the original binder sentence in `security/redaction.test.ts`; its
+  shared fixture now expects unchanged text. The review's ordinary prose and
+  memory-location examples are preserved in both runtimes.
+- **F2:** Prose PIN/passcode/code assignments also consume the whole run of at
+  least three space/hyphen-separated digit words, including `zero` and `oh`.
+  Fixtures cover optional `number`, past tense, both apostrophes, case, mixed
+  separators, the three-word threshold, word boundaries and the fourth-word tail.
+- **F3:** Three-group phones accept spaces, dots and hyphens, plus optional
+  unsigned `1` with a separator and the existing identifier boundaries. The
+  requested bare numbers, dates, times, course codes and ordinary prose survive.
+- **F4:** KNOWN_ISSUES now records the exact multiword password-colon tail and
+  the remaining spoken-PIN limits. No wider password grammar was added.
+- **F5:** Wiring the differential into CI remains a follow-up, outside this round.
+
+These rules are **syntactic**, with no semantic exceptions or relevance guesses.
+This replaces round 1's `pin is on`/`code is` overreach described above and in
+the round-1 evidence/register. The scoped brief leaves those other documents
+untouched; KNOWN_ISSUES and this section record the corrected behavior.
+
+The shared table now has **131 cases**, each with exact TypeScript output and an
+explicit Python `refuse` decision. The existing streaming table still exercises
+every case at every two-part split and character by character in both modes.
+
+Executed: `python3 apps/local-agent/tests/memory/redaction_differential.py
+--output /tmp/redaction-round2-python.json`, then
+`node scripts/check-redaction-differential.mjs --python-results
+/tmp/redaction-round2-python.json`: **433 decisions, zero runtime differences,
+zero expectation failures; 6,276 streams match exact output**. Gateway source
+typecheck (`node_modules/.bin/tsc --noEmit -p apps/cloud-gateway`),
+`node scripts/check-state.mjs` and `git diff --check` pass. State check retains
+one pre-existing FACTS advisory about browser background access.
+
+Eight isolated temporary-source mutations were killed by the differential:
+generic prose overreach in both runtimes (16 failures each), generic `code`
+overreach in both (5 each), TypeScript truncating spoken runs at three words
+(9 exact-output failures despite zero boolean differences), Python losing spoken
+digits (10), and each runtime losing the new phone shapes (7 each).
+The working sources were never mutated for these checks.
+
+**Harness must run these complete files**, with repository-relative paths:
+
+| Runner | Test file |
+|---|---|
+| Vitest | `packages/contracts/test/call-redaction.test.ts` |
+| Vitest | `packages/contracts/test/envelope.test.ts` |
+| Vitest | `apps/cloud-gateway/test/contracts/projection-policy.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/redaction.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/pin-redaction-turn.test.ts` |
+| Vitest | `apps/cloud-gateway/test/security/streaming-output-redactor.test.ts` |
+| Vitest | `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts` — includes R01 |
+| Vitest | `apps/cloud-gateway/test/memory/memory-search.test.ts` — includes the forgotten-memory regression |
+| Vitest | `apps/cloud-gateway/test/memory/telegram-memory.test.ts` — includes both reported regressions |
+| pytest | `apps/local-agent/tests/memory/test_projection_policy.py` |
+| pytest | `apps/local-agent/tests/sync/test_memory_projection.py` |
+
+Vitest, pnpm and pytest were unavailable and were not run by this builder;
+the four reported integration failures therefore still require harness proof.
+Root `.codex-commit-msg.txt` and `.codex-pr-body-addendum.md` contain the commit
+message and the Round 2 PR addendum.
+
+- When the harness receives this worktree: run the listed focused files and
+  differential, then commit and publish the addendum using the supplied files.
+- After the harness push: CI runs the full suites; the independent reviewer
+  reviews that exact head before any merge.
+
+#### R01 follow-up after the first Round 2 harness run
+
+Signed: Codex GPT-6 Astra, headless builder, 2026-09-24. **Diagnosis: (b), a real
+defect**, not a reason to change R01's fixture or expected receipt. The harness
+reported **249 pytest passes and 763 Vitest passes / 1 failure** across the
+previously listed files, before these follow-up edits. The memory-search and
+both telegram-memory regressions passed; R01 alone still failed.
+
+Exact path: `telegram-webhook.ts` gives `onAccepted` the original `message.text`.
+`index.ts` passes that to `OwnerTelegramAgentAdapter.authorityText`.
+`DefaultConversationService.handleTurn` independently redacts the conversation
+text, commits that token and passes its text as `ModelAdapterStreamInput.userText`.
+The stream-input snapshot only copies/validates; it does not redact arguments.
+The adapter's `canActOn` compared **raw authority text with redacted user text**.
+`OwnerAgentCore.executeCall` checks `canActOn` first, selecting `authorityRefusal`
+before the memory branch can inspect `directOwnerText` and select
+`memoryAuthorityRefusal`. `pipelineAuthorityRefusal` is not reached for memory
+tools. Neither `memoryOwnerTurn` nor tool-argument parsing runs before this
+initial refusal. A DIRECT turn with the same credential text failed identically.
+
+The adapter now snapshots authority through the same `sanitizeRedaction` rule
+used by conversation ingress, retaining exact text, channel and principal
+checks. Durable `memoryOwnerTurn` still verifies the committed text and the
+direct-ingress marker. **R01, including its credential fact and receipt assertion,
+is unchanged** and now reaches its intended non-direct memory refusal.
+
+The source trace also found why authority normalization alone is insufficient:
+tool arguments are not redacted. `rememberGrounding` can classify a raw model
+fact with a redacted excerpt as inferred; `isAuthorizedRememberText` permits
+inferences, and `MemoryRepository.validateItemText` checks text shape/controls,
+not credentials. `remember` now refuses a fact if the shared syntactic redactor
+would change it, before any memory write. It does not rewrite the proposed fact
+or add a semantic classifier. Existing refusal wording remains unchanged.
+
+**Direct-turn comparison, by source trace, not executed Vitest:** read
+`origin/main` at `a20f055`, including its redactor, adapter, core and memory
+authorization. For direct text `remember my code is 12` and tool fact/excerpt
+`my code is 12`, main does not recognize this short `code is` shape. Its authority
+comparison and grounding succeed, so it stores the raw fact as stated/active
+and returns its remembered receipt. This branch before the follow-up redacts
+the text and falsely returns the generic authority refusal, storing no memory.
+After the follow-up the turn passes authority, but the raw fact is refused with
+`I could not safely apply that tool call, so nothing changed.` and no memory.
+When the model instead submits the redacted fact/excerpt, only
+`my code is [REDACTED_AUTH_DIGITS]` is stored. The receipt names that exact stored
+text: `Remembered 1 memory. You can ask in ordinary language to forget it.
+Memory: "my code is [REDACTED_AUTH_DIGITS]"`. No receipt claims the code was saved.
+
+Added four integration cases in `owner-telegram-agent.test.ts`: direct raw fact
+with raw excerpt; direct raw fact with redacted excerpt; successful storage and
+exact receipt for a redacted fact; and rejection when redacted authority text
+differs from the model turn. They assert model-visible redaction, memory rows
+and tool receipts. R01 itself still covers the non-direct credential turn.
+All five additional redaction inputs/outputs are in the shared table, now
+**136 cases with explicit Python decisions**. No other existing receipt changed.
+
+Executed after these edits: the Python/Node differential reports **438 decisions,
+0 differences, 0 expectation failures; 6,564 streams match**. Gateway source
+typecheck, state check (same one FACTS advisory) and diff check pass. The earlier
+eight mutation kills cover the redaction grammar, not these new integration
+tests. Vitest/pytest were not rerun here; the harness results above predate this
+follow-up. The commit message and 12-line PR addendum are updated.
+
+- Before committing this follow-up: harness reruns the complete
+  `apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts`, including R01
+  and all four new cases, then the same nine Vitest/two pytest files listed above.
+- During that focused harness check: separately revert the authority snapshot,
+  omit its equality comparison, and bypass the raw-fact redaction check as
+  temporary mutations. The new cases must fail, then pass on restored sources.
+- After the focused gates pass: harness commits; CI runs full suites and the
+  independent reviewer checks the exact resulting head. F5 remains a follow-up.
+
+Round 2 CI lint follow-up, signed Codex, 2026-09-24: replaced Python's literal curly apostrophe with raw regex `\u2019` for RUF001 without changing its meaning; `rg` found no other curly-quote literals in `apps/local-agent`; TypeScript unchanged; harness runs Ruff, pytest and the differential.
 
 ## 2026-09-24 — Codex builder: #166 and #178 review lows
 
