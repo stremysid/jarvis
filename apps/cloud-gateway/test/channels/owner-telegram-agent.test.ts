@@ -59,8 +59,37 @@ function called(...toolCalls: readonly ModelFunctionCall[]): ModelAgentCompletio
   return Object.freeze({ content: null, toolCalls: Object.freeze([...toolCalls]), finishReason: "tool_calls" as const });
 }
 
+/**
+ * Fills in the memory tools' model-decided fields.
+ *
+ * `memory_remember` now requires a lifetime/`expiresAt` pair and
+ * `memory_restore` a basis, because the model decides those rather than the
+ * repository defaulting. A fixture testing something else should not have to
+ * restate them, so the default a model would usually send lives here. A test
+ * that needs the omission builds the call with a raw JSON string instead, which
+ * this leaves untouched.
+ */
+function withMemoryDefaults(name: string, args: unknown): unknown {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return args;
+  const record = args as Record<string, unknown>;
+  if (name === "memory_remember" && !("lifetime" in record)) {
+    return { ...record, lifetime: "durable", expiresAt: null };
+  }
+  if (name === "memory_correct" && !("lifetime" in record)) {
+    return { ...record, lifetime: "durable", expiresAt: null };
+  }
+  if (name === "memory_restore" && !("basis" in record)) {
+    return { ...record, basis: "stated" };
+  }
+  return args;
+}
+
 function tool(id: string, name: string, args: unknown): ModelFunctionCall {
-  return Object.freeze({ id, name, arguments: typeof args === "string" ? args : JSON.stringify(args) });
+  return Object.freeze({
+    id,
+    name,
+    arguments: typeof args === "string" ? args : JSON.stringify(withMemoryDefaults(name, args)),
+  });
 }
 
 class FakeAgentProvider implements ModelAgentProvider {
@@ -308,6 +337,7 @@ async function proposedMemory(
     principalId: harness.principalId,
     itemId,
     kind: "preference",
+    lifetime: "durable",
     creationEventId: source.event_id as Ulid,
     creationEventSequence: source.sequence,
     version: {
@@ -381,6 +411,7 @@ async function commitActiveMemoryFromTelegramTurn(
     principalId: harness.principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: source.event_id as Ulid,
     creationEventSequence: source.sequence,
     version: {
@@ -470,6 +501,15 @@ async function acceptCallbackTap(
   return accepted.value;
 }
 
+/**
+ * A queued multi-forget decision, raised directly.
+ *
+ * The agent no longer raises this decision: forgetting several memories now
+ * happens in the one call, because forgetting is not one of Sid's five
+ * confirmed actions. The consumer that resolves an already-queued
+ * `telegram-memory-forget` decision still exists, so these fixtures raise the
+ * decision themselves rather than through `memory_forget`.
+ */
 async function prepareConfirmedForget(label: string): Promise<Readonly<{
   harness: OwnerHarness;
   ids: readonly string[];
@@ -493,20 +533,18 @@ async function prepareConfirmedForget(label: string): Promise<Readonly<{
   }
   const rows = await memoryRows(harness.principalId);
   const ids = rows.map((row) => row.item_id);
-  await runTurn({
-    harness,
-    text: "forget both subjects",
-    context: rows.map(memoryContext),
-    provider: new FakeAgentProvider([
-      called(tool(`${label}-many`, "memory_forget", { itemIds: ids })),
-      stopped("Use the button."),
-    ]),
-  });
-  const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
-  if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
-  const decision = (await decisions.queue(harness.principalId))[0];
-  if (decision === undefined) throw new Error("owner_agent_decision_missing");
+  const decision = await decisions.raise({
+    principalId: harness.principalId,
+    origin: "telegram-memory-forget",
+    originReference: ids.join(","),
+    urgency: "normal",
+    question: `Forget these ${ids.length} memories?`,
+    detail: "Nothing changes unless Sid taps Confirm forget.",
+    choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${ids.length}` }]),
+  });
+  await decisions.markDelivered(decision.decisionId);
+  const callbackData = encodeDecisionCallbackData(decision.decisionId as Ulid, "confirm");
   const tap = await acceptCallbackTap(harness, callbackData, "4");
   return Object.freeze({ harness, ids, decisionId: decision.decisionId, tap, decisions });
 }
@@ -2237,7 +2275,7 @@ describe("owner Telegram agent", () => {
     expect(rows.map((row) => row.lifecycle_state).sort()).toEqual(["active", "forgotten"]);
   });
 
-  it("delivers the saved receipt when the follow-up fails and a resend does not duplicate the memory", async () => {
+  it("delivers the saved receipt when the follow-up fails and a restatement is stored with a hint", async () => {
     const harness = await ownerHarness("post-commit-fallback");
     const args = {
       fact: "I like chemistry", supportingExcerpt: "I like chemistry", evidenceClass: "stated",
@@ -2268,10 +2306,15 @@ describe("owner Telegram agent", () => {
 
     expect(first).toContain("Remembered 1 memory");
     expect(first).toContain("couldn't write a longer reply");
-    expect(second).toContain("did not add a duplicate");
+    // A restatement is no longer merged into the earlier memory behind the
+    // model's back: it is stored as its own memory and the receipt names the
+    // similar stored wording, so the model can call memory_correct if it is the
+    // same fact.
+    expect(second).toContain("Remembered 1 memory");
+    expect(second).toContain("Similar stored memory");
     const rows = await memoryRows(harness.principalId);
-    expect(new Set(rows.map((row) => row.item_id)).size).toBe(1);
-    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.item_id)).size).toBe(2);
+    expect(rows.every((row) => row.lifecycle_state === "active")).toBe(true);
   });
 
   it("falls back to the saved receipt when an honesty-repair call fails", async () => {
@@ -2497,7 +2540,7 @@ describe("owner Telegram agent", () => {
       .resolves.toMatchObject({ lifecycle: { state: "active" } });
   });
 
-  it("returns a durable one-tap decision instead of forgetting several items", async () => {
+  it("forgets several memories in one call and raises no confirmation tap", async () => {
     const harness = await ownerHarness("multi-forget");
     for (const [index, fact] of ["I like math", "I like physics"].entries()) {
       await runTurn({
@@ -2519,12 +2562,13 @@ describe("owner Telegram agent", () => {
     const before = await memoryRows(harness.principalId);
     const ids = before.map((row) => row.item_id);
     const provider = new FakeAgentProvider([
-      called(tool("forget-many", "memory_forget", { itemIds: ids })),
+      called(tool("forget-many", "memory_forget", {
+        itemIds: ids, supportingExcerpt: "forget both of those",
+      })),
       stopped("I forgot both memories.", [{
         sentence: "I forgot both memories.",
         receiptIds: ["receipt:forget-many"],
       }]),
-      stopped("Use the button."),
     ]);
 
     const reply = await runTurn({
@@ -2534,77 +2578,17 @@ describe("owner Telegram agent", () => {
       context: before.map(memoryContext),
     });
 
-    expect(reply).toContain("Nothing changed. Tap Confirm forget 2");
-    expect(harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.text)
-      .toBe("Confirm forget 2");
+    // Forgetting is not one of Sid's five confirmed actions, and the per-target
+    // ledger key is what used to force the tap. Both memories are hidden now,
+    // each with its own receipt, and nothing is queued for a button.
+    expect(reply).toContain("I forgot both memories.");
     await expect(memoryRows(harness.principalId)).resolves.toMatchObject([
-      { lifecycle_state: "active" },
-      { lifecycle_state: "active" },
+      { lifecycle_state: "forgotten" },
+      { lifecycle_state: "forgotten" },
     ]);
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
-    const queue = await decisions.queue(harness.principalId);
-    expect(queue).toMatchObject([{
-        origin: "telegram-memory-forget",
-        originReference: ids.join(","),
-        status: "delivered",
-      }]);
-
-    const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
-    if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
-    const acceptedTap: { value: AcceptedTelegramButtonTap | null } = { value: null };
-    const callbackResponse = await handleTelegramWebhook(new Request("https://jarvis.test/telegram", {
-      method: "POST",
-      headers: { "x-telegram-bot-api-secret-token": "test-secret" },
-      body: JSON.stringify({
-        update_id: 90_000 + serial,
-        callback_query: {
-          id: `callback-${serial}`,
-          from: { id: Number(harness.providerSubject) },
-          message: { message_id: serial, chat: { id: Number(harness.providerSubject) } },
-          data: callbackData,
-        },
-      }),
-    }), {
-      webhookSecret: "test-secret",
-      policy: {
-        async authenticateTelegram() {
-          return Object.freeze({ principalId: harness.principalId, identityState: "active" as const });
-        },
-      },
-      redactor: new Redactor("external"),
-      owner: { principalId: harness.principalId, redactor: new Redactor("owner") },
-      events: new EventRepository(env.DB),
-      limiter: new TelegramRateLimiter(),
-      now: () => new Date(NOW.getTime() + 1_000),
-      onCallback: (tap) => { acceptedTap.value = tap; },
-    });
-    expect(callbackResponse.status).toBe(200);
-    if (acceptedTap.value === null) throw new Error("owner_agent_callback_not_accepted");
-    const answer = await decisions.answer({
-      decisionId: queue[0]!.decisionId,
-      answeredByIdentityId: harness.identityId,
-      optionKey: "confirm",
-    });
-    if (answer.outcome !== "recorded") throw new Error("owner_agent_callback_not_recorded");
-    const receipts = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forgetConfirmedDecision({
-      principalId: harness.principalId,
-      callbackEventId: acceptedTap.value.eventId as Ulid,
-      decisionId: answer.routing.decisionId as Ulid,
-      itemIds: ids as Ulid[],
-    });
-    expect(receipts).toHaveLength(2);
-    const replay = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forgetConfirmedDecision({
-      principalId: harness.principalId,
-      callbackEventId: acceptedTap.value.eventId as Ulid,
-      decisionId: answer.routing.decisionId as Ulid,
-      itemIds: ids as Ulid[],
-    });
-    expect(replay).toHaveLength(2);
-    expect(replay.every((receipt) => receipt.replayed)).toBe(true);
-    await expect(memoryRows(harness.principalId)).resolves.toMatchObject([
-      { lifecycle_state: "forgotten" },
-      { lifecycle_state: "forgotten" },
-    ]);
+    await expect(decisions.queue(harness.principalId)).resolves.toEqual([]);
+    expect(harness.telegram.requests.at(-1)?.replyMarkup).toBeUndefined();
   });
 
   it("answerFromTap skips already-forgotten items and re-runs an already-answered confirm idempotently", async () => {
@@ -2624,17 +2608,19 @@ describe("owner Telegram agent", () => {
     }
     const before = await memoryRows(harness.principalId);
     const ids = before.map((row) => row.item_id);
-    await runTurn({
-      harness,
-      text: "forget both",
-      context: before.map(memoryContext),
-      provider: new FakeAgentProvider([
-        called(tool("tap-forget-many", "memory_forget", { itemIds: ids })),
-        stopped("Use the button."),
-      ]),
+    // Raised directly: the agent no longer queues this decision, but a decision
+    // already in the queue must still resolve correctly through a tap.
+    const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
+    const decision = await decisions.raise({
+      principalId: harness.principalId,
+      origin: "telegram-memory-forget",
+      originReference: ids.join(","),
+      urgency: "normal",
+      question: `Forget these ${ids.length} memories?`,
+      choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${ids.length}` }]),
     });
-    const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
-    if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
+    await decisions.markDelivered(decision.decisionId);
+    const callbackData = encodeDecisionCallbackData(decision.decisionId as Ulid, "confirm");
 
     await runTurn({
       harness,
@@ -2875,32 +2861,30 @@ describe("owner Telegram agent", () => {
       .toEqual({ lifetime: "temporary", valid_to: expiresAt });
   });
 
-  it("still records a fact as durable when the model says nothing about its lifetime", async () => {
-    // The schema gained two optional fields, so every call that predates them
-    // must behave exactly as it did: durable, with no end.
+  it("refuses to record a fact when the model states no lifetime, rather than defaulting it", async () => {
+    // The model decides how long a fact lasts, so the schema requires the pair
+    // and an omission is refused. This used to be silently stored as durable.
+    // The raw JSON string bypasses the fixture default in `tool()` on purpose.
     const harness = await ownerHarness("durable-default");
-    await runTurn({
+    const reply = await runTurn({
       harness,
       text: "I hate mornings",
       provider: new FakeAgentProvider([
-        called(tool("dur-1", "memory_remember", {
+        called(tool("dur-1", "memory_remember", JSON.stringify({
           fact: "I hate mornings",
           supportingExcerpt: "I hate mornings",
           evidenceClass: "stated",
           previousOfferExcerpt: null,
           kind: "preference",
           sensitivity: "normal",
-        })),
-        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:dur-1"] }]),
+        }))),
+        stopped("I changed nothing."),
       ]),
     });
 
-    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
-      FROM memory_items item
-      JOIN memory_item_versions version
-        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
-      WHERE item.principal_id = ?`).bind(harness.principalId).first())
-      .toEqual({ lifetime: "durable", valid_to: null });
+    expect(reply).toBe("I changed nothing.");
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_items
+      WHERE principal_id = ?`).bind(harness.principalId).first("count")).toBe(0);
   });
 
   it("gives Jarvis the facts Sid pinned on every turn", async () => {

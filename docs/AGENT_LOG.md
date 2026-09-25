@@ -3,6 +3,45 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: memory judgments moved to the AI (register rows 6–9, 13)
+
+Signed: DeepSeek (builder agent), branch `codex/memory-judgment-to-ai` from `origin/main`
+`e2af1aa2`. Touches Sid's rules 1, 2, 4, 8, 9. Sid, 2026-09-25: "any judgment and decisions
+and thought should be the ai brain remember".
+
+- **Row 7 (lifetime).** `lifetime` and `expiresAt` are now required on `CommitInitialMemoryInput`,
+  `memory_remember`, `memory_correct`, `RememberMemoryInput` and `CorrectMemoryInput`; every
+  defaulting branch is deleted. `captureInput` no longer derives durability from `validTo`.
+  `memory_correct` no longer inherits the replaced wording's end in code — the model supplies it.
+  Register's citation of `owner-telegram-agent.ts` was stale: the live third copy was the tool
+  dispatch in `owner-agent-core.ts`, and `telegram-memory-controls.ts` (deterministic, not composed
+  in production) was a fourth.
+- **Row 8 (duplicate merge).** `findActiveItemByNormalizedText` is now `findSimilarActiveItems`,
+  which returns up to three candidates and writes nothing. `remember` stores every statement as its
+  own memory and appends a receipt line naming the similar stored wording and its id, with a pointer
+  to `memory_correct`. `appendSourceToActiveItem` remains as an unused write primitive a future
+  model-decided merge tool could use; it is no longer on the write path.
+- **Row 9 (restore basis).** `MemoryRepository.liftItem` takes a required `basis`; `memory_restore`
+  carries a required enum. **Blocker:** a `0016` transition trigger still requires `confirmed` when a
+  first-person version's every source is archive-only. That case is now refused by name instead of
+  silently rewritten, and the tool description tells the model to pass `confirmed`; fully handing it
+  over needs a migration, which this PR does not add.
+- **Row 13 (multi-forget tap).** `OwnerAgentCore.forget` forgets every id it was given; each target
+  keys as `<turn event>:forget:<itemId>` with its own command and receipt. Every target is validated
+  before any command is written, so a batch with a bad id changes nothing. `supportingExcerpt` is now
+  required, matching single-target forget. `forgetConfirmedDecision` is kept for a decision already
+  in the queue; nothing raises a new `telegram-memory-forget` decision.
+- **Row 6 (refile).** The two redundant `>= 0.6` floors inside `refileAutomaticInboxItems` are gone
+  (every retryable reason already implies a filing that passed the floor), and the one remaining floor
+  is exported once as `MEMORY_FILING_CONFIDENCE_THRESHOLD`. Which items are retried, how many and in
+  what order stay in code: handing those to the model needs a wake-up surface this codebase does not
+  have, and the batch size is the Worker/D1 bound. That is a written blocker in the register, not a
+  claim the row is closed.
+- **Verified here:** focused gateway files — `test/memory` 502, `test/channels` + `test/voice` 805,
+  `test/agent`+`test/jobs`+`test/autonomy`+`test/evals` 191, all green; gateway `tsc` exit 0;
+  `typecheck:tests` 140 errors, none in the changed files or mentioning the changed types. Mutation
+  sweep and exact counts are in the PR. No deploy, no migration, no production query.
+
 ## 2026-09-25 — Claude builder: #199 round 2 (DeepSeek audit of `b5950275`, main merged after #190)
 
 Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.

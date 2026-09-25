@@ -211,6 +211,11 @@ async function remember(
     text,
     kind: "preference",
     sensitivity: "normal",
+    // The model now decides how long a fact lasts; a test that does not care
+    // says durable with no end, which is the same value the removed default
+    // would have produced.
+    lifetime: "durable",
+    validTo: null,
   });
   return new MemoryRepository(env.DB).readCurrentItem(principalId, receipt.item.itemId);
 }
@@ -219,11 +224,11 @@ async function remember(
  * A committed, retrievable item with wording the caller chooses.
  *
  * Committed through the repository rather than through `remember` on purpose.
- * The owner path refuses to create a second *active* memory with the same
- * wording -- `findActiveItemByNormalizedText` is the duplicate guard -- so two
- * live versions sharing a `text_hash` are not reachable that way. What is under
- * test here is the read: given two rows that differ only by version id, does it
- * return the one the hit named.
+ * The owner path no longer merges a same-wording statement into an existing
+ * item -- the similar-wording candidates are only named back to the model -- so
+ * this helper still exists to place two rows with a caller-chosen wording
+ * directly. What is under test here is the read: given two rows that differ only
+ * by version id, does it return the one the hit named.
  */
 async function liveItem(
   principalId: string,
@@ -238,6 +243,7 @@ async function liveItem(
     principalId,
     itemId,
     kind: "preference",
+    lifetime: "durable",
     creationEventId: turn.eventId,
     creationEventSequence: turn.eventSequence,
     version: {
@@ -402,6 +408,8 @@ describe("memory search cannot return what Sid has forgotten or what has expired
       sensitivity: "normal",
       sourceExcerpt: "Actually my report needs a clear thesis",
       normalizedFromSource: true,
+      lifetime: "durable",
+      validTo: null,
     });
 
     const index = new FakeMeaningIndex();
@@ -412,8 +420,8 @@ describe("memory search cannot return what Sid has forgotten or what has expired
     // The correction really did produce new wording, so the empty result above
     // is the stale hit being refused rather than the correction having failed.
     const corrected = await new MemoryRepository(env.DB)
-      .findActiveItemByNormalizedText(principalId, "my report needs a clear thesis");
-    expect(corrected?.version.text).toBe("my report needs a clear thesis");
+      .findSimilarActiveItems(principalId, "my report needs a clear thesis");
+    expect(corrected.map((entry) => entry.text)).toContain("my report needs a clear thesis");
   });
 
   it("returns nothing for a hit whose content hash does not match the stored wording", async () => {

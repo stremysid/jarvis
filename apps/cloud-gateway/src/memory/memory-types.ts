@@ -4,6 +4,19 @@ export const MEMORY_ROOT_DISPLAY_NAME = "Memory";
 export const MEMORY_INBOX_DISPLAY_NAME = "Inbox / Needs filing";
 export const MEMORY_TOPIC_REDIRECT_LIMIT = 64;
 
+/**
+ * The one confidence floor a model-proposed topic path needs before it is filed.
+ *
+ * The model supplies both the path and its own `filingConfidence`; this number
+ * only holds code to one copy of that gate. It used to be written four times —
+ * three literals in `memory-repository.ts` plus a private copy in
+ * `automatic-distillation.ts` — so a change to one could silently disagree with
+ * the others. The two copies inside `refileAutomaticInboxItems` were deleted
+ * outright: every retryable reason there already implies a filing that passed
+ * this floor, so re-checking it only re-decided something already decided.
+ */
+export const MEMORY_FILING_CONFIDENCE_THRESHOLD = 0.6;
+
 export type MemoryKind = "fact" | "preference" | "plan" | "decision" | "relationship";
 /** Durable facts have no end. Temporary ones carry one and lapse from recall. */
 export type MemoryLifetime = "durable" | "temporary";
@@ -96,13 +109,16 @@ export interface CommitInitialMemoryInput {
   /**
    * Whether the fact stops being true on its own.
    *
-   * Optional, and derived from the version's end when absent, so that every
-   * caller written before the column existed keeps its exact behaviour: no end
-   * means durable. Set at creation because nothing updates it -- `memory_items`
+   * Required, and supplied by the caller that decided the fact: the model sets
+   * it through `memory_remember`/`memory_correct`, and the distillation writer
+   * states it too. It used to be derived here from the version's end when
+   * absent, which made code the thing choosing durability for a silent caller —
+   * the model can no longer omit it, and an omitted value is refused rather
+   * than assumed. Set at creation because nothing updates it -- `memory_items`
    * is insert-only -- and the coupling trigger in `0038` then holds the
    * version's `valid_to` to it.
    */
-  readonly lifetime?: MemoryLifetime;
+  readonly lifetime: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: InitialMemoryVersionInput;
@@ -337,6 +353,17 @@ export interface LiftMemoryItemInput {
   readonly transitionId: Ulid;
   readonly ownerAuthorizingEventId: Ulid;
   readonly lifecycleState: "active" | "proposed";
+  /**
+   * What the restored evidence now counts as, decided by the model.
+   *
+   * `liftItem` used to set `confirmed` on its own whenever the version's origin
+   * was `authenticated_first_person` and every source was archive-only. That was
+   * a basis change made in code, silently, with no receipt — the model never saw
+   * it and could not disagree. The caller now states the basis and the checks
+   * here only enforce that it is a real basis consistent with the version's
+   * origin and uncertainty.
+   */
+  readonly basis: MemoryBasis;
   readonly sourceIds: readonly Ulid[];
   readonly lifts: readonly Readonly<{
     liftId: Ulid;
