@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { Redactor } from "../../src/security/redaction";
 
 describe("Redactor", () => {
+  it("marks phone numbers on both channels without changing the course code or year beside them", () => {
+    for (const channel of ["voice", "telegram"] as const) {
+      expect(new Redactor().redact({
+        text: "Call (555) 555-0100 about MHF4U in 2026.", channel, field: "conversation.turn.text",
+      })).toEqual({
+        ok: true, text: "Call [REDACTED_PHONE_NUMBER] about MHF4U in 2026.", markers: ["phone_number"],
+      });
+    }
+  });
+
+  it("marks a spoken passphrase as a credential without retaining any of its words", () => {
+    expect(new Redactor().redactText("my passphrase is synthetic meadow lantern.")).toEqual({
+      ok: true, text: "my [REDACTED_CREDENTIAL].", markers: ["credential"],
+    });
+  });
+
   it("redacts authentication digits before text can enter an event", () => {
     const redacted = new Redactor().redact({
       text: "Your sign-in code is 123456.",
@@ -59,11 +75,13 @@ describe("Redactor", () => {
     if (result.ok) expect(result.text).not.toContain("12345678");
   });
 
-  it("redacts a four-digit voice PIN by field context without redacting a year", () => {
+  it("redacts a contextual four-digit PIN in the production turn field while preserving a bare number and a year", () => {
     const redactor = new Redactor();
-    expect(redactor.redact({ text: "4827", channel: "voice", field: "guest.pin" }))
-      .toEqual({ ok: true, text: "[REDACTED_AUTH_DIGITS]", markers: ["authentication_digits"] });
-    expect(redactor.redact({ text: "Roadmap review in 2026", channel: "voice", field: "prompt.text" }))
+    expect(redactor.redact({ text: "my pin is 4821", channel: "voice", field: "conversation.turn.text" }))
+      .toEqual({ ok: true, text: "my pin is [REDACTED_AUTH_DIGITS]", markers: ["authentication_digits"] });
+    expect(redactor.redact({ text: "4821", channel: "voice", field: "conversation.turn.text" }))
+      .toEqual({ ok: true, text: "4821", markers: [] });
+    expect(redactor.redact({ text: "Roadmap review in 2026", channel: "voice", field: "conversation.turn.text" }))
       .toEqual({ ok: true, text: "Roadmap review in 2026", markers: [] });
   });
 
