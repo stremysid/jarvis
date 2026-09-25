@@ -478,7 +478,8 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[1]?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(provider.requests[1]?.systemPrompt).toContain("I take my coffee black.");
     expect(provider.requests[1]?.tools).toEqual(provider.requests[0]?.tools);
-    expect(provider.requests[1]?.toolChoice).toBe("none");
+    // Tools stay on after a result: the model may take another step.
+    expect(provider.requests[1]?.toolChoice).toBe("auto");
     expect(spoken).toContain(UNRECEIPTED_VOICE_ACTION);
     expect(spoken).not.toContain("I sent the email.");
   });
@@ -839,7 +840,7 @@ describe("the voice agent adapter", () => {
     expect(spoken).toContain(fact);
     expect(spoken).toContain("You can ask me about it later.");
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ stream: true, tool_choice: "none" });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ stream: true, tool_choice: "auto" });
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
@@ -857,16 +858,24 @@ describe("the voice agent adapter", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
-  it("refuses a second tool round even when an injected provider ignores the no-tools request", async () => {
+  it("runs a second tool round the model asks for after seeing the first result", async () => {
     const principalId = `principal:voice-stream-repeat:${serial + 1}`;
-    const first = "I take my coffee black.";
-    const second = "I play piano.";
-    const remember = (id: string, fact: string) => tool(id, "memory_remember", {
-      fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
-    });
-    const provider = new FakeAgentProvider([called(remember("first-action", first)), called(remember("extra-action", second))]);
-    const spoken = await runVoiceTurn({ text: `${first} ${second}`, ownerPrincipalId: principalId, provider });
-    expect(spoken).toContain("I couldn't finish that reply.");
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([
+      called(tool("first-action", "memory_remember", {
+        fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+      })),
+      called(tool("second-action", "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 60_000 })),
+      stopped("Okay."),
+    ]);
+    const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider });
+    expect(provider.requests).toHaveLength(3);
+    // The last step sees both earlier steps, oldest first.
+    expect(provider.requests[2]?.earlierToolRounds?.[0]?.calls[0]?.id).toBe("first-action");
+    expect(provider.requests[2]?.previousToolCalls?.[0]?.id).toBe("second-action");
+    expect(JSON.parse(provider.requests[2]!.toolResults![0]!.content)).toMatchObject({ status: "completed" });
+    expect(spoken).toContain(fact);
+    expect(spoken).toContain("Okay.");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 

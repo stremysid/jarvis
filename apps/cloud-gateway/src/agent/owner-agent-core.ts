@@ -58,11 +58,13 @@ import { restatesMemory } from "../memory/telegram-memory-retriever.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
 import type {
   ModelAgentCompletion,
+  ModelAgentCompletionInput,
   ModelAgentProvider,
   ModelAgentStreamProvider,
   ModelFunctionCall,
   ModelFunctionDefinition,
   ModelFunctionResult,
+  ModelToolRound,
 } from "../providers/provider-types.js";
 import { guardReplyClaims, type ReceiptedToolSentence } from "../school/school-catchup-model.js";
 import { VoiceSentences } from "./voice-sentences.js";
@@ -75,13 +77,29 @@ import { isWebToolName, runWebTool, type WebToolsDependencies } from "../web/web
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 
 /**
- * One action per turn.
+ * The most tool rounds one turn may take before the model must answer.
  *
- * A cap rather than a judgement: it bounds what one turn can do to Sid's
- * records before he sees any reply. Which single action to take is the model's
- * decision and stays with the model.
+ * Not a budget and not a judgement about how much Jarvis should do: the turn's
+ * own deadline is what bounds a turn, and which tools to call, how many and in
+ * what order is the model's decision. This exists only so a model (or provider)
+ * stuck calling tools forever cannot loop until the deadline on every turn. It
+ * sits well above any real chain -- search, read, record is three -- and when
+ * it is reached the model is asked once more, with tools off, to answer from
+ * what it already has.
  */
-export const MAX_TOOL_CALLS = 1;
+export const MAX_TOOL_ROUNDS = 20;
+/**
+ * The most calls one round may carry. The same runaway bound, matched to the
+ * provider's own limit (`AGENT_MAX_TOOL_CALLS`), so an injected provider cannot
+ * hand the dispatcher an unbounded list.
+ */
+export const MAX_TOOL_CALLS_PER_ROUND = 16;
+/**
+ * How many memory items one reply may carry as its references (the store's own
+ * limit in `telegram-memory-reference.ts`). A multi-step turn can touch more;
+ * the most recent are kept, because the reply is written after them.
+ */
+const MAX_REPLY_REFERENCES = 8;
 const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_REPLY_CHARACTERS = 4_096;
 const MAX_PIPELINE_CHARACTERS = 24_000;
@@ -211,13 +229,13 @@ const OWNER_AGENT_COMMON_PROMPT = `You are Jarvis, Sid's private assistant. Infe
 
 export const OWNER_AGENT_SYSTEM_PROMPT = `${OWNER_AGENT_COMMON_PROMPT}
 
-When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPLE}. When tools are needed, call one tool and do not also answer. After tool results, return the same JSON shape. claimedActions must list every sentence in reply that says Jarvis did or is doing an action. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. Each entry is {"sentence": the exact complete sentence from reply, "receiptIds": [the supporting receipt ids from this turn]}. Use an empty list for worked explanations, advice, offers, drafts, inability statements, and actions Sid reports doing. Never repeat or paraphrase a receipt in reply because code displays receipts verbatim.
+When answering without tools, return JSON exactly like ${STRUCTURED_REPLY_EXAMPLE}. When tools are needed, call them and do not also answer. You may call several tools at once and keep calling tools after you see their results, for as many steps as the request needs; answer once you have what you need. After tool results, return the same JSON shape. claimedActions must list every sentence in reply that says Jarvis did or is doing an action. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. Each entry is {"sentence": the exact complete sentence from reply, "receiptIds": [the supporting receipt ids from this turn]}. Use an empty list for worked explanations, advice, offers, drafts, inability statements, and actions Sid reports doing. Never repeat or paraphrase a receipt in reply because code displays receipts verbatim.
 
 ${GUIDED_ASSIGNMENT_PROMPT}`;
 
 const OWNER_VOICE_STREAM_PROMPT = `${OWNER_AGENT_COMMON_PROMPT}
 
-Return plain spoken text, with no JSON envelope. When a tool is needed, call one tool. You decide which sentences claim actions: wrap EVERY complete sentence saying Jarvis did or is doing an action in [[claim {"toolName":"the_proving_tool_name","receiptIds":["the_receipt_id_from_this_turn"]}]]the exact one sentence.[[/claim]]. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. The markers are metadata and will not be spoken. Use receiptIds:[] when no receipt proves the claim; code will replace it honestly. Never wrap several sentences or only part of a sentence. Advice, offers, drafts, inability statements and actions Sid reports doing need no marker. Code speaks the tool's exact receipt as soon as the tool returns; avoid repeating it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.
+Return plain spoken text, with no JSON envelope. When tools are needed, call them. You may call several tools at once and keep calling tools after you see their results, for as many steps as the request needs; answer once you have what you need. You decide which sentences claim actions: wrap EVERY complete sentence saying Jarvis did or is doing an action in [[claim {"toolName":"the_proving_tool_name","receiptIds":["the_receipt_id_from_this_turn"]}]]the exact one sentence.[[/claim]]. Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt. The markers are metadata and will not be spoken. Use receiptIds:[] when no receipt proves the claim; code will replace it honestly. Never wrap several sentences or only part of a sentence. Advice, offers, drafts, inability statements and actions Sid reports doing need no marker. Code speaks the tool's exact receipt as soon as the tool returns; avoid repeating it. A receipt for one action cannot prove a different action. Discuss advice, offers and next steps in your own words.
 
 ${GUIDED_ASSIGNMENT_PROMPT}`;
 
@@ -872,6 +890,55 @@ function confirmationExcerpt(
 }
 
 /**
+ * A turn's tool rounds in the provider's shape: the latest round where a
+ * one-round turn has always put it, and every round before it in order.
+ */
+function toolHistory(rounds: readonly ModelToolRound[]): Pick<
+  ModelAgentCompletionInput, "earlierToolRounds" | "previousToolCalls" | "toolResults"
+> {
+  const latest = rounds.at(-1);
+  if (latest === undefined) return Object.freeze({});
+  return Object.freeze({
+    ...(rounds.length > 1 ? { earlierToolRounds: Object.freeze(rounds.slice(0, -1)) } : {}),
+    previousToolCalls: latest.calls,
+    toolResults: latest.results,
+  });
+}
+
+/** Tools stay on until the runaway cap, then the model is asked to answer. */
+function toolChoiceForRound(initial: "auto" | "none", completedRounds: number): "auto" | "none" {
+  return completedRounds >= MAX_TOOL_ROUNDS ? "none" : initial;
+}
+
+function callIds(rounds: readonly ModelToolRound[]): ReadonlySet<string> {
+  return new Set(rounds.flatMap((round) => round.calls.map((call) => call.id)));
+}
+
+function turnReceiptIds(executed: readonly ExecutedTool[]): ReadonlySet<string> {
+  return new Set(executed.flatMap((entry) => entry.receiptId === null ? [] : [entry.receiptId]));
+}
+
+function turnReceipts(executed: readonly ExecutedTool[]): readonly string[] {
+  return executed.flatMap((entry) => entry.receipt === null ? [] : [entry.receipt]);
+}
+
+/**
+ * The memory items the reply refers to, across every round, most recent kept.
+ *
+ * Recorded as one set for the whole turn because the store replaces rather
+ * than appends: recording each round alone would let a last step that touched
+ * no memory erase what an earlier search found.
+ */
+function replyReferences(executed: readonly ExecutedTool[]): readonly Ulid[] {
+  const newestFirst: Ulid[] = [];
+  for (const id of executed.flatMap((entry) => entry.referencedItemIds).reverse()) {
+    if (newestFirst.length === MAX_REPLY_REFERENCES) break;
+    if (!newestFirst.includes(id)) newestFirst.push(id);
+  }
+  return Object.freeze(newestFirst.reverse());
+}
+
+/**
  * The model→tool→model loop, the caps and the receipt guard, with no channel.
  *
  * `stream()` snapshots the input with the channel's own limit profile -- the
@@ -990,83 +1057,78 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         );
         return;
       }
-      let first: ModelAgentCompletion;
-      try {
-        first = await this.dependencies.provider.completeAgent({
+      const complete = (rounds: readonly ModelToolRound[]): Promise<ModelAgentCompletion> =>
+        this.dependencies.provider.completeAgent({
           correlationId: input.correlationId,
           principalId: input.principalId,
           systemPrompt,
           userText: input.userText,
           context: input.context,
           tools: toolDefinitions,
-          toolChoice: ownerTurn ? "auto" : "none",
+          ...toolHistory(rounds),
+          toolChoice: toolChoiceForRound(ownerTurn ? "auto" : "none", rounds.length),
           timeoutMs,
           maxOutputTokens: 4_096,
           signal: controller.signal,
         });
+      let completion: ModelAgentCompletion;
+      try {
+        completion = await complete([]);
       } catch (error) {
         if (!deadlineHit) throw error;
         yield Object.freeze({ index: 0, text: DEADLINE_FALLBACK });
         return;
       }
 
-      if (first.finishReason === "stop") {
-        const parsed = this.tryReply(first, false);
-        const honest = await this.honestReply(
-          boundedInput, parsed, new Set(), systemPrompt, toolDefinitions,
+      // The tool loop: run what the model asked for, hand every result back,
+      // and let it decide the next step, until it answers. The deadline and
+      // the runaway cap are the only bounds; each call inside still goes
+      // through the authority checks and tier gate on its own.
+      const rounds: ModelToolRound[] = [];
+      const executed: ExecutedTool[] = [];
+      while (completion.finishReason !== "stop" && rounds.length < MAX_TOOL_ROUNDS) {
+        const roundExecuted = await this.executeCalls(
+          boundedInput, port, completion.toolCalls, callIds(rounds),
         );
-        yield Object.freeze({
-          index: 0,
-          text: port.composeReply([], guardReplyClaims(honest.reply, {
-            receiptedInternalSentences: receiptedToolClaims(honest, []),
-          })),
-        });
-        return;
+        executed.push(...roundExecuted);
+        rounds.push(Object.freeze({
+          calls: completion.toolCalls,
+          results: Object.freeze(roundExecuted.map((entry) => entry.providerResult)),
+        }));
+        port.recordReferences(input.correlationId, replyReferences(executed));
+        const receiptIds = turnReceiptIds(executed);
+        // An ended turn asks the model nothing more: a later step could only
+        // be another action taken after Sid stopped waiting for this one.
+        if (controller.signal.aborted) {
+          yield Object.freeze({
+            index: 0,
+            text: port.composeReply(turnReceipts(executed), receiptIds.size > 0
+              ? POST_COMMIT_FALLBACK : deadlineHit ? DEADLINE_FALLBACK : NOT_SAVED_FALLBACK),
+          });
+          return;
+        }
+        try {
+          completion = await complete(rounds);
+        } catch {
+          yield Object.freeze({
+            index: 0,
+            text: port.composeReply(turnReceipts(executed),
+              receiptIds.size > 0 ? POST_COMMIT_FALLBACK : NOT_SAVED_FALLBACK),
+          });
+          return;
+        }
       }
 
-      const executed = await this.executeCalls(boundedInput, port, first.toolCalls);
-      const results = executed.map((entry) => entry.providerResult);
-      const receiptIds = new Set(executed.flatMap((entry) => entry.receiptId === null ? [] : [entry.receiptId]));
-      const receipts = executed.flatMap((entry) => entry.receipt === null ? [] : [entry.receipt]);
-      const referenced = [...new Set(executed.flatMap((entry) => entry.referencedItemIds))];
-      port.recordReferences(input.correlationId, referenced);
-      if (deadlineHit) {
-        yield Object.freeze({
-          index: 0,
-          text: port.composeReply(receipts, receiptIds.size > 0 ? POST_COMMIT_FALLBACK : DEADLINE_FALLBACK),
-        });
-        return;
-      }
-      let second: ModelAgentCompletion;
-      try {
-        second = await this.dependencies.provider.completeAgent({
-          correlationId: input.correlationId,
-          principalId: input.principalId,
-          systemPrompt,
-          userText: input.userText,
-          context: input.context,
-          tools: toolDefinitions,
-          previousToolCalls: first.toolCalls,
-          toolResults: results,
-          toolChoice: "none",
-          timeoutMs,
-          maxOutputTokens: 4_096,
-          signal: controller.signal,
-        });
-      } catch {
-        yield Object.freeze({
-          index: 0,
-          text: port.composeReply(receipts, receiptIds.size > 0 ? POST_COMMIT_FALLBACK : NOT_SAVED_FALLBACK),
-        });
-        return;
-      }
-      const parsed = this.tryReply(second, true);
+      // Past the cap a provider that ignored `toolChoice: "none"` still ends
+      // here: `tryReply` refuses a completion that is not a clean stop.
+      const receiptIds = turnReceiptIds(executed);
+      const parsed = this.tryReply(completion, rounds.length > 0);
       const honest = await this.honestReply(
         boundedInput, parsed, receiptIds, systemPrompt, toolDefinitions,
       );
       yield Object.freeze({
         index: 0,
-        text: port.composeReply(receipts, guardReplyClaims(honest.reply, {
+        text: port.composeReply(turnReceipts(executed), guardReplyClaims(honest.reply, {
           receiptedInternalSentences: receiptedToolClaims(honest, executed),
         })),
       });
@@ -1090,31 +1152,35 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     let outputCharacters = 0;
     const maximum = Math.min(input.maxOutputCharacters, MAX_REPLY_CHARACTERS);
     const receiptSentences = new Set<string>();
-    let executedReceipts: readonly ExecutedTool[] = [];
-    let previousToolCalls: readonly ModelFunctionCall[] = [];
-    let toolResults: readonly ModelFunctionResult[] = [];
+    const executedReceipts: ExecutedTool[] = [];
+    const rounds: ModelToolRound[] = [];
     const token = (text: string): ModelToken => {
       outputCharacters += text.length;
       if (outputCharacters > input.maxOutputCharacters) throw new RangeError("voice_reply_limit");
       return Object.freeze({ index: index++, text });
     };
     try {
-      for (let round = 0; round < 2; round += 1) {
+      // The same tool loop as Telegram's, streamed: the model may take as many
+      // steps as it needs, each receipt is spoken the moment its tool returns,
+      // and the call's turn deadline (which aborts `input.signal`) is checked
+      // before every step, so a slow chain ends instead of running on.
+      for (let round = 0; ; round += 1) {
         input.signal.throwIfAborted();
+        const toolsMayFollow = round < MAX_TOOL_ROUNDS;
         const reply = new VoiceReplyStream(executedReceipts, receiptSentences);
         const pendingReplacements: string[] = [];
         const ready = (sentences: readonly CheckedVoiceSentence[]): string[] => sentences.flatMap((sentence) => {
           // A tool result may settle a premature claim in this round. Delay
           // refusals until stop, and discard them if the tool follows instead.
-          if (round === 0 && sentence.replaced) { pendingReplacements.push(sentence.text); return []; }
+          if (toolsMayFollow && sentence.replaced) { pendingReplacements.push(sentence.text); return []; }
           return [sentence.text];
         });
         let completion: ModelAgentCompletion | null = null;
         for await (const chunk of provider.streamAgent({
           correlationId: input.correlationId, principalId: input.principalId,
           systemPrompt, userText: input.userText, context: input.context,
-          tools: toolDefinitions, toolChoice: round === 0 ? initialToolChoice : "none",
-          previousToolCalls, toolResults, timeoutMs: input.timeoutMs,
+          tools: toolDefinitions, toolChoice: toolChoiceForRound(initialToolChoice, round),
+          ...toolHistory(rounds), timeoutMs: input.timeoutMs,
           firstTokenTimeoutMs: input.firstTokenTimeoutMs, maxOutputTokens: 4_096, signal: input.signal,
         })) {
           input.signal.throwIfAborted();
@@ -1130,15 +1196,17 @@ export abstract class OwnerAgentCore implements ModelAdapter {
           if (index === 0) yield token("I couldn't form a reply. Please try again.");
           return;
         }
-        // Even a provider ignoring tool_choice cannot turn the second call
-        // into another action. The shared executor still enforces the first cap.
-        if (round !== 0) throw new TypeError("voice_extra_tool_round");
+        // Past the runaway cap even a provider ignoring tool_choice cannot
+        // turn the answer request into another action.
+        if (!toolsMayFollow) throw new TypeError("voice_extra_tool_round");
         input.signal.throwIfAborted();
-        const executed = await this.executeCalls(input, port, completion.toolCalls);
-        executedReceipts = executed;
-        previousToolCalls = completion.toolCalls;
-        toolResults = executed.map((entry) => entry.providerResult);
-        port.recordReferences(input.correlationId, [...new Set(executed.flatMap((entry) => entry.referencedItemIds))]);
+        const executed = await this.executeCalls(input, port, completion.toolCalls, callIds(rounds));
+        executedReceipts.push(...executed);
+        rounds.push(Object.freeze({
+          calls: completion.toolCalls,
+          results: Object.freeze(executed.map((entry) => entry.providerResult)),
+        }));
+        port.recordReferences(input.correlationId, replyReferences(executedReceipts));
         callerSignal.throwIfAborted();
         for (const entry of executed) {
           if (entry.receipt === null) continue;
@@ -1219,23 +1287,40 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     input: Readonly<ModelAdapterStreamInput>,
     port: OwnerAgentChannelPort,
     calls: readonly ModelFunctionCall[],
+    earlierCallIds: ReadonlySet<string>,
   ): Promise<readonly ExecutedTool[]> {
     if (calls.length === 0) return Object.freeze([]);
-    if (calls.length > MAX_TOOL_CALLS || new Set(calls.map((call) => call.name)).size !== calls.length) {
+    // Protocol faults, not judgements: a result is paired with its call by id,
+    // so a repeated id would hand the model one tool's result as another's.
+    const ids = calls.map((call) => call.id);
+    if (calls.length > MAX_TOOL_CALLS_PER_ROUND || new Set(ids).size !== ids.length
+      || ids.some((id) => earlierCallIds.has(id))) {
       return Object.freeze(calls.map((call) => refusedTool(
         call,
-        "I refused the tool calls because this turn exceeded the one-action limit. Nothing changed.",
+        "I refused these tool calls because the step was malformed (too many calls at once or a repeated call id). Nothing changed.",
       )));
     }
-    const call = calls[0]!;
-    try {
-      return Object.freeze([await this.executeCall(input, port, call)]);
-    } catch {
-      return Object.freeze([refusedTool(
-        call,
-        "I could not safely apply that tool call, so nothing changed.",
-      )]);
+    // One after another, in the order the model asked, never concurrently: a
+    // gated call may ask Sid a question (a spoken PIN, a tap), and two open
+    // questions at once cannot be answered; and a later call may depend on an
+    // earlier one's write. Every call gets its own result and its own receipt.
+    const executed: ExecutedTool[] = [];
+    for (const call of calls) {
+      // Once the turn has ended (hang-up, barge-in, deadline) nothing further
+      // runs, and no gate is asked: a PIN question after Sid stopped listening
+      // would be one he cannot answer. The gate's own re-check still guards
+      // the call that was already in the gate when the turn ended.
+      if (input.signal.aborted) {
+        executed.push(refusedTool(call, TURN_ENDED_REFUSAL));
+        continue;
+      }
+      try {
+        executed.push(await this.executeCall(input, port, call));
+      } catch {
+        executed.push(refusedTool(call, "I could not safely apply that tool call, so nothing changed."));
+      }
     }
+    return Object.freeze(executed);
   }
 
   private async executeCall(

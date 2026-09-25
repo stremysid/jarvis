@@ -837,6 +837,30 @@ describe("memory_search through the owner agent", () => {
     expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
   });
 
+  it("keeps what a search found as the turn's reference when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, so a multi-step turn
+    // that recorded each step alone would let its last step (an inbox read
+    // here) erase the item the search found, and "forget that" would miss.
+    const harness = await ownerHarness("reference-chain");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my locker code is on a sticky note");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    await runOwnerTurn({
+      harness,
+      text: "where is my locker code, and anything in my inbox?",
+      provider: new FakeAgentProvider([
+        called(tool("search-chain", "memory_search", { query: "locker code" })),
+        called(tool("inbox-chain", "email_inbox_list", {})),
+        stopped("On a sticky note, and your inbox is quiet."),
+      ]),
+      memorySearch: index,
+    });
+
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
+  });
+
   it("records nothing when the search found nothing", async () => {
     // An empty search must not record the previous turn's ids again, and must
     // not leave a reference pointing at whatever was cited last.
