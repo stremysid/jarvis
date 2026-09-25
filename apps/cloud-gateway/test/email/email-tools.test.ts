@@ -10,6 +10,8 @@ import { handleInboundEmail } from "../../src/email/email-handler.js";
 import { readInboxPage } from "../../src/email/email-reader.js";
 import type { Env } from "../../src/env.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { telegramTurnRedactor } from "../../src/index.js";
+import { VoiceReplyStream } from "../../src/agent/voice-reply.js";
 import { StreamingOutputRedactor } from "../../src/security/streaming-output-redactor.js";
 import { DecisionRepository } from "../../src/decisions/decision-repository.js";
 import { DecisionService } from "../../src/decisions/decision-service.js";
@@ -24,6 +26,8 @@ import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
 const OWNER = "principal:email-tools-owner";
+/** Any verified Telegram identity that is not the configured owner. */
+const NOT_OWNER = "principal:email-tools-someone-else";
 const CAPABILITY_ADDRESS = "school-testcapability1234@onesid.ca";
 const PINNED_DOMAIN = "notifications.minds-online.example";
 const NOW = new Date("2026-09-24T04:00:00.000Z");
@@ -125,12 +129,14 @@ function toolResultContent(provider: FakeAgentProvider): readonly string[] {
 }
 
 /**
- * What Sid receives on Telegram: the agent's reply tokens through the same
+ * What a Telegram reader receives: the agent's reply tokens through the same
  * output redactor, limits and line mode that `ConversationService` applies to
- * every Telegram turn.
+ * every Telegram turn. The redactor is the one production picks for the turn's
+ * principal (`telegramTurnRedactor` in `src/index.ts`), not one built here, so
+ * the reader a test names is the reader production would use.
  */
-async function deliveredToSid(stream: AsyncIterable<ModelToken>): Promise<string> {
-  const output = new StreamingOutputRedactor(new Redactor(), {
+async function deliveredOnTelegram(stream: AsyncIterable<ModelToken>, principalId: string): Promise<string> {
+  const output = new StreamingOutputRedactor(telegramTurnRedactor(principalId, OWNER), {
     maxRawCharacters: 8_000,
     maxSanitizedCharacters: 8_000,
   }, false);
@@ -138,8 +144,14 @@ async function deliveredToSid(stream: AsyncIterable<ModelToken>): Promise<string
   return output.complete().text;
 }
 
-function redactedReply(reply: string): string {
-  const result = new Redactor().redactText(reply);
+/** What Sid hears on an owner call: the voice reply stream's own output redaction. */
+function heardOnOwnerCall(reply: string): string {
+  const stream = new VoiceReplyStream([], new Set());
+  return [...stream.push(reply), ...stream.finish()].map((part) => part.text).join("").trim();
+}
+
+function redactedFor(reader: Redactor, reply: string): string {
+  const result = reader.redactText(reply);
   if (!result.ok) throw new Error("redaction_failed");
   return result.text;
 }
@@ -288,19 +300,38 @@ describe("the email inbox tools", () => {
     readerSpy.mockRestore();
   });
 
-  it("delivers a Gmail forwarding code to Sid through the production email path, the read tool and the reply redactor", async () => {
+  it.each([
+    {
+      // Gmail's real confirmation mail labels an eight-digit number
+      // "Confirmation code:" (two public archived samples: 99427480, 33821484).
+      label: "a Gmail forwarding code",
+      from: "Gmail Team <forwarding-noreply@google.com>",
+      subject: "(#99427480) Gmail Forwarding Confirmation - Receive Mail from sid@example.test",
+      body: "sid@example.test has requested to automatically forward mail to your email address.\r\n"
+        + "Confirmation code: 99427480\r\n",
+      code: "99427480",
+      reply: "Your Gmail confirmation code is 99427480.",
+    },
+    {
+      // A standalone six-digit login code is the form the external reader
+      // removes in every wording, so it can only reach Sid through his own
+      // reader. Before #197 it reached him as [REDACTED_AUTH_DIGITS].
+      label: "a six-digit sign-in code",
+      from: "Accounts <no-reply@accounts.example.test>",
+      subject: "Your sign-in code",
+      body: "Your verification code is 482913. It expires in 10 minutes.\r\n",
+      code: "482913",
+      reply: "Your verification code is 482913.",
+    },
+  ])("delivers $label from Sid's own mail to Sid unredacted, on Telegram and on a call, and to no other reader", async (
+    { from, subject, body, code, reply },
+  ) => {
     // Review F3 on PR #190. Production: the Worker's email() with school
     // configuration present, so the D2L consumer runs on this message too.
-    // Gmail's real confirmation mail labels an eight-digit number
-    // "Confirmation code:" (two public archived samples: 99427480, 33821484).
     const notices = vi.fn(async () => undefined);
-    const code = "99427480";
-    const raw = "From: Gmail Team <forwarding-noreply@google.com>\r\nTo: school@onesid.ca\r\n"
-      + `Subject: (#${code}) Gmail Forwarding Confirmation - Receive Mail from sid@example.test\r\n`
-      + "Date: Thu, 24 Sep 2026 04:00:00 +0000\r\nMessage-ID: <gmail-confirmation@google.com>\r\n"
-      + "Content-Type: text/plain; charset=utf-8\r\n\r\n"
-      + "sid@example.test has requested to automatically forward mail to your email address.\r\n"
-      + `Confirmation code: ${code}\r\n`;
+    const raw = `From: ${from}\r\nTo: school@onesid.ca\r\nSubject: ${subject}\r\n`
+      + `Date: Thu, 24 Sep 2026 04:00:00 +0000\r\nMessage-ID: <${newUlid()}@example.test>\r\n`
+      + `Content-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
     await handleInboundEmail({ ...message(raw), to: CAPABILITY_ADDRESS } as ForwardableEmailMessage, {
       ...env,
       OWNER_PRINCIPAL_ID: OWNER,
@@ -309,35 +340,53 @@ describe("the email inbox tools", () => {
     } as Env, { now: () => NOW, sendOwnerText: notices, logHeaderNames: () => undefined });
     // Not a D2L notification, so no D2L alarm about it either.
     expect(notices).not.toHaveBeenCalled();
-    const [row] = await new EmailInbox(env.DB, OWNER).list(OWNER, { subject: "Gmail Forwarding Confirmation" });
+    const [row] = await new EmailInbox(env.DB, OWNER).list(OWNER, { subject });
     const emailId = String(row!.email_id);
 
-    const authorityText = "what's the gmail forwarding code";
+    const authorityText = "what's the code in that email";
     const provider = new FakeAgentProvider([
-      called({ id: "gmail-read", name: "email_inbox_read", arguments: JSON.stringify({ email_id: emailId }) }),
-      stopped(`Your Gmail confirmation code is ${code}.`),
+      called({ id: `read-${code}`, name: "email_inbox_read", arguments: JSON.stringify({ email_id: emailId }) }),
+      stopped(reply),
     ]);
     const agent = await telegramAgent(provider, { authorityText });
-    const delivered = await deliveredToSid(agent.stream(turnInput(authorityText)));
-    // The model was handed the body through the real read dispatch...
-    expect(toolResultContent(provider).join("\n")).toContain(`Confirmation code: ${code}`);
-    // ...and the code reaches Sid after output redaction.
+    const delivered = await deliveredOnTelegram(agent.stream(turnInput(authorityText)), OWNER);
+    // The model was handed the stored body, verbatim, through the real read dispatch...
+    expect(toolResultContent(provider).join("\n")).toContain(code);
+    // ...Sid's Telegram reader shows him the code...
     expect(delivered).toContain(code);
     expect(delivered).not.toContain("[REDACTED");
+    // ...an owner call speaks it through the voice reply stream's owner reader...
+    expect(heardOnOwnerCall(reply)).toContain(code);
+    // ...and the same reply toward any other verified identity is still hidden,
+    // so the code reaches Sid because the reader is his, not because the rules
+    // stopped matching it.
+    const toSomeoneElse = await deliveredOnTelegram((async function* () {
+      yield Object.freeze({ index: 0, text: reply });
+    })(), NOT_OWNER);
+    expect(toSomeoneElse).not.toContain(code);
+    expect(toSomeoneElse).toContain("[REDACTED");
   });
 
-  it("keeps real credentials and login codes redacted in a reply while the read tool says which forms are hidden", () => {
-    // The redactor is unchanged by this PR (#183 owns it). These are the
-    // existing rules the read tool now describes, so the model can quote a
-    // confirmation code in a form that reaches Sid instead of guessing.
-    expect(redactedReply("Your Gmail confirmation code is 99427480.")).toContain("99427480");
-    expect(redactedReply("Your verification code is 99427480.")).not.toContain("99427480");
-    expect(redactedReply("The login code is 482913.")).not.toContain("482913");
-    expect(redactedReply("It contains api_key=sk-live-abcdefghijklmnopqrstuvwx")).not.toContain("abcdefghijklmnop");
-    expect(redactedReply("It contains sk-abcdefghijklmnopqrstuvwxyz0123")).not.toContain("abcdefghijklmnop");
+  it("shows Sid his codes in any wording but still removes machine credentials, and the read tool no longer says his codes are hidden", () => {
+    const sid = telegramTurnRedactor(OWNER, OWNER);
+    for (const wording of [
+      "Your Gmail confirmation code is 99427480.",
+      "Your verification code is 99427480.",
+      "The login code is 482913.",
+    ]) expect(redactedFor(sid, wording)).toBe(wording);
+    // Jarvis's own infrastructure secrets are machine credentials, and #197
+    // keeps removing those from every reader, Sid included.
+    expect(redactedFor(sid, "It contains sk-abcdefghijklmnopqrstuvwxyz0123")).not.toContain("abcdefghijklmnop");
+    expect(redactedFor(sid, "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789"))
+      .not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    const guest = telegramTurnRedactor(NOT_OWNER, OWNER);
+    expect(redactedFor(guest, "The login code is 482913.")).not.toContain("482913");
+    expect(redactedFor(guest, "Your Gmail confirmation code is 99427480.")).not.toContain("99427480");
+    // The pre-#197 description told the model Sid's replies hide six-digit
+    // codes, which would steer it to reword or withhold a code he asked for.
     const read = EMAIL_INBOX_TOOL_DEFINITIONS.find((tool) => tool.name === "email_inbox_read")!;
-    expect(read.description).toContain("standalone six-digit number");
-    expect(read.description).toContain("quote a code with the label the email itself gives it");
+    expect(read.description).not.toContain("six-digit");
+    expect(read.description).toContain("give him a code exactly as the email shows it");
   });
 
   it("reads a body of 5000 double quotes page by page, whole, with no page cut by the evidence cap", async () => {

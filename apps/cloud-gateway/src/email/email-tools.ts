@@ -92,11 +92,9 @@ export const EMAIL_INBOX_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = 
       + `and fewer when the text needs heavy JSON escaping; next_offset is always the first byte not yet delivered. `
       + `offset defaults to 0 and next_offset is null on the final page, so follow next_offset until it is null to read the `
       + `whole message. A parse failure is reported as parse_status "failed" with raw still readable, never as an empty `
-      + `message. A Gmail forwarding confirmation is ordinary email; read its body here for the code. Every reply to Sid `
-      + `passes through a redactor that hides a standalone six-digit number and a 4- or 8-digit number written right `
-      + `after pin, passcode, otp, authentication code or verification code, because those are how login codes and `
-      + `Sid's PIN appear. Gmail labels its forwarding code "Confirmation code"; quote a code with the label the email `
-      + `itself gives it.`,
+      + `message. A Gmail forwarding confirmation is ordinary email; read its body here for the code. This is Sid's own `
+      + `mail and a reply to Sid is not stripped of his codes, PINs or numbers, so give him a code exactly as the email `
+      + `shows it.`,
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
