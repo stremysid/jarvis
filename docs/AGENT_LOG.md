@@ -3,6 +3,19 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Claude builder: deadline_record lets the AI decide
+
+Signed: Claude (builder agent), branch `codex/deadline-judgment-removal` from `a7cd355`. Needs a DeepSeek audit (cross-vendor).
+
+- **Why:** Sid, 2026-09-24: "why would jarvis refuse? … why doesnt he just ask for clarity?" and "code should never make a decision or restrict jarvis". The #166 proof contract was code judging Sid's wording.
+- **Removed:** `deadline-date-proof.ts` (whole file: `DUE_PHRASE`, `resolveDate`, the relative-date and bare-clock parsing, small-hours logic, passed-clock refusal, the "code cannot choose between them" refusals); `statusOf`/`STATUS_WORDS`; the course/title/due order and gap checks; the `evidenceExcerpt`/`dueExcerpt` arguments; the uncertain-prefix refusal, which is now a receipt hint naming similar stored rows. The `school_update` description no longer says "finished alone does not mean submitted". The argument tool's second turn read is gone: the core's `memoryOwnerTurn` already re-reads the durable owner turn before any argument tool runs.
+- **Kept:** a real `YYYY-MM-DD` or ISO instant with an offset (date-only is stored at end of day in the zone and labelled date-only), a real IANA zone, effort/status enums, nonblank course/title, owner authority via the shared core, principal-scoped storage and dedupe, and the refusal when two stored rows already share one identity.
+- **Tests:** `deadline-date-proof.test.ts` and `deadline-review-r1..r7` deleted (they pinned the grammar); the kept behaviours moved into `deadline-tool.test.ts` (62 tests), including previously refused phrasings, now accepted: `Chem lab report. due 3pm friday`, a due phrase in the next sentence, an abbreviation the model expands, a same-day weekday, a passed clock, and a "finished … put it in the dropbox" submission.
+- **Mutation:** 18 guards, all KILLED via `reviewer-tools/mutate.ps1`. The first run reported 2 SURVIVED; both were bad specs, not weak guards: `false && a || b` left the month clause live, and the removed turn read was redundant. Specs fixed and re-run.
+- **Focused runs:** `test/deadlines` 183/183; `voice-agent`, `owner-telegram-agent`, `deepseek-agent-catalogue`, `tool-classification` 154/154. `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its existing FACTS warning. Full suite: GitHub Actions only.
+- **Docs:** CODE-VS-JUDGMENT's deadline section is now marked removed. OWNER-ACTIONS drops the small-hours question and rewrites the live check.
+- **Scope:** no merge, deploy, migration or production access.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
