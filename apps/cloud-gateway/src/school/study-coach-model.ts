@@ -440,7 +440,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
 
   /** Preserves code-observed save state for the owner-agent tool boundary. */
   async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram" || input.principalId !== this.dependencies.ownerPrincipalId
+    if (input.principalId !== this.dependencies.ownerPrincipalId
       || !this.dependencies.ownerTurnAuthoritative) {
       yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;

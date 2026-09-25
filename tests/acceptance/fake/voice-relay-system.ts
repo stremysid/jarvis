@@ -8,7 +8,6 @@ import type { CallRepository } from "../../../apps/cloud-gateway/src/persistence
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
-import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../../apps/cloud-gateway/src/providers/fake-model-provider.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction.js";
 import {
@@ -25,12 +24,9 @@ import { AuthenticationAttemptBudget } from "../../../apps/cloud-gateway/src/voi
 import { DurableObjectCallSessionTerminator } from "../../../apps/cloud-gateway/src/voice/call-session-terminator.js";
 import { OwnerAccessService } from "../../../apps/cloud-gateway/src/voice/owner-access-service.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
+import { SensitiveActionPinGate } from "../../../apps/cloud-gateway/src/voice/sensitive-action-pin.js";
 import {
-  OWNER_STEP_UP_VERIFIED,
-  OwnerCallStepUpService,
-} from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
-import {
-  FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_OWNER_PASSPHRASE_PEPPER, FAKE_VOICE_REGISTRY,
+  FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_SENSITIVE_ACTION_PIN, FAKE_VOICE_REGISTRY,
 } from "./voice-access-system.js";
 
 export const FAKE_ACCOUNT_SID = `AC${"6".repeat(32)}`;
@@ -59,13 +55,6 @@ export interface FakeRelayCall {
   frames(): readonly RelayTextFrame[];
   closeCodes(): readonly number[];
   closeEvents(): readonly Readonly<{ code: number; reason: string }>[];
-  stepUpAlerts(): readonly Readonly<{
-    ownerPrincipalId: string;
-    alertClass: "rejected" | "configuration" | "admission_refused";
-    direction: "inbound" | "outbound";
-    attestationClass: string;
-  }>[];
-  authorityCountsAtVerified(): readonly number[];
   phase(): Promise<string | undefined>;
   durableStorage(): Promise<Readonly<Record<string, unknown>>>;
   durableSqlStorage(): Promise<readonly unknown[]>;
@@ -90,13 +79,6 @@ interface InitializedRelay {
   readonly frames: RelayTextFrame[];
   readonly closeCodes: number[];
   readonly closeEvents: Array<Readonly<{ code: number; reason: string }>>;
-  readonly stepUpAlerts: Array<Readonly<{
-    ownerPrincipalId: string;
-    alertClass: "rejected" | "configuration" | "admission_refused";
-    direction: "inbound" | "outbound";
-    attestationClass: string;
-  }>>;
-  readonly authorityCountsAtVerified: number[];
   readonly providerSessionId: string;
 }
 
@@ -113,7 +95,6 @@ export class FakeRelaySessions {
     private readonly repository: CallRepository,
     private readonly modelOptions: FakeModelProviderOptions,
     private readonly now: () => Date,
-    private readonly beforeOwnerStepUpAlert?: () => Promise<void>,
   ) {}
 
   async initialize(initialization: Readonly<CallSessionInitialization>): Promise<void> {
@@ -137,18 +118,13 @@ export class FakeRelaySessions {
         verifier: guestVerifier,
         defaultGuestPin: () => "1357",
       });
-      const ownerStepUp = new OwnerCallStepUpService(
-        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
-      );
       const model = new FakeModelProvider(this.modelOptions);
-      const authorityCountsAtVerified: number[] = [];
-      const stepUpAlerts: InitializedRelay["stepUpAlerts"] = [];
       const conversation = new DefaultConversationService({
         repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
         model: new DefaultModelAdapter(model),
         context: new D1ContextRetriever(env.DB),
         dispatcher: { async dispatch(): Promise<never> { throw new Error("voice_outbox_dispatch_forbidden"); } },
-        redactor: new Redactor(),
+        redactor: new Redactor("owner"),
         now: this.now,
       });
       const factory: CallSessionRuntimeFactory = (input) => new CallSessionCore({
@@ -159,30 +135,14 @@ export class FakeRelaySessions {
         authority,
         guestAuthentication,
         ownerAccess,
-        ownerStepUp,
-        ownerStepUpAlerts: { alert: async (input): Promise<void> => {
-          await this.beforeOwnerStepUpAlert?.();
-          stepUpAlerts.push(Object.freeze({
-            ownerPrincipalId: input.ownerPrincipalId,
-            alertClass: input.alertClass,
-            direction: input.direction,
-            attestationClass: input.attestationClass,
-          }));
-        } },
-        ownerStepUpAlarm: input.ownerStepUpAlarm,
+        // The PIN question a tier-3 tool call asks. The acceptance fixture uses
+        // the plain model adapter below, so no tool is dispatched here; the gate
+        // is present because the core refuses sensitive actions without it.
+        sensitiveActionPin: new SensitiveActionPinGate({
+          database: env.DB, pin: FAKE_SENSITIVE_ACTION_PIN, now: this.now,
+        }),
         conversation,
-        relay: {
-          ...input.relay,
-          sendNeutralText: async (text) => {
-            if (text === OWNER_STEP_UP_VERIFIED) {
-              const row = await env.DB.prepare(`SELECT count(*) AS count FROM call_session_authorities
-                WHERE session_id = ? AND authority_kind = 'owner'`)
-                .bind(input.session.sessionId).first<{ count: number }>();
-              authorityCountsAtVerified.push(row?.count ?? -1);
-            }
-            await input.relay.sendNeutralText(text);
-          },
-        },
+        relay: input.relay,
         ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
           ? { preAuthentication: input.initialization.preAuthentication }
           : {}),
@@ -191,7 +151,6 @@ export class FakeRelaySessions {
       const object = new CallSession(state, env, factory);
       this.sessions.set(initialization.sessionId, {
         stub, object, factory, initialization, model, client: null, server: null, frames: [], closeCodes: [], closeEvents: [],
-        authorityCountsAtVerified, stepUpAlerts,
         providerSessionId: `VX${(++this.providerSequence).toString(16).padStart(32, "0")}`,
       });
     });
@@ -269,8 +228,6 @@ export class FakeRelaySessions {
       frames: () => [...session.frames],
       closeCodes: () => [...session.closeCodes],
       closeEvents: () => [...session.closeEvents],
-      stepUpAlerts: () => [...session.stepUpAlerts],
-      authorityCountsAtVerified: () => [...session.authorityCountsAtVerified],
       phase: async () => (await this.repository.getCallSession(sessionId))?.phase,
       durableStorage: () => runInDurableObject(session.stub, async (_instance, state) =>
         Object.fromEntries(await state.storage.list())),

@@ -1,3 +1,4 @@
+import { createOwnerPipelineModels } from "./agent/owner-pipelines.js";
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { AutonomyService } from "./autonomy/autonomy-service.js";
@@ -5,7 +6,6 @@ import { D1ToolConfirmationStore } from "./autonomy/tool-confirmations.js";
 import { ToolAutonomyGate } from "./autonomy/tool-gate.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
 import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
-import { D1TelegramOwnerStepUpCommands } from "./channels/telegram/telegram-owner-step-up-command.js";
 import { TelegramRateLimiter } from "./channels/telegram/telegram-rate-limit.js";
 import {
   handleTelegramWebhook,
@@ -69,9 +69,7 @@ import {
 } from "./memory/meaning-search.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
 import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
-import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
-import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { SchoolCollectorRepository } from "./school/collector-repository.js";
@@ -81,6 +79,7 @@ import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
 import { handleInboundEmail } from "./email/email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
+import { webToolsFromEnv } from "./web/web-tools.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
@@ -133,6 +132,16 @@ export function buildTelegramConversationRepository(
       && accepted.isDirectText
       && accepted.isMemoryControlAuthoritative,
   });
+}
+
+/**
+ * The reader for one Telegram turn: Sid's only when the authenticated principal
+ * is the configured owner. A verified guest identity also reaches `replyTo`, and
+ * Sid's reader would store the guest's raw PIN and let a labelled credential
+ * through to the guest's reply.
+ */
+export function telegramTurnRedactor(principalId: string, ownerPrincipalId: string | undefined): Redactor {
+  return new Redactor(ownerPrincipalId !== undefined && principalId === ownerPrincipalId ? "owner" : "external");
 }
 
 export type TelegramReplyFailureReason = "identity_lookup" | "conversation" | "dispatcher" | "other";
@@ -219,7 +228,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         ownerPrincipalId,
       );
       const toolAuthority = ownerTelegramToolAuthority(accepted);
-      const redactor = new Redactor();
+      const redactor = telegramTurnRedactor(accepted.principalId, ownerPrincipalId);
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
         model: env.DEEPSEEK_MODEL,
@@ -245,54 +254,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       });
       let model: ModelAdapter = baseModel;
       if (ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId) {
-        const schoolRepository = new SchoolCatchupRepository(env.DB);
-        const universityRepository = new UniversityTrackerRepository(env.DB);
-        const schoolModel = new SchoolCatchupModelAdapter({
-          model: baseModel,
-          database: env.DB, // Without this, a pinned daily capacity never reaches the planner.
-          repository: schoolRepository,
-          redactor,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          agentSelectedScope: "school",
-          fixedActionReceipts: true,
-          refreshBrightspace: async (now, signal) => runOnDemandBrightspaceRefresh({
-            env,
-            clock: { now: () => new Date(now.getTime()) },
-            delivery: { send: async () => undefined },
-            fetcher: globalThis.fetch.bind(globalThis),
-            signal,
-          }),
-        });
-        const universityModel = new SchoolCatchupModelAdapter({
-          model: baseModel,
-          repository: schoolRepository,
-          universityRepository,
-          redactor,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          agentSelectedScope: "university",
-          fixedActionReceipts: true,
-        });
-        const studyFallbackModel: ModelAdapter = {
-          async *stream() {
-            yield Object.freeze({
-              index: 0,
-              text: "I couldn't identify one validated study-coach action from that message. Nothing changed.",
-            });
-          },
-        };
-        const studyModel = new StudyCoachModelAdapter({
-          fallbackModel: studyFallbackModel,
-          practiceModel: baseModel,
-          repository: new StudyCoachRepository(env.DB),
-          redactor,
-          ownerPrincipalId,
-          ownerTurnAuthoritative: toolAuthority.directPipelineText,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        });
+        const pipelines = createOwnerPipelineModels(env, baseModel, redactor, ownerPrincipalId, toolAuthority.directPipelineText);
         model = new OwnerTelegramAgentAdapter({
           guidedAssignmentTelegram: telegram,
           provider: new DeepSeekAgentProvider({
@@ -318,9 +280,9 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
             new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
             new D1ToolConfirmationStore(env.DB),
           ),
-          schoolModel,
-          universityModel,
-          studyCoachModel: studyModel,
+          // The same web tools a call gets, from the same environment.
+          web: webToolsFromEnv(env),
+          ...pipelines,
           // Retrieval happens after construction. The adapter resolves the
           // remaining arrival-anchored budget when its stream actually starts.
           turnReceivedAt: accepted.receivedAt,
@@ -541,21 +503,12 @@ async function runTelegramCommand(
   const send = telegramSender(env);
   if (send === null) return;
   const context = commandContext(env, accepted.principalId);
-  const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
   const replies = await runCommand(name, argument,
     name === "call"
       ? { ...context, calls: { request: () => requestProductionTelegramCall(env, accepted) } }
-      : name === "disable-owner-step-up" && ownerPrincipalId !== undefined
-        ? { ...context, ownerStepUp: { disable: () => new D1TelegramOwnerStepUpCommands({
-          database: env.DB,
-          ownerPrincipalId,
-          ownerVoiceIdentityId: env.OWNER_VOICE_IDENTITY_ID,
-        }).disable(accepted) } }
-        : context);
+      : context);
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
-  const replyChatId = name === "disable-owner-step-up" && accepted.chatId !== accepted.telegramUserId
-    ? accepted.telegramUserId
-    : accepted.chatId;
+  const replyChatId = accepted.chatId;
   for (const reply of replies) {
     await send(replyChatId, reply.text);
     // Recorded only after the send succeeded. Marking delivery first would
@@ -772,7 +725,13 @@ export default {
       return handleTelegramWebhook(request, {
         webhookSecret,
         policy: new PolicyService(new DeviceRepository(env.DB)),
-        redactor: new Redactor(),
+        // The reader is the authenticated principal, not the channel: any
+        // active verified Telegram identity passes, so only the configured
+        // owner gets Sid's reader and everyone else the external one.
+        redactor: new Redactor("external"),
+        ...(env.OWNER_PRINCIPAL_ID === undefined || env.OWNER_PRINCIPAL_ID.length === 0
+          ? {}
+          : { owner: { principalId: env.OWNER_PRINCIPAL_ID, redactor: new Redactor("owner") } }),
         events: new EventRepository(env.DB),
         limiter: telegramLimiter,
         onAccepted: (accepted) => {

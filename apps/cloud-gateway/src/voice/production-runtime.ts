@@ -1,4 +1,7 @@
-import { D1ContextRetriever } from "../conversation/context-retriever.js";
+import type { RedactionAudience } from "../../../../packages/contracts/src/index.js";
+import { contextForAudience } from "../conversation/context-retriever.js";
+import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
+import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
 import { AutonomyService } from "../autonomy/autonomy-service.js";
@@ -19,11 +22,10 @@ import {
 import { CallRepository } from "../persistence/call-repository.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
-import { DeepSeekAgentProvider, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, DeepSeekModelAdapter, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
-import { OwnerPassphraseVerifier } from "../security/owner-passphrase-verifier.js";
 import { Redactor } from "../security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../sync/identity-challenge.js";
 import { decodeCanonicalBase64, DeviceRequestVerifier } from "../sync/signed-request.js";
@@ -36,12 +38,33 @@ import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { OwnerVoiceAgentAdapter } from "./voice-agent.js";
+import { webToolsFromEnv } from "../web/web-tools.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
-import { D1OwnerStepUpAlertSink, OwnerCallStepUpService } from "./owner-call-step-up.js";
+import { SensitiveActionPinGate } from "./sensitive-action-pin.js";
+
+let invalidOwnerActionPinWarningEmitted = false;
 
 function configured(value: unknown, pattern: RegExp): string {
   if (typeof value !== "string" || !pattern.test(value)) throw new TypeError("voice_runtime_configuration_invalid");
   return value;
+}
+
+/**
+ * The four digit PIN a sensitive action on a call needs, or null.
+ *
+ * A missing or malformed secret is not a startup failure. An ordinary owner
+ * call must keep working when no PIN has been set, and every sensitive action
+ * refuses without one, so unset is null and the tier gate reads null as "this
+ * call cannot authorize that action". The value is never logged.
+ */
+function configuredOwnerActionPin(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string" && /^[0-9]{4}$/u.test(value)) return value;
+  if (!invalidOwnerActionPinWarningEmitted) {
+    invalidOwnerActionPinWarningEmitted = true;
+    console.warn("owner_action_pin_invalid; sensitive call actions will refuse");
+  }
+  return null;
 }
 
 /** No fallback keys: malformed or incomplete private bindings keep the relay closed. */
@@ -55,8 +78,18 @@ export function readVoiceRuntimeConfiguration(env: Env) {
     budgetPepper: decodeCanonicalBase64(env.AUTHENTICATION_BUDGET_PEPPER, 32, "voice_runtime_configuration_invalid"),
     challengePepper: decodeCanonicalBase64(env.IDENTITY_CHALLENGE_HMAC_PEPPER, 32, "voice_runtime_configuration_invalid"),
     challengeKeyVersion: configured(env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION, /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/u),
-    ownerPassphrasePepper: decodeCanonicalBase64(env.OWNER_PASSPHRASE_PEPPER_V1, 32, "voice_runtime_configuration_invalid"),
   });
+}
+
+/**
+ * Who hears a call, for redaction. `accessKind` is the session's authority kind
+ * (the authority service refuses a persisted kind that differs from it), so an
+ * owner session is Sid and hears his own data as it is. Every other session --
+ * a guest, or anything unrecognized -- keeps the full redaction on what it
+ * says, what it stores and the context its model reads, exactly as before.
+ */
+export function voiceSessionAudience(binding: Readonly<{ accessKind: unknown }>): RedactionAudience {
+  return binding.accessKind === "owner" ? "owner" : "external";
 }
 
 /**
@@ -83,12 +116,11 @@ export function createProductionCallSessionCore(
   const verifier = new GuestPinVerifier(configuration.guestPepper);
   const budgets = new AuthenticationAttemptBudget(env.DB, configuration.budgetPepper);
   const guestAuthentication = new GuestCallAuthentication({ repository: access, budgets, verifier, proofs });
-  const ownerStepUp = new OwnerCallStepUpService(
-    env.DB, new OwnerPassphraseVerifier(configuration.ownerPassphrasePepper, "v1"),
-  );
-  const ownerStepUpAlerts = new D1OwnerStepUpAlertSink(
-    env.DB, new TelegramRestProvider({ botToken: configuration.telegramToken }),
-  );
+  // The PIN question a tier-3 tool call asks on this call. One instance for the
+  // whole core: the agent's gate asks it and the call session answers it.
+  const sensitiveActionPin = new SensitiveActionPinGate({
+    database: env.DB, pin: configuredOwnerActionPin(env.OWNER_ACTION_PIN), now,
+  });
   const defaultGuestPin = env.DEFAULT_GUEST_PIN;
   const ownerAccess = new OwnerAccessService({
     repository: access, registry, authorities, verifier,
@@ -155,22 +187,38 @@ export function createProductionCallSessionCore(
     targets,
     ...(meaningSearch === undefined ? {} : { memorySearch: meaningSearch }),
     directOwnerText: true,
+    ...createOwnerPipelineModels(env, new DeepSeekModelAdapter({
+      apiKey: configuration.modelApiKey, model: configuration.model,
+      // A tier-3 tap is claimed before the tool body. Voice also has a tighter
+      // response deadline, so hidden reasoning must not spend the claimed tap's
+      // remaining window before the validated pipeline can settle its receipt.
+      telegramTurn: true, telegramThinking: "disabled",
+    }), new Redactor("owner"), ownerPrincipalId, true, now),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
     // The same tier gate Telegram puts in front of its tools, constructed here
     // rather than left out: a channel that dispatches tools without it is the
     // "built, reviewed and unreferenced" shape in `AutonomyService`'s history.
+    // The PIN gate is the third argument because a call has no button to tap,
+    // so a tier-3 action that no standing tap authorizes asks for the PIN.
     autonomy: new ToolAutonomyGate(
       new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
       new D1ToolConfirmationStore(env.DB),
+      sensitiveActionPin,
     ),
+    // The same web tools Telegram gets, from the same environment.
+    web: webToolsFromEnv(env),
     now,
   });
+  const audience = voiceSessionAudience(input.initialization.binding);
   const conversation = new DefaultConversationService({
     repository: conversations,
     model: agent,
-    context: new D1ContextRetriever(env.DB),
+    context: contextForAudience(
+      new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, meaningSearch, now }),
+      audience,
+    ),
     dispatcher,
-    redactor: new Redactor(),
+    redactor: new Redactor(audience),
     now,
   });
   return new CallSessionCore({
@@ -179,8 +227,7 @@ export function createProductionCallSessionCore(
     expectedAccountSid: configuration.accountSid,
     repository: calls,
     authority: authorities,
-    guestAuthentication, ownerAccess, activation, conversation, ownerStepUp, ownerStepUpAlerts,
-    ownerStepUpAlarm: input.ownerStepUpAlarm,
+    guestAuthentication, ownerAccess, activation, conversation, sensitiveActionPin,
     relay: input.relay,
     ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
       ? { preAuthentication: input.initialization.preAuthentication }

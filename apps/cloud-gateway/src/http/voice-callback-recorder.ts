@@ -148,7 +148,8 @@ export class D1TwilioCallbackRecorder implements TwilioCallbackRecorder {
   };
   private readonly now: () => Date;
   private readonly newEventId: () => Ulid;
-  private readonly redactor = new Redactor();
+  // Provider lifecycle telemetry, not Sid's conversation.
+  private readonly redactor = new Redactor("external");
   private readonly terminateSession: D1TwilioCallbackRecorderDependencies["terminateSession"];
 
   constructor(deps: D1TwilioCallbackRecorderDependencies) {

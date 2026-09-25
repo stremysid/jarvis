@@ -82,6 +82,10 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   school_collector_revoke: "school.collector.revoke",
   university_update: "university.track",
   study_coach: "study.coach",
+  // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
+  // Sid and change nothing outside the gateway's own receipt table.
+  web_read: "read.web",
+  web_search: "read.web",
 });
 
 /**
@@ -95,7 +99,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  * tier 2. `tesla_unlock` moves the car and is tier 3.
  *
  * A model cannot reach any of these through the agent today -- they are absent
- * from `OWNER_TELEGRAM_TOOL_DEFINITIONS`, so an attempt falls through to the
+ * from `OWNER_TOOL_DEFINITIONS`, so an attempt falls through to the
  * unknown-tool refusal. Listing them here means the tier question is already
  * answered when the tool is finally defined, instead of being answered in a
  * hurry at the same time as the integration.

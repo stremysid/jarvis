@@ -42,6 +42,14 @@ describe("messages that are not commands", () => {
     // somebody else is worse than ignoring it.
     expect(parse("/status@some_other_bot")).toEqual({ kind: "text" });
   });
+
+  it("treats the removed owner step-up command as ordinary text rather than dispatching it", () => {
+    // The per-call passphrase gate is gone, so `/disable-owner-step-up` has no
+    // handler. A hyphenated name does not match the command shape at all, so
+    // this is text and never an unknown command either; replying "unknown
+    // command" would answer a message that was never command-shaped.
+    expect(parse("/disable-owner-step-up --confirm")).toEqual({ kind: "text" });
+  });
 });
 
 describe("recognising a command", () => {
@@ -49,35 +57,6 @@ describe("recognising a command", () => {
     expect(parse("/call check in")).toEqual({ kind: "command", name: "call", argument: "check in", addressedTo: null });
     expect(parse("/call@Jarvis_Sid_Bot check in --confirm"))
       .toMatchObject({ kind: "command", name: "call", argument: "check in --confirm" });
-  });
-
-  it("routes only the known hyphenated owner step-up command", () => {
-    expect(parse("/disable-owner-step-up --confirm")).toEqual({
-      kind: "command", name: "disable-owner-step-up", argument: "--confirm", addressedTo: null,
-    });
-    expect(parse("/disable-owner-step-up@Jarvis_Sid_Bot --confirm")).toEqual({
-      kind: "command", name: "disable-owner-step-up", argument: "", addressedTo: "Jarvis_Sid_Bot",
-    });
-    expect(parse("/Disable-Owner-Step-Up --confirm")).toEqual({
-      kind: "command", name: "disable-owner-step-up", argument: "", addressedTo: null,
-    });
-    expect(parse("/disable-owner-step-up@some_other_bot --confirm")).toEqual({
-      kind: "command", name: "disable-owner-step-up", argument: "", addressedTo: "some_other_bot",
-    });
-    for (const text of [
-      "/disable-owner-step-up--confirm",
-      "/disable-owner-stepup --confirm",
-      "/disable\u2011owner\u2011step\u2011up --confirm",
-    ]) {
-      expect(parse(text)).toMatchObject({ kind: "command", name: "disable-owner-step-up", argument: "" });
-    }
-    expect(parse("/not-a-command")).toEqual({ kind: "text" });
-    expect(parse("/enable-owner-step-up --confirm")).toEqual({ kind: "text" });
-  });
-
-  it("preserves all owner step-up confirmation text so trailing input cannot be hidden", () => {
-    expect(parse("/disable-owner-step-up --confirm\ndo not disable"))
-      .toMatchObject({ name: "disable-owner-step-up", argument: "--confirm\ndo not disable" });
   });
 
   it("preserves an entire call argument so truncation cannot manufacture final confirmation", () => {

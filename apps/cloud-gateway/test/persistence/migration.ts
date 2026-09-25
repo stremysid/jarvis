@@ -39,8 +39,12 @@ import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memo
 import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
 import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
 import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
+import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_channel_parity.sql?raw";
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
-import emailInboxSql from "../../src/persistence/migrations/0046_email_inbox.sql?raw";
+import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_call_pin_and_owner_authority.sql?raw";
+import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
+import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
+import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -144,7 +148,12 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
-    { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    // 0044 replaces triggers owned by the school, university and study schemas
+    // (0020, 0022, 0023, 0024, 0029 and 0030). This deliberately narrow memory
+    // fixture has not installed those tables or triggers, so applying 0044 here
+    // would make its first DROP fail rather than exercise memory ingress. The
+    // current-schema and full-schema fixtures below both apply 0044.
+    { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -158,14 +167,29 @@ export async function applyOwnerPassphraseMigration(): Promise<void> {
   await ownerPassphraseMigrated;
 }
 
-/** Applies the durable owner-call step-up schema and authority boundary. */
+/**
+ * Applies the durable owner-call schema and its current authority boundary.
+ *
+ * `0047` supersedes the owner-authority guard `0018` installs, so it belongs in
+ * this same step: an owner call now mints its authority from relay setup with
+ * no step-up row, and 0018's guard aborts every such insert. A fixture that
+ * applied only `0018` would build a database in which no owner call can leave
+ * `pre_auth`, which is not a state production can be in.
+ */
 export async function applyOwnerCallStepUpMigration(): Promise<void> {
   await applyOwnerPassphraseMigration();
   ownerCallStepUpMigrated ??= applyD1Migrations(env.DB, [
     { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
   ]);
   await ownerCallStepUpMigrated;
 }
+
+/** Alias kept for the call PIN gate's focused tests. */
+export const applySensitiveActionPinMigration = applyOwnerCallStepUpMigration;
 
 /** Applies durable refusal completion and guest-notice delivery after current main. */
 export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
@@ -287,6 +311,14 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await applyMemoryBackupMigration();
   memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
     { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+    // 0048 rewrites a trigger 0032 creates, so it belongs beside it: a fixture
+    // that stops at 0032 still carries the markdown-citation clause the product
+    // removed, and its notes would be refused by the database, not by any code
+    // under test. It is also in every full-chain list below.
+    {
+      name: "0048_note_sources_without_markdown_citation.sql",
+      queries: splitMigration(noteSourcesWithoutMarkdownCitationSql),
+    },
   ]);
   await memoryLivingNotesMigrated;
 }
@@ -314,8 +346,14 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
     { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
-    { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
+    { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+    { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -367,8 +405,15 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
   { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+  { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
   { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
-  { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+  {
+    name: "0047_call_pin_and_owner_authority.sql",
+    queries: splitMigration(callPinAndOwnerAuthoritySql),
+  },
+  { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+  { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
 ]);
 
 /**
@@ -486,6 +531,26 @@ export async function clearGuestGrantNoticeDrainStateForTest(): Promise<void> {
     ) VALUES (1, 'ready', NULL, NULL, NULL, NULL, '1970-01-01T00:00:00.000Z', NULL)`).run();
   } finally {
     for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/**
+ * Test-only reset for the wrong-PIN ledger.
+ *
+ * The rows are append-only in production, so the delete guard has to come off
+ * for a fixture to be repeatable. It is restored immediately.
+ */
+export async function clearSensitiveActionPinDataForTest(): Promise<void> {
+  await applySensitiveActionPinMigration();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS sensitive_action_pin_attempts_reject_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM sensitive_action_pin_attempts").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER sensitive_action_pin_attempts_reject_delete
+      BEFORE DELETE ON sensitive_action_pin_attempts
+      BEGIN
+        SELECT RAISE(ABORT, 'sensitive_action_pin_attempt_delete_forbidden');
+      END`).run();
   }
 }
 
@@ -673,3 +738,4 @@ export async function clearConversationDataForTest(): Promise<void> {
       END`).run();
   }
 }
+

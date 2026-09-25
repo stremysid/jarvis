@@ -9,7 +9,6 @@ import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fa
 import { OutboundCallDispatcher } from "../../../apps/cloud-gateway/src/calls/outbound-call-dispatcher.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction.js";
 import { D1TelegramCallCommands } from "../../../apps/cloud-gateway/src/channels/telegram/telegram-call-command.js";
-import { D1TelegramOwnerStepUpCommands } from "../../../apps/cloud-gateway/src/channels/telegram/telegram-owner-step-up-command.js";
 import { runCommand } from "../../../apps/cloud-gateway/src/channels/telegram/command-handler.js";
 import { parseCommand } from "../../../apps/cloud-gateway/src/channels/telegram/telegram-commands.js";
 import { TelegramRateLimiter } from "../../../apps/cloud-gateway/src/channels/telegram/telegram-rate-limit.js";
@@ -33,9 +32,6 @@ export async function createFakeTelegramCallingSystem(ownerPrincipalId = "princi
   let clock = new Date(NOW);
   const commands = () => new D1TelegramCallCommands({ database: env.DB, ownerPrincipalId,
     ownerVoiceIdentityId: "identity:voice", botUsername: "jarvis_sid_bot" });
-  const ownerStepUp = () => new D1TelegramOwnerStepUpCommands({
-    database: env.DB, ownerPrincipalId, ownerVoiceIdentityId: "identity:voice", now: () => new Date(clock),
-  });
   const state = { quiet: false, killSwitch: false };
   const events = new EventRepository(env.DB);
   const policy = new PolicyEngine({ database: env.DB, events, context: {
@@ -67,15 +63,15 @@ export async function createFakeTelegramCallingSystem(ownerPrincipalId = "princi
         from: { id: input.callerId ?? 12345 }, chat: { id: input.chatId ?? 44 }, text } }),
     });
     const response = await handleTelegramWebhook(request, { webhookSecret: FAKE_TELEGRAM_WEBHOOK_SECRET,
-      policy: new PolicyService(new DeviceRepository(env.DB)), events, limiter, redactor: new Redactor(), now: () => new Date(clock),
+      policy: new PolicyService(new DeviceRepository(env.DB)), events, limiter, redactor: new Redactor("external"),
+      owner: { principalId: ownerPrincipalId, redactor: new Redactor("owner") }, now: () => new Date(clock),
       onAccepted: (update) => {
         accepted.push(update);
         const parsed = parseCommand(update.text, "jarvis_sid_bot");
         if (input.execute === false || parsed.kind !== "command") return;
         pending.push((async () => {
           const result = await runCommand(parsed.name, parsed.argument, { principalId: update.principalId,
-            now: () => new Date(clock), calls: { request: () => commands().request(update, dispatch) },
-            ownerStepUp: { disable: () => ownerStepUp().disable(update) } });
+            now: () => new Date(clock), calls: { request: () => commands().request(update, dispatch) } });
           replies.push(...result.map((reply) => reply.text));
         })());
       },
@@ -83,6 +79,6 @@ export async function createFakeTelegramCallingSystem(ownerPrincipalId = "princi
     await Promise.all(pending);
     return response;
   };
-  return { ingest, accepted, replies, commands, ownerStepUp, policy, dispatcher, twilio, state, destination: base.destination,
+  return { ingest, accepted, replies, commands, policy, dispatcher, twilio, state, destination: base.destination,
     setNow: (value: string) => { clock = new Date(value); }, cleanup: () => base.cleanup() };
 }

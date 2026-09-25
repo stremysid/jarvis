@@ -10,6 +10,7 @@ import { Redactor } from "../../src/security/redaction.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
+import type { WebToolsDependencies } from "../../src/web/web-tools.js";
 import type {
   ModelAgentCompletion, ModelAgentCompletionInput, ModelAgentStreamChunk, ModelAgentStreamInput, ModelFunctionCall,
 } from "../../src/providers/provider-types.js";
@@ -34,7 +35,7 @@ export async function withMismatchedVoiceOwnerTurn<T>(run: () => Promise<T>): Pr
 export async function voiceArgumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
     timeZone?: string; messageAt?: Date; processingAt?: Date; direct?: boolean; wrongOwner?: boolean;
-    gate?: ToolAutonomyGateContract;
+    gate?: ToolAutonomyGateContract; web?: WebToolsDependencies;
   } = {}) {
   await applyNewestRuntimeMigration();
   const principalId = `principal:voice-argument:${newUlid()}`;
@@ -42,14 +43,17 @@ export async function voiceArgumentTurn(text: string,
     .bind(principalId, VOICE_NOW.toISOString(), VOICE_NOW.toISOString()).run();
   const requests: ModelAgentCompletionInput[] = [];
   const spoken: string[] = [];
+  const unusedPipeline = { async *stream() { throw new Error("unexpected_pipeline_dispatch"); } };
   const model = new OwnerVoiceAgentAdapter({
     database: env.DB, archive: env.ARCHIVE,
     ownerPrincipalId: options.wrongOwner ? "principal:another-owner" : principalId,
     directOwnerText: options.direct ?? true, autonomy: options.gate ?? await testToolGate(env.DB),
     now: () => options.processingAt ?? VOICE_NOW,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
+    ...(options.web === undefined ? {} : { web: options.web }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
+    schoolModel: unusedPipeline, universityModel: unusedPipeline, studyCoachModel: unusedPipeline,
     provider: {
       async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_argument_must_stream"); },
       async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {

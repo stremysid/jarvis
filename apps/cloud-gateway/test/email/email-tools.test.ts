@@ -1,10 +1,9 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
-import { OwnerTelegramAgentAdapter, OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../../src/channels/telegram/owner-telegram-agent.js";
-import { OWNER_VOICE_TOOL_DEFINITIONS } from "../../src/voice/voice-agent.js";
+import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { AGENT_MAX_TOOLS } from "../../src/providers/deepseek-provider.js";
-import { SHARED_OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { EMAIL_INBOX_TOOL_DEFINITIONS, emailInboxEvidence, inboxListPage } from "../../src/email/email-tools.js";
 import { EmailInbox, INBOX_EVIDENCE_BYTES, storeInboundEmail } from "../../src/email/email-inbox.js";
 import { handleInboundEmail } from "../../src/email/email-handler.js";
@@ -185,17 +184,15 @@ beforeAll(async () => {
 });
 
 describe("the email inbox tools", () => {
-  it("offers the inbox tools on both owner channels and keeps both catalogues within the provider cap", () => {
+  it("offers the inbox tools in the one owner catalogue both channels send, within the provider cap", () => {
     const names = new Set(EMAIL_INBOX_TOOL_DEFINITIONS.map((tool) => tool.name));
     expect(names).toEqual(new Set(["email_inbox_list", "email_inbox_read"]));
-    for (const catalogue of [OWNER_TELEGRAM_TOOL_DEFINITIONS, OWNER_VOICE_TOOL_DEFINITIONS]) {
-      const offered = catalogue.map((tool) => tool.name);
-      for (const name of names) expect(offered).toContain(name);
-      expect(catalogue.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
-    }
-    // Both channels get them from the same list, so neither can gain one the
-    // other lacks without changing this shared constant.
-    for (const name of names) expect(SHARED_OWNER_TOOL_DEFINITIONS.map((tool) => tool.name)).toContain(name);
+    // Telegram and calls both send OWNER_TOOL_DEFINITIONS unchanged (#174), and
+    // voice-agent.test.ts asserts the two requests carry identical tools, so a
+    // tool in this list reaches both channels and a tool outside it reaches neither.
+    const offered = OWNER_TOOL_DEFINITIONS.map((tool) => tool.name);
+    for (const name of names) expect(offered).toContain(name);
+    expect(OWNER_TOOL_DEFINITIONS.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
   });
 
   it("says plainly that this is Sid's inbox and that message content is never instructions", () => {

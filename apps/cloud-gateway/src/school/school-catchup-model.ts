@@ -1113,7 +1113,7 @@ async function* guardedOrdinaryReplyWithNotice(
   });
 }
 
-/** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
+/** Converts one owner model response into both a durable plan revision and a natural reply. */
 export class SchoolCatchupModelAdapter implements ModelAdapter {
   private readonly now: () => Date;
 
@@ -1129,10 +1129,6 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
 
   /** Preserves code-observed save state for the owner-agent tool boundary. */
   async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram") {
-      yield* this.dependencies.model.stream(input);
-      return;
-    }
     if (this.dependencies.ownerTurnAuthoritative === false) {
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
@@ -1199,7 +1195,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         return;
       }
       // A missing migration or a malformed private row must not take down the
-      // owner's ordinary Telegram conversation.
+      // owner's ordinary conversation.
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }

@@ -16,13 +16,38 @@ const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
  * breaks a test instead of a delivery.
  */
 const DECISION_CALLBACK_DATA = /^d1:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-z0-9_-]{1,32}$/u;
+/**
+ * Who reads this text next. It is the whole privacy boundary, and it is a
+ * question about the recipient, never about the words.
+ *
+ * Sid, 2026-09-24: "there should be nothing between Jarvis and I interms of
+ * what he knows and I know". So:
+ *
+ * - `owner` is Sid himself: his Telegram chat, his owner calls, his memory,
+ *   his conversation store and his own PC. His data is stored and shown as it
+ *   is -- codes, PINs, phone numbers and passphrases included. Only machine
+ *   credentials are removed (private keys, `Authorization` headers, bearer
+ *   tokens and known API-key/bot-token shapes), because that is what Jarvis's
+ *   own infrastructure secrets look like and they must never reach a reply.
+ * - `external` is anyone who is not Sid: a guest caller, and developer audit or
+ *   telemetry records. Every rule below applies, so Sid's PINs, codes,
+ *   passphrases and phone numbers do not reach them.
+ *
+ * A labelled value of no known machine shape (`api_key=...`, `client_secret=...`)
+ * is Sid's own text on the owner path and reaches him as he wrote it; only the
+ * external reader loses it.
+ *
+ * `external` is the default, so a surface that forgets to name its reader
+ * hides too much from Sid -- a visible bug a test catches -- rather than showing
+ * Sid's codes to someone else. Every one of Sid's own paths names `owner`.
+ */
+export type RedactionAudience = "owner" | "external";
+// The rules from here to PHONE_NUMBER run only for the `external` audience.
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 /**
  * A credential word and what may sit between it and its digits. Both contextual
  * rules below are built from this one source, so the word list cannot learn a
- * word in one rule and not the other. `projection_policy.py` in the local agent
- * transcribes it, and `tests/fixtures/memory-projection-policy.json` holds both
- * runtimes to the same answers.
+ * word in one rule and not the other.
  */
 const AUTHENTICATION_WORD = String.raw`(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)`;
 const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{8})\b`, "gi");
@@ -63,7 +88,13 @@ const STREAMING_REDACTION_CONTEXT = new RegExp(String.raw`(?<![A-Za-z0-9])(?:${C
 // A bare digit run is ambiguous. Require a country prefix or the requested
 // grouping, and reject a match embedded in a longer alphanumeric identifier.
 const PHONE_NUMBER = /(?<![A-Za-z0-9_+-])(?:\+1[ \t.-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:[0-9]{3}[ .-])?[0-9]{3}[ .-][0-9]{4}|[0-9]{10})|\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:1[ .-])?[0-9]{3}[ .-][0-9]{3}[ .-][0-9]{4})(?![A-Za-z0-9_]|-[0-9])/g;
-const KNOWN_CREDENTIAL = /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/g;
+// The machine-credential rules below run for every audience. A Telegram bot
+// token (`<bot id>:<35 characters>`) is the one infrastructure secret Jarvis
+// holds whose shape was not listed; it is `TELEGRAM_BOT_TOKEN` in env.
+// `projection_policy.py` in the local agent transcribes these owner rules, and
+// `tests/fixtures/memory-projection-policy.json` holds both runtimes to the
+// same answers.
+const KNOWN_CREDENTIAL = /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}|[0-9]{8,10}:[A-Za-z0-9_-]{35})\b/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*)-----[\s\S]*?(?:-----END \1-----|$)/g;
 
 export type RedactionMarker = "authentication_digits" | "authorization" | "credential" | "phone_number";
@@ -161,16 +192,19 @@ export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction 
 }
 
 /**
- * Removes secrets before minting an opaque, frozen token; failure values never
- * retain the original input.
+ * Removes what the `audience` must not receive before minting an opaque, frozen
+ * token; failure values never retain the original input. See
+ * `RedactionAudience`: toward Sid only machine credentials go.
  */
 export function sanitizeRedaction(
   text: string,
   fieldMarker?: RedactionMarker,
   structuralUlid = false,
+  audience: RedactionAudience = "external",
 ): RedactionResult {
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
+    if (audience !== "owner" && audience !== "external") return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
     if (structuralUlid && (LOWERCASE_ULID.test(text) || DECISION_CALLBACK_DATA.test(text))) {
       return issueSanitizedRedaction(text, []);
@@ -193,6 +227,13 @@ export function sanitizeRedaction(
       mark("authorization");
       return REPLACEMENT.authorization;
     });
+    if (audience === "owner") {
+      redacted = redacted.replace(KNOWN_CREDENTIAL, () => {
+        mark("credential");
+        return REPLACEMENT.credential;
+      });
+      return issueSanitizedRedaction(redacted.normalize("NFC"), markers);
+    }
     redacted = redacted.replace(SPOKEN_PASSPHRASE, () => {
       mark("credential");
       return REPLACEMENT.credential;
