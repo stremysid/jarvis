@@ -3,6 +3,26 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #168 main merge, `0050` rename, reminder voice parity
+
+Signed: Claude (builder agent), branch `codex/owner-reminders-run` after `d2142167`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches Sid's rules 1, 2, 3, 7
+and 8. No merge to main, deploy, migration apply or production access.
+
+- Merged `origin/main` `976d5b2b` normally. #166 had landed as a squash and #193 then
+  removed its proof grammar, so the resolution is main's tree plus this branch's
+  reminder-only delta (`e2c484a5..d2142167`); nothing #193 deleted comes back.
+- Renamed `0041_owner_reminders.sql` to `0050_owner_reminders.sql` (Sid's 2026-09-24
+  renumbering decision). Checked: main tops out at `0048`; open PRs hold `0046` (#190),
+  `0047` (#196), `0049` (#195); no origin branch has a `005x` file.
+- Round-2 finding (channel parity): reminder tools now sit in main's shared owner
+  catalogue, so a call can schedule, list and cancel; delivery stays a Telegram message
+  and the receipt says so.
+- Removed the 400-day upper cap: how far ahead to remind is the model's and Sid's choice.
+  The five-minutes-in-the-past refusal stays, because the clock is a fact code owns.
+  The branch's CODE-VS-JUDGMENT "reminder contract" section is dropped, not carried.
+- Reminders to Sid himself stay ungated: `notify.owner` is tier 1, no tap.
+
 ## 2026-09-25 — Claude builder: #194 round 2 (history line breaks, bad rows, older backup sets)
 
 Signed: Claude (builder agent), branch `codex/memory-fixes` after `e53dc852` plus a

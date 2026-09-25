@@ -9,19 +9,24 @@ describe("reviewed reminder scheduling", () => {
 
   it.each([
     ["a 2020 instant", "2020-01-01T00:00:00.000Z", "owner_reminder_at_past"],
-    ["a year 9999 instant", "9999-01-01T00:00:00.000Z", "owner_reminder_at_too_far"],
     ["one millisecond beyond the past grace", "2026-09-23T13:54:59.999Z", "owner_reminder_at_past"],
-    ["one millisecond beyond the future horizon", new Date(NOW.getTime() + 400 * 86_400_000 + 1).toISOString(), "owner_reminder_at_too_far"],
   ])("refuses %s with a specific reason and no stored reminder", async (_label, at, reason) => {
     const result = await argumentTurn("Remind me to study.", reminderCall("reminder_schedule", { at, text: "Study." }));
     expect(await new OwnerReminderRepository(env.DB).list(result.principalId)).toEqual([]);
     expect(JSON.stringify(result.requests[1])).toContain(reason);
   });
 
-  it.each([-5 * 60_000, 400 * 86_400_000])("accepts the inclusive scheduling boundary at offset %s", async (offset) => {
+  it.each([-5 * 60_000, 400 * 86_400_000 + 1])("accepts the inclusive scheduling boundary at offset %s", async (offset) => {
     const at = new Date(NOW.getTime() + offset).toISOString();
     const result = await argumentTurn("Remind me.", reminderCall("reminder_schedule", { at, text: "Study." }));
     expect(await new OwnerReminderRepository(env.DB).list(result.principalId)).toMatchObject([{ due_at: at }]);
+  });
+
+  it("stores a year 9999 reminder as pending because how far ahead to remind is the model's choice", async () => {
+    const at = "9999-01-01T00:00:00.000Z";
+    const result = await argumentTurn("Remind me.", reminderCall("reminder_schedule", { at, text: "Study." }));
+    expect(await new OwnerReminderRepository(env.DB).list(result.principalId)).toMatchObject([{ due_at: at, status: "pending" }]);
+    expect(JSON.stringify(result.requests[1])).not.toContain("owner_reminder_at_too_far");
   });
 
   it("uses the processing clock for reminder bounds and tells the model both clocks and the configured zone", async () => {
