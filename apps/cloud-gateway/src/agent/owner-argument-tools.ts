@@ -3,8 +3,8 @@ import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import type { ExecutedTool } from "./owner-agent-core.js";
 
-// Both channel catalogues import this list so a new hand cannot quietly exist
-// on only one channel while the broader channel-parity work is in flight.
+// The shared owner catalogue includes argument tools so a new hand cannot
+// quietly exist on only one channel.
 export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   DEADLINE_TOOL_DEFINITION,
 ]);

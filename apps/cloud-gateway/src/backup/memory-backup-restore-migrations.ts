@@ -37,6 +37,7 @@ import migration0038 from "../persistence/migrations/0038_memory_lifetime_and_pi
 import migration0039 from "../persistence/migrations/0039_tool_confirmation_consumptions.sql";
 import migration0040 from "../persistence/migrations/0040_school_collector_keys.sql";
 import migration0043 from "../persistence/migrations/0043_guided_assignment.sql";
+import migration0044 from "../persistence/migrations/0044_owner_channel_parity.sql";
 import migration0045 from "../persistence/migrations/0045_school_collector_hosts.sql";
 import migration0047 from "../persistence/migrations/0047_call_pin_and_owner_authority.sql";
 
@@ -81,6 +82,7 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0039_tool_confirmation_consumptions.sql", sql: migration0039 }),
   Object.freeze({ name: "0040_school_collector_keys.sql", sql: migration0040 }),
   Object.freeze({ name: "0043_guided_assignment.sql", sql: migration0043 }),
+  Object.freeze({ name: "0044_owner_channel_parity.sql", sql: migration0044 }),
   Object.freeze({ name: "0045_school_collector_hosts.sql", sql: migration0045 }),
   Object.freeze({ name: "0047_call_pin_and_owner_authority.sql", sql: migration0047 }),
 ]);
