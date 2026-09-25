@@ -27,9 +27,13 @@ describe("the additive confirmation migration", () => {
       .bind(principalId, timestamp, timestamp).run();
     const service = new AutonomyService({ repository: new AutonomyRepository(env.DB), now });
     const gate = new ToolAutonomyGate(service, new D1ToolConfirmationStore(env.DB, now));
-    const request = { principalId, toolName: "send_email", arguments: "{}" };
+    // The schema this case rebuilds stops before 0039, so it is also before
+    // 0051: `vehicle.unlock` is still the tier-3 row 0008 seeded, and
+    // `send.email` does not exist yet. A tool mapped to the old tier-3 row is
+    // what exercises the missing-table path.
+    const request = { principalId, toolName: "tesla_unlock", arguments: "{}" };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
-    const reference = confirmationReference(request.toolName, "contact.third_party", await argumentsFingerprint(request.arguments));
+    const reference = confirmationReference(request.toolName, "vehicle.unlock", await argumentsFingerprint(request.arguments));
     const item = await decisions.raise({
       principalId, origin: TIER3_TOOL_ORIGIN, originReference: reference,
       urgency: "normal", question: "Run the fixture?", choices: [{ key: "confirm", label: "Confirm" }],
