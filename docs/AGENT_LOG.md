@@ -3,6 +3,22 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 10:40 PM — Claude: memory spec (#122) fixed for the DeepSeek audit of `e9dfcdf`
+
+Signed: Claude (orchestrator agent, Opus 5.5), branch `docs/memory-redesign-spec`. Docs only.
+
+- **Merged** `origin/main` (`63eeae3`) into the branch. The conflict was only in this file, and both sides are kept. The memory code at `63eeae3` is the same as at `b0cddc5`.
+- **Audit finding 1 (ME-16 under-deleted).** §3.5 now deletes the whole ME-16 row: `shouldSkipMeaningSearch`/`MEANING_ACKNOWLEDGEMENT_TERMS`, the `literalHistoryQuery` gate of two terms or fewer, `recentContextCoversQuery`, `questionOnly`, `sameText`, and the `MIN_RECENT_EVIDENCE_CHARACTERS` drop. It also names what stays and why: the id-based drops are facts, and the duplicate-text drops and stopwords belong to ME-22, which is UNSURE.
+- **Audit finding 2 (voice half of §3.3).** Decision: admit `conversation.assistant_sent` as a history event type. Re-typing call replies to `assistant_delivered` is blocked by the `0005` transition trigger.
+  - The four admission lists that change are named: `historyEvent`, `sourceChannel`, the owner-only speaker filters (these become a `speaker` option), and `D1ContextRetriever`.
+  - The lists that stay are named with reasons: the `0016` suppression trigger, `projectionSourceText`, meaning search, and the Telegram pairing code.
+  - Past call replies are admitted despite `historyEligible: false`.
+- **Audit finding 3 (`searchLiteral`).** Corrected: it searches `memory_history_fts` and resolves each hit from live D1 or R2. It covers every indexed owner message, reports `incomplete` for ranges it has not indexed, and excludes Jarvis's replies. The exhaustive scan covers the ranges that are not indexed yet, and nothing calls it on main.
+- **Non-blocking notes.** Migration numbers are now conditional on merge order. §3.4 records the AI's own `basis` declaration instead of saying "code labels inferred facts".
+- **New finding while re-checking.** memory-fixes (`87df9ce`) does not unstick history indexing on its own. The `0016` CHECK on `memory_history_chunks.text` refuses `\n`. §3.2 and phase 1 now add a search-form chunk text (newline becomes a space; the hash and excerpts stay the original), which needs no migration.
+- **Priority.** Phase 1 and `history_search` (phase 4a) are marked as the first build targets for this weekend. Phase 4a does not wait for #174. The phase order is unchanged.
+- **Not done:** no tests, no production reads. It needs a DeepSeek re-audit, and the PR stays a draft.
+
 ## 2026-09-24 late — Claude: memory spec (#122) refreshed to "the AI writes, code only stores"
 
 Signed: Claude (orchestrator agent, Opus 5.5), branch `docs/memory-redesign-spec`. Docs only.
