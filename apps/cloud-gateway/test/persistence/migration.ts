@@ -40,7 +40,7 @@ import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/00
 import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
 import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
-import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0047_note_sources_without_markdown_citation.sql?raw";
+import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -286,12 +286,12 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await applyMemoryBackupMigration();
   memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
     { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
-    // 0047 rewrites a trigger 0032 creates, so it belongs beside it: a fixture
+    // 0048 rewrites a trigger 0032 creates, so it belongs beside it: a fixture
     // that stops at 0032 still carries the markdown-citation clause the product
     // removed, and its notes would be refused by the database, not by any code
     // under test. It is also in every full-chain list below.
     {
-      name: "0047_note_sources_without_markdown_citation.sql",
+      name: "0048_note_sources_without_markdown_citation.sql",
       queries: splitMigration(noteSourcesWithoutMarkdownCitationSql),
     },
   ]);
@@ -374,7 +374,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
   { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
   { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
-  { name: "0047_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
 ]);
 
 /**
@@ -679,3 +679,4 @@ export async function clearConversationDataForTest(): Promise<void> {
       END`).run();
   }
 }
+

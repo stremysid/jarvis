@@ -18,7 +18,7 @@ NOT applied; Sid applies it only after review.
   the same rule also lived in a D1 trigger,
   `memory_topic_note_sources_insert_guard` in `0032` (`instr(note.markdown,
   NEW.source_id) > 0`). Removing the TypeScript alone still leaves every note
-  refused as `memory_topic_note_source_invalid`. Migration `0047` drops and
+  refused as `memory_topic_note_source_invalid`. Migration `0048` drops and
   recreates that guard without the clause. `0032` is not edited.
 - **(b) History stuck at the first line break.** `rowText`/`inputText` in
   `literal-history.ts` now allow `\n`, `\r` and `\t` and keep every other control
@@ -42,8 +42,11 @@ NOT applied; Sid applies it only after review.
   exactly the current table set, so it fails as
   `memory_backup_restore_manifest_invalid`. Not fixed -- that file is PR #174's.
   Recorded in KNOWN_ISSUES.
-- **Migration number:** `0047` (highest open at the time was `0046`, PR #190).
-  Registered in `test/persistence/migration.ts` (both chains),
+- **Migration number:** `0048`, not `0047`. `0046` was the highest open number when
+  this started (PR #190), so the first cut used `0047`; PR #195
+  (`codex/web-tools`) opened later holding `0047_web_tools.sql`, so this was
+  renumbered to `0048` to keep one migration per number. Registered in
+  `test/persistence/migration.ts` (both chains),
   `memory-backup-restore-migrations.ts` and the remote-D1 syntax inventory.
 - **Scope note:** `docs/CODE-VS-JUDGMENT.md` still lists memory judgment findings
   (rows 6-9). This change removes one class of it and adds no new condition that
@@ -21591,3 +21594,4 @@ merge is authorized. Claude re-review requested.
 — Codex
 
 ---
+
