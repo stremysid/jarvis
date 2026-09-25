@@ -124,8 +124,9 @@ function historyPayload(value: unknown, error: string): Record<string, unknown> 
  * Exported because a channel adapter needs it to read back what Jarvis itself
  * said on a previous turn, and doing that must not mean a second, weaker copy
  * of the payload check. `historyEligible` is deliberately not required to be
- * true here: a spoken assistant turn is stored with it false, because it is not
- * recall history -- it is still the exact text the owner heard.
+ * true here: a spoken call reply is stored with it false, a legacy value that
+ * says nothing about the text (see conversation/history-eligibility.ts); it is
+ * still the exact text the owner heard.
  */
 export function readHistoryPayloadEnvelope(value: unknown, error: string): string {
   const payload = historyPayload(value, error);

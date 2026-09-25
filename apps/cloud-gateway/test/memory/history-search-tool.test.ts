@@ -24,8 +24,8 @@ import { DefaultConversationService } from "../../src/conversation/conversation-
 import { createVoiceStreamDelivery } from "../../src/conversation/conversation-types.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../../src/conversation/outbox-dispatcher.js";
 import { buildTelegramConversationRepository } from "../../src/index.js";
-import { HISTORY_SEARCH_PREFIX } from "../../src/memory/history-search.js";
-import { LiteralHistoryService } from "../../src/memory/literal-history.js";
+import { composeHistorySearchPage, HISTORY_SEARCH_PREFIX } from "../../src/memory/history-search.js";
+import { LiteralHistoryService, type HistorySearchPage } from "../../src/memory/literal-history.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
@@ -119,7 +119,9 @@ async function telegramTurn(who: Owner, text: string, reply: string, call?: Mode
 /** One phone-call turn for the same owner, through the real voice agent. */
 async function callTurn(who: Owner, text: string, reply: string, call?: ModelFunctionCall) {
   const requests: ModelAgentStreamInput[] = [];
+  const fallback = { async *stream() { yield { index: 0, text: "No action." }; } };
   const model = new OwnerVoiceAgentAdapter({
+    schoolModel: fallback, universityModel: fallback, studyCoachModel: fallback,
     database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: who.principalId, directOwnerText: true,
     autonomy: await testToolGate(env.DB), now: () => NOW,
     targets: { async findControlTargets() { return []; } },
@@ -316,21 +318,42 @@ describe("history_search through the owner agents", () => {
     expect(new Set([...hitLines(first.receipt), ...hitLines(second.receipt)]).size).toBe(6);
   });
 
-  it("reads the conversation around a hit on a call", async () => {
+  it("reads the conversation around a hit on a call and on Telegram, with the same messages", async () => {
     const who = await owner();
     await callTurn(who, "Which binder do I need for history class?", "Bring the lime binder.");
     await indexHistory(who);
     const reply = await storedEventId(who.principalId, "conversation.assistant_sent", "Bring the lime binder.");
 
-    const result = toolResult(await callTurn(
+    const fromCall = toolResult(await callTurn(
       who, "what was that about the binder?", "You asked which binder.",
-      searchCall("history-around", { aroundEventId: reply, window: 2 }),
+      searchCall("history-around-call", { aroundEventId: reply, window: 1 }),
+    ));
+    const fromTelegram = toolResult(await telegramTurn(
+      who, "what was that about the binder?", "You asked which binder.",
+      searchCall("history-around-telegram", { aroundEventId: reply, window: 1 }),
     ));
 
-    expect(result.status).toBe("completed");
-    const lines = result.receipt.split("\n").slice(1);
-    expect(lines[0]).toContain('call, Sid said: "Which binder do I need for history class?"');
-    expect(lines[1]).toMatch(/^>> .*call, Jarvis said: "Bring the lime binder\."/u);
+    for (const result of [fromCall, fromTelegram]) {
+      expect(result.status).toBe("completed");
+      const lines = result.receipt.split("\n").slice(1);
+      expect(lines[0]).toContain('call, Sid said: "Which binder do I need for history class?"');
+      expect(lines[1]).toMatch(/^>> .*call, Jarvis said: "Bring the lime binder\."/u);
+    }
+    // One message each side: both reads end at the call's search question, so they match exactly.
+    expect(fromTelegram.receipt).toBe(fromCall.receipt);
+  });
+
+  it("names the event id, not the query, when an around read is refused", async () => {
+    const who = await owner();
+
+    const result = toolResult(await telegramTurn(
+      who, "what came before that?", "I could not read that.",
+      searchCall("history-around-bad-id", { aroundEventId: "not-an-event-id" }),
+    ));
+
+    expect(result.status).toBe("refused");
+    expect(result.receipt).toContain("aroundEventId is not a valid event id");
+    expect(result.receipt).not.toContain("the query has no letters or digits");
   });
 
   it("returns a named failure rather than an empty result when the query has nothing to search for", async () => {
@@ -343,5 +366,34 @@ describe("history_search through the owner agents", () => {
     expect(result.status).toBe("refused");
     expect(result.receipt).toContain("Nothing was searched.");
     expect(result.receipt).not.toContain("No indexed message matched.");
+  });
+});
+
+describe("the history_search page text", () => {
+  const empty: HistorySearchPage = Object.freeze({
+    hits: [], offset: 0, moreResults: false, nextOffset: null,
+    searchedThroughEventSequence: 40, missingRange: null, missingReason: null,
+  });
+
+  it("says the newest messages are unsearched only when the missing range is the unindexed tail", () => {
+    const tail = composeHistorySearchPage("teal", 1, {
+      ...empty, missingRange: { startEventSequence: 41, endEventSequence: 44 }, missingReason: "not_indexed_yet",
+    });
+    const refresh = composeHistorySearchPage("teal", 1, {
+      ...empty, searchedThroughEventSequence: 44,
+      missingRange: { startEventSequence: 12, endEventSequence: 12 }, missingReason: "being_reindexed",
+    });
+
+    expect(tail).toContain("Events #41 to #44 are not indexed yet");
+    expect(tail).toContain("The newest messages, including this conversation, are always in that range");
+    expect(refresh).toContain("Event #12 is waiting to be re-indexed by the hourly job");
+    expect(refresh).not.toContain("The newest messages");
+  });
+
+  it("does not blame the speaker filter alone when a page with more results shows no message", () => {
+    const text = composeHistorySearchPage("teal", 2, { ...empty, moreResults: true, nextOffset: 10 });
+
+    expect(text).toContain("its matches were forgotten or were said by the other speaker");
+    expect(text).toContain("More results: yes. Call history_search again with the same query and page 3.");
   });
 });

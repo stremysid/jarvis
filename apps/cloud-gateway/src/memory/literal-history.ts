@@ -7,6 +7,7 @@ import {
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
 import type { ArchiveManifest, ArchiveState } from "../archive/archive-repository.js";
+import { admitsHistoryEligible } from "../conversation/history-eligibility.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
 import type { MemorySourceChannel, MemorySourceLocation } from "./memory-types.js";
 
@@ -134,7 +135,16 @@ export interface HistorySearchPage {
   readonly nextOffset: number | null;
   readonly searchedThroughEventSequence: number;
   readonly missingRange: MissingHistoryRange | null;
+  /** Why `missingRange` is unsearched; null exactly when it is. */
+  readonly missingReason: MissingHistoryReason | null;
 }
+
+/**
+ * `not_indexed_yet`: the newest events, past the indexer's cursor, including
+ * the current conversation. `being_reindexed`: one older event waiting for a
+ * refresh (a forget, a lift, an archive move, or a call-reply backfill).
+ */
+export type MissingHistoryReason = "not_indexed_yet" | "being_reindexed";
 
 /** One message in the window `readHistoryAround` returns. */
 export interface HistoryContextMessage {
@@ -215,6 +225,7 @@ interface CursorRow {
 interface MaintenanceRow {
   readonly event_sequence: unknown;
   readonly changed_at: unknown;
+  readonly backfill: unknown;
 }
 
 interface ChunkCandidateRow {
@@ -573,13 +584,8 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
       ? withoutMemoryReferences(envelope.payload)
       : envelope.payload,
   ));
-  // Call replies stored before this change carry `historyEligible: false`. That
-  // flag recorded the old "a spoken reply is not recall history" policy and says
-  // nothing about the text, so for `assistant_sent` either value is admitted and
-  // past call replies become searchable. Every other type keeps the strict check.
-  const eligible = envelope.eventType === "conversation.assistant_sent"
-    ? typeof payload.historyEligible === "boolean"
-    : payload.historyEligible === true;
+  // One shared reading of the flag; a call reply's is legacy (history-eligibility.ts).
+  const eligible = admitsHistoryEligible(envelope.eventType, payload.historyEligible);
   if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || !eligible) {
     badRow("history_row_not_history_eligible");
   }
@@ -651,7 +657,7 @@ async function storedSearchEvent(row: SearchEventRow): Promise<AppendedEvent> {
 }
 
 const CURSOR_FIELDS = new Set(["current_event_sequence", "updated_at"]);
-const MAINTENANCE_FIELDS = new Set(["event_sequence", "changed_at"]);
+const MAINTENANCE_FIELDS = new Set(["event_sequence", "changed_at", "backfill"]);
 const CHUNK_FIELDS = new Set(["event_sequence", "content_hash"]);
 const SUPPRESSION_FIELDS = new Set([
   "target_event_id", "start_event_sequence", "end_event_sequence",
@@ -684,7 +690,14 @@ export class LiteralHistoryService {
         MAX_INDEX_TEXT_BYTES,
       );
       const maintenance = await this.readMaintenance(principalId);
-      if (maintenance !== null) {
+      const cursor = await this.readCursor(principalId);
+      const latest = await this.options.events.latestSequence();
+      if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
+      if (cursor.sequence > latest) corrupt();
+      // New messages come before the one-off call-reply backfill: a backlog of
+      // old replies must not hold back indexing what Sid said since. Backfill
+      // runs on steps where the cursor has nothing new to read.
+      if (maintenance !== null && (!maintenance.backfill || cursor.sequence >= latest)) {
         const refreshed = await this.indexSequences(
           principalId, maintenance.eventSequence - 1, 1, maxTextBytes, true, maintenance.changedAt,
         );
@@ -699,10 +712,6 @@ export class LiteralHistoryService {
         });
       }
 
-      const cursor = await this.readCursor(principalId);
-      const latest = await this.options.events.latestSequence();
-      if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
-      if (cursor.sequence > latest) corrupt();
       if (cursor.sequence >= latest) {
         return Object.freeze({
           startEventSequence: null,
@@ -917,9 +926,12 @@ export class LiteralHistoryService {
    * therefore hold fewer hits than its size while `moreResults` is still true,
    * which is why the next page is named by offset and not by count.
    *
-   * `missingRange` is the part of history the index has not reached, which
-   * always includes the newest messages because the index is built hourly. It
-   * is reported, never hidden, so a miss is never presented as "never said".
+   * `missingRange` is the part of history this search could not cover:
+   * usually the unindexed tail past the cursor, which holds the newest messages
+   * because the index is built hourly (`missingReason` "not_indexed_yet"), or,
+   * once the cursor has caught up, one older event awaiting a refresh
+   * ("being_reindexed"). It is reported, never hidden, so a miss is never
+   * presented as "never said".
    */
   async searchHistory(input: Readonly<{
     principalId: string;
@@ -990,6 +1002,7 @@ export class LiteralHistoryService {
         nextOffset: moreResults ? offset + pageSize : null,
         searchedThroughEventSequence: coverage.searchedThrough,
         missingRange: coverage.missingRange,
+        missingReason: coverage.missingReason,
       });
     });
   }
@@ -1365,6 +1378,8 @@ export class LiteralHistoryService {
   private async readMaintenance(principalId: string): Promise<{
     eventSequence: number;
     changedAt: string;
+    /** True for a call reply the cursor passed before call replies were history. */
+    backfill: boolean;
   } | null> {
     // A skipped row's `failed` coverage counts as coverage here, so a row that
     // is refreshed and still cannot be decoded is settled by its new receipt
@@ -1433,19 +1448,23 @@ export class LiteralHistoryService {
               -- and is settled, like any other skipped row, not retried forever.
           )
       )
-      SELECT event_sequence, changed_at FROM (
-        SELECT event_sequence, changed_at FROM suppression_changes
+      -- A forget, a lift or an archive move changes what indexed rows mean, so
+      -- those refreshes come first; the one-off call-reply backfill comes last,
+      -- and indexNext runs it only once the cursor has caught up.
+      SELECT event_sequence, changed_at, backfill FROM (
+        SELECT event_sequence, changed_at, 0 AS backfill FROM suppression_changes
         UNION ALL
-        SELECT event_sequence, changed_at FROM archive_changes
+        SELECT event_sequence, changed_at, 0 AS backfill FROM archive_changes
         UNION ALL
-        SELECT event_sequence, changed_at FROM call_reply_backfill
-      ) ORDER BY event_sequence ASC, changed_at ASC LIMIT 1`)
+        SELECT event_sequence, changed_at, 1 AS backfill FROM call_reply_backfill
+      ) ORDER BY backfill ASC, event_sequence ASC, changed_at ASC LIMIT 1`)
       .bind(principalId, principalId, principalId).first<MaintenanceRow>();
     if (row === null) return null;
     exactRow(row, MAINTENANCE_FIELDS);
     return {
       eventSequence: rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER),
       changedAt: rowTimestamp(row.changed_at),
+      backfill: rowInteger(row.backfill, 0, 1) === 1,
     };
   }
 
@@ -1672,6 +1691,7 @@ export class LiteralHistoryService {
   private async coverageStatus(principalId: string): Promise<{
     searchedThrough: number;
     missingRange: MissingHistoryRange | null;
+    missingReason: MissingHistoryReason | null;
   }> {
     const latest = await this.options.events.latestSequence();
     if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
@@ -1684,6 +1704,7 @@ export class LiteralHistoryService {
           startEventSequence: cursor.sequence + 1,
           endEventSequence: latest,
         }),
+        missingReason: "not_indexed_yet",
       };
     }
     const maintenance = await this.readMaintenance(principalId);
@@ -1694,9 +1715,10 @@ export class LiteralHistoryService {
           startEventSequence: maintenance.eventSequence,
           endEventSequence: maintenance.eventSequence,
         }),
+        missingReason: "being_reindexed",
       };
     }
-    return { searchedThrough: latest, missingRange: null };
+    return { searchedThrough: latest, missingRange: null, missingReason: null };
   }
 
   private async readHistoryEvent(principalId: string, eventSequence: number): Promise<HistoryEvent | null> {

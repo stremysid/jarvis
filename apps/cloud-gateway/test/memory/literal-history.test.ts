@@ -1448,6 +1448,35 @@ describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
       startEventSequence: later.eventSequence,
       endEventSequence: later.eventSequence,
     });
+    expect(page.missingReason).toBe("not_indexed_yet");
+  });
+
+  it("indexes new messages before backfilling an old call reply, so a backlog cannot hold them back", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "The teal scarf is in the hall closet.", 1, "conversation.assistant_sent", false,
+    );
+    // The cursor passed the reply before call replies were history.
+    await env.DB.prepare(`INSERT INTO memory_cursors (
+      principal_id, cursor_name, current_event_sequence, updated_at
+    ) VALUES (?, 'fts_history', ?, ?)`).bind(OWNER_ID, reply.eventSequence, time.advance()).run();
+    const fresh = await appendConversation(events, time, "The teal scarf needs washing.", 2);
+    const literal = service(events, time);
+    const step = () => literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+
+    await expect(step()).resolves.toMatchObject({
+      refreshed: false, endEventSequence: fresh.eventSequence, complete: false,
+    });
+    await expect(step()).resolves.toMatchObject({
+      refreshed: true, startEventSequence: reply.eventSequence, complete: false,
+    });
+    await expect(step()).resolves.toMatchObject({ complete: true });
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "teal" });
+    expect(page.missingRange).toBeNull();
+    expect(page.hits.map((hit) => hit.eventId).sort())
+      .toEqual([reply.envelope.eventId, fresh.envelope.eventId].sort());
   });
 
   it("backfills a call reply the cursor passed before call replies were history", async () => {
@@ -1469,6 +1498,8 @@ describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
       startEventSequence: reply.eventSequence,
       endEventSequence: reply.eventSequence,
     });
+    // An old event awaiting a refresh, not the newest messages.
+    expect(before.missingReason).toBe("being_reindexed");
 
     await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
       .resolves.toMatchObject({ refreshed: true, chunksWritten: 1 });

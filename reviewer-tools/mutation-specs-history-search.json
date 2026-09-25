@@ -1,0 +1,266 @@
+[
+  {
+    "name": "M2 assistant_sent dropped from the literal-history admission list",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([",
+    "replace": "const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([\"conversation.user_committed\", \"conversation.assistant_delivered\"]); const UNUSED_HISTORY_TYPES = new Set([",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "finds a Telegram message, a call utterance and a call reply in one search"
+  },
+  {
+    "name": "M3 old call replies (historyEligible false) refused again",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "const eligible = admitsHistoryEligible(envelope.eventType, payload.historyEligible);",
+    "replace": "const eligible = payload.historyEligible === true;",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "finds a call reply stored before call replies were history"
+  },
+  {
+    "name": "M4 sourceChannel no longer maps assistant_sent to voice",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "if (eventType === \"conversation.assistant_sent\") {",
+    "replace": "if (eventType === \"conversation.assistant_sent_mutated\") {",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "finds a Telegram message, a call utterance and a call reply in one search"
+  },
+  {
+    "name": "M5 call replies labelled as Sid",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "speaker: envelope.eventType === \"conversation.user_committed\" ? \"user\" : \"assistant\",",
+    "replace": "speaker: envelope.eventType === \"conversation.assistant_delivered\" ? \"assistant\" : \"user\",",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "finds a Telegram message, a call utterance and a call reply in one search"
+  },
+  {
+    "name": "M6 speaker filter on decoded hits removed",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "if (!speakers.has(event.speaker)) continue;",
+    "replace": "if (speakers.size < 0) continue;",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "keeps a call reply archived to R2 out of Sid-only results"
+  },
+  {
+    "name": "M7 searchLiteral SQL stops excluding call replies",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "'conversation.assistant_delivered', 'conversation.assistant_sent'",
+    "replace": "'conversation.assistant_delivered'",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "does not let call replies crowd Sid's own words out of the automatic search"
+  },
+  {
+    "name": "M8 searchHistory SQL speaker filter removed for jarvis-only",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": ": [\"conversation.user_committed\"];",
+    "replace": ": [];",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "filters by speaker when asked for only Sid's words or only Jarvis's"
+  },
+  {
+    "name": "M9 moreResults never set",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "const moreResults = candidates.length > pageSize;",
+    "replace": "const moreResults = false;",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "pages through the results and says when more results exist"
+  },
+  {
+    "name": "M10 offset ignored",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "const offset = boundedInteger(input.offset ?? 0, 0, MAX_HISTORY_OFFSET);",
+    "replace": "const offset = boundedInteger(input.offset ?? 0, 0, MAX_HISTORY_OFFSET) * 0;",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "pages through the results and says when more results exist"
+  },
+  {
+    "name": "M11 around keeps forgotten neighbours",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "const visible = decoded.filter((event) => !this.isSuppressed(event, suppressions));",
+    "replace": "const visible = decoded;",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "returns the messages around a hit, oldest first, and leaves out a forgotten neighbour"
+  },
+  {
+    "name": "M12 around answers for a forgotten target",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "if (this.isSuppressed(target, suppressions)) throw new LiteralHistoryError(\"memory_history_not_found\");",
+    "replace": "if (suppressions.length < 0) throw new LiteralHistoryError(\"memory_history_not_found\");",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "returns the messages around a hit, oldest first, and leaves out a forgotten neighbour"
+  },
+  {
+    "name": "M13 call-reply backfill branch disabled",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "SELECT event_sequence, changed_at, 1 AS backfill FROM call_reply_backfill",
+    "replace": "SELECT event_sequence, changed_at, 1 AS backfill FROM call_reply_backfill WHERE 0",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "backfills a call reply the cursor passed before call replies were history"
+  },
+  {
+    "name": "M14 context retriever SQL drops assistant_sent",
+    "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+    "find": "'conversation.user_committed', 'conversation.assistant_delivered', 'conversation.assistant_sent'",
+    "replace": "'conversation.user_committed', 'conversation.assistant_delivered'",
+    "testPath": "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "expect": "puts a call reply into the next turn's recent context"
+  },
+  {
+    "name": "M15 context retriever refuses old call replies",
+    "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+    "find": "const eligible = admitsHistoryEligible(eventType, value.historyEligible);",
+    "replace": "const eligible = value.historyEligible === true;",
+    "testPath": "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "expect": "puts a call reply into the next turn's recent context"
+  },
+  {
+    "name": "M16 context retriever row check drops assistant_sent",
+    "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+    "find": "const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([",
+    "replace": "const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([\"conversation.user_committed\", \"conversation.assistant_delivered\"]); const UNUSED_HISTORY_TYPES = new Set([",
+    "testPath": "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "expect": "puts a call reply into the next turn's recent context"
+  },
+  {
+    "name": "M20 history_search not dispatched",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (call.name === HISTORY_SEARCH_TOOL_NAME) {",
+    "replace": "if (call.name === \"history_search_disabled\") {",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "finds a Telegram message, a call utterance and a call reply from both a Telegram turn and a call"
+  },
+  {
+    "name": "M21 history_search owner-authority check removed",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);",
+    "replace": "if (call.name.length < 0) return refusedTool(call, port.memoryAuthorityRefusal);",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "refuses history_search on Telegram when the turn is not Sid's direct text"
+  },
+  {
+    "name": "M23 history_search unclassified",
+    "file": "apps/cloud-gateway/src/autonomy/tool-capabilities.ts",
+    "find": "  history_search: \"memory.read\",",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "is classified as a memory read"
+  },
+  {
+    "name": "M24 refused query reported as a generic failure",
+    "file": "apps/cloud-gateway/src/memory/history-search.ts",
+    "find": "if (error.code === \"memory_history_refused\") {",
+    "replace": "if (error.code === \"memory_history_refused_mutated\") {",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "returns a named failure rather than an empty result"
+  },
+  {
+    "name": "M25 history_search missing from the shared definitions",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "    name: \"history_search\",",
+    "replace": "    name: \"history_search_hidden\",",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "is offered with one identical definition to Telegram and to calls"
+  },
+  {
+    "name": "M26 more-results line claims no more pages",
+    "file": "apps/cloud-gateway/src/memory/history-search.ts",
+    "find": "  const more = page.moreResults",
+    "replace": "  const more = false && page.moreResults",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "flags more results and serves the next page when asked"
+  },
+  {
+    "name": "M27 Telegram retriever refuses call replies in recent context",
+    "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+    "find": "if (row.event_type === ASSISTANT_SENT_EVENT_TYPE) {",
+    "replace": "if (row.event_type === \"conversation.assistant_sent_mutated\") {",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "puts what Jarvis said on a call into the next Telegram turn's recent context"
+  },
+  {
+    "name": "M28 call replies with cited memories refused by literal history",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "      ? withoutMemoryReferences(envelope.payload)",
+    "replace": "      ? envelope.payload",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "finds a call reply that cited a memory"
+  },
+  {
+    "name": "M29 context retriever refuses call replies that cite memories",
+    "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+    "find": "historyPayload(eventType === \"conversation.assistant_sent\" ? withoutMemoryReferences(payload) : payload)",
+    "replace": "historyPayload(payload)",
+    "testPath": "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "expect": "puts a call reply into the next turn's recent context"
+  },
+  {
+    "name": "R2-1 spoken-reply reader requires historyEligible false again",
+    "file": "apps/cloud-gateway/src/memory/voice-memory-reference.ts",
+    "find": "!admitsHistoryEligible(CALL_REPLY_EVENT_TYPE, history.historyEligible)",
+    "replace": "history.historyEligible !== false",
+    "testPath": "apps/cloud-gateway/test/conversation/history-eligibility.test.ts",
+    "expect": "is read by the spoken-reply reader as either value"
+  },
+  {
+    "name": "R2-2 shared predicate makes call replies strict",
+    "file": "apps/cloud-gateway/src/conversation/history-eligibility.ts",
+    "find": "    ? typeof historyEligible === \"boolean\"",
+    "replace": "    ? historyEligible === true",
+    "testPath": "apps/cloud-gateway/test/conversation/history-eligibility.test.ts",
+    "expect": "is read by the spoken-reply reader as either value"
+  },
+  {
+    "name": "R2-3 shared predicate admits a non-boolean call-reply flag",
+    "file": "apps/cloud-gateway/src/conversation/history-eligibility.ts",
+    "find": "    ? typeof historyEligible === \"boolean\"",
+    "replace": "    ? historyEligible !== undefined",
+    "testPath": "apps/cloud-gateway/test/conversation/history-eligibility.test.ts",
+    "expect": "still refuses a call reply whose flag is not a boolean"
+  },
+  {
+    "name": "R3-1 backfill runs ahead of new messages again",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "if (maintenance !== null && (!maintenance.backfill || cursor.sequence >= latest)) {",
+    "replace": "if (maintenance !== null) {",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "indexes new messages before backfilling an old call reply"
+  },
+  {
+    "name": "R3-2 backfill never runs once the cursor has caught up",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "if (maintenance !== null && (!maintenance.backfill || cursor.sequence >= latest)) {",
+    "replace": "if (maintenance !== null && !maintenance.backfill) {",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "backfills a call reply the cursor passed before call replies were history"
+  },
+  {
+    "name": "R4-1 a pending refresh is reported as the unindexed tail",
+    "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+    "find": "        missingReason: \"being_reindexed\",",
+    "replace": "        missingReason: \"not_indexed_yet\",",
+    "testPath": "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "expect": "backfills a call reply the cursor passed before call replies were history"
+  },
+  {
+    "name": "R4-2 page text claims the newest messages for every missing range",
+    "file": "apps/cloud-gateway/src/memory/history-search.ts",
+    "find": "  return page.missingReason === \"not_indexed_yet\"",
+    "replace": "  return true",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "says the newest messages are unsearched only when the missing range is the unindexed tail"
+  },
+  {
+    "name": "R5 empty page blames only the speaker filter",
+    "file": "apps/cloud-gateway/src/memory/history-search.ts",
+    "find": "\"No message on this page can be shown: its matches were forgotten or were said by the other speaker.\"",
+    "replace": "\"No message on this page matched the speaker asked for.\"",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "does not blame the speaker filter alone when a page with more results shows no message"
+  },
+  {
+    "name": "R6 a refused around read blames the query",
+    "file": "apps/cloud-gateway/src/memory/history-search.ts",
+    "find": "        evidence: shape === \"around\"",
+    "replace": "        evidence: false",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "names the event id, not the query, when an around read is refused"
+  }
+]

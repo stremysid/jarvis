@@ -15,6 +15,7 @@ import type {
   ContextRetrieverInput,
   RetrievedContext,
 } from "./conversation-types.js";
+import { admitsHistoryEligible } from "./history-eligibility.js";
 
 const INPUT_FIELDS = new Set(["principalId", "channel", "purpose", "query", "maxTokens"]);
 const HISTORY_PAYLOAD_FIELDS = new Set([
@@ -371,12 +372,8 @@ function withoutMemoryReferences(value: unknown): unknown {
 
 function historyText(payload: unknown, eventType: string): string {
   const value = historyPayload(eventType === "conversation.assistant_sent" ? withoutMemoryReferences(payload) : payload);
-  // A call reply stored before call replies were history carries
-  // `historyEligible: false`; that recorded a policy, not anything about the
-  // text, so `assistant_sent` admits either value. See literal-history.ts.
-  const eligible = eventType === "conversation.assistant_sent"
-    ? typeof value.historyEligible === "boolean"
-    : value.historyEligible === true;
+  // One shared reading of the flag; a call reply's is legacy (history-eligibility.ts).
+  const eligible = admitsHistoryEligible(eventType, value.historyEligible);
   if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || !eligible
     || eventType === "conversation.assistant_delivered" && value.channelCode !== 2
     || eventType === "conversation.assistant_sent" && value.channelCode !== 1

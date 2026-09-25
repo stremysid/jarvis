@@ -487,14 +487,16 @@ describe("the voice agent adapter", () => {
     const base = { schemaCode: 1, channelCode: 1, sensitivityCode: 1, historyEligible: false, text: "A reply." };
     const id = newUlid();
     expect(readVoiceReplyPayload({ ...base, memoryItemIds: [id] }).itemIds).toEqual([id]);
+    // The flag is legacy on a call reply: either boolean is read, as literal history and recent context do.
+    expect(readVoiceReplyPayload({ ...base, historyEligible: true, memoryItemIds: [id] }).itemIds).toEqual([id]);
     for (const payload of [
-      { ...base, channelCode: 2 }, { ...base, historyEligible: true }, { ...base, memoryItemIds: [] },
+      { ...base, channelCode: 2 }, { ...base, historyEligible: "true" }, { ...base, memoryItemIds: [] },
       { ...base, memoryItemIds: ["invalid"] }, { ...base, memoryItemIds: [id, id] },
       { ...base, memoryItemIds: "invalid" }, { ...base, memoryItemIds: Array.from({ length: 9 }, () => newUlid()) },
     ]) expect(() => readVoiceReplyPayload(payload)).toThrow("owner_agent_previous_reply_invalid");
   });
 
-  it("keeps every settled voice assistant reply out of general history", async () => {
+  it("still writes the legacy historyEligible false on a settled voice reply, which every history reader admits", async () => {
     const principalId = `principal:voice-history-ineligible:${serial + 1}`;
     await runVoiceTurn({
       text: "hello",

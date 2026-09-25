@@ -120,9 +120,17 @@ function coverageLine(page: HistorySearchPage): string {
     return `Index coverage: every stored message through event #${page.searchedThroughEventSequence} was searched.`;
   }
   const { startEventSequence, endEventSequence } = page.missingRange;
-  return `Index coverage: incomplete. Events #${startEventSequence} to #${endEventSequence} are not indexed yet, `
-    + "so a message there cannot be found by this search. The newest messages, including this conversation, "
-    + "are always in that range until the hourly index reaches them; they are already in front of you.";
+  const range = startEventSequence === endEventSequence
+    ? `Event #${startEventSequence} is`
+    : `Events #${startEventSequence} to #${endEventSequence} are`;
+  // Only the unindexed tail holds the newest messages; a single event waiting
+  // for a refresh can be old, and telling the model otherwise misleads it.
+  return page.missingReason === "not_indexed_yet"
+    ? `Index coverage: incomplete. ${range} not indexed yet, so a message there cannot be found by this `
+      + "search. The newest messages, including this conversation, are always in that range until the hourly "
+      + "index reaches them; they are already in front of you."
+    : `Index coverage: incomplete. ${range} waiting to be re-indexed by the hourly job, and other older `
+      + "events may be too, so a message there cannot be found by this search yet.";
 }
 
 /** The text the model reads for one page of hits. Exported for tests. */
@@ -132,7 +140,9 @@ export function composeHistorySearchPage(query: string, pageNumber: number, page
     + `${speakerName(hit.speaker)} said: ${JSON.stringify(hit.excerpt)}  [event ${hit.eventId}]`);
   const body = lines.length === 0
     ? (page.moreResults
-      ? "No message on this page matched the speaker asked for."
+      // A page can empty out after SQL paging: a forgotten message, or an
+      // archived message by the other speaker, is only dropped once decoded.
+      ? "No message on this page can be shown: its matches were forgotten or were said by the other speaker."
       : "No indexed message matched.")
     : lines.join("\n");
   const more = page.moreResults
@@ -152,7 +162,7 @@ export function composeHistoryAround(eventId: Ulid, messages: readonly HistoryCo
   return [header, ...lines].join("\n");
 }
 
-function failure(error: unknown): HistorySearchOutcome {
+function failure(error: unknown, shape: ParsedArguments["shape"] | null): HistorySearchOutcome {
   if (error instanceof HistorySearchArgumentError) {
     return Object.freeze({
       status: "failed",
@@ -167,10 +177,15 @@ function failure(error: unknown): HistorySearchOutcome {
       });
     }
     if (error.code === "memory_history_refused") {
+      // The around shape has no query, so blaming the query would send the
+      // model to fix the wrong argument.
       return Object.freeze({
         status: "failed",
-        evidence: "History search was not run: the query has no letters or digits to search for, is longer "
-          + "than 1,024 bytes, or an argument is out of range. Nothing was searched.",
+        evidence: shape === "around"
+          ? "History search was not run: aroundEventId is not a valid event id, or window is out of range. "
+            + "Nothing was read."
+          : "History search was not run: the query has no letters or digits to search for, is longer "
+            + "than 1,024 bytes, or an argument is out of range. Nothing was searched.",
       });
     }
   }
@@ -209,8 +224,10 @@ export class HistorySearchTool {
   }
 
   async run(principalId: string, serializedArguments: string): Promise<HistorySearchOutcome> {
+    let shape: ParsedArguments["shape"] | null = null;
     try {
       const parsed = parseHistorySearchArguments(serializedArguments);
+      shape = parsed.shape;
       if (parsed.shape === "around") {
         const messages = await this.history.readHistoryAround({
           principalId,
@@ -231,7 +248,7 @@ export class HistorySearchTool {
         evidence: composeHistorySearchPage(parsed.query, parsed.page, page),
       });
     } catch (error) {
-      return failure(error);
+      return failure(error, shape);
     }
   }
 }
