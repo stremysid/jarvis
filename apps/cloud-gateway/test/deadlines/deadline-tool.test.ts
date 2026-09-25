@@ -233,6 +233,14 @@ describe("owner reported deadlines", () => {
     expect(await new DeadlineRepository(env.DB).readSource("owner-reported")).toBeNull();
   });
 
+  it("refuses a date-only due on a local date the zone skipped instead of storing the epoch", async () => {
+    // Samoa jumped from 29 to 31 December 2011, so 2011-12-30 has no 23:59 in Pacific/Apia.
+    const result = await recordDeadline(env.DB, input(), call({ dueAt: "2011-12-30", timeZone: "Pacific/Apia" }), NOW);
+    expect(content(result).status).toBe("refused");
+    expect(content(result).receipt).toContain("2011-12-30 has no 23:59 in Pacific/Apia");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
   it("refuses a misconfigured owner zone rather than storing in a guessed zone", async () => {
     const result = await executeDeadline(env.DB, input(), call({ dueAt: "2026-09-25" }), NOW, { ownerZone: "Not/AZone" });
     expect(content(result).status).toBe("refused");
