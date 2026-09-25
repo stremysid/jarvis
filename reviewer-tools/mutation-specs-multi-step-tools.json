@@ -88,12 +88,12 @@
     "expect": "refuses a step that repeats a call id without executing either call"
   },
   {
-    "name": "M12 references recorded for the latest step only",
+    "name": "M12 the model's declared references are never recorded",
     "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
-    "find": "port.recordReferences(input.correlationId, replyReferences(executed));",
-    "replace": "port.recordReferences(input.correlationId, replyReferences(roundExecuted));",
+    "find": "    port.recordReferences(input.correlationId, Object.freeze([...itemIds]));\n",
+    "replace": "",
     "testPath": "apps/cloud-gateway/test/memory/memory-search.test.ts",
-    "expect": "keeps what a search found as the turn's reference when a later step touches no memory"
+    "expect": "records the memory the model declares as the turn's reference"
   },
   {
     "name": "M13 Telegram loop still ends after one tool step",
@@ -104,11 +104,27 @@
     "expect": "runs every call the model makes in one step"
   },
   {
-    "name": "M14 voice records references for the latest step only",
+    "name": "M14 a declared id the turn never showed is accepted",
     "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
-    "find": "port.recordReferences(input.correlationId, replyReferences(executedReceipts));",
-    "replace": "port.recordReferences(input.correlationId, replyReferences(executed));",
-    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
-    "expect": "keeps what a search found when a later step touches no memory"
+    "find": "      if (!touchedItemIds.has(itemId)) {",
+    "replace": "      if (false) {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "refuses a declared memory id the turn never showed the model"
+  },
+  {
+    "name": "M15 a declaration past the store's bound is accepted",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "        || args.itemIds.length > MAX_DECLARED_REFERENCES) {",
+    "replace": "        || false) {",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts",
+    "expect": "refuses a declaration past the store's bound and tells the model"
+  },
+  {
+    "name": "M16 a repeated declared id is accepted",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      if (itemIds.includes(itemId)) {",
+    "replace": "      if (false) {",
+    "testPath": "apps/cloud-gateway/test/memory/memory-search.test.ts",
+    "expect": "refuses a declaration that repeats one id"
   }
 ]

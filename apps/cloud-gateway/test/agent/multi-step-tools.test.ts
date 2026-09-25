@@ -250,6 +250,37 @@ describe.each<Channel>(["telegram", "voice"])("the owner tool loop on %s", (chan
     expect(turn.text).toContain("Recovered.");
   });
 
+  it("refuses a declaration past the store's bound and tells the model", async () => {
+    // Code records what the model declares; it must not trim the list to fit.
+    // Nine ids is past the store's bound of eight, so the whole declaration is
+    // refused back to the model with the bound named.
+    const model = scripted([
+      tools(call("declare-too-many", "declare_memory_references", {
+        itemIds: Array.from({ length: 9 }, () => newUlid()),
+      })),
+      answer(channel, "Trying again."),
+    ]);
+    const turn = await runTurn(channel, model);
+    expect(turn.error).toBeNull();
+    const refusal = model.requests[1]!.toolResults![0]!;
+    expect(resultStatus(refusal.content)).toBe("refused");
+    expect(JSON.parse(refusal.content).receipt).toContain("one to 8");
+    expect(turn.text).toContain("Trying again.");
+  });
+
+  it("refuses a declared memory id the turn never showed the model", async () => {
+    const model = scripted([
+      tools(call("declare-unseen", "declare_memory_references", { itemIds: [newUlid()] })),
+      answer(channel, "Nothing to name."),
+    ]);
+    const turn = await runTurn(channel, model);
+    expect(turn.error).toBeNull();
+    const refusal = model.requests[1]!.toolResults![0]!;
+    expect(resultStatus(refusal.content)).toBe("refused");
+    expect(JSON.parse(refusal.content).receipt).toContain("not shown to you this turn");
+    expect(turn.text).toContain("Nothing to name.");
+  });
+
   it("asks for a tier-3 action inside a chain exactly as it would on its own", async () => {
     const revoke = vi.spyOn(SchoolCollectorPairing.prototype, "revoke").mockResolvedValue(true);
     const asked: string[] = [];

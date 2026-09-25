@@ -91,9 +91,9 @@ function tool(id: string, name: string, args: unknown): ModelFunctionCall {
 
 class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly requests: ModelAgentCompletionInput[] = [];
-  private readonly completions: Array<ModelAgentCompletion | Error>;
+  private readonly completions: Array<ModelAgentCompletion | Error | ((input: ModelAgentStreamInput) => ModelAgentCompletion)>;
 
-  constructor(completions: readonly (ModelAgentCompletion | Error)[]) {
+  constructor(completions: readonly (ModelAgentCompletion | Error | ((input: ModelAgentStreamInput) => ModelAgentCompletion))[]) {
     this.completions = [...completions];
   }
 
@@ -104,8 +104,12 @@ class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider 
     // that accepts one certifies a path production cannot reach.
     assertAgentToolHistory(input);
     this.requests.push(input);
-    const completion = this.completions.shift();
-    if (completion === undefined) throw new Error("unexpected_agent_call");
+    const next = this.completions.shift();
+    if (next === undefined) throw new Error("unexpected_agent_call");
+    // A function completion reads the previous round's results, which a
+    // declaration of a just-written item's id needs: that id does not exist
+    // until the write ran.
+    const completion = typeof next === "function" ? next(input) : next;
     if (completion instanceof Error) throw completion;
     if (completion.content !== null) yield { type: "text", text: completion.content };
     yield { type: "completed", completion };
@@ -390,6 +394,11 @@ describe("the voice agent adapter", () => {
       called(tool("propose", "memory_remember", {
         fact: "I like art", supportingExcerpt: "I draw sometimes", evidenceClass: "stated",
         previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+      })),
+      // The write's item id does not exist until it ran, so the model reads it
+      // from the result and declares it, exactly as a real model would.
+      (input) => called(tool("declare-proposal", "declare_memory_references", {
+        itemIds: (JSON.parse(input.toolResults?.[0]?.content ?? "{}") as { itemIds?: readonly string[] }).itemIds,
       })),
       stopped('Should I remember exactly "I like art"?'),
     ]);
@@ -906,10 +915,10 @@ describe("the voice agent adapter", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
-  it("keeps what a search found when a later step touches no memory", async () => {
-    // The reference store replaces rather than appends, so a call that recorded
-    // each step alone would let its last step (an inbox read here) erase the
-    // item the search found, and a later "forget that" would miss.
+  it("keeps the memory the model declares when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, and the declaration is
+    // the whole set: a later step (an inbox read here) must not erase the item
+    // the model declared, and a later "forget that" must still reach it.
     const principalId = `principal:voice-reference-chain:${serial + 1}`;
     await seedPrincipal(principalId);
     const itemId = await activeMemory(principalId, "I take my coffee black.");
@@ -928,6 +937,7 @@ describe("the voice agent adapter", () => {
     const provider = new FakeAgentProvider([
       called(tool("search-voice", "memory_search", { query: "coffee" })),
       called(tool("inbox-voice", "email_inbox_list", {})),
+      called(tool("declare-voice", "declare_memory_references", { itemIds: [itemId] })),
       stopped("On a sticky note."),
     ]);
 
@@ -1235,7 +1245,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(26);
+    expect(request?.tools).toHaveLength(27);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
