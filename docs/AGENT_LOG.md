@@ -3,6 +3,15 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #196 round 3 (0047 behavioural test, doc fixes)
+
+Signed: Claude (builder agent), `codex/call-pin` from audited head `4047e9d`. Touches Sid's rules 4, 8, 9. origin/main `605c177` was already in the branch, so there was no merge.
+
+- **Audit finding 2:** `owner-call-step-up-migration.test.ts` runs the migrated schema. It refuses owner authority to a stranger's voice identity and to Sid's own second, unenrolled number, and admits the enrolled identity as the control. The three 0006 session guards are suspended only to forge the session row, then recreated from their stored SQL.
+- **Findings 3, 4, 7:** OWNER-ACTIONS migration numbers (#196 `0047`, #194 `0048`, #195 `0049`, checked via `gh`); STATE and KNOWN_ISSUES now say a call's tier-3 confirmation is the PIN once #196 is deployed; #196 row added to QUEUE.
+- **Verified here:** `mutate.ps1` 2/2 killed and confirmed (`WHERE 1 = 1`; identity match dropped alone), restore byte-identical; focused file 3/3 passed; gateway `tsc` exit 0; test typecheck 140 errors before and after, 0 in the changed file; `check-state` pass (1 existing FACTS warning).
+- **Not done:** finding 1 (tier-3 list trim) is a separate follow-up PR. Finding 5 skipped: a new abort guard needs its own test and mutation check, so it is not a one-liner, and it guards a read that spends no authority. Claude-authored; not merged or deployed.
+
 ## 2026-09-25 — Claude builder: #196 round 2 (call PIN tied to its turn)
 
 Signed: Claude (builder agent), `codex/call-pin` from reviewed head `4db957d`. Touches Sid's rules 1, 3, 4, 5, 8, 9.
