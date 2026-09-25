@@ -4,6 +4,7 @@ import {
   type SuccessfulRedaction,
 } from "../../../../packages/contracts/src/calls.js";
 import type { ModelToken } from "../model/model-adapter.js";
+import { VoiceSentences } from "../agent/voice-sentences.js";
 
 const TOKEN_FIELDS = new Set(["index", "text"]);
 const LIMIT_FIELDS = new Set(["maxRawCharacters", "maxSanitizedCharacters"]);
@@ -152,9 +153,10 @@ function lineBoundary(value: string): number {
 }
 
 /**
- * Redacts complete safe line units during streaming and retains only an
- * ambiguous line/private-key suffix until EOF. `drain()` exposes that one
- * final EOF-safe suffix after `complete()` mints the exact full-stream token.
+ * Telegram retains its line/private-key release units. Voice opts into
+ * sentences after redacting the unsplit archive, so punctuation inside a
+ * credential cannot create a new unprotected line. `drain()` exposes the
+ * final EOF-safe suffix after `complete()` mints the full-stream token.
  */
 export class StreamingOutputRedactor {
   private readonly redactText: CapturedMethod;
@@ -174,7 +176,7 @@ export class StreamingOutputRedactor {
   private completedDrain: readonly ModelToken[] = frozenEmptyTokens;
   private drainUsed = false;
 
-  constructor(redactor: RedactorContract, limits?: StreamingOutputRedactorLimits) {
+  constructor(redactor: RedactorContract, limits?: StreamingOutputRedactorLimits, private readonly releaseSentences = false) {
     const method = capturedMethod(redactor, "redactText");
     if (method === null) throw error("stream_redaction_input_invalid");
     const capturedLimits = snapshotLimits(limits);
@@ -204,7 +206,8 @@ export class StreamingOutputRedactor {
     this.pending += text;
 
     const emitted: ModelToken[] = [];
-    this.processAvailable(emitted);
+    if (this.releaseSentences) this.processSentences(false, emitted);
+    else this.processAvailable(emitted);
     return Object.freeze(emitted);
   }
 
@@ -212,7 +215,8 @@ export class StreamingOutputRedactor {
     this.requireActive();
     if (this.nextRawIndex === 0) return this.terminate("stream_redaction_failed");
     const eofTokens: ModelToken[] = [];
-    if (this.pending.length > 0) {
+    if (this.releaseSentences) this.processSentences(true, eofTokens);
+    else if (this.pending.length > 0) {
       this.sanitizeSegment(this.pending, eofTokens);
       this.pending = "";
       this.privateKeyEnd = null;
@@ -278,9 +282,27 @@ export class StreamingOutputRedactor {
     }
   }
 
+  private processSentences(final: boolean, emitted: ModelToken[]): void {
+    // A credential's value can contain sentence punctuation. Redact the entire
+    // unsplit archive first and retain that context until EOF, including text
+    // whose redaction was already emitted. Otherwise a later secret tail leaks.
+    const safe = this.issue(this.rawArchive).text;
+    const prefix = this.outputParts.join("");
+    if (!safe.startsWith(prefix)) this.terminate("stream_redaction_failed");
+    const sentences = new VoiceSentences();
+    const suffix = safe.slice(prefix.length);
+    const parts = sentences.push(suffix);
+    for (const text of parts) this.emitSanitized(text, emitted);
+    if (final) this.emitSanitized(suffix.slice(parts.join("").length), emitted);
+    this.pending = "";
+  }
+
   private sanitizeSegment(raw: string, emitted: ModelToken[]): void {
     const redaction = this.issue(raw);
-    const text = redaction.text;
+    this.emitSanitized(redaction.text, emitted);
+  }
+
+  private emitSanitized(text: string, emitted: ModelToken[]): void {
     if (text.length === 0) return;
     const characters = scalarCount(text, this.maxSanitizedCharacters - this.sanitizedCharacters);
     if (this.sanitizedCharacters + characters > this.maxSanitizedCharacters) {

@@ -4,6 +4,7 @@ import {
   AutonomyRepository,
 } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
+import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
 import {
   argumentsFingerprint,
   confirmationReference,
@@ -20,14 +21,15 @@ import {
 } from "../persistence/migration.js";
 
 const OBSERVED_AT = "2026-09-18T12:00:00.000Z";
+const now = () => new Date(OBSERVED_AT);
 const PRINCIPAL_ID = "principal:tier-gate";
 const IDENTITY_ID = "identity:tier-gate";
 
 function gate(): ToolAutonomyGate {
   const repository = new AutonomyRepository(env.DB);
   return new ToolAutonomyGate(
-    new AutonomyService({ repository }),
-    new D1ToolConfirmationStore(env.DB),
+    new AutonomyService({ repository, now }),
+    new D1ToolConfirmationStore(env.DB, now),
   );
 }
 
@@ -50,15 +52,16 @@ async function auditRowsFor(capability: string): Promise<readonly Record<string,
  * under this subsystem's origin, then answered with the confirm option.
  */
 async function ownerConfirms(
+  toolName: string,
   capability: string,
   serializedArguments: string,
 ): Promise<string> {
-  const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
+  const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
   const hash = await argumentsFingerprint(serializedArguments);
   const raised = await decisions.raise({
     principalId: PRINCIPAL_ID,
     origin: TIER3_TOOL_ORIGIN,
-    originReference: confirmationReference(capability, hash),
+    originReference: confirmationReference(toolName, capability, hash),
     urgency: "normal",
     question: "Run it?",
     choices: Object.freeze([{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }]),
@@ -172,7 +175,7 @@ describe("the tool capability gate", () => {
 
   it("proceeds with the same tier-3 call after the owner confirms it", async () => {
     const serializedArguments = JSON.stringify({ to: "supplier@example.com", body: "confirmed order" });
-    const decisionId = await ownerConfirms(TIER3_CAPABILITY, serializedArguments);
+    const decisionId = await ownerConfirms(TIER3_TOOL, TIER3_CAPABILITY, serializedArguments);
 
     const decision = await gate().evaluateToolCall({
       toolName: TIER3_TOOL,
@@ -189,20 +192,57 @@ describe("the tool capability gate", () => {
     expect(decision.receipt).toContain(decisionId);
   });
 
-  it("does not let a confirmation for one call authorize a different one", async () => {
-    const confirmed = JSON.stringify({ to: "supplier@example.com", body: "the order is confirmed" });
-    await ownerConfirms(TIER3_CAPABILITY, confirmed);
+  it("does not share a confirmation between two tools with the same capability and identical arguments", async () => {
+    const toolName = "memory_pin";
+    const otherToolName = "memory_unpin";
+    const capability = capabilityForTool(toolName);
+    expect(capabilityForTool(otherToolName)).toBe(capability);
+    const repository = new AutonomyRepository(env.DB);
+    const originalTier = await repository.readCapabilityTier(capability);
+    expect(originalTier).toBe(1);
+    try {
+      // Temporarily promote the real shared mapping so this case asks for a tap.
+      await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = ?")
+        .bind(capability).run();
+      const args = JSON.stringify({ itemId: "synthetic-memory-item" });
+      const hash = await argumentsFingerprint(args);
+      expect(confirmationReference(toolName, capability, hash))
+        .not.toBe(confirmationReference(otherToolName, capability, hash));
+      const decisionId = await ownerConfirms(toolName, capability, args);
+      const request = { toolName, principalId: PRINCIPAL_ID, arguments: args };
 
-    // Same tool, same capability, different arguments: the tap named a specific
-    // action and must not travel to a second one composed after it.
+      expect(await gate().evaluateToolCall({ ...request, toolName: otherToolName }))
+        .toMatchObject({ verdict: "confirm", confirmedBy: null });
+      expect(await env.DB.prepare("SELECT decision_id FROM tool_confirmation_consumptions WHERE decision_id = ?")
+        .bind(decisionId).first()).toBeNull();
+      expect(await gate().evaluateToolCall(request)).toMatchObject({ verdict: "permit", confirmedBy: decisionId });
+      expect(await gate().evaluateToolCall(request)).toMatchObject({ verdict: "confirm", confirmedBy: null });
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM tool_confirmation_consumptions WHERE decision_id = ?")
+        .bind(decisionId).first()).toEqual({ count: 1 });
+    } finally {
+      // The tier is shared by later tests as well as by these two tools.
+      await env.DB.prepare("UPDATE capability_tiers SET tier = ? WHERE capability = ?")
+        .bind(originalTier, capability).run();
+    }
+    expect(await repository.readCapabilityTier(capability)).toBe(originalTier);
+  });
+
+  it("does not let a confirmation authorize changed arguments for the same tool", async () => {
+    await ownerConfirms(TIER3_TOOL, TIER3_CAPABILITY, JSON.stringify({ draft: "synthetic-approved" }));
     const decision = await gate().evaluateToolCall({
       toolName: TIER3_TOOL,
       principalId: PRINCIPAL_ID,
-      arguments: JSON.stringify({ to: "someone.else@example.com", body: "wire the money" }),
+      arguments: JSON.stringify({ draft: "synthetic-changed" }),
     });
 
     expect(decision.verdict).toBe("confirm");
     expect(decision.confirmedBy).toBeNull();
+  });
+
+  it("keeps tool and capability boundaries distinct when a name contains a delimiter", async () => {
+    const hash = await argumentsFingerprint("{}");
+    expect(confirmationReference("synthetic:tool", "capability", hash))
+      .not.toBe(confirmationReference("synthetic", "tool:capability", hash));
   });
 
   it("refuses a tier-3 call even when no confirmation store is configured", async () => {
@@ -213,7 +253,7 @@ describe("the tool capability gate", () => {
     // uncovered: a mutation turning that refusal into permission survived the
     // suite until this test existed.
     const bare = new ToolAutonomyGate(
-      new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
+      new AutonomyService({ repository: new AutonomyRepository(env.DB), now }),
     );
 
     const decision = await bare.evaluateToolCall({
@@ -258,12 +298,12 @@ describe("the tool capability gate", () => {
   it("treats reordered arguments as the same action", async () => {
     // The fingerprint is taken over canonical JSON, so a model that re-issues
     // the same call with its keys in a different order still matches the tap.
-    await ownerConfirms(TIER3_CAPABILITY, JSON.stringify({ to: "a@example.com", body: "x" }));
+    await ownerConfirms(TIER3_TOOL, TIER3_CAPABILITY, JSON.stringify({ draft: "synthetic-reordered", body: "x" }));
 
     const decision = await gate().evaluateToolCall({
       toolName: TIER3_TOOL,
       principalId: PRINCIPAL_ID,
-      arguments: JSON.stringify({ body: "x", to: "a@example.com" }),
+      arguments: JSON.stringify({ body: "x", draft: "synthetic-reordered" }),
     });
 
     expect(decision.verdict).toBe("permit");

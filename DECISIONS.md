@@ -4,6 +4,129 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## Voice gets tools behind `ModelAdapter`, not by widening it (2026-09-20, builder decision — awaiting review)
+
+**The problem.** Telegram and voice are two separately composed assistants. Voice
+cannot call a tool at all, so none of Phase 5's `call_place`, `pin_verify`,
+`guest_create` or `guest_revoke` can exist yet. Two seams were on the table:
+widen `ModelAdapterStreamInput` to carry `tools`, or move the voice path onto
+`ModelAgentProvider`.
+
+**The decision: neither, as stated.** Keep `ModelAdapter` as the boundary every
+channel's conversation path already speaks, and put the agent loop *behind* it
+in a voice adapter, mirroring what Telegram already does. Extract the
+channel-neutral parts of the loop so both channels share one brain.
+
+**Why the third option is the existing shape, not a new one.** Telegram's owner
+agent is *already* a `ModelAdapter`: at `ca88bf4`,
+`OwnerTelegramAgentAdapter implements ModelAdapter`
+(`src/channels/telegram/owner-telegram-agent.ts`), and its `stream` method calls
+`ModelAgentProvider.completeAgent`, runs the tool call, and yields one
+`ModelToken`. The tool-calling brain is already inside a `ModelAdapter`, so a
+voice adapter that does the same is the same design applied once more — not a
+new seam. Both channels then reach the loop through the same
+`DefaultConversationService.handleTurn`
+(`src/conversation/conversation-service.ts`), which is already shared: Telegram
+composes it at `src/index.ts` and voice at
+`src/voice/production-runtime.ts`.
+
+**What is not shared, and it is worse than the adapter gap.** Sharing the loop
+does *not* share the memory. Telegram composes `TelegramMemoryRetriever`
+(`src/index.ts:233` at `0611803`) and voice composes `D1ContextRetriever`
+(`src/voice/production-runtime.ts:110`), and those read **different tables**:
+`memory_item_fts`/`memory_item_versions` against
+`memory_fact_projection_fts`/`events`. The sharper form, because it is a type and
+not a habit: `D1ContextRetriever implements ContextRetriever` **only**, while
+`TelegramMemoryRetriever` also implements **`TelegramMemoryTargetFinder`**. Voice
+therefore cannot name a specific memory to act on at all, which is why every
+memory tool taking an `itemId` has nothing to resolve one from on that channel.
+**An earlier version of this section said "both channels use
+`D1ContextRetriever`" — that was wrong and it is corrected here.** The voice
+adapter has to bring the finder with it, or the tools it enables will be
+unusable.
+
+**Why not widen `ModelAdapterStreamInput`.** Four measured obstacles, in
+increasing order of cost:
+
+1. The streaming interface is validated by an exact key set, not by a type:
+   `INPUT_FIELDS` in `src/model/model-adapter.ts` enumerates all eleven legal
+   fields and `exactDataRecord` rejects anything with a different key count.
+   Adding `tools` is a change to two `snapshot*` functions, the deepseek
+   provider, and every fixture that constructs this input.
+2. `ModelStreamTextInput` has no field for a system prompt, and
+   `buildMessages` in `src/providers/deepseek-provider.ts` hard-codes
+   `SYSTEM_PROMPT`. The roadmap's core profile, current channel and voice
+   speaking style all have to reach the model as system text. This is a
+   separate gap from tools and it blocks the same Phase 5 items.
+3. `ModelToken` is `{ index, text }` with no variant for a function call, so
+   the stream cannot express one. It would need a new member, and the stream's
+   strict ordering contract (`expectedIndex`, contiguous from zero) with it.
+4. The cost that decides it: `DefaultConversationService.handleTurn` runs
+   **exactly one model request and settles the turn once**. A tool turn is two
+   requests with an execution between them, and voice has no text to speak
+   after the first. `finish(finalText)` requires non-empty text and
+   `createVoiceStreamDelivery` requires `pieces.join("") === finalText`
+   (`src/conversation/conversation-types.ts`), so a turn that ends on a tool
+   call has no legal way to finish either. Widening the interface does not
+   avoid this; it moves it into a service whose whole settlement contract is
+   built on one request per turn.
+
+Because (4) is unavoidable either way, the only real choice is where the
+multi-request loop lives. The adapter confines it to one place and leaves the
+conversation service's invariant alone.
+
+**What the follow-on work must do, and it is more than 200 lines.** Recorded
+here so the next session does not rediscover it:
+
+- Extract the channel-neutral core of `OwnerTelegramAgentAdapter`: the
+  `completeAgent` call shape, tool execution, the tool-allowance cap, and the
+  `claimedActions`/receipt guard. `executeCall` (`owner-telegram-agent.ts`)
+  currently refuses unless `input.channel === "telegram"`; that is the
+  provenance and enforcement boundary (roadmap: "Enforce its own decision
+  against a later prompt"), and voice needs its own — the owner authority on
+  the session — rather than a widened Telegram check.
+- Tool **definitions** must not live in either adapter. `memory-tools.ts` is
+  already channel-neutral and both channels can import it; the voice-only
+  definitions (`call_place`, `pin_verify`, `guest_create`, `guest_revoke`)
+  belong beside it. Only dispatch is per-channel.
+- Voice step-up is already implemented in the core as a synchronous
+  interaction (`CallSessionCore` prompts, verifies, and holds authority before
+  any conversation turn). Phase 5 asks for `pin_verify(pin)` as a *tool*, which
+  is the model deciding to ask. Those are two mechanisms for one gate, and
+  real-time voice makes a mid-turn multi-round tool loop expensive: the relay's
+  strict token stream has nothing to say while the call waits. The likely
+  resolution is session-scoped — the model requests the step-up, the turn
+  ends, the existing core path prompts and verifies, and the next turn carries
+  the authority — but that is a design to argue, not a decision taken here.
+
+**Scope note.** This session did not build the adapter. `DECISIONS.md` records a
+decision; the extraction is the next session's first commit, and it is larger
+than the 200-line bound in `BUILDING.md` before it is reviewable.
+
+**Built on branch `goal/item4-5-voice`, and the two open questions answered.**
+`OwnerAgentCore` (`src/agent/owner-agent-core.ts`) is the extracted core and
+`OwnerVoiceAgentAdapter` (`src/voice/voice-agent.ts`) is the voice adapter. The
+channel-specific parts are a port — authority, reply composition, prompt
+addition, tool catalogue, and the two channel-owned pieces of evidence (the
+durable owner turn and the previous assistant text) — so the two composition
+sites remain and the *loop* does not.
+
+The two answers worth recording, because each was an argument above:
+
+1. **`executeCall`'s `channel === "telegram"` refusal did not become a flag.**
+   A call's authority is that the turn's principal is the configured owner, on a
+   session that required the owner passphrase before the turn existed. Both
+   checks live in the channel's own adapter; the core only asks whether it may
+   act.
+2. **A tier-3 capability on a call is raised and spoken, not tapped.** The
+   question is raised durably in the existing decision queue and the reply says
+   the tap has to be given in Telegram, because a call has no keyboard. This is
+   not a new gate: `D1ToolConfirmationStore.consumeStandingDecision` claims a tap
+   by capability and argument fingerprint with no channel in the query, so one
+   tap authorizes the same call on either door. The `pin_verify(pin)` question
+   above — mid-turn multi-round step-up over a relay — is still open and was not
+   decided here.
+
 ## Applied migration text was rewritten for fresh-database replay (2026-09-16, reviewer decision)
 
 Production applied migrations `0001`, `0002` and `0006` with trigger guards in
@@ -40,7 +163,7 @@ active R1 calling and R2 cloud-memory work, and is ordered ahead of R3 hands
 and R4 St. Remy. Its early catch-up conversation and minimal university tracker
 do not wait for R1, R2 or either school platform integration.
 Its deadline-only name is superseded by the school and university milestone in
-[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md).
+`docs/plan/2026-09-19-jarvis-roadmap.md`, Phase 3.
 
 Jarvis gathers Sid's courses, school context and target programs through
 conversation, not homework forms. It provides a per-course catch-up plan,
@@ -234,7 +357,7 @@ vault state part of cloud memory.
 ## Planning-session record from 2026-09-03 (unconfirmed and superseded in part)
 
 Recorded from a planning session; the reasoning is in
-`docs/plan/2026-09-03-jarvis-roadmap.md`, section 5. The Linux home node and
+`docs/plan/2026-09-19-jarvis-roadmap.md`. The Linux home node and
 git-backed editable Obsidian implementation in this historical list were
 planning choices, not choices Sid made. The 2026-09-14 decision above
 supersedes both.

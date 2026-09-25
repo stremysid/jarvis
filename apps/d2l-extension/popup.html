@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Jarvis school collector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Jarvis school collector</h1>
+  <p>LDSB and Durham. About hourly while this browser is running.</p>
+  <button id="sync" type="button">Sync now</button>
+  <button id="test" type="button">Test background read</button>
+  <button id="pairing" type="button">Check pairing and retry push</button>
+  <pre id="status" role="status"></pre>
+  <details>
+    <summary>Setup / pairing</summary>
+    <form id="setup">
+      <label>Device name <input id="label" required maxlength="64" placeholder="Home PC or laptop"></label>
+      <label>Durham course hop URL <input id="hop" type="url" placeholder="Paste the link from My Courses in Other Boards"></label>
+      <p>Sign in on LDSB first. Paste the Durham course link from “My Courses in Other Boards”. If renewal fails, click that link on the LDSB homepage once. There is no separate Durham login.</p>
+      <button type="submit">Save and pair</button>
+    </form>
+  </details>
+  <p id="notice" role="status"></p>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

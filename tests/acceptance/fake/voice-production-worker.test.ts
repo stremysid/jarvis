@@ -46,9 +46,24 @@ describe("production Worker voice and Telegram composition", () => {
         sends.push(String((JSON.parse(String(init?.body)) as { text: string }).text));
         return Response.json({ ok: true, result: { message_id: 901 } });
       }
-      if (url === "https://api.deepseek.com/chat/completions") return new Response(
-        'data: {"choices":[{"delta":{"content":"Worker socket reply."}}]}\n\ndata: [DONE]\n\n',
-        { headers: { "content-type": "text/event-stream" } });
+      if (url === "https://api.deepseek.com/chat/completions") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        // The production voice path reaches the shared owner agent, which is a
+        // non-streaming `completeAgent` request; the streaming shape is what a
+        // bare `DeepSeekModelAdapter` asks for on other channels.
+        if (body.stream === true) {
+          return new Response('data: {"choices":[{"index":0,"delta":{"content":"Worker socket reply."},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+            { headers: { "content-type": "text/event-stream" } });
+        }
+        return Response.json({
+          choices: [{
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({ reply: "Worker socket reply.", claimedActions: [] }),
+            },
+          }],
+        });
+      }
       throw new Error("unexpected synthetic provider request");
     });
     await env.DB.batch([

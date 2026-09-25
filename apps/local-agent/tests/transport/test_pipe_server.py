@@ -592,3 +592,64 @@ def close(handle: int) -> None:
     import _winapi
 
     _winapi.CloseHandle(handle)
+
+
+@windows_only
+def test_close_wakes_a_listener_blocked_on_connect_and_frees_the_name() -> None:
+    """Stopping for any reason other than `stop` on the channel must exit.
+
+    The service stops when its run loop ends, which is not the same event as a
+    `stop` command arriving: a signal, a failed cycle, an authentication
+    refusal. In every one of those the control thread is parked inside
+    `ConnectNamedPipe`, and `close` is the only thing that can wake it.
+
+    This is the case no test covered, and it was a live hang, not a theoretical
+    one. `close` closed the spare instance -- the one `create_instance`
+    publishes -- while the blocked call was on the *previous* handle. So the
+    service stopped accepting, never exited, and kept the pipe name: a fresh
+    `jarvis serve` was refused as "already in use" and the logon task could not
+    restart it.
+
+    Hence three assertions, not one. A test that only checked the thread would
+    pass against a `close` that leaked the name.
+    """
+    name = unique_pipe_name()
+    server = NamedPipeServer(ControlServer(RecordingDispatcher()), pipe_name=name)
+    finished = threading.Event()
+
+    def listen() -> None:
+        try:
+            # Blocks in ConnectNamedPipe, as the service does, with no client
+            # ever arriving.
+            server.serve_forever(lambda: True)
+        finally:
+            finished.set()
+
+    thread = threading.Thread(target=listen, name="pipe-close-test")
+    thread.start()
+    try:
+        # Let it reach the blocking connect and publish its spare instance.
+        assert not finished.wait(timeout=2), "the listener exited before close was called"
+        server.close()
+        assert finished.wait(timeout=10), (
+            "close did not wake the listener: it is still parked in ConnectNamedPipe, "
+            "which is the hang that keeps the pipe name and blocks a restart"
+        )
+    finally:
+        thread.join(timeout=5)
+        # Idempotent: a second close must not raise and must not close a number
+        # Windows has since reused.
+        server.close()
+
+    # The name has to be free, or the logon task's next start is refused.
+    # Binding it is the check: `create_instance(first=True)` fails when the name
+    # is still claimed, and that is exactly what the hang produced. The
+    # descriptor itself is not compared -- it is built from the live token and
+    # the fallback principal differs between a service and an interactive one,
+    # so comparing it here would assert something this test is not about.
+    replacement = NamedPipeServer(ControlServer(RecordingDispatcher()), pipe_name=name)
+    handle = replacement.create_instance(first=True)
+    try:
+        assert replacement.pipe_name == name
+    finally:
+        close(handle)

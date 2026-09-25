@@ -20,6 +20,7 @@ import { ArchivalService, type ArchiveBucket } from "../archive/archival-service
 import { MemoryRepository } from "./memory-repository.js";
 import {
   MemoryRepositoryError,
+  MEMORY_CONTROL_INTENTS,
   type CanonicalMemoryItem,
   type CommitInitialMemoryInput,
   type ConfirmMemoryItemInput,
@@ -27,6 +28,7 @@ import {
   type LiftMemoryItemInput,
   type MemoryControlIntent,
   type MemoryKind,
+  type MemoryLifetime,
   type MemoryOwnerTurnInput,
   type MemorySensitivity,
 } from "./memory-types.js";
@@ -39,9 +41,6 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
-const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>([
-  "remember", "forget", "lift", "confirm", "explain", "correct",
-]);
 const REMEMBER_CONTROL_PREFIXES = [
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
@@ -59,6 +58,16 @@ export interface RememberMemoryInput {
   readonly sourceExcerpt?: string;
   readonly basis?: "stated" | "confirmed" | "inferred";
   readonly normalizedFromSource?: boolean;
+  /**
+   * Whether this stops being true on its own, and when.
+   *
+   * Optional so every existing caller keeps its behaviour -- absent means
+   * durable, which is what the store did before the column existed. The two are
+   * validated as a pair: durable with an end, or temporary without one, is
+   * refused rather than stored and then rejected by the coupling trigger.
+   */
+  readonly lifetime?: MemoryLifetime;
+  readonly validTo?: string | null;
 }
 
 export interface ConfirmedForgetDecisionInput {
@@ -360,17 +369,34 @@ type DecodedRememberPayload = Readonly<{
   placementId: Ulid;
   placementEventId: Ulid;
   topicId: Ulid;
+  lifetime: MemoryLifetime;
+  validTo: string | null;
 }>;
 
 function rememberPayload(value: JsonValue): DecodedRememberPayload {
   const payload = record(value);
   exactKeys(payload, [
     "operation", "targetId", "itemId", "versionId", "lifecycleState", "sourceId",
-    "placementId", "placementEventId", "topicId",
+    "placementId", "placementEventId", "topicId", "lifetime", "validTo",
   ]);
   if (payload.operation !== "item.transition"
     || payload.lifecycleState !== "active" && payload.lifecycleState !== "proposed") refuse();
   const transitionId = inputUlid(payload.targetId);
+  // Re-decoded on replay, so the coupling is checked here too: a stored command
+  // that says durable while carrying an end would otherwise be replayed into an
+  // item the trigger then refuses, and the failure would look like a data fault
+  // rather than a bad command.
+  const lifetime = payload.lifetime;
+  if (lifetime !== "durable" && lifetime !== "temporary") refuse();
+  const rawValidTo = payload.validTo;
+  // Canonical RFC 3339, compared the way the rest of this ledger compares a
+  // timestamp: round-tripping through Date is the check, so a value that parses
+  // but does not round-trip is refused rather than stored in a shape the recall
+  // filters would compare as text.
+  if (rawValidTo !== null
+    && (typeof rawValidTo !== "string" || new Date(rawValidTo).toISOString() !== rawValidTo)) refuse();
+  const validTo = rawValidTo === null ? null : rawValidTo;
+  if ((lifetime === "durable") !== (validTo === null)) refuse();
   return Object.freeze({
     transitionId,
     itemId: inputUlid(payload.itemId),
@@ -379,6 +405,8 @@ function rememberPayload(value: JsonValue): DecodedRememberPayload {
     placementId: inputUlid(payload.placementId),
     placementEventId: inputUlid(payload.placementEventId),
     topicId: inputUlid(payload.topicId),
+    lifetime,
+    validTo,
   });
 }
 
@@ -517,7 +545,44 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
   });
 }
 
+type DecodedPinCommand = Readonly<{
+  itemId: Ulid;
+  pinned: boolean;
+  pinId: Ulid;
+}>;
+
+/**
+ * `item.pin` and `item.unpin`, decoded from the stored owner command.
+ *
+ * A pin is a model decision carried in an owner command envelope, exactly like
+ * `memory_correct`, because the roadmap lists "what belongs in your core
+ * profile" under "Jarvis decides". It is re-decoded on replay, so the operation
+ * and the flag are checked against each other: a command that says `item.pin`
+ * while carrying `pinned: false` would append the opposite of what it is named.
+ */
+function pinPayload(value: JsonValue): DecodedPinCommand {
+  const payload = record(value);
+  exactKeys(payload, ["operation", "targetId", "itemId", "pinned"]);
+  if (payload.operation !== "item.pin" && payload.operation !== "item.unpin") refuse();
+  if (typeof payload.pinned !== "boolean") refuse();
+  const pinned = payload.pinned;
+  if (pinned !== (payload.operation === "item.pin")) refuse();
+  return Object.freeze({
+    itemId: inputUlid(payload.itemId),
+    pinned,
+    pinId: inputUlid(payload.targetId),
+  });
+}
+
+export interface MemoryPinReceipt {
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  readonly receipt: string;
+  readonly replayed: boolean;
+}
+
 export class MemoryOwnerControlsService {
+
   private readonly events: EventRepository;
   private readonly memory: MemoryRepository;
   private readonly clock: () => Date;
@@ -628,6 +693,8 @@ export class MemoryOwnerControlsService {
             placementId: this.nextId(),
             placementEventId: this.nextId(),
             topicId: topics.inbox.topicId,
+            lifetime: input.lifetime ?? "durable",
+            validTo: input.validTo ?? null,
           });
         }
       }
@@ -636,6 +703,7 @@ export class MemoryOwnerControlsService {
         principalId: ownerTurn.principalId,
         itemId: payload.itemId,
         kind,
+        lifetime: payload.lifetime,
         creationEventId: ownerTurn.eventId,
         creationEventSequence: ownerTurn.eventSequence,
         version: {
@@ -647,7 +715,7 @@ export class MemoryOwnerControlsService {
           uncertain: modelInferred,
           sensitivity,
           validFrom: null,
-          validTo: null,
+          validTo: payload.validTo,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
           extractorModelId: modelInferred ? "deepseek:owner-telegram-agent" : null,
         },
@@ -811,6 +879,8 @@ export class MemoryOwnerControlsService {
           placementId: this.nextId(),
           placementEventId: this.nextId(),
           topicId: topics.inbox.topicId,
+          lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
+          validTo: supersededBefore.version.validTo,
         });
         supersessionCommand = await this.appendCommand(ownerTurn, supersessionKey, supersessionHash, {
           operation: "item.transition",
@@ -832,6 +902,12 @@ export class MemoryOwnerControlsService {
         principalId: ownerTurn.principalId,
         itemId: replacementPayload.itemId,
         kind,
+        // The replacement inherits the lifetime being replaced, derived from the
+        // end the old wording carried rather than defaulted: defaulting to
+        // durable would silently turn a fact Sid said would lapse into one that
+        // never does, which is the kind of quiet promotion this redesign exists
+        // to remove.
+        lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
         creationEventId: ownerTurn.eventId,
         creationEventSequence: ownerTurn.eventSequence,
         version: {
@@ -843,7 +919,7 @@ export class MemoryOwnerControlsService {
           uncertain: false,
           sensitivity,
           validFrom: null,
-          validTo: null,
+          validTo: supersededBefore.version.validTo,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
           extractorModelId: null,
         },
@@ -1377,6 +1453,66 @@ export class MemoryOwnerControlsService {
             ? `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions. You can ask in ordinary language to forget it again.`
             : `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions, but it is still hidden because another forgotten memory covers the same conversation turn.`,
         replayed: command.replayed || result.replayed,
+      });
+    });
+  }
+
+  /** Puts one memory into the core profile: the facts Jarvis is given every turn. */
+  async pin(input: TargetedMemoryControlInput): Promise<MemoryPinReceipt> {
+    return this.setPin(input, true);
+  }
+
+  /** Takes one back out. The memory stays; it stops being given every turn. */
+  async unpin(input: TargetedMemoryControlInput): Promise<MemoryPinReceipt> {
+    return this.setPin(input, false);
+  }
+
+  private async setPin(
+    input: TargetedMemoryControlInput,
+    pinned: boolean,
+  ): Promise<MemoryPinReceipt> {
+    return this.safely(async () => {
+      const intent = pinned ? "pin" : "unpin";
+      const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, intent);
+      const itemId = exactSingleTarget(input.candidateItemIds);
+      const requestHash = await this.requestHash(intent, ownerTurn, [itemId, String(pinned)]);
+      const key = commandKey(ownerTurn, intent);
+      const existing = await this.hasCommand(key, requestHash);
+      let command: AppendedEvent;
+      if (existing) {
+        // Replay: `appendCommand` returns the stored event for a matching key and
+        // hash, so this stub payload is never the one that gets decoded.
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: pinned ? "item.pin" : "item.unpin",
+          targetId: this.nextId(),
+        });
+      } else {
+        await this.memory.validateOwnerTurn(ownerTurn, intent);
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: pinned ? "item.pin" : "item.unpin",
+          targetId: this.nextId(),
+          itemId,
+          pinned,
+        });
+      }
+      const decoded = decodeStoredCommand(command.envelope.payload, pinPayload);
+      if (decoded.itemId !== itemId || decoded.pinned !== pinned) corrupt();
+      const result = await this.memory.appendPin({
+        principalId: ownerTurn.principalId,
+        itemId: decoded.itemId,
+        pinned: decoded.pinned,
+        pinId: decoded.pinId,
+        authorizingEventId: command.envelope.eventId,
+        occurredAt: this.freshNow().toISOString(),
+      });
+      return Object.freeze({
+        itemId,
+        pinned: result.pinned,
+        receipt: pinned
+          ? "Pinned 1 memory; it goes in front of me in every conversation. Unpin it when it stops being true."
+          : "Unpinned 1 memory; it stays remembered and stops being in every conversation.",
+        replayed: command.replayed || !result.appended,
       });
     });
   }

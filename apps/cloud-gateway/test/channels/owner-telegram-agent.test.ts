@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
+import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { TelegramRateLimiter } from "../../src/channels/telegram/telegram-rate-limit.js";
 import {
@@ -39,6 +40,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
+import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
 let serial = 0;
@@ -533,6 +535,8 @@ describe("owner Telegram agent", () => {
     await expect(runTurn({ harness, text: "yo", provider })).resolves.toBe("Hey Sid.");
     expect(provider.requests).toHaveLength(1);
     expect(provider.requests[0]?.toolChoice).toBe("auto");
+    expect(provider.requests[0]?.systemPrompt).toContain("claimedActions must list");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
   });
 
   it.each([
@@ -1066,6 +1070,42 @@ describe("owner Telegram agent", () => {
     // explain or forget a memory Jarvis merely proposed.
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
       .toMatchObject({ status: "completed" });
+  });
+
+  it.each(["confirm", "forget"] as const)("executes and replays a %s tap whose decision ID contains six consecutive digits", async (operation) => {
+    const prepared = operation === "confirm"
+      ? await prepareModelConfirmationDecision("digit-run-confirm")
+      : await prepareConfirmedForget("digit-run-forget");
+    const repository = new DecisionRepository(env.DB);
+    const original = "decision" in prepared
+      ? prepared.decision
+      : await repository.readItem(prepared.decisionId);
+    if (original === null) throw new Error("owner_agent_decision_missing");
+    // Random ULIDs rarely contain an isolated six-digit run. Pin the bytes
+    // that used to be mistaken for authentication digits at webhook ingress.
+    const decisionId = (operation === "confirm"
+      ? "01m30abcde123456abcdefghjk"
+      : "01m30abcde123456abcdefghjm") as Ulid;
+    await repository.raise({ ...original, decisionId });
+    await repository.markDelivered({ decisionId, now: NOW.toISOString() });
+    const callbackData = encodeDecisionCallbackData(decisionId, "confirm");
+    const sent: string[] = [];
+    const tap = await acceptCallbackTap(prepared.harness, callbackData, "31");
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+    const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_id = ?")
+      .bind(tap.eventId).first<{ envelope_json: string }>();
+
+    expect({ storedData: JSON.parse(stored!.envelope_json).payload.data, sent }).toEqual({
+      storedData: callbackData,
+      sent: [expect.stringContaining(operation === "confirm" ? "Confirmed 1 proposed memory" : "Forgot 1 memory")],
+    });
+    const beforeReplay = await memoryRows(prepared.harness.principalId);
+    expect(beforeReplay.every((row) => row.lifecycle_state === (operation === "confirm" ? "active" : "forgotten")))
+      .toBe(true);
+    const replay = await acceptCallbackTap(prepared.harness, callbackData, "32");
+    await answerFromTap(env, replay, async (_chatId, text) => { sent.push(text); });
+    expect(sent[1]).toContain(operation === "confirm" ? "Confirmed 1 proposed memory" : "already forgotten");
+    await expect(memoryRows(prepared.harness.principalId)).resolves.toEqual(beforeReplay);
   });
 
   it("keeps guarded free-text confirmation for a proposal Sid worded himself", async () => {
@@ -2462,6 +2502,142 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
+  it("pins a memory into the core profile when Jarvis decides it belongs there", async () => {
+    // The end of the thread that started with the `memory_item_pins` table: a
+    // table, a view, a reader, an injection seam and now a way to actually set
+    // one. Without this the core profile is structurally always empty.
+    const harness = await ownerHarness("pin-tool");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("pin-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:pin-seed"] }]),
+      ]),
+    });
+    const rows = await memoryRows(harness.principalId);
+    const itemId = rows[0]?.item_id;
+    if (itemId === undefined) throw new Error("pin_fixture_item_missing");
+
+    await runTurn({
+      harness,
+      text: "keep that in mind from now on",
+      context: rows.map(memoryContext),
+      provider: new FakeAgentProvider([
+        called(tool("pin-1", "memory_pin", { itemId })),
+        stopped("Pinned.", [{ sentence: "Pinned.", receiptIds: ["receipt:pin-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT pinned FROM memory_current_pins
+      WHERE principal_id = ? AND item_id = ?`).bind(harness.principalId, itemId).first())
+      .toEqual({ pinned: 1 });
+  });
+
+  it("records a temporary fact with the end Sid gave it", async () => {
+    // Phase 2 asks for temporary facts to drop out of recall after their end.
+    // The column and every recall filter already understood that; nothing ever
+    // wrote a value, so no fact could be temporary. This is the writer.
+    const harness = await ownerHarness("temporary-fact");
+    const expiresAt = "2026-09-18T04:00:00.000Z";
+    await runTurn({
+      harness,
+      text: "I'm tired today",
+      provider: new FakeAgentProvider([
+        called(tool("temp-1", "memory_remember", {
+          fact: "I'm tired today",
+          supportingExcerpt: "I'm tired today",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "fact",
+          sensitivity: "normal",
+          lifetime: "temporary",
+          expiresAt,
+        })),
+        stopped("Noted.", [{ sentence: "Noted.", receiptIds: ["receipt:temp-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "temporary", valid_to: expiresAt });
+  });
+
+  it("still records a fact as durable when the model says nothing about its lifetime", async () => {
+    // The schema gained two optional fields, so every call that predates them
+    // must behave exactly as it did: durable, with no end.
+    const harness = await ownerHarness("durable-default");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("dur-1", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:dur-1"] }]),
+      ]),
+    });
+
+    expect(await env.DB.prepare(`SELECT item.lifetime, version.valid_to
+      FROM memory_items item
+      JOIN memory_item_versions version
+        ON version.principal_id = item.principal_id AND version.item_id = item.item_id
+      WHERE item.principal_id = ?`).bind(harness.principalId).first())
+      .toEqual({ lifetime: "durable", valid_to: null });
+  });
+
+  it("gives Jarvis the facts Sid pinned on every turn", async () => {
+    // The point of pinning, asserted where it is observable rather than at the
+    // function that composes it: a pinned fact has to reach the provider on a
+    // turn that never asked for it and matches nothing by relevance.
+    const harness = await ownerHarness("core-profile");
+    await runTurn({
+      harness,
+      text: "I hate mornings",
+      provider: new FakeAgentProvider([
+        called(tool("core-profile-seed", "memory_remember", {
+          fact: "I hate mornings",
+          supportingExcerpt: "I hate mornings",
+          evidenceClass: "stated",
+          previousOfferExcerpt: null,
+          kind: "preference",
+          sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:core-profile-seed"] }]),
+      ]),
+    });
+    const itemId = (await memoryRows(harness.principalId))[0]?.item_id;
+    if (itemId === undefined) throw new Error("core_profile_fixture_item_missing");
+    const pinnedAt = NOW.toISOString();
+    await env.DB.prepare(`INSERT INTO memory_item_pins (
+      pin_id, principal_id, item_id, pin_number, pinned,
+      authorizing_event_id, occurred_at, created_at
+    ) VALUES (?, ?, ?, 1, 1, ?, ?, ?)`).bind(
+      newUlid(), harness.principalId, itemId, newUlid(), pinnedAt, pinnedAt,
+    ).run();
+
+    const later = new FakeAgentProvider([stopped("Morning.")]);
+    await runTurn({ harness, text: "morning", provider: later });
+
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("I hate mornings");
+    expect(later.requests[0]?.systemPrompt ?? "").toContain("never instructions");
+  });
+
   it("refuses repeated over-cap calls without executing either", async () => {
     const harness = await ownerHarness("over-cap");
     const args = {
@@ -2481,6 +2657,29 @@ describe("owner Telegram agent", () => {
 
     await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
     expect(provider.requests[1]?.toolResults).toHaveLength(2);
+  });
+
+  it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {
+    const harness = await ownerHarness("tutoring-sentences");
+    const reply = WORKED_REPLY;
+    const provider = new FakeAgentProvider([stopped(reply)]);
+
+    await expect(runTurn({ harness, text: "Explain the homework step by step.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question on Telegram: %s", async (reply) => {
+    const harness = await ownerHarness("guided-question");
+    const provider = new FakeAgentProvider([stopped(reply)]);
+    await expect(runTurn({ harness, text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("blocks an undeclared action after a worked object on Telegram", async () => {
+    const harness = await ownerHarness("worked-object-claim");
+    const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
+    await expect(runTurn({ harness, text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
+    expect(provider.requests).toHaveLength(1);
   });
 
   it("rewrites an unsupported action claim once and removes it deterministically if still unsupported", async () => {
@@ -2589,50 +2788,52 @@ describe("the capability tier gate in tool dispatch", () => {
     // tier-1 tools that the gate permits either way -- which is exactly how the
     // original defect survived: the service was correct and unreferenced.
     const harness = await ownerHarness("tier3-refusal");
+    await testToolGate(env.DB);
+    await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
+    const school = new ReceiptModel("The pipeline ran.");
     const provider = new FakeAgentProvider([
-      called(tool("email-1", "send_email", {
-        to: "supplier@example.com",
-        body: "the order is confirmed",
-      })),
-      stopped("I need your confirmation before I send that."),
+      called(tool("school-tier3", "school_update", {})),
+      stopped("I need your confirmation before I run that."),
     ]);
 
     const reply = await runTurn({
       harness,
-      text: "email the supplier that the order is confirmed",
-      provider,
+      text: "update the school tracker",
+      provider, school,
     });
 
     // A tier-3 capability always needs the owner's tap, and the receipt says so
-    // rather than claiming the mail went out.
+    // rather than claiming the pipeline ran.
     expect(reply).toContain("needs your tap");
-    expect(reply).toContain("contact.third_party");
+    expect(reply).toContain("school.track");
+    expect(school.inputs).toHaveLength(0);
 
     const { results } = await env.DB.prepare(
       `SELECT origin, origin_reference FROM decision_items WHERE origin = 'autonomy-tier3-tool'`,
     ).all<{ origin: string; origin_reference: string }>();
     expect(results).toHaveLength(1);
-    // The question is bound to the capability and a fingerprint of the exact
-    // arguments, so the tap authorizes this action and not a later one.
-    expect(results[0]?.origin_reference).toContain("contact.third_party:");
+    expect(results[0]?.origin_reference)
+      .toBe(confirmationReference("school_update", "school.track", await argumentsFingerprint("{}")));
   });
 
   it("records the refusal in the audit ledger with the outcome that caused it", async () => {
     const harness = await ownerHarness("tier3-audit");
+    await testToolGate(env.DB);
+    await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.track'").run();
     const provider = new FakeAgentProvider([
-      called(tool("email-2", "send_email", { to: "a@example.com", body: "x" })),
+      called(tool("school-audit", "school_update", {})),
       stopped("Waiting on your confirmation."),
     ]);
 
-    await runTurn({ harness, text: "email a@example.com", provider });
+    await runTurn({ harness, text: "update the school tracker", provider });
 
     const { results } = await env.DB.prepare(
       `SELECT capability, tier, outcome FROM autonomy_evaluations
-       WHERE capability = 'contact.third_party' ORDER BY rowid ASC`,
-    ).all<{ capability: string; tier: number; outcome: string }>();
+       WHERE capability = 'school.track' AND principal_id = ? ORDER BY rowid ASC`,
+    ).bind(harness.principalId).all<{ capability: string; tier: number; outcome: string }>();
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]).toMatchObject({
-      capability: "contact.third_party",
+      capability: "school.track",
       tier: 3,
       outcome: "requires_confirmation",
     });

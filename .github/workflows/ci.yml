@@ -11,6 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  d2l-extension:
+    name: D2L extension (mocked, windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node --test apps/d2l-extension/test/*.test.js
+
   deployment-scripts:
     name: deployment scripts (windows)
     runs-on: windows-latest
@@ -21,6 +32,7 @@ jobs:
         with:
           node-version: 24.19.0
       - run: node --test scripts/test/deploy.test.mjs
+      - run: node --test scripts/test/check-state.test.mjs
 
   # Cloud gateway, contracts and acceptance. These run under the Cloudflare
   # Workers pool, so they are platform-independent and live on Linux.
@@ -147,3 +159,21 @@ jobs:
             fi
           done
           exit $status
+
+  state-carriers:
+    name: state carriers are honest
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      # The carriers are the only thing a fresh session reads to learn where the
+      # project stands, and a stale one walked the owner through an impossible
+      # setup twice. Broken evidence fails; stale or unconfirmed evidence gets
+      # a visible warning. Run the checker fixtures here as well as on Windows
+      # so platform-dependent path behavior cannot hide behind a green job.
+      - run: node --test scripts/test/check-state.test.mjs
+      - name: node scripts/check-state.mjs
+        run: node scripts/check-state.mjs

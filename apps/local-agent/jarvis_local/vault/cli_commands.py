@@ -14,8 +14,10 @@ where output gets copied from.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
+from jarvis_local.archive.database import SQLiteDirectoryError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.vault.diagnostics import run_vault_diagnostics, vault_report
 from jarvis_local.vault.reconciliation import VaultReconciler
@@ -57,8 +59,28 @@ def run_vault_command(arguments: argparse.Namespace) -> int:
         print("missing: JARVIS_ARCHIVE_PATH")
         print("missing: JARVIS_PRINCIPAL_ID")
         return EXIT_MISSING_CONFIGURATION
+    if not os.path.isabs(archive_path):
+        # A relative archive path would be resolved against the working
+        # directory, so `jarvis vault search` run from two folders would read two
+        # different stores. Refused rather than resolved for the same reason the
+        # store boundary refuses it: the location must not depend on where the
+        # command was started.
+        print(f"JARVIS_ARCHIVE_PATH must be an absolute path: {archive_path}")
+        return EXIT_MISSING_CONFIGURATION
 
-    repository = VaultRepository.open(Path(archive_path))
+    # Read-only on permissions, and explicitly so. `repair_permissions=False`
+    # creates no directory and writes no ACL, so a vault read cannot rewrite the
+    # permissions of the archive directory as a side effect -- which is what it
+    # did while the `JARVIS_ALLOW_REAL_DACL` gate was briefly removed.
+    #
+    # `open` is inside the `try` because refusing a store that does not exist is
+    # the point of the read-only opener, and that refusal arrives from here rather
+    # than later.
+    try:
+        repository = VaultRepository.open(Path(archive_path), repair_permissions=False)
+    except SQLiteDirectoryError as error:
+        print(str(error))
+        return EXIT_MISSING_CONFIGURATION
     try:
         return _dispatch(arguments, repository, principal_id)
     except VaultNotBoundError:

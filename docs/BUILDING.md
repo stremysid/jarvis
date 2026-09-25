@@ -1,23 +1,22 @@
 # Building Jarvis
 
-Who builds each milestone, who reviews it, and what to do when a session
-gets stuck.
+Who builds, who reviews, and what to do when a session gets stuck.
 
 The model is a junior developer with a senior on call. A session works its
-milestone on its own. The moment it is genuinely stuck, it stops, commits
-what works, and tells Sid which senior to call. It does not grind, and it
-does not guess its way forward.
+item on its own. The moment it is genuinely stuck, it stops, commits what
+works, and tells Sid which senior to call. It does not grind, and it does not
+guess its way forward.
 
-Milestones R0 to R10 are defined in
-[the roadmap](plan/2026-09-03-jarvis-roadmap.md), section 7. Each has an
-exit test a person can perform.
+Work is ordered by [the roadmap](plan/2026-09-19-jarvis-roadmap.md)'s seven
+phases and tracked item by item in [QUEUE.md](QUEUE.md). There are no milestone
+numbers. A brief that cites one is citing a deleted document.
 
 ---
 
 ## The one rule
 
-**A session builds until its milestone's exit test passes, or until it is
-stuck. Stuck means stop and report. Never grind.**
+**A session builds until its item's done-when holds, or until it is stuck.
+Stuck means stop and report. Never grind.**
 
 Grinding is the failure this project has already had. An unsupervised
 session with no stop condition produced a 1,366-line plan requiring a Rust
@@ -27,43 +26,31 @@ stop.
 
 ---
 
-## Who runs each milestone
+## Who builds and who reviews
 
-| Milestone | Build with | Review with |
-|---|---|---|
-| R0 Deploy what exists | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R1 Calling (v1.0) | GPT-5.6 Sol, xhigh | **Claude Opus 5, max** |
-| R2 Cloud memory | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R3 Hermes and PC control | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R4 St. Remy | **Claude Opus 5, max** | GPT-5.6 Sol, xhigh |
-| R5 Deadlines | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R6 Send on command, Siri | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R7 Profile and manager | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R8 Errands, Tesla, wake word | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R9 Dashboard, voice notes | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
-| R10 Later | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| Role | Who |
+|---|---|
+| **Build** | GPT-5.6 Sol or DeepSeek V4.1 Flash, whichever Sid starts. A builder never merges its own work |
+| **Build, when a GPT builder is stuck** | A Claude builder — never Fable 5.1 |
+| **PR review** | Claude, at the PR's exact head, before merge |
+| **Independent pass on a reviewer-authored PR** | DeepSeek. The reviewer does not clear its own work |
 
-Two milestones are not on the default setting, and both for the same
-reason — a quiet mistake there is expensive and hard to notice:
+**Never let the same model build and review the same work.** Nothing merges on
+a single model's own sign-off.
 
-- **R1** is the release gate. Its review runs at max.
-- **R4** touches a real business and a machine Sid's parents rely on. Claude
-  builds it and GPT reviews, the reverse of everywhere else.
+Two kinds of change are reviewed at max rather than the default, because a
+quiet mistake there is expensive and hard to notice:
 
-One kind of change is not on the default either, whatever milestone it lands
-in: **a PR that applies a migration to live data gets reviewed at max.** Code
-can be reverted. A migration that has already run on the production database
-cannot, and its damage is silent until something reads the wrong rows back.
+- **Calling (Phase 5)** — it is the release gate for live phone calls.
+- **A migration that runs on live data.** Code can be reverted. A migration
+  that has already run on the production database cannot, and its damage is
+  silent until something reads the wrong rows back.
 
-**Never let the same model build and review the same work.** That is the
-cross-vendor gate from
-[the builder prompt](plan/2026-08-jarvis-builder-prompt.md): nothing merges
-on a single model's own sign-off.
+**St. Remy is out of scope for this repository.** Its code lives in its own
+chat and is not touched from a Jarvis session.
 
-Two models not to use here. **GPT Luna** is the cheap high-volume tier —
-right for the product's own distillation later, wrong for writing this code.
-**Claude Fable 5.1** costs roughly double Opus 5 per token; it is the top of
-the ladder below, not a default.
+Models not to use here. **GPT Luna** is the cheap high-volume tier — wrong for
+writing this code. **Claude Fable 5.1** is not used at all, on cost.
 
 ---
 
@@ -75,14 +62,14 @@ to be better than the last.
 **Stuck on the work:**
 - The same test or check has failed three times against three different
   fixes. The diagnosis is wrong, not the fix.
-- Two full attempts at one item and the exit test still fails.
-- The failure is in code the milestone does not touch and no fix exists on
-  any branch.
+- Two full attempts at one item and its done-when still fails.
+- The failure is in code the item does not touch and no fix exists on any
+  branch.
 
 **Out of scope:**
 - The fix needs a new service, a new abstraction, or more than about 200
   lines that the roadmap does not name.
-- Finishing the item would require starting the next milestone.
+- Finishing the item would require starting a different one.
 
 **Contradiction:**
 - The roadmap says one thing and the code does another, and it is not
@@ -107,10 +94,9 @@ effort** — and that ordering is deliberate.
 
 | Rung | Who | Effort |
 |---|---|---|
-| 1 | GPT-5.6 Sol | xhigh |
-| 2 | Claude Opus 5 | xhigh |
+| 1 | The builder, in a fresh session | default |
+| 2 | A different vendor | xhigh |
 | 3 | Claude Opus 5 | max |
-| 4 | Claude Fable 5.1 | high |
 
 Most stuck sessions are stuck on a wrong assumption, not on insufficient
 reasoning. A fresh session with a different model breaks the assumption; the
@@ -118,12 +104,8 @@ same session at higher effort usually just builds a more elaborate version
 of the same wrong answer. Sid measured this directly: running Sol at its top
 tier for two days returned very little over the level below.
 
-So: **fresh eyes before more effort.** Rung 4 is rare. If rung 4 is stuck,
-the milestone's scope is wrong and the roadmap needs changing, not the
-model.
-
-When R4 is the milestone, the ladder starts at rung 3 and steps up to
-rung 4; its reviewer escalates to Claude Opus 5 at max instead.
+So: **fresh eyes before more effort.** If rung 3 is stuck, the item's scope is
+wrong and the roadmap needs changing, not the model.
 
 ---
 
@@ -132,7 +114,7 @@ rung 4; its reviewer escalates to Claude Opus 5 at max instead.
 Enough that the next session starts from where you stopped rather than from
 nothing:
 
-1. **Which milestone and which item.**
+1. **Which phase and which item.**
 2. **What you tried** — each attempt and what happened, briefly.
 3. **The exact error**, test name, or failing command.
 4. **What you believe the blocker is**, and how confident you are.
@@ -150,9 +132,8 @@ session. A stuck session that leaves a dirty working tree costs two, because
 the next one spends its first half working out what state the repository is
 in.
 
-Then update `NEXT_STEPS.md` with what is left in the milestone, and add
-anything you discovered to `KNOWN_ISSUES.md`. Those two files are how the
-next session avoids repeating your dead end.
+Then update [QUEUE.md](QUEUE.md) with what is left. That is how the next
+session avoids repeating your dead end.
 
 ---
 
@@ -160,17 +141,14 @@ next session avoids repeating your dead end.
 
 **Parallel is safe for reading and dangerous for writing.**
 
-Reading cannot collide, so fan out freely: one session on the Hermes docs,
-one checking what is already installed, one drafting a config. The review
-pass parallelises well too — one checking security, one correctness, one
-whether the diff matches the roadmap.
+Reading cannot collide, so fan out freely. The review pass parallelises well
+too — one checking security, one correctness, one whether the diff matches the
+roadmap.
 
-Writing collides. Two sessions editing this repository at once will
-overwrite each other, or one will change an interface the other depends on,
-and each will look correct in its own window. Inside a milestone the items
-are mostly sequential anyway: R0 cannot deploy before it fixes the config.
+Writing collides. Two sessions editing this repository at once will overwrite
+each other, or one will change an interface the other depends on, and each
+will look correct in its own window.
 
-So: **one building session per milestone.** That session may spawn as many
-reading sessions as it likes. Two building sessions run at once only on
-genuinely independent milestones, in separate git worktrees — R5 and R6
-qualify once R3 is done.
+So: **one building session per item that touches the same files.** Two
+building sessions run at once only on items that share no files, in separate
+git worktrees.

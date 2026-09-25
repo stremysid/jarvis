@@ -1,0 +1,7 @@
+body { width: 540px; margin: 16px; font: 14px system-ui, sans-serif; color: #19202a; background: #f7f8fa; }
+h1 { font-size: 20px; margin: 0; }
+p { line-height: 1.4; }
+button { padding: 8px 12px; margin-right: 8px; cursor: pointer; }
+pre { max-height: 380px; overflow: auto; white-space: pre-wrap; font: 12px ui-monospace, monospace; }
+label { display: block; margin: 12px 0; }
+input { box-sizing: border-box; width: 100%; padding: 8px; }

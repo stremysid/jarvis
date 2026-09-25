@@ -1,46 +1,92 @@
 # Queue
 
-What is in flight, who owns the next action, and what it blocks. **This file is the
-working queue.** The roadmap says what should exist; this says what is actually
-moving. Regenerate it rather than appending to it.
+What is in flight, who owns the next action, and what it blocks. Regenerate this
+file rather than appending to it. Owner-only actions live in [OWNER-ACTIONS.md](OWNER-ACTIONS.md).
 
-`state` is one of `awaiting-review`, `changes-requested`, `awaiting-owner`,
-`blocked`, `ready-to-merge`. `BLOCKS` names the milestone a pull request gates —
-`v1.0` outranks everything else (`docs/BUILDING.md`).
+Last regenerated: 2026-09-24, evening, from `gh pr view` on every open PR, repository
+history, and the orchestrator's read-only production checks. Heads below are that
+observation, not a claim about a later head. Query `git log --oneline origin/main -1`
+before starting work.
 
-Last regenerated: 2026-09-18, against `main` = run `git log --oneline origin/main -1`.
+**Deploy freeze lifted:** Sid deployed release `a7cd355` (#189) with migrations `0040`,
+`0043` and `0045` on 2026-09-24 at about 9:41 PM EDT; results are in
+[STATE](STATE.md#deploy-results-2026-09-24-evening).
+Builders and reviews are on hold since 1:24 AM 2026-09-24 by Sid's instruction
+(orchestrator-reported), except explicitly approved work (this docs round, the #186 sweep).
+Every "builder round" below starts only when builders resume.
 
-## Pull requests
+**Local load rule:** only focused test files on Sid's PC; full package and workspace
+suites run in GitHub Actions. See [the recorded rule](voice-streaming.md#round-2-validation).
 
-| PR | State | Next action | Owner | BLOCKS | Notes |
+## Pull requests, and the order they have to land in
+
+| PR | State / observed head | Next action | Owner | BLOCKS | Notes |
 |---|---|---|---|---|---|
-| [#96](https://github.com/ksid1229-ops/jarvis/pull/96) | **blocked** | Resolve the conflict against `main`, then request review | builder | **v1.0** | Spoken PIN before sensitive actions, and the redaction fix. Migration renumbered `0035` → `0036`. Ready for review since 06:07 UTC on 2026-09-18; conflicting since. The verdict exists only in a handoff — it has no `AGENT_LOG` entry on `main`. |
-| [#106](https://github.com/ksid1229-ops/jarvis/pull/106) | awaiting-review | Independent review at `43fbb08` | reviewer | none | Wires the tier-3 gate that currently has zero callers, and classifies `memory_correct`. Fixes the control behind the "/shadow off" claim below. Before it merges, correct `0035`'s opening comment: it says *eight* tools, there are *nine*. |
-| [#105](https://github.com/ksid1229-ops/jarvis/pull/105) | awaiting-review | Independent review at `42cd0ae4` | reviewer | none | Corrects the Classroom owner action to "cannot be performed on this board". Currently the wrong document is still what a new session reads first. |
-| [#24](https://github.com/ksid1229-ops/jarvis/issues/24) | awaiting-triage | Decide: fix, document, or close | reviewer | none | Issue, not a PR: Hermes rejects trusted PowerShell 7 Store/MSIX installations. Open since 2026-09-13. |
+| [#174](https://github.com/stremysid/jarvis/pull/174) channel parity | **merge delta cleared, one owner fix outstanding**; `ac5c89e` | When builders resume, and before merge, fix F1: the voice refusal strings at `voice-agent.ts:144` and `:146` name `/decisions`, which is not a bot command — the decision list is `/queue` — and add a test that every `/command` named in a voice refusal parses. Then merge and deploy, including migration `0044` only after a fresh rollout check | builder, then reviewer | #168 refresh; Phases 1, 2 and 5 | Round-5 integration review approved `0e458a6` (7/7 rules, CI 9/9), then the `ac5c89e` merge of main `68675ba` was cleared. Migration `0044`; fixes the guest-call privacy leak, live until merge and deploy. Scratch `0044` after `0045`: orchestrator-reported PASS, not independently re-run; [record](reviews/2026-09-24-scratch-d1-rehearsal.md) |
+| [#168](https://github.com/stremysid/jarvis/pull/168) owner reminders | **blocked / stale, conflicting**; `d214216` | After #174 merges, run the builder round resolving conflicts, renumber `0041` above main's maximum, then request review; #166 has merged | builder | owner reminders | The 2026-09-24 decision to renumber `0041`/`0042` above main's maximum is recorded in [OWNER-ACTIONS](OWNER-ACTIONS.md#done--kept-so-they-are-not-asked-for-again); check the migration set again before choosing a number |
+| [#179](https://github.com/stremysid/jarvis/pull/179) state carriers | **round 5: Claude-authored fixes for the round-4 review at `34b4c78`**; round 3 cleared the main merge at `70f5a29` | Obtain a non-Claude (DeepSeek) audit of the round-5 delta before merge | DeepSeek auditor, then reviewer | current carrier evidence | This branch, `claude/friendly-hawking-qjcyia` |
+| [#180](https://github.com/stremysid/jarvis/pull/180) test lows | **reviewed and cleared**; `ac8d75b` | Merge once the deploy freeze lifts; the earlier failed-job re-run is superseded by the main merge at `68675ba` | harness / reviewer | low-severity regression coverage | Only cloud-gateway tests, one label string and the log changed; round 1 at `f70b30d` was ready to merge with 0 High/Medium/Low and 7/7 mutants killed. The local-agent retry race and hermes-runtime timeout seen in its CI are #185's subject, not this PR's |
+| [#183](https://github.com/stremysid/jarvis/pull/183) redaction gaps | **round 2: ready to merge with follow-ups**; `a27a688` | Merge once the deploy freeze lifts; then carry the three should-fix follow-ups and three nits | harness / reviewer, then builder | Phase 5 | 0 blocking, 26 of 28 mutants killed (S3 load-bearing, N2 unreachable), CI 9/9 green |
+| [#184](https://github.com/stremysid/jarvis/pull/184) call-session fixes | **round 1 requested changes**; `a035630` | When builders resume, address the round-1 findings and request review | builder, then reviewer | call-session fixes | The review started on `e786602`; `a035630` is a harness merge of main, and the PR's own diff against main is byte-identical at both heads |
+| [#185](https://github.com/stremysid/jarvis/pull/185) CI flake bounds | **round 1 requested a small fix**; review at `78c98ff`; head `8822708` is a later main merge, fix not yet pushed | When builders resume, raise the two Hermes per-test timeouts that are still shorter than the child deadline they wrap, then request review | builder, then reviewer | CI reliability | The local-agent half is correct as-is. Covers `test_node.py`'s race against `QUARANTINE_RETRY_WAIT_SECONDS = 0.1` and `canonical-closure-review3.test.mjs:51` hitting Vitest's default 5 s limit on Windows |
+| [#122](https://github.com/stremysid/jarvis/pull/122) memory redesign spec | **reviewer-parked**; `4f570fa` | Reviewer-decided, not awaiting Sid: it stays parked until #174 merges, then a refresh, independent review and merge. [PR comment](https://github.com/stremysid/jarvis/pull/122#issuecomment-5805918111) | reviewer | none | It is **not** waiting on an owner decision; the earlier "awaiting-owner" state was wrong |
+
+#178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
+#177 merged as `5548c38`; #182 merged as `a20f055` at 21:14 UTC on 2026-09-24;
+#181 merged as `68675ba` at 21:32 UTC on 2026-09-24 and is tonight's release revision.
+All three have left the open-PR table and none is deployed. #182 closes
+T3/B1 changed-outcome denial and B2 tool binding; [compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24).
+Production is source `0d69556` (#165) with D1 at `0039`: a second deploy, observed by the
+orchestrator read-only on 2026-09-24, not by this builder. Tonight's plan is release
+`68675ba` with pending migrations `0040`, `0043` and `0045`; #174's `0044` is not in it.
+The merge freeze holds until Sid reports; production application, deployment and device
+acceptance stay in [OWNER-ACTIONS](OWNER-ACTIONS.md).
 
 ## Work with no pull request yet
 
+Repository claims below were checked against main on 2026-09-24. Dated runtime
+observations were not repeated by this docs builder.
+
 | Item | State | Next action | Owner | BLOCKS |
 |---|---|---|---|---|
-| `/shadow off` tells the owner tier 3 still asks first, and it does not | **live defect** | #106 for the control; change the two strings today either way | builder | v1.0 trust |
-| Forgetting has a back door: distillation re-ingests suppressed turns, hourly | **live defect** | Add the suppression anti-join two other retrieval paths already carry | builder | R2 |
-| A four-digit PIN and the owner passphrase match no redaction rule | **live defect** | Add the rules; re-aim the test at `conversation.turn.text` | builder | v1.0 |
-| Voice has no tool dispatch — a call is a chatbot | not started | Compose the tool-calling agent into `CallSessionCore` | builder | **v1.0 as the owner means it** |
-| State carriers (`STATE.md`, this file, `OWNER-ACTIONS.md`) | awaiting-review | Branch `codex/state-carriers` | builder | none |
-
-| Carried forward from `NEXT_STEPS.md` | | | | |
-| `typecheck:tests` reports 144 errors in 32 files | awaiting-triage | Fix them or gate them; the docs say ~117 and are stale | builder | none |
-| Telegram rate limiter and the provider circuit breaker are per-isolate | not started | Move both into a Durable Object | builder | none |
-| `handleReadiness` has zero call sites | awaiting-triage | Route it, or delete it — liveness is routed and readiness is not | builder | none |
-| No Windows service host for the local agent | not started | R3 chooses the execution host; do not build it before that | builder | R3 |
-| External uptime monitor | blocked | Owner action, after a deployment proves the heartbeat | Sid | R0 |
+| [#186](https://github.com/stremysid/jarvis/issues/186) code-vs-judgment sweep | **open, read-only, in progress** | Seven area reviewers each post ONE comment with REMOVE / KEEP / UNSURE rows; nothing is changed by the sweep. Pinned at main `68675ba`. Removals follow in separate PRs, including the rewrite of `docs/CODE-VS-JUDGMENT.md` into a removal list | reviewer, then builder | the removal PRs |
+| Email inbox as a date source | **Sid decided: FIRST when builders resume** | Put the teacher-email inbox first among unfinished school date sources; see the [owner decision](OWNER-ACTIONS.md#done--kept-so-they-are-not-asked-for-again). It does not revive the D2L notification-email route, which carries no deadline | builder | remaining school date sources |
+| #166 round-7 X: vertical-break coverage | **open low** | In a focused follow-up, pin `\v`, `\f`, U+2029 and bare `\r` normalization in `deadline-tool.ts`; [review](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515) | builder | deadline evidence regression coverage |
+| #166 round-7 Y: apostrophe exemption coverage | **open low** | In a focused follow-up, pin the straight/curly apostrophe exemption in the soft-separator rule. Existing filler coverage does not prove that exemption; [review](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515) | builder | deadline evidence regression coverage |
+| #174 round-3 L2: Telegram keyboard payload fields reject staged ids | **open, fail-closed** | In a separate PR after #174 review, trace staged decision/keyboard fields through redaction validation and delivery; retain structural-id validation. [Known issue](../KNOWN_ISSUES.md#telegram-keyboard-payload-fields-pr-174-round-3-l2) | builder | some confirmation deliveries |
+| Deadline "proof contract" refusals | **Sid decided to remove; not started** | Remove `DUE_PHRASE` and the "code cannot choose" refusals in `apps/cloud-gateway/src/deadlines/deadline-date-proof.ts`, and the `statusOf` keyword list (`STATUS_WORDS`) in `apps/cloud-gateway/src/deadlines/deadline-tool.ts`; the model decides, asks when unsure, and code checks only that the date exists and keeps the raw message as the receipt. This replaces the former #166-round-7-Z question; Sid's 2026-09-24 statement is in [OWNER-ACTIONS](OWNER-ACTIONS.md) | builder | the deadline tool's refusals |
+| #176 L2: personal myItems date versus folder DueDate | **decided by the reviewer: keep today's precedence** | Record any observed disagreement for the reviewer; none has been observed. The owner-run probe shows every myItems date as null. Sid no longer decides this | reviewer | date-precedence change |
+| #171 L2′: ordinary `[[` prose aborts speech | **open low** | In a follow-up PR, preserve ordinary wiki-link prose without treating it as a malformed claim marker; [known issue](../KNOWN_ISSUES.md#owner-voice-streaming-acceptance-pr-171-2026-09-24) | builder | none |
+| #171 L3′: held pre-tool refusal is spoken out of order | **open low** | In a follow-up PR, preserve spoken order across the end of round 0; [known issue](../KNOWN_ISSUES.md#owner-voice-streaming-acceptance-pr-171-2026-09-24) | builder | none |
+| #171 L5: worked explanations are replaced on voice | **open low, fail-closed** | In a follow-up, address `guardVoiceReplySentence` missing the `WORKED_APPLIED_FOR_YOU` mask before `FALSE_EXTERNAL_COMPLETIONS` and the "saved" memory backstop's missing worked-object check; the [review](https://github.com/stremysid/jarvis/pull/171#issuecomment-5817201176) found six explanations Telegram keeps but voice replaces | builder | voice tutoring parity |
+| #171 L6: the voice prompt's worked-explanation sentence is not pinned | **open low** | In a follow-up, pin #162's sentence in `OWNER_VOICE_STREAM_PROMPT`; existing coverage checks the non-streaming prompt or a fixed provider reply. The [review](https://github.com/stremysid/jarvis/pull/171#issuecomment-5817201176) reports mutant N27 survived | builder | voice prompt regression coverage |
+| D2L extension compatibility hold and host-failure emission | **not started after receiver merge** | After reviewed receiver rollout, update `apps/d2l-extension/protocol.js` and delivery to accept the two-board contract and emit host-only failures; obtain review and owner acceptance | extension builder | automatic two-board evidence |
+| PC controls: daily report after the D2L reader | **P1 and collector/receiver merged; P3 pending acceptance** | When extension compatibility and owner acceptance complete, report the last good whole read and gaps in Telegram. The login-and-scrape P2 reader remains parked | builder | Phases 3 and 4 |
+| The operation-coverage test still hand-lists seven memory operations | **half fixed** | In a follow-up, cover the declared union in `test/memory/control-targets.test.ts`. `SUPPORTED_OPERATIONS` in `memory-control-targets.ts` already uses an exhaustive typed map | builder | Phase 2 |
+| Memory has saved nothing since the promotion fix went live | **open; 2026-09-21 observation not refreshed** | At the next authorized check, examine a known fact-bearing turn's extraction. Four eligible turns yielded no new items; whether they held anything worth saving is unknown | reviewer | Phase 2 |
+| Voice's previous-memory lookup and recall differ from Telegram | **open; #174 addresses parity** | During #174 review, check projection-only recall and `findLastReferencedTarget`'s dependence on Telegram delivery evidence | reviewer | Phases 2 and 5 |
+| One brain still has two conversation composition sites | **core shared; state not unified** | After channel parity, address shared conversation state. `OwnerAgentCore` shares the loop; Telegram is a stateless Worker and voice uses `CallSession` | builder | Phase 1 |
+| Hermes `artifact-security-review3` timing flake | **open, cause unestablished** | When it next fails in CI, isolate the absolute-cancellation-deadline assertion before attributing it. The recorded failure at `352991e` passed on rerun | builder | none |
+| Local-agent quarantine lock-contention test is load-sensitive | **open, cause unestablished** | In a focused follow-up, examine the 0.5-second join in `tests/test_quarantine_control.py`; the 2026-09-24 failure passed on rerun and its file alone (40 passed, 2 skipped) | builder | none |
+| The model cannot state its own certainty | **decided, not started** | In Phase 2, remove forced `uncertain: true` in `extraction-policy.ts`. Certainty is already absent from `FORBIDDEN_PROPOSAL_KEYS`; keep origin and lifecycle code-assigned | builder | Phase 2 |
+| Remaining redaction gaps | **open** | In a scoped follow-up, verify and fix bare/spoken-word PIN and phone/passphrase gaps. #149's credential-word digit fix is deployed; #171 strengthens quoted/header redaction on main only | builder | Phase 5 |
+| Memory explain/forget/restore receipts can reintroduce withheld text | **live defect** | In Phase 2, use the service's sanitized receipt rather than independently read text in `owner-agent-core.ts`; [known issue](../KNOWN_ISSUES.md#memory-and-archive) | builder | Phase 2 |
+| Suppression predicates remain duplicated outside the retriever | **open** | In Phase 2, review two projection uses in `memory-repository.ts` and migration `0016`'s view; retriever and control finder already share `suppression-clauses.ts` | builder | Phase 2 |
+| T1/T2: `channel_identities` insert and `capability_tiers` update/delete guards | **not started** | In a separate migration PR, add missing guards after checking main and every open PR for the next number. Main's maximum is `0045` at this observation; `0044` is on #174 | builder | Phase 2 |
+| Watchdog alerting secrets are undeclared | **not started** | In a follow-up, make missing alerting bindings a deploy-time refusal; `apps/watchdog/wrangler.toml` still declares no required secrets | builder | Phase 7 |
+| Telegram provider clears its abort timer before the body read | **not started** | In a follow-up, keep the timer armed through `response.json()` in `telegram-provider.ts` | builder | none |
+| Vault sync stops at the first 64 examined notes | **not started** | In Phase 7, persist progress through `vault/reconciliation.py`; unchanged notes count toward `documents_examined` | builder | Phase 7 |
+| Gateway test typecheck is red and outside CI | **awaiting-triage** | At the next test-type cleanup, fix or gate it: **143 as measured on 2026-09-24 by the builders**. This container has no installed `node_modules/.bin/tsc` | builder | none |
+| Telegram rate limiter and provider circuit breaker are per-isolate | **not started** | In a follow-up, provide shared accounting; both are module-level instances in `index.ts` | builder | none |
+| `handleReadiness` has no call sites | **awaiting-triage** | At the next readiness change, route or remove the unused export in `http/health.ts` | builder | none |
+| Failed Telegram reply retry and backup-notice delivery | **open** | In a follow-up, trace the absent scheduled `retry_wait` drain and `MemoryBackupService.alert`'s claim-before-send with empty catch; code evidence, not a fresh production failure | builder | reliable delivery |
+| `pushSourceGap` returns a stored failure before its age check | **retained audit finding; usefulness needs review** | Before building, reassess reachability after #167 retired D2L-email digest health. The ordering remains in `jobs/digest-job.ts` | builder | none |
+| Voice PIN exposure after DO eviction | **unproven older audit premise** | Before building, establish whether eviction loses the relevant in-memory interaction at this boundary. No new runtime evidence was collected | reviewer | none |
 
 ## How this file stays true
 
-- A pull request appears here from the moment it is opened, and leaves when it is
-  merged or closed.
-- The reviewer writes the verdict into the row when it posts one, so the queue is
-  never more than one review behind reality.
-- Anything only Sid can do belongs in [OWNER-ACTIONS.md](OWNER-ACTIONS.md), not here.
-- Nothing in this file may state a revision as current. Query it.
+- A pull request appears when opened and leaves when merged or closed.
+- The reviewer updates its verdict when posting one, including the reviewed head.
+- Owner-only work belongs in [OWNER-ACTIONS.md](OWNER-ACTIONS.md); cross-references do not duplicate requests.
+- Every next action names a trigger; observations are dated, never presented as a moving head.
+- `scripts/check-state.mjs` checks carrier format in the advisory `state carriers are honest` CI job.

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   canonicalJson,
   createEnvelope,
@@ -9,7 +9,7 @@ import {
   type PersistableEventEnvelopeV1,
 } from "../../../../packages/contracts/src/index.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
-import { ArchivalService } from "../../src/archive/archival-service.js";
+import { ArchivalService, type ArchiveBucket } from "../../src/archive/archival-service.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
@@ -91,10 +91,20 @@ interface D1Stats {
   roundTrips: number;
   inflight: number;
   maxInflight: number;
+  realInflight: number;
 }
 
 function newD1Stats(): D1Stats {
-  return { statements: 0, roundTrips: 0, inflight: 0, maxInflight: 0 };
+  return { statements: 0, roundTrips: 0, inflight: 0, maxInflight: 0, realInflight: 0 };
+}
+
+async function realIo<T>(stats: D1Stats, operation: () => Promise<T>): Promise<T> {
+  stats.realInflight += 1;
+  try {
+    return await operation();
+  } finally {
+    stats.realInflight -= 1;
+  }
 }
 
 function countingDatabase(
@@ -111,7 +121,7 @@ function countingDatabase(
     try {
       const delayMs = Math.max(0, ...sql.map((text) => delayFor(text)));
       if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      return await operation();
+      return await realIo(stats, operation);
     } finally {
       stats.inflight -= 1;
     }
@@ -150,6 +160,30 @@ function countingDatabase(
       return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
     },
   }) as D1Database;
+}
+
+function countingArchive(bucket: ArchiveBucket, stats: D1Stats): ArchiveBucket {
+  return new Proxy(bucket, {
+    get(target, property) {
+      if (property === "get") {
+        return async (...args: Parameters<ArchiveBucket["get"]>) => {
+          const object = await realIo(stats, () => target.get(...args));
+          if (object === null) return null;
+          return new Proxy(object, {
+            get(body, key) {
+              if (key === "arrayBuffer") {
+                return () => realIo(stats, () => (body as R2ObjectBody).arrayBuffer());
+              }
+              const value = Reflect.get(body, key, body) as unknown;
+              return typeof value === "function" ? value.bind(body) : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 async function seedPrincipal(principalId: string): Promise<void> {
@@ -1910,7 +1944,12 @@ describe("Telegram memory retrieval", () => {
     const principalId = await markerPrincipal("uncertain-recall");
     const sourceText = "I keep my project notes concise. The meeting notes were long.";
     const fact = "I keep my project notes concise.";
-    const classified = classifyMarkerText(sourceText);
+    // Marked forwarded, so this turn is not the owner's own text and the fact
+    // stays a proposal. It used to stay proposed merely for being one sentence
+    // of a longer message, which is how every fact from a real conversation was
+    // stuck at `proposed` too; that rule is gone, so the fixture now says what
+    // it means rather than relying on it.
+    const classified = classifyMarkerText(sourceText, { forward_origin: { type: "user" } });
     const events = new EventRepository(env.DB);
     const conversations = buildTelegramConversationRepository(
       env.DB,
@@ -2436,6 +2475,141 @@ describe("Telegram memory retrieval", () => {
       && context.text.includes("gymnasium schedules"))).toBe(false);
   });
 
+  // The two candidate arms each read their own page of three: the keyword arm
+  // ranks by relevance, the named-area arm walks a topic subtree and orders by
+  // recency. Neither arm's suppression clauses are pinned anywhere else -- deleting
+  // either set leaves every other suite in this app green, because
+  // `readCandidateContexts` filters suppressions a second time after the read, and
+  // that second filter is invisible for any memory already inside the page. What
+  // the clauses change is which memories are inside it.
+  it.each([
+    ["a keyword query", "kite"],
+    ["a named-area question", "What do you remember about Inbox / Needs filing?"],
+  ])("recalls a visible memory while suppressed candidates would fill the candidate page (%s)", async (_arm, queryText) => {
+    const owner = await seedServicePrincipal("suppressed-candidate-page");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    const ownerText = "My locker is number twelve.";
+    // Longer than the hidden texts on purpose. The keyword arm orders active items
+    // before proposed ones and then by relevance, so every candidate here is
+    // proposed and relevance decides: bm25 ranks a long document that matches the
+    // term once below a short one that matches it twice, which is what puts the
+    // visible memory last in a page of four. The named-area arm needs none of that,
+    // because it returns the topic's items newest first.
+    const visibleText = "the kite is in the cellar, behind the paint tins and the old lawnmower";
+    const hiddenTexts = Object.freeze([
+      "the kite, the kite is in the attic",
+      "the kite, the kite is in the loft",
+      "the kite, the kite is in the shed",
+    ]);
+    const query = Object.freeze({
+      principalId: owner.principalId,
+      channel: "telegram" as const,
+      purpose: "conversation" as const,
+      query: queryText,
+      maxTokens: 32_000,
+    });
+    const recall = async () => new TelegramMemoryRetriever({
+      database: env.DB,
+      archive: env.ARCHIVE,
+    }).retrieve(query);
+    // Both labels, because an uncertain memory is evidence and says so.
+    const recalled = (contexts: Awaited<ReturnType<typeof recall>>, text: string) => contexts.some(
+      (context) => /memory evidence \[/iu.test(context.text) && context.text.includes(text),
+    );
+
+    // The event every hidden proposal borrows as its creation event. Suppressing
+    // it hides the proposals while leaving them `proposed`, which is the case the
+    // keyword arm's own anti-join exists to filter: the lifecycle guard cannot,
+    // because they were never forgotten.
+    await sendProduction({
+      who: owner, ownerPrincipalId: owner.principalId, text: ownerText, model, telegram,
+    });
+    const borrowed = await latestUserEvent(owner.principalId);
+    const ownerItemId = await commitTestItem({
+      principalId: owner.principalId, text: ownerText, creation: borrowed,
+    });
+
+    await sendProduction({
+      who: owner, ownerPrincipalId: owner.principalId, text: visibleText, model, telegram,
+    });
+    const visibleItemId = await commitTestItem({
+      principalId: owner.principalId,
+      text: visibleText,
+      creation: await latestUserEvent(owner.principalId),
+      state: "proposed",
+      uncertain: true,
+    });
+
+    // The keyword arm reads one page of three candidates. Both ordering keys are
+    // arranged so the three hidden proposals come first: the visible memory is
+    // committed before them, and its text is longer, so it ranks last. A page that
+    // cannot see suppression is then a page of candidates the read discards.
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    const hiddenItemIds: ReturnType<typeof newUlid>[] = [];
+    for (const text of hiddenTexts) {
+      await sendProduction({
+        who: owner, ownerPrincipalId: owner.principalId, text, model, telegram,
+      });
+      hiddenItemIds.push(await commitTestItem({
+        principalId: owner.principalId,
+        text,
+        creation: borrowed,
+        source: await latestUserEvent(owner.principalId),
+        state: "proposed",
+        uncertain: true,
+      }));
+    }
+    // This memory is one of four candidates for a page of three, and it ranks
+    // last, so it is not recalled: the retriever works as designed. It is the
+    // control for the assertions below, which is why it is asserted rather than
+    // assumed -- if the ranking fixture ever stops putting the visible memory
+    // fourth, this fails instead of the test passing for the wrong reason.
+    expect(recalled(await recall(), visibleText)).toBe(false);
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget the memory about locker.",
+      model,
+      telegram,
+    });
+    const forgetTurn = await latestUserEvent(owner.principalId);
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
+      ownerTurn: Object.freeze({
+        principalId: owner.principalId,
+        eventId: forgetTurn.eventId,
+        eventSequence: forgetTurn.sequence,
+        occurredAt: forgetTurn.occurredAt,
+        channel: "telegram" as const,
+        memoryIntent: "forget" as const,
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }),
+      candidateItemIds: Object.freeze([ownerItemId]),
+    });
+    for (const itemId of hiddenItemIds) {
+      await expect(new MemoryRepository(env.DB).readCurrentItem(owner.principalId, itemId))
+        .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+    }
+
+    const after = await recall();
+    // The three candidates the ledger suppressed are still `proposed`, so only the
+    // suppression predicate can exclude them -- and if it is applied after the read
+    // instead of before the page, they keep the three slots a read that cannot see
+    // them then discards, and this memory stays unreachable. That is the whole
+    // observable effect of the keyword arm's own anti-join: everything else about
+    // these items is filtered twice over, which is why no other test here fails
+    // when the clause is deleted.
+    expect(recalled(after, visibleText)).toBe(true);
+    for (const text of hiddenTexts) expect(recalled(after, text)).toBe(false);
+  });
+
   it("returns eligible canonical memory without duplicating a recent literal-history hit", async () => {
     const events = new EventRepository(env.DB);
     const conversations = new ConversationRepository(env.DB, events);
@@ -2564,7 +2738,7 @@ describe("Telegram memory retrieval", () => {
 });
 
 describe("Telegram memory retrieval follow-ups", () => {
-  it("retrieves archived-source memories and archived history within 500 ms at 25 ms per D1 round trip", async () => {
+  it("retrieves archived-source memories and archived history with bounded parallel D1 reads", async () => {
     await resetArchiveFixture();
     const owner = await seedServicePrincipal("archived-followup-latency");
     const events = new EventRepository(env.DB);
@@ -2625,26 +2799,54 @@ describe("Telegram memory retrieval follow-ups", () => {
       Date.now() - 60_000,
     );
     const stats = newD1Stats();
-    const startedAt = performance.now();
-    const contexts = await new TelegramMemoryRetriever({
-      database: countingDatabase(env.DB, stats, () => 25),
-      archive: env.ARCHIVE,
-      log: () => undefined,
-    }).retrieve({
-      principalId: owner.principalId,
-      channel: "telegram",
-      purpose: "conversation",
-      query: "Which school subject is my favourite?",
-      maxTokens: 32_000,
-    });
-    const elapsedMs = Math.round(performance.now() - startedAt);
+    // Charge 25 ms per D1 trip on a virtual clock. Advancing while real D1/R2
+    // work is pending would charge host IPC delays against the search deadlines.
+    // The overlap check catches serialization even when both stages together
+    // fit within 500 ms once host delays are excluded.
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const metrics: TelegramMemoryRetrievalMetrics[] = [];
+      const retrieval = new TelegramMemoryRetriever({
+        database: countingDatabase(env.DB, stats, () => 25),
+        archive: countingArchive(env.ARCHIVE, stats),
+        log: () => undefined,
+        observeRetrieval: (value) => metrics.push(value),
+      }).retrieve({
+        principalId: owner.principalId,
+        channel: "telegram",
+        purpose: "conversation",
+        query: "Which school subject is my favourite?",
+        maxTokens: 32_000,
+      });
+      let settled = false;
+      void retrieval.then(() => { settled = true; }, () => { settled = true; });
+      let virtualElapsedMs = 0;
+      while (!settled) {
+        // Yield to native I/O and its promise continuations before deciding
+        // whether the next simulated delay is on the critical path.
+        await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+        if (stats.realInflight > 0 || settled) continue;
+        const before = performance.now();
+        await vi.advanceTimersToNextTimerAsync();
+        virtualElapsedMs += performance.now() - before;
+      }
+      const contexts = await retrieval;
 
-    for (const text of memoryTexts) {
-      expect(contexts.some((entry) => /memory evidence/iu.test(entry.text) && entry.text.includes(text))).toBe(true);
+      for (const text of memoryTexts) {
+        expect(contexts.some((entry) => /memory evidence/iu.test(entry.text) && entry.text.includes(text))).toBe(true);
+      }
+      expect(contexts.some((entry) => entry.text.startsWith("History evidence [R2 "))).toBe(true);
+      expect(stats.maxInflight).toBeGreaterThan(1);
+      expect(stats.roundTrips).toBeLessThanOrEqual(61);
+      expect(stats.statements).toBeLessThanOrEqual(86);
+      expect(virtualElapsedMs).toBeLessThanOrEqual(500);
+      expect(metrics).toHaveLength(1);
+      expect(virtualElapsedMs).toBeLessThan(metrics[0]!.candidatesMs + metrics[0]!.historyMs);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(contexts.some((entry) => entry.text.startsWith("History evidence [R2 "))).toBe(true);
-    expect(stats.maxInflight).toBeGreaterThan(1);
-    expect(elapsedMs).toBeLessThanOrEqual(500);
   }, 60_000);
 
   it("keeps live canonical memory when the archive circuit is open", async () => {

@@ -5,11 +5,34 @@
 > **Sid's board (LDSB "Minds Online" Brightspace) has NO Calendar tool and no
 > personal iCal export.** He said so on 2026-09-16 after being asked for the
 > link: *"i thought i went over this, there is no calnder in d2l"*. It was
-> already recorded in `docs/plan/2026-08-jarvis-expansion-plan.md`, and PRs #49
-> and #51 built the feature anyway.
+> already recorded in the expansion plan (deleted by
+> [#131](https://github.com/stremysid/jarvis/pull/131)), and PRs #49 and #51
+> built the feature anyway. The current register is [FACTS.md](../FACTS.md).
 >
-> **Never ask Sid for a D2L calendar or feed URL.** The live route is D2L
-> notification email into `school@onesid.ca`, which he has already configured.
+> **Never ask Sid for a D2L calendar or feed URL.**
+>
+> **CORRECTED 2026-09-21: the notification-email route is dead too.** This banner
+> previously said *"the live route is D2L notification email into
+> `school@onesid.ca`, which he has already configured"*. That was wrong, and it
+> was the fourth time this project pointed a session at a D2L route that cannot
+> work.
+>
+> Measured by Sid on 2026-09-21 with every notification option enabled: D2L's
+> email is an **activity summary** — *"Activity summary for `<course>`"*, a count
+> such as *"76 New Emails"*, and a link. **No assignment name, no course, no due
+> date.** It is sent per course and once for the board as a whole, and both link
+> to the same D2L inbox, which is behind a login.
+>
+> So the email carries nothing a parser can turn into a deadline, and the dates
+> live behind authentication. **There is no working automated D2L route for this
+> board.** Do not propose one without new evidence from the board.
+>
+> The replacement route is the **browser collector on the PC and laptop** — see
+> [the collector runbook](d2l-extension.md) for its rollout and acceptance limits.
+>
+> Still current from this banner: the calendar tool does not exist, and the
+> ingestion code below is kept because its failure codes are real and would be
+> reused if the board ever exposes a feed.
 >
 > Kept because the ingestion code and its failure codes are real and would be
 > reused if that board ever exposes a feed.
@@ -113,7 +136,7 @@ names a successful refresh time in the configured owner timezone, a fixed
 failure code with the timestamped last-known snapshot, or the timestamped
 snapshot used during the cooldown. It makes no feed request while the URL is
 absent or the source is disabled. The first production load still needs the
-runtime-duration acceptance recorded in `KNOWN_ISSUES.md`.
+runtime-duration acceptance recorded in [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md).
 
 Source-health meanings are fixed codes and never contain the private URL or
 response body:

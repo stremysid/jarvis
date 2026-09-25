@@ -5,6 +5,9 @@ export const MEMORY_INBOX_DISPLAY_NAME = "Inbox / Needs filing";
 export const MEMORY_TOPIC_REDIRECT_LIMIT = 64;
 
 export type MemoryKind = "fact" | "preference" | "plan" | "decision" | "relationship";
+/** Durable facts have no end. Temporary ones carry one and lapse from recall. */
+export type MemoryLifetime = "durable" | "temporary";
+
 export type MemoryBasis = "stated" | "confirmed" | "observed" | "inferred" | "third_party";
 export type MemoryOrigin =
   | "authenticated_first_person"
@@ -56,6 +59,22 @@ export interface AppendActiveMemorySourceInput {
   readonly source: InitialMemorySourceInput;
 }
 
+export interface AppendMemoryPinInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  readonly pinId: Ulid;
+  readonly authorizingEventId: Ulid;
+  readonly occurredAt: string;
+}
+
+export interface MemoryPinState {
+  readonly itemId: Ulid;
+  readonly pinned: boolean;
+  /** False when the item was already in that state, so nothing was appended. */
+  readonly appended: boolean;
+}
+
 export interface InitialMemoryVersionInput {
   readonly versionId: Ulid;
   readonly text: string;
@@ -74,6 +93,16 @@ export interface CommitInitialMemoryInput {
   readonly principalId: string;
   readonly itemId: Ulid;
   readonly kind: MemoryKind;
+  /**
+   * Whether the fact stops being true on its own.
+   *
+   * Optional, and derived from the version's end when absent, so that every
+   * caller written before the column existed keeps its exact behaviour: no end
+   * means durable. Set at creation because nothing updates it -- `memory_items`
+   * is insert-only -- and the coupling trigger in `0038` then holds the
+   * version's `valid_to` to it.
+   */
+  readonly lifetime?: MemoryLifetime;
   readonly creationEventId: Ulid;
   readonly creationEventSequence: number;
   readonly version: InitialMemoryVersionInput;
@@ -213,7 +242,33 @@ export interface AutomaticInboxRefilingResult {
   readonly failedItemCount: number;
 }
 
-export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain" | "correct";
+export type MemoryControlIntent =
+  | "remember" | "forget" | "lift" | "confirm" | "explain" | "correct" | "pin" | "unpin";
+
+/**
+ * The members of `MemoryControlIntent`, written once.
+ *
+ * `satisfies Readonly<Record<MemoryControlIntent, true>>` is the part that
+ * matters: adding a member to the union without adding it here is a compile
+ * error, so the set below cannot drift from the type. It is written as a map
+ * rather than as an array precisely so that the check runs in the direction that
+ * catches an omission -- `as const satisfies readonly MemoryControlIntent[]`
+ * would only prove every listed value is a valid intent, never that every intent
+ * is listed.
+ *
+ * This exists because those six strings used to be written out in two places,
+ * here and inline in `memory-repository.ts`'s owner-turn validation, and nothing
+ * made them agree: the compiler could not see a missing member because both were
+ * complete-looking lists rather than one list and one derivation. That is the
+ * same shape as a migration missing from two hand-kept lists.
+ */
+const MEMORY_CONTROL_INTENT_MEMBERS = Object.freeze({
+  remember: true, forget: true, lift: true, confirm: true, explain: true, correct: true,
+  pin: true, unpin: true,
+} satisfies Readonly<Record<MemoryControlIntent, true>>);
+
+export const MEMORY_CONTROL_INTENTS: ReadonlySet<MemoryControlIntent> =
+  new Set(Object.keys(MEMORY_CONTROL_INTENT_MEMBERS) as MemoryControlIntent[]);
 
 export interface MemoryOwnerTurnInput {
   readonly principalId: string;

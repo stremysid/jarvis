@@ -1,13 +1,25 @@
 import { D1ContextRetriever } from "../conversation/context-retriever.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
+import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
+import { AutonomyService } from "../autonomy/autonomy-service.js";
+import { D1ToolConfirmationStore } from "../autonomy/tool-confirmations.js";
+import { ToolAutonomyGate } from "../autonomy/tool-gate.js";
 import { ConversationRepository } from "../conversation/conversation-repository.js";
 import { DefaultConversationService } from "../conversation/conversation-service.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../conversation/outbox-dispatcher.js";
+import { DecisionRepository } from "../decisions/decision-repository.js";
+import { DecisionService } from "../decisions/decision-service.js";
 import type { Env } from "../env.js";
+import { D1MemoryControlTargetFinder } from "../memory/memory-control-targets.js";
+import {
+  MemoryMeaningService,
+  VectorizeMemoryVectorStore,
+  WorkersAiMemoryEmbeddingProvider,
+} from "../memory/meaning-search.js";
 import { CallRepository } from "../persistence/call-repository.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
-import { DeepSeekModelAdapter, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
@@ -23,6 +35,7 @@ import { CapabilityRegistry } from "./capability-registry.js";
 import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
+import { OwnerVoiceAgentAdapter } from "./voice-agent.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
 import { D1OwnerStepUpAlertSink, OwnerCallStepUpService } from "./owner-call-step-up.js";
 
@@ -104,9 +117,57 @@ export function createProductionCallSessionCore(
     circuitBreaker: new ProviderCircuitBreaker(),
     now,
   });
+  // Which item a memory control acts on. Extracted from the Telegram retriever
+  // because this is the half the voice path was missing entirely: without it
+  // every memory tool taking an `itemId` has nothing to resolve one from, so
+  // the tools this adapter now dispatches would all refuse.
+  const targets = new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE });
+  const meaningSearch = env.AI === undefined || env.MEMORY_VECTORS === undefined
+    ? undefined
+    : new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new WorkersAiMemoryEmbeddingProvider(env.AI),
+      vectors: new VectorizeMemoryVectorStore(env.MEMORY_VECTORS),
+    });
+  const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+  // Fail closed. Without a configured owner the adapter's own check would have
+  // nothing to compare against, and a call that cannot prove who it is must not
+  // reach a tool at all -- so the relay is not composed rather than composed
+  // with a check that cannot fail.
+  if (ownerPrincipalId === undefined || ownerPrincipalId.length === 0) {
+    throw new TypeError("voice_runtime_configuration_invalid");
+  }
+  // The tools reach the model only through an adapter that owns the loop, which
+  // is the decision recorded in `DECISIONS.md` ("Voice gets tools behind
+  // `ModelAdapter`", 2026-09-20): `ModelAdapterStreamInput` has no `tools` field
+  // and `DefaultConversationService.handleTurn` settles one request per turn, so
+  // the multi-request loop lives behind the adapter rather than in the service.
+  const agent = new OwnerVoiceAgentAdapter({
+    guidedAssignmentTelegram: new TelegramRestProvider({ botToken: configuration.telegramToken }),
+    provider: new DeepSeekAgentProvider({
+      apiKey: configuration.modelApiKey,
+      model: configuration.model,
+    }),
+    database: env.DB,
+    archive: env.ARCHIVE,
+    ownerPrincipalId,
+    timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+    targets,
+    ...(meaningSearch === undefined ? {} : { memorySearch: meaningSearch }),
+    directOwnerText: true,
+    decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
+    // The same tier gate Telegram puts in front of its tools, constructed here
+    // rather than left out: a channel that dispatches tools without it is the
+    // "built, reviewed and unreferenced" shape in `AutonomyService`'s history.
+    autonomy: new ToolAutonomyGate(
+      new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
+      new D1ToolConfirmationStore(env.DB),
+    ),
+    now,
+  });
   const conversation = new DefaultConversationService({
     repository: conversations,
-    model: new DeepSeekModelAdapter({ apiKey: configuration.modelApiKey, model: configuration.model }),
+    model: agent,
     context: new D1ContextRetriever(env.DB),
     dispatcher,
     redactor: new Redactor(),

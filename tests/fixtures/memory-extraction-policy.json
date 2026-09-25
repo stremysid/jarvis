@@ -9,9 +9,37 @@
       "expected": true
     },
     {
-      "name": "rejects a first-person sentence cut from a longer message",
+      "name": "trusts a first-person sentence that is not the whole message",
       "quote": "I’m renovating St. Remy",
       "sourceText": "Earlier note. I’m renovating St. Remy. Another note.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "trusts a first-person sentence at the end of a longer message",
+      "quote": "I prefer short status updates",
+      "sourceText": "Two things. I prefer short status updates.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "still rejects a mid-message sentence from an unauthenticated speaker",
+      "quote": "I’m renovating St. Remy",
+      "sourceText": "Earlier note. I’m renovating St. Remy. Another note.",
+      "authenticatedOwner": false,
+      "expected": false
+    },
+    {
+      "name": "still rejects a paraphrase of a mid-message sentence",
+      "quote": "I like concise updates",
+      "sourceText": "Earlier note. I prefer short status updates. Another note.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "still rejects a mid-message sentence cut out of a hedge",
+      "quote": "I might move to Ottawa",
+      "sourceText": "Anyway. I might move to Ottawa. We will see.",
       "authenticatedOwner": true,
       "expected": false
     },

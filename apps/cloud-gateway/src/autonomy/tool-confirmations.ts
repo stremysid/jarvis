@@ -1,15 +1,15 @@
 /**
- * Standing owner confirmations for tier-3 tool calls.
+ * Single-use owner confirmations for tier-3 tool calls.
  *
  * A tier-3 action is refused until the owner has tapped for it, and the tap is
  * recorded by the decision queue that already exists -- `decision_responses` is
  * one row per question and immutable, which is exactly the shape a confirmation
- * wants. Nothing new is invented here, and no table is added.
+ * wants. A separate consumption row preserves that immutable answer.
  *
  * What the confirmation is bound to matters more than where it is stored. It
- * binds the capability AND a canonical hash of the arguments, not just the
- * capability:
+ * binds the tool name, capability and a canonical hash of the arguments:
  *
+ *  - tool name, so tools that share a capability cannot spend each other's tap.
  *  - capability, so confirming "warm up the car" cannot authorize "unlock the
  *    car" -- `vehicle.precondition` and `vehicle.unlock` are different tiers
  *    and a steered model must not be able to slide from one to the other.
@@ -24,13 +24,10 @@
  * archive, and an email body is exactly the content that rule exists to keep
  * out. Only a hash of it is kept.
  *
- * Known limit, stated rather than implied away: a standing confirmation is
- * valid for `CONFIRMATION_TTL_MS` and is not marked consumed, so a second
- * identical call inside that window would also be permitted. That is a narrow
- * window for a duplicate side effect, not a way to reach a different action --
- * the capability and argument binding above still hold. Closing it properly
- * needs a durable consumed-at mark, which is a schema change and belongs in its
- * own reviewed slice.
+ * Claiming the tap and checking its age are one database statement. The unique
+ * decision key arbitrates competing Workers, including different channels.
+ * A claimed tap stays spent even if the later audit or tool fails: retrying a
+ * side effect whose outcome is unknown needs a new confirmation.
  */
 
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
@@ -50,28 +47,26 @@ export const TIER3_CONFIRM_OPTION = "confirm";
 
 export interface StandingConfirmationLookup {
   readonly principalId: string;
+  readonly toolName: string;
   readonly capability: string;
   readonly argumentsHash: string;
-  readonly now: Date;
 }
 
 export interface ToolConfirmationStoreContract {
-  /** The decision that authorized this exact call, or null if none stands. */
-  findStandingDecision(lookup: StandingConfirmationLookup): Promise<string | null>;
+  /** Atomically spends one matching tap, returning null if none can be claimed. */
+  consumeStandingDecision(lookup: StandingConfirmationLookup): Promise<string | null>;
 }
 
 /**
  * The value written to `decision_items.origin_reference`, and the value looked
- * up again on the next turn. `origin_reference` is unbounded TEXT, so the only
- * constraint on its shape is that this function and the query agree.
+ * up again on the next turn. Issuance and consumption must use the same tuple.
  *
- * The two halves are separated by a colon and neither half contains one: a
- * capability key is dotted lowercase, and the hash is lowercase hex. A delimiter
- * that could appear inside either half would let a crafted capability name
- * collide with a different hash.
+ * JSON keeps the field boundaries unambiguous even if a name contains a
+ * delimiter. Old capability:hash references deliberately do not match: they
+ * cannot prove which tool the owner approved, so the owner must tap again.
  */
-export function confirmationReference(capability: string, argumentsHash: string): string {
-  return `${capability}:${argumentsHash}`;
+export function confirmationReference(toolName: string, capability: string, argumentsHash: string): string {
+  return JSON.stringify([toolName, capability, argumentsHash]);
 }
 
 /**
@@ -99,14 +94,21 @@ interface ConfirmationRow {
 
 export class D1ToolConfirmationStore implements ToolConfirmationStoreContract {
   readonly #database: D1Database;
+  readonly #now: () => Date;
 
-  constructor(database: D1Database) {
+  constructor(database: D1Database, now: () => Date = () => new Date()) {
     this.#database = database;
+    this.#now = now;
   }
 
-  async findStandingDecision(lookup: StandingConfirmationLookup): Promise<string | null> {
-    const notBefore = new Date(lookup.now.getTime() - CONFIRMATION_TTL_MS).toISOString();
-    const row = await this.#database.prepare(`SELECT item.decision_id AS decision_id
+  async consumeStandingDecision(lookup: StandingConfirmationLookup): Promise<string | null> {
+    // Sample at the claim, not at the first audit: that write may have waited
+    // long enough for a tap to expire. Both SQL bounds use this same instant.
+    const now = this.#now();
+    const consumedAt = now.toISOString();
+    const notBefore = new Date(now.getTime() - CONFIRMATION_TTL_MS).toISOString();
+    const row = await this.#database.prepare(`INSERT INTO tool_confirmation_consumptions (decision_id, consumed_at)
+      SELECT item.decision_id, ?6
       FROM decision_items item
       JOIN decision_responses response ON response.decision_id = item.decision_id
       WHERE item.principal_id = ?1
@@ -114,15 +116,19 @@ export class D1ToolConfirmationStore implements ToolConfirmationStoreContract {
         AND item.origin_reference = ?3
         AND response.option_key = ?4
         AND item.resolved_at IS NOT NULL
-        AND item.resolved_at >= ?5
-      ORDER BY response.responded_at DESC
-      LIMIT 1`)
+        AND response.responded_at > ?5
+        AND response.responded_at <= ?6
+      ORDER BY response.responded_at DESC, item.decision_id DESC
+      LIMIT 1
+      ON CONFLICT DO NOTHING
+      RETURNING decision_id`)
       .bind(
         lookup.principalId,
         TIER3_TOOL_ORIGIN,
-        confirmationReference(lookup.capability, lookup.argumentsHash),
+        confirmationReference(lookup.toolName, lookup.capability, lookup.argumentsHash),
         TIER3_CONFIRM_OPTION,
         notBefore,
+        consumedAt,
       )
       .first<ConfirmationRow>();
     if (row === null || row === undefined) return null;

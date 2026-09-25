@@ -114,12 +114,10 @@ describe("hourly Classroom ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace API: collector status unavailable");
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 1 Quiz");
-    expect(String(send.mock.calls[0]?.[0])).toContain("D2L notification email: not set up");
-    expect(String(send.mock.calls[0]?.[0])).toContain(
-      "Google Classroom grades/submissions: has never completed a submission scan",
-    );
+    expect(String(send.mock.calls[0]?.[0])).not.toContain("Google Classroom grades/submissions");
   });
 
   it("surfaces rejected grade and submission source rows in the hourly poll result", async () => {

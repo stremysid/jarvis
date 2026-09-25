@@ -60,11 +60,12 @@ across 24 PRs is not a record; it is a file in another repository's history.
 
 The verdict states: **the reviewed head sha** · the claims checked and how · the
 falsifier for each finding · **what was not checked**. A verdict with no head sha is
-rejected by `scripts/check-state.mjs`'s doc job once it is wired.
+not a verdict. Nothing checks this mechanically: `scripts/check-state.mjs` does not
+read review objects.
 
 ### 3.3 `max` means something again
 
-`max` is reserved for R1 and for any PR whose migration touches live data — the rule
+`max` is reserved for calling (Phase 5) and for any PR whose migration touches live data — the rule
 `docs/BUILDING.md` already states. Everything else is `xhigh`. Because a tier is
 currently self-reported in a heading (one PR signed "max" and ran "high"), it must be
 recorded where it can be checked rather than asserted in a title.

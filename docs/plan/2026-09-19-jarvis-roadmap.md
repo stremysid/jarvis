@@ -1,45 +1,103 @@
 # Jarvis Roadmap
 
 **This is the owner's own document, written by Sid on 2026-09-19, and it is the
-authoritative plan.** It supersedes
-[`2026-09-03-jarvis-roadmap.md`](2026-09-03-jarvis-roadmap.md) entirely.
+authoritative plan.**
 
 Read this before any other plan in this repository. Where a design document, a
 milestone, a handoff or an existing implementation disagrees with it, **this
 document wins and the other one is stale.** Say so in the pull request that
 fixes the other one rather than working around the contradiction.
 
-The old roadmap was organised by milestone — R0, R1, R2, R5 — and each milestone
-got its own wiring, so capabilities landed wherever their milestone lived. That
-is why the phone and Telegram ended up as two separately composed assistants.
-This document is organised around one brain with tools, which is the shape that
-prevents it.
+This document is organised around one brain with tools. The milestone roadmaps
+that preceded it are deleted, not archived: each milestone had its own wiring, so
+capabilities landed wherever their milestone lived, which is how the phone and
+Telegram became two separately composed assistants. **There are no `R` numbers.**
+Anything citing one is reading something that no longer exists.
 
 ---
 
-## The Core Rule
+## We are not building the brain
 
-**Code builds tools. Jarvis makes every decision.**
+**Jarvis is the brain. We build the body.**
 
-Code never decides what, when, whether, or how. It only gives Jarvis abilities and wakes it up. Jarvis is Claude with tools, and it uses judgment exactly like a person would.
+Every hour spent here goes into four things, and only four:
 
-Code is allowed to do only four things:
+- **Hands** — tools. Small, concrete, single-purpose. Save this fact. Read this
+  email. Place this call. A tool performs. It never decides whether to perform.
+- **Senses** — wake-ups and provenance. A cron, an alarm, a webhook saying
+  *something happened*, or *it's time*. And the facts the model cannot see for
+  itself: is this forwarded? is this the owner's own text? is this a private chat?
+- **Memory** — storage, the ledger, backups, the indexes.
+- **Proof** — receipts, enforced taps, audit rows. If Jarvis says it happened,
+  code must be able to show it happened.
 
-1. **Tools:** small functions that do one concrete thing (save a fact, read an email, send a text, place a call). A tool never contains logic about whether it should be used.
-2. **Wake-ups:** cron, alarms, and webhooks that tell Jarvis "something happened" or "it's time." They never decide what Jarvis does about it.
-3. **Storage and plumbing:** databases, files, backups, webhooks, the watchdog.
-4. **Enforcing a decision Jarvis already made:** for example, when Jarvis decides an action needs your approval, the code holds it until you say YES.
+Everything else is judgment, and judgment is Jarvis's.
 
-Jarvis decides everything else: what's worth remembering, what an email means, whether a deadline is new or updated, what goes in the digest, when to call you, what to ask permission for, how to talk to you, and when to stay quiet.
+What is worth remembering. What an email means. Whether a deadline is new or
+updated. How long a fact lasts. When to call rather than text. How to speak on a
+phone. When to stay quiet.
 
-If you catch yourself writing an `if` statement that makes a judgment call, stop. That belongs in the system prompt or a tool description, not in code.
+We do not write those. We write the surface it decides from — the tool
+description, the system prompt — and then we get out of the way.
+
+### Why it has to be this way
+
+Because a model's judgment has four hard limits, and each one is a harness, not a
+competitor to it:
+
+1. **It cannot know what the channel said.** Provenance lives outside the
+   conversation.
+2. **It cannot enforce its own decision against a later prompt.** It can decide an
+   email needs a tap; it cannot stop the next message talking it out of that. This
+   is the entire reason tier 3 exists — not distrust of the judgment, but the
+   judgment's inability to enforce itself.
+3. **It cannot remember, and it cannot wake up.**
+4. **It cannot prove anything.** A receipt the model writes is a claim. A receipt
+   code writes is evidence.
+
+So code does those four and nothing more. Not because the model is untrusted —
+because those are the things it structurally cannot do.
+
+The body parts map onto the limits exactly: **Senses** answer limit 1, **Proof**
+answers limits 2 and 4, **Memory** answers limit 3, and **Hands** are how the
+judgment reaches the world at all.
+
+### The check, and it is one question
+
+> **Am I writing code that decides, or code that enables?**
+
+If you catch yourself writing an `if` that makes a judgment call — how many
+results, what counts as relevant, whether to act at all — stop. That `if` is a
+decision, and decisions belong in the prompt or a tool description.
+
+A sharper form of the same check, for settling an argument: **if a chat model
+could do it, assuming every permission were granted, there is no need to code it.**
+The question is always whether the model *can* do it at all — never whether it
+*might get it wrong*. Being occasionally wrong is what judgment is, and code does
+not win the job back by being more predictable.
+
+There are already nine recorded instances of this in the codebase. Each one is a
+piece of Jarvis's brain that got written in the wrong language. A tenth is not
+progress. (They are inventoried in the memory redesign spec, PR #122 — unmerged
+at the time of writing, and its first entry describes a path that exists in the
+tree but is not wired in production.)
+
+### What Jarvis is, in one line
+
+A personal chat model outside the sandbox, with memory that does not end at a
+context window and permissions its owner has actually granted. It can send the
+email, book the table and use the card **because it was asked to and is
+authorized**, not because a safety rule was removed. The gates in Phase 4 exist
+so the owner knows before money moves — the same courtesy a human assistant
+would extend — and not because the model is distrusted.
+
 
 ## Architecture
 
 - **Twilio:** your phone number for texts and calls
 - **Worker (router):** receives Twilio webhooks, email, and HTTP requests, then passes them to Jarvis
-- **Durable Object (Jarvis):** one persistent instance that holds conversation state, runs the Claude loop, and calls tools. Texts, calls, emails, and wake-ups all go to this same brain.
-- **Claude API:** the intelligence, with tool calling
+- **Durable Object (Jarvis):** one persistent instance that holds conversation state, runs the model loop, and calls tools. Texts, calls, emails, and wake-ups all go to this same brain.
+- **DeepSeek V4.1 Flash:** the intelligence, with tool calling. See **The model** below
 - **D1:** structured data (facts, courses, deadlines, receipts, settings)
 - **Vectorize:** meaning search over memory
 - **Workers AI:** embeddings for Vectorize
@@ -49,7 +107,32 @@ If you catch yourself writing an `if` statement that makes a judgment call, stop
 - **External watchdog:** Healthchecks.io or UptimeRobot
 - **PC script:** Obsidian vault sync
 
-## Phase 1: The Brain
+## The model
+
+**DeepSeek V4.1 Flash, everywhere.** Decided by Sid on 2026-09-20. Earlier drafts
+of this document said "Claude API"; the code has always called DeepSeek, and this
+resolves the contradiction in favour of the code.
+
+**The reasoning, so nobody re-opens it.** Frontier models differ on deep
+reasoning, long-context coding and heavy analysis. Jarvis does none of those
+daily. Answering a question, writing an email, reading a D2L notification,
+deciding what is worth remembering -- any modern model does these the way any
+competent assistant would. Once capability is equivalent, the decision is cost
+and latency, and nothing matches Flash on either.
+
+**Do not "fix" this back.** A session that reads "Claude" in an older document
+and changes the code is making the repository disagree with its owner.
+
+**The one place this could matter, and how to settle it.** This roadmap moves
+judgment out of code and into the model: attribution, what is worth remembering,
+how long a fact lives, which tier an action falls into. Those decisions are rare
+and they fail *silently* -- a wrong fact, not a crash. If that ever proves to be
+a problem, the seam already exists: `MEMORY_EXTRACTION_MODEL` (`env.ts`, read at
+`index.ts`) defaults to `DEEPSEEK_MODEL` and can point at a stronger model for
+extraction alone, with no code change. Settle it by observing real extractions
+after a deploy, not by argument.
+
+## Phase 1: The Nervous System
 
 **Goal:** text Jarvis any time and have a real conversation with it.
 
@@ -59,7 +142,7 @@ If you catch yourself writing an `if` statement that makes a judgment call, stop
 - Jarvis email address on the domain with school emails auto-forwarding to it, received by an Email Worker
 - Twilio number with the SMS webhook pointed at the router Worker
 - Twilio request signature check on every webhook
-- The Jarvis Durable Object with the Claude loop: receive an event, build context, call Claude, run any tool calls, repeat until Claude replies, send the reply
+- The Jarvis Durable Object with the model loop: receive an event, build context, call the model, run any tool calls, repeat until it replies, send the reply
 - `send_text(message)`: sends you an SMS through Twilio
 - Conversation storage in the DO: recent messages kept in full, older ones summarized when context gets long (code triggers the summary, Jarvis writes it)
 - Tool-call logger: every tool call recorded with time, tool, input, result, and what triggered it (text, call, email, wake-up). This becomes Receipts.

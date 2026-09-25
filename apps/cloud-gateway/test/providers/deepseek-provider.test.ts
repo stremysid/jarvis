@@ -254,7 +254,7 @@ describe("DeepSeekModelAdapter", () => {
     await collectStream(adapter.stream(input({ reasoningEffort: "high" })));
 
     expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
-      model: "deepseek-v4-pro",
+      model: "deepseek-flash",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: "hello" },
@@ -279,7 +279,7 @@ describe("DeepSeekModelAdapter", () => {
 
       expect(warn).toHaveBeenCalledExactlyOnceWith("deepseek_telegram_thinking_invalid");
       expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
-        model: "deepseek-v4-pro",
+        model: "deepseek-flash",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: "hello" },
@@ -304,7 +304,7 @@ describe("DeepSeekModelAdapter", () => {
     await collectStream(adapter.stream(input({ channel: "voice", reasoningEffort: "high" })));
 
     expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
-      model: "deepseek-v4-pro",
+      model: "deepseek-flash",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: "hello" },
@@ -483,7 +483,7 @@ describe("DeepSeekModelAdapter", () => {
     );
     const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.model).toBe("deepseek-v4-pro");
+    expect(body.model).toBe("deepseek-flash");
     expect(body.reasoning_effort).toBe("high");
     expect(body).not.toHaveProperty("thinking");
     expect(body.stream).toBe(true);

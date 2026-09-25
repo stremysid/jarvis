@@ -1,0 +1,107 @@
+[
+  {
+    "name": "consume-write",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+        "find": "INSERT INTO tool_confirmation_consumptions (decision_id, consumed_at)\n      SELECT item.decision_id, ?6",
+        "replace": "SELECT item.decision_id, ?6"
+      },
+      {
+        "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+        "find": "LIMIT 1\n      ON CONFLICT DO NOTHING\n      RETURNING decision_id",
+        "replace": "LIMIT 1"
+      }
+    ],
+    "expect": "authorizes exactly one execution",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "ttl",
+    "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+    "find": "AND response.responded_at > ?5",
+    "replace": "AND ?5 IS NOT NULL",
+    "expect": "refuses an expired tap",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "ttl-boundary",
+    "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+    "find": "AND response.responded_at > ?5",
+    "replace": "AND response.responded_at >= ?5",
+    "expect": "refuses an expired tap at age 600000",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "future-tap",
+    "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+    "find": "AND response.responded_at <= ?6",
+    "replace": "AND ?6 IS NOT NULL",
+    "expect": "refuses a tap timestamped after the claim clock",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "claim-clock",
+    "file": "apps/cloud-gateway/src/autonomy/tool-confirmations.ts",
+    "find": "this.#now = now;",
+    "replace": "const captured = now();\n    this.#now = () => captured;",
+    "expect": "checks expiry at consumption after a delayed audit",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "race-unique-key",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "decision_id TEXT NOT NULL PRIMARY KEY REFERENCES",
+    "replace": "decision_id TEXT NOT NULL REFERENCES",
+    "expect": "allows exactly one of two concurrent executions",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "immutable-update",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "BEFORE UPDATE ON tool_confirmation_consumptions\nBEGIN",
+    "replace": "BEFORE UPDATE ON tool_confirmation_consumptions\nWHEN 0\nBEGIN",
+    "expect": "refuses to erase or rewrite a consumed mark",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "immutable-delete",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "BEFORE DELETE ON tool_confirmation_consumptions\nBEGIN",
+    "replace": "BEFORE DELETE ON tool_confirmation_consumptions\nWHEN 0\nBEGIN",
+    "expect": "refuses to erase or rewrite a consumed mark",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "timestamp-format",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', consumed_at) IS consumed_at)",
+    "replace": "CHECK (1)",
+    "expect": "requires a real response and a canonical nonnull",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "decision-nonnull",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "decision_id TEXT NOT NULL PRIMARY KEY",
+    "replace": "decision_id TEXT PRIMARY KEY",
+    "expect": "requires a real response and a canonical nonnull",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "timestamp-nonnull",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": "consumed_at TEXT NOT NULL CHECK",
+    "replace": "consumed_at TEXT CHECK",
+    "expect": "requires a real response and a canonical nonnull",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  },
+  {
+    "name": "response-foreign-key",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0039_tool_confirmation_consumptions.sql",
+    "find": " REFERENCES decision_responses(decision_id) ON DELETE RESTRICT",
+    "replace": "",
+    "expect": "requires a real response and a canonical nonnull",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-tap.test.ts"
+  }
+]

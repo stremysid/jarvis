@@ -18,7 +18,7 @@
  * The tool names the owner agent can actually dispatch today, each mapped to a
  * registered capability.
  *
- * All nine are tier 1, and that is a deliberate classification rather than a
+ * The original conversational tools are tier 1, a deliberate classification rather than a
  * convenient one. The tier registry exists to govern actions that reach
  * *outside* the owner's own authenticated conversation -- device actions,
  * money, third parties, deletion, production -- and the tier-2 exemplars seeded
@@ -40,6 +40,8 @@
  * Note `memory_forget` is tier 1 and not the tier-3 `delete.data`: forget is
  * hiding by transition and suppression, never erasure, and its own receipt says
  * the original conversation remains retained.
+ * Collector revocation has its own tier-3 registry entry because it disables a
+ * credential rather than changing conversational state.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
   memory_remember: "memory.write",
@@ -52,7 +54,27 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_restore: "memory.write",
   memory_confirm: "memory.write",
   memory_explain: "memory.read",
+  // Read-only, and the only memory tool that neither names an item nor knows
+  // which one it wants: it asks the index a question. It shares
+  // `memory.read`'s tier-1 row with `memory_explain`, so classifying it needed
+  // no migration -- and, because `tool-classification.test.ts` derives the
+  // dispatchable set from the definitions, leaving it out would have failed a
+  // named test rather than silently refusing every search in production.
+  memory_search: "memory.read",
+  // Pinning changes a stored preference rather than an item's existence, so it is
+  // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
+  // the whole reason these two needed no migration: `0035` already seeds the tier.
+  memory_pin: "memory.write",
+  memory_unpin: "memory.write",
   school_update: "school.track",
+  deadline_record: "school.track",
+  guided_assignment_read: "school.track",
+  guided_assignment_save: "school.track",
+  guided_assignment_draft: "school.track",
+  // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
+  // authority still applies, and collector revocation stays gated. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
+  school_d2l_status: "school.track",
+  school_collector_revoke: "school.collector.revoke",
   university_update: "university.track",
   study_coach: "study.coach",
 });

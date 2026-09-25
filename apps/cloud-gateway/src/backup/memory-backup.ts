@@ -52,6 +52,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "decision_items",
   "decision_options",
   "decision_responses",
+  "tool_confirmation_consumptions",
   "tracked_projects",
   "project_observations",
   "project_documents",
@@ -72,6 +73,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "memory_event_suppressions",
   "memory_event_suppression_lifts",
   "memory_item_links",
+  "memory_item_pins",
   "memory_topics",
   "memory_topic_events",
   "memory_topic_aliases",
@@ -103,6 +105,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "school_course_facts",
   "school_catchup_actions",
   "school_catchup_turn_receipts",
+  "guided_assignment_answers",
   "owner_call_step_up_disabled_rejections",
   "owner_call_step_up_rejection_deliveries",
   "guest_grant_notices",
@@ -120,6 +123,10 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "school_observation_sync",
   "school_assignment_observations",
   "school_assignment_observation_revisions",
+  "school_collector_keys",
+  "school_collector_reads",
+  "school_collector_batches",
+  "school_collector_evidence",
   "school_missing_work_transitions",
   "university_workflow_items",
   "university_workflow_revisions",
@@ -177,6 +184,7 @@ export const MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES = Object.freeze([
   "identity_challenges",
   "sync_snapshots",
   "request_nonces",
+  "school_collector_nonces",
   "authentication_attempt_reservations",
   "memory_backup_runs",
   "memory_backup_row_ordinals",
@@ -606,7 +614,7 @@ class MemoryBackupRepository {
        ) SELECT ?, ?, 'running', name,
          json_object('eventsAfter', (SELECT sealed_through FROM archive_state WHERE singleton = 1)),
          0, NULL, 0, 0, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL
-       FROM d1_migrations ORDER BY id DESC LIMIT 1`,
+       FROM d1_migrations ORDER BY name DESC LIMIT 1`,
     ).bind(runDate, runId, timestamp, timestamp));
     descriptors.forEach((descriptor, tableIndex) => {
       const table = quoteIdentifier(descriptor.table);
@@ -1044,9 +1052,25 @@ export class MemoryBackupService {
       }
       const created = await retryTransient(() => this.repository.captureRun(runDate, this.options.clock.now()));
       return this.withStaleAlert(runDate, await this.advance(created));
-    } catch {
-      await this.alert(runDate, null, MEMORY_BACKUP_FAILURE_CODES.operation);
-      return { outcome: "failed", code: MEMORY_BACKUP_FAILURE_CODES.operation };
+    } catch (error) {
+      // A `MemoryBackupError` already carries the code that says what went
+      // wrong. This catch used to discard it and report every one of them as
+      // `operation`, so a failure with its own name -- a binding that was never
+      // bound, a readback that did not match, a cut that moved -- arrived as a
+      // generic fault. The catch below has always preserved the code, which is
+      // what makes this an inconsistency rather than a decision.
+      const code = error instanceof MemoryBackupError
+        ? error.code
+        : MEMORY_BACKUP_FAILURE_CODES.operation;
+      // An unexpected error still has to report `operation`, because the stored
+      // code is a closed set with a CHECK constraint behind it. But the reason
+      // is not thrown away with it: losing the cause is what turned a missing
+      // migration into an unattributable failure and cost a session of hunting.
+      if (code === MEMORY_BACKUP_FAILURE_CODES.operation) {
+        console.error(MEMORY_BACKUP_FAILURE_CODES.operation, error);
+      }
+      await this.alert(runDate, null, code);
+      return { outcome: "failed", code };
     }
   }
 

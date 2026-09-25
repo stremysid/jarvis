@@ -424,4 +424,24 @@ describe("DefaultModelAdapter capture boundary", () => {
     }))).toThrow(expect.objectContaining({ code: "model_context_invalid" }));
     expect(provider.requests).toHaveLength(0);
   });
+
+  /**
+   * This pins a decision, not a behaviour. `DECISIONS.md` records that voice gets
+   * tools by putting an agent loop *behind* this interface rather than by adding
+   * a `tools` field to it. Widening the stream is a four-part change that still
+   * leaves a tool turn with no text to speak, so a session that tries it should
+   * find this test red and go and read the decision before proceeding.
+   */
+  it("refuses a tool definition on the streaming input, which is how voice gets tools", () => {
+    const provider = new TestModelProvider(() => scriptedHarness([TOKEN, COMPLETED]).iterable);
+    const adapter = new DefaultModelAdapter(provider);
+    const withTools = {
+      ...input(),
+      tools: [{ name: "memory_search", description: "Search memory.", parameters: {} }],
+    };
+
+    expect(() => adapter.stream(withTools as unknown as ModelAdapterStreamInput))
+      .toThrow(expect.objectContaining({ code: "model_input_invalid" }));
+    expect(provider.requests).toHaveLength(0);
+  });
 });

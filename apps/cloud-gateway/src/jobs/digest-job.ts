@@ -34,6 +34,7 @@ import type { StudyCheckIn } from "../school/study-coach-types.js";
 import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
+import type { D2lStatus } from "../school/collector-repository.js";
 
 /** How far ahead the digest looks for deadlines. */
 const DEADLINE_HORIZON_DAYS = 7;
@@ -41,6 +42,21 @@ const DEADLINE_HORIZON_DAYS = 7;
 const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 /** A complete grades/submissions walk may span several hourly checkpoint slices. */
 const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
+/**
+ * Owner-retired health sources: docs/FACTS.md's 2026-09-17/18 Classroom
+ * access rows and 2026-09-21 D2L notification-email row close these routes.
+ * These are fixed gap names, never stored labels. Retire reporting only:
+ * historical deadlines/grades remain visible, and other Brightspace routes
+ * keep reporting failures even though they share the email source's kind.
+ * Store-read failures stay visible because D2L grades share the store; the
+ * neither-configured "not set up" gap is retired because FACTS' LDSB row
+ * (row 41) also rules out an iCal feed.
+ */
+const RETIRED_DIGEST_HEALTH_SOURCES: ReadonlySet<string> = new Set([
+  "D2L notification email",
+  "Google Classroom",
+  "Google Classroom grades/submissions",
+]);
 /**
  * How long a push source may be silent before the digest says so.
  *
@@ -58,6 +74,7 @@ export interface DigestSources {
   readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
+  readD2lStatus?(): Promise<D2lStatus>;
   readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
@@ -236,7 +253,7 @@ async function readSchoolObservationsOr(
     // Code may be deployed before additive candidate migration 0027. Until
     // the tables exist, the older digest remains the live product.
     if (missingSchoolObservationTable(error)) return { available: false, snapshot: null };
-    gaps.push({ source: "Google Classroom grades/submissions", detail: describe(error) });
+    gaps.push({ source: "School grades/submissions store", detail: describe(error) });
     return { available: true, snapshot: null };
   }
 }
@@ -383,6 +400,18 @@ export async function assembleDigest(
       ), gaps),
   ]);
 
+  if (dependencies.sources.readD2lStatus !== undefined) {
+    try {
+      const d2l = await dependencies.sources.readD2lStatus();
+      if (d2l.state !== "current") gaps.push({ source: "Brightspace API", detail: `read ${d2l.state}; last good whole read ${d2l.lastGoodReadAt ?? "never"}. Undated work may exist; check school_d2l_status.` });
+      if (d2l.state === "current" && d2l.lastGoodReadUndatedItems > 0) gaps.push({ source: "Brightspace API", detail: `${d2l.lastGoodReadUndatedItems} Brightspace items have no known date; check school_d2l_status.` });
+      for (const host of d2l.hosts ?? []) if (host.state !== "current") gaps.push({ source: `Brightspace API (${host.host})`,
+        detail: host.sessionExpired ? "session expired; cannot establish what is due" : `read ${host.state}; cannot establish what is due` });
+      if (d2l.unmappedRoutes > 0) gaps.push({ source: "Brightspace API", detail: "Some stored evidence has an unknown projection or date disagreement; inspect school_d2l_status before judging what is due." });
+    } catch {
+      gaps.push({ source: "Brightspace API", detail: "collector status unavailable; cannot establish what is due" });
+    }
+  }
   const unconfigured = new Set((dependencies.unconfiguredDeadlineSources ?? [])
     .map((source) => source.sourceId));
   for (const expected of dependencies.unconfiguredDeadlineSources ?? []) {
@@ -520,7 +549,7 @@ export async function assembleDigest(
       question: item.question,
       urgency: item.urgency,
     })),
-    gaps,
+    gaps: gaps.filter((gap) => !RETIRED_DIGEST_HEALTH_SOURCES.has(gap.source)),
     studyCheckIn: studyCheckIn === null ? null : {
       course: studyCheckIn.courseName,
       topic: studyCheckIn.topic,

@@ -15,7 +15,16 @@ export const MEMORY_MEANING_INDEX_RETRYABLE_CODE = "memory_meaning_index_retryab
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const MAX_MUTATION_ID_BYTES = 128;
-const MAX_QUERY_RESULTS = 4;
+/**
+ * The most any caller may ask this reader for.
+ *
+ * It is a cap on the request, not on what a search returns: the automatic
+ * retrieval path passes its own `MAX_MEANING_RESULTS` and is unaffected by
+ * this number. It was 4, which happened to equal the automatic path's bound and
+ * made an explicit `memory_search` unable to ask for a wider net than the
+ * background path it deliberately does not share gates with.
+ */
+const MAX_QUERY_RESULTS = 16;
 const MIN_QUERY_SCORE = 0.45;
 const encoder = new TextEncoder();
 

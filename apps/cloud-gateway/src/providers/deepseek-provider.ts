@@ -15,6 +15,9 @@ import {
   type ModelAgentCompletion,
   type ModelAgentCompletionInput,
   type ModelAgentProvider,
+  type ModelAgentStreamProvider,
+  type ModelAgentStreamInput,
+  type ModelAgentStreamChunk,
   type ModelCompleteJsonInput,
   type ModelFunctionCall,
   type ModelProvider,
@@ -45,7 +48,12 @@ export const MAX_MODEL_OUTPUT_TOKENS = 65_536;
  * without a code change -- a wrong model id returns 400 and, with replies
  * failing silently, looks exactly like the model never being called.
  */
-export const DEFAULT_MODEL = "deepseek-v4-pro";
+// Sid chose DeepSeek V4.1 Flash for every path on 2026-09-20: frontier models
+// are equivalent for an assistant's daily work, so the decision is cost and
+// latency. `DEEPSEEK_MODEL` overrides this, but the fallback has to agree with
+// the decision -- an unset binding must not silently run a model the owner did
+// not choose, at roughly seven times the price.
+export const DEFAULT_MODEL = "deepseek-flash";
 
 /** Never sent to the model. Retrieval decides what is allowed in a prompt. */
 const SYSTEM_PROMPT =
@@ -281,7 +289,8 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 const AGENT_RESPONSE_BYTES = 262_144;
 const AGENT_MAX_OUTPUT_TOKENS = 8_192;
-const AGENT_MAX_TOOLS = 16;
+// A sanity bound, not a budget: the owner catalogues were 18 (Telegram) and 15 (voice) at 68675ba and must always fit; a cap below a catalogue silently fails every turn.
+export const AGENT_MAX_TOOLS = 64;
 const AGENT_MAX_TOOL_CALLS = 16;
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
 const AGENT_CALL_ID = /^[A-Za-z0-9_-]{1,192}$/u;
@@ -378,7 +387,7 @@ function agentToolCalls(value: unknown): readonly ModelFunctionCall[] {
 }
 
 /** Bounded non-thinking function calling for the owner Telegram agent. */
-export class DeepSeekAgentProvider implements ModelAgentProvider {
+export class DeepSeekAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly #apiKey: string;
   readonly #fetch: typeof fetch;
   readonly #baseUrl: string;
@@ -392,7 +401,7 @@ export class DeepSeekAgentProvider implements ModelAgentProvider {
     this.#model = options.model ?? DEFAULT_MODEL;
   }
 
-  async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+  private requestBody(input: ModelAgentCompletionInput, stream: boolean): string {
     if (!AGENT_CORRELATION_ID.test(input.correlationId)
       || !agentText(input.principalId, 1_024) || /[\r\n]/u.test(input.principalId)
       || !agentText(input.systemPrompt, 32_768) || !agentText(input.userText, 65_536)
@@ -430,15 +439,19 @@ export class DeepSeekAgentProvider implements ModelAgentProvider {
       messages: agentMessages(input),
       tools,
       tool_choice: input.toolChoice,
-      response_format: { type: "json_object" },
+      ...(stream ? {} : { response_format: { type: "json_object" } }),
       thinking: { type: "disabled" },
       max_tokens: input.maxOutputTokens,
-      stream: false,
+      stream,
     });
     if (new TextEncoder().encode(body).byteLength > MAX_MODEL_REQUEST_BYTES) {
       throw new DeepSeekAdapterError("input_invalid", "model_request_too_large");
     }
+    return body;
+  }
 
+  async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+    const body = this.requestBody(input, false);
     const controller = new AbortController();
     const abort = (): void => controller.abort();
     input.signal.addEventListener("abort", abort, { once: true });
@@ -521,6 +534,150 @@ export class DeepSeekAgentProvider implements ModelAgentProvider {
       throw new DeepSeekAdapterError("other", "agent_response_invalid");
     }
     return Object.freeze({ content, toolCalls: Object.freeze([]), finishReason });
+  }
+
+  async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    const body = this.requestBody(input, true);
+    if (!Number.isSafeInteger(input.firstTokenTimeoutMs) || input.firstTokenTimeoutMs < 1
+      || input.firstTokenTimeoutMs > input.timeoutMs) {
+      throw new DeepSeekAdapterError("input_invalid", "agent_request_invalid");
+    }
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    input.signal.addEventListener("abort", abort, { once: true });
+    if (input.signal.aborted) abort();
+    const overall = setTimeout(abort, input.timeoutMs);
+    const firstToken = setTimeout(abort, input.firstTokenTimeoutMs);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      controller.signal.throwIfAborted();
+      const response = await agentStreamWait(this.#fetch(`${this.#baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.#apiKey}` },
+        body, redirect: "manual", signal: controller.signal,
+      }), controller.signal);
+      if (!response.ok || response.status >= 300 && response.status <= 399 || response.body === null
+        || !response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new DeepSeekAdapterError(httpFailureReason(response.status), "agent_stream_invalid");
+      }
+      reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+      let pending = "";
+      let bytes = 0;
+      let content = "";
+      let finishReason: "stop" | "tool_calls" | null = null;
+      const calls = new Map<number, { id: string; type: string; function: { name: string; arguments: string } }>();
+      while (true) {
+        const next = await agentStreamWait(reader.read(), controller.signal);
+        if (next.done) throw new DeepSeekAdapterError("other", "agent_stream_incomplete");
+        bytes += next.value.byteLength;
+        if (bytes > AGENT_RESPONSE_BYTES) throw new DeepSeekAdapterError("other", "agent_stream_limit");
+        pending += decoder.decode(next.value, { stream: true });
+        let separator: RegExpExecArray | null;
+        while ((separator = /\r?\n\r?\n/u.exec(pending)) !== null) {
+          const frame = pending.slice(0, separator.index);
+          pending = pending.slice(separator.index + separator[0].length);
+          const data = frame.split(/\r?\n/u).filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trim()).join("\n");
+          if (data.length === 0) continue;
+          if (data === "[DONE]") {
+            if (finishReason === null) throw new DeepSeekAdapterError("other", "agent_stream_incomplete");
+            const toolCalls = calls.size === 0 ? Object.freeze([]) : agentToolCalls(
+              [...calls.entries()].sort(([left], [right]) => left - right).map(([, call]) => call),
+            );
+            if ((finishReason === "tool_calls") !== (toolCalls.length > 0)
+              || input.toolChoice === "none" && toolCalls.length > 0) {
+              throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+            }
+            yield Object.freeze({ type: "completed", completion: Object.freeze({
+              content: finishReason === "stop" ? content : null, toolCalls, finishReason,
+            }) });
+            return;
+          }
+          if (finishReason !== null) throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+          const parsed = streamRecord(JSON.parse(data) as unknown);
+          const choices = parsed.choices;
+          if (!Array.isArray(choices) || choices.length !== 1) {
+            throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+          }
+          const choice = streamRecord(choices[0]);
+          const delta = streamRecord(choice.delta);
+          if (choice.index !== 0) throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+          if (delta.tool_calls !== undefined) {
+            if (!Array.isArray(delta.tool_calls)) throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+            for (const value of delta.tool_calls) {
+              const chunk = streamRecord(value);
+              const fn = streamRecord(chunk.function);
+              const index = chunk.index;
+              if (!Number.isSafeInteger(index) || (index as number) < 0 || (index as number) >= AGENT_MAX_TOOL_CALLS
+                || fn.arguments !== undefined && typeof fn.arguments !== "string") throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+              const existing = calls.get(index as number);
+              if (existing === undefined) {
+                if (typeof chunk.id !== "string" || !AGENT_CALL_ID.test(chunk.id)
+                  || chunk.type !== "function" || typeof fn.name !== "string" || !AGENT_NAME.test(fn.name)) {
+                  throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+                }
+                calls.set(index as number, { id: chunk.id, type: "function", function: { name: fn.name, arguments: fn.arguments ?? "" } });
+              } else {
+                // Identity appears once in DeepSeek's documented protocol. A
+                // repeated opener must not become a second execution or rename it.
+                if (chunk.id !== undefined || chunk.type !== undefined || fn.name !== undefined) {
+                  throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+                }
+                existing.function.arguments += fn.arguments ?? "";
+              }
+              clearTimeout(firstToken);
+            }
+          }
+          if (delta.content !== undefined && delta.content !== null) {
+            if (typeof delta.content !== "string") throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+            if (delta.content.length > 0) {
+              clearTimeout(firstToken);
+              content += delta.content;
+              yield Object.freeze({ type: "text", text: delta.content });
+            }
+          }
+          if (choice.finish_reason !== null) {
+            if (choice.finish_reason !== "stop" && choice.finish_reason !== "tool_calls") {
+              throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+            }
+            finishReason = choice.finish_reason;
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof DeepSeekAdapterError) throw error;
+      throw new DeepSeekAdapterError(controller.signal.aborted ? "timeout" : "other", "agent_stream_failed");
+    } finally {
+      clearTimeout(firstToken);
+      clearTimeout(overall);
+      input.signal.removeEventListener("abort", abort);
+      controller.abort();
+      await reader?.cancel().catch(() => undefined);
+      reader?.releaseLock();
+    }
+  }
+}
+
+function streamRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new DeepSeekAdapterError("other", "agent_stream_invalid");
+  }
+  return value as Record<string, unknown>;
+}
+
+/** The deadline also interrupts a stalled body read in injected transports. */
+async function agentStreamWait<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw new DeepSeekAdapterError("timeout", "agent_stream_timeout");
+  let abort: () => void = () => undefined;
+  try {
+    return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+      abort = () => reject(new DeepSeekAdapterError("timeout", "agent_stream_timeout"));
+      signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally {
+    signal.removeEventListener("abort", abort);
   }
 }
 

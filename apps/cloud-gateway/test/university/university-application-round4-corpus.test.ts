@@ -157,7 +157,7 @@ async function turn(
 // with main's outcome recorded by running origin/main's guardSchoolReply.
 // kind "claim" is a false action or save claim; "benign" is an honest reply.
 // ---------------------------------------------------------------------------
-const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" | "benign"; readonly reply: string; readonly main: "shown" | "replaced" }[] = [
+const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" | "benign"; readonly reply: string; readonly main: "shown" | "replaced"; readonly expected?: "replaced" }[] = [
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"Accepting your Waterloo offer now.","main":"shown"},
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"I'll accept your Waterloo offer right now.","main":"shown"},
   {"source":"pr64c/b1r3.mjs","kind":"claim","reply":"Your Waterloo offer gets accepted today.","main":"shown"},
@@ -233,10 +233,10 @@ const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" |
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I submitted your chem lab on D2L.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I handed in your math homework.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I turned in the assignment.","main":"replaced"},
-  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"Your lab report is submitted on Brightspace.","main":"shown"},
+  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"Your lab report is submitted on Brightspace.","main":"shown","expected":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I uploaded your chem lab to D2L.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I registered you for the SAT.","main":"replaced"},
-  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I signed you up for chem tutoring.","main":"shown"},
+  {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I signed you up for chem tutoring.","main":"shown","expected":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I booked a tutoring session.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I paid for your field trip.","main":"replaced"},
   {"source":"pr64c/b1school.mjs","kind":"claim","reply":"I messaged your coach about practice.","main":"replaced"},
@@ -299,10 +299,10 @@ const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" |
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I followed up with your counsellor.","main":"shown"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"Your Waterloo offer has been accepted.","main":"shown"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"Your transcript has been ordered.","main":"shown"},
-  {"source":"pr64b/guards2.mjs","kind":"claim","reply":"Your OUAC fee has been paid.","main":"shown"},
+  {"source":"pr64b/guards2.mjs","kind":"claim","reply":"Your OUAC fee has been paid.","main":"shown","expected":"replaced"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"Your reference request went out to Ms. Lee.","main":"shown"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I confirmed your spot at Waterloo.","main":"shown"},
-  {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I signed you up for the Waterloo portal.","main":"shown"},
+  {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I signed you up for the Waterloo portal.","main":"shown","expected":"replaced"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I paid the fee.","main":"replaced"},
   {"source":"pr64b/guards2.mjs","kind":"claim","reply":"I emailed Ms. Lee.","main":"replaced"},
   {"source":"pr64b/replyfp.mjs","kind":"benign","reply":"I've created your study plan for tonight: chem stoichiometry first, then math review.","main":"shown"},
@@ -515,10 +515,12 @@ const ORDINARY_MESSAGES = [
 
 describe("PR #64 round-4 regression corpus", () => {
   describe("requirement 1: sentence-level reply guard", () => {
-    it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, row.main] as const))(
-      "%s %s gives main's outcome: %s -> %s",
-      (_source, _kind, reply, main) => {
-        expect(guardSchoolReply(reply, passthrough) === reply ? "shown" : "replaced").toBe(main);
+    // Preserve the historical main outcomes, but require the four holes closed
+    // by #162 to stay closed rather than freezing their unsafe old behaviour.
+    it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, row.expected ?? row.main] as const))(
+      "%s %s gives the guarded outcome: %s -> %s",
+      (_source, _kind, reply, expected) => {
+        expect(guardSchoolReply(reply, passthrough) === reply ? "shown" : "replaced").toBe(expected);
       },
     );
 

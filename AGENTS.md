@@ -4,11 +4,20 @@ For anyone, human or model, changing this code. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first for the shape; this file
 is the traps.
 
-**If you are building a milestone, read
+**If you are building, read
 [docs/BUILDING.md](docs/BUILDING.md) before you start.** It says which model
 builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
 has already had.
+
+**Before you write a condition, read
+[docs/CODE-VS-JUDGMENT.md](docs/CODE-VS-JUDGMENT.md).** The roadmap's core rule
+is *"Code builds tools. Jarvis makes every decision."* That file is the register
+of every place in this codebase where a judgment got written in code instead,
+with the surface each one should move to. An `if` that decides how many results,
+what counts as relevant, or whether to act at all is a decision, not plumbing.
+The list is **partial** — say so on the page if you find another, and add it in
+the same pull request that you find it in.
 
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
@@ -35,29 +44,37 @@ review or write runbooks for a Linux host without raising it with him first: a
 bash, `systemd` or `chmod` instruction is not something he can run. There is also
 no server, no NAS and no VPS unless he says he has bought one.
 
-**The home PC is off overnight while he sleeps**, so "always-on" means "on except
-overnight", not 24/7. Anything that must survive that window belongs in the cloud
-gateway, which genuinely is always-on, or has to tolerate catching up in the
-morning.
+**The home PC is on 08:00–23:00 and off overnight while he sleeps**, so "always-on"
+means "on except overnight", not 24/7 (Sid, 2026-09-21). Anything that must
+survive the overnight gap belongs in the cloud gateway, which genuinely is always-on.
+
+**"Off overnight" does not mean "cloud only".** He is out
+of the house 08:00–11:00 and not home until 17:00–18:00, so **08:00 to about 17:00
+is unattended** — a guaranteed window, not a hopeful one. For most work the PC is
+the better host: it has a real filesystem, a real browser, and real credentials,
+none of which a Worker has. Choose the gateway for what must survive the gap, and
+the PC for everything else. **Do not default to the cloud because the PC sleeps.**
 
 ### The Linux node is a planning-session decision, not his
 
-`jarvis node` refuses to start on anything but Linux
-(`apps/local-agent/jarvis_local/node.py:239-240`) and the roadmap assumed "one small
+`jarvis node` remains a Linux-only command, but **`jarvis serve` is the Windows
+launcher** added by #145. `apps/local-agent/jarvis_local/node.py` now accepts Windows
+in `NodeSettings.from_config` and binds `NamedPipeServer` through `run_serve`;
+`_serve` still refuses the `node` command on Windows. The deleted plan assumed "one small
 Linux server", attributed to Sid and never provisioned. Sid says he never asked for
 it and told the original planning chat he is on Windows. The requirement behind it
 is real and is his — memory must work from the phone with every PC off — but it is
 not Linux: D1 is the authoritative ledger and topic tree, with FTS5 and Vectorize as
 rebuildable indexes, and Obsidian is at most a later one-way export.
 
-Do not provision the node, port it to Windows, or make R2/R3 depend on it. The
+Do not provision the node, port it to Windows, or make memory or device control depend on it. The
 Windows implementations were never removed: `transport/pipe_server.py` and
 `crypto/dpapi.py` are in the tree.
 
 ## Decisions attributed to Sid that were not his
 
-This has happened twice — the watchdog being ratified into R0 scope, and the Linux
-home node. **When a plan attributes a decision to Sid, that attribution is
+This has happened twice: the watchdog was written into scope as Sid's decision
+when it was not, and so was the Linux home node. **When a plan attributes a decision to Sid, that attribution is
 evidence, not proof.** If it commits him to hardware, a platform, a subscription or
 an operational burden, confirm it with him before building on it. Carry the
 requirement he stated forward rather than the implementation someone chose for it.
@@ -79,12 +96,9 @@ Run every local-agent command through **`uv`**, which is on `PATH`
 (WinGet shim, `uv 0.12.13`) — it uses the project's pinned environment.
 See [TESTING.md](TESTING.md).
 
-**Corrected 2026-09-18.** This file previously gave `uv` as
-`C:\Users\Ksid1\AppData\Local\hermes\bin\uv.exe`. **That path does not exist, <!-- docs-check:ignore: the dead path this correction retracts -- the same sentence says it does not exist -->
-and neither does the `Ksid1` user profile** — the only profile on this machine
-is `Sid`, so every command here failed with "not found". It also called
-`python` on PATH a broken stub; `python` now resolves to a real Python and
-reports `3.12.6`. Prefer `uv run` anyway, for the pinned environment.
+The only user profile on this machine is `Sid`; there is no `Ksid1` profile, and
+any path under one is wrong. `python` on PATH is a real Python 3.12.6. Prefer
+`uv run` anyway, for the pinned environment.
 
 ### No semicolons inside SQL comments
 
@@ -111,7 +125,7 @@ characters. Use the file-writing tool for anything containing escapes.
 ### The gateway's tests were never typechecked
 
 `tsconfig.json` covers only `src/**`. `tsconfig.test.json` covers the tests
-and reports 117 pre-existing errors, so it is not yet a CI gate. New code
+and reports 143 as measured on 2026-09-24 by the builders (see `docs/STATE.md`), so it is not yet a CI gate. New code
 should keep its own directory clean:
 
 ```bash
@@ -124,6 +138,44 @@ Not a type, not a helper. It exists so the failure that kills the gateway
 cannot kill the thing reporting it, and an import recouples them. Two files
 are transcribed copies kept in step by hand; both say so.
 
+### A rebase whose upstream is the branch's own head is a silent no-op
+
+`git rebase --onto A B` replays `B..HEAD`. If `B` is where the branch already
+is, that range is **empty**, so the rebase replays nothing, prints
+`Successfully rebased and updated`, and resets the branch onto `A` — looking
+for all the world like it worked.
+
+Measured 2026-09-20, costing a session's local branch: the command was
+`git rebase --onto origin/main 8732233` while the checked-out branch *was*
+`8732233`, and it moved the branch to `main` and dropped four commits. The
+remote was untouched, so nothing was lost, but only because the work had
+already been pushed.
+
+**Check it, do not read the message.** `git rev-list --count B..HEAD` must be
+non-zero before you start, and `git reflog` must show a
+`rebase (start)`/`rebase (finish)` pair with replays between them. Never
+rebase without an upstream you have confirmed differs from the branch.
+
+### Compare against the merge base, never tip versus tip
+
+`git diff --name-only main HEAD` compares two **trees**. A branch that is
+merely behind `main` on files it never touched shows those files as
+differences, and reading that as "what this branch would revert" is wrong in
+both directions: it invents reverts that do not exist and hides the real
+collision set.
+
+The patch a merge applies comes from the merge base:
+
+```bash
+git merge-base origin/main HEAD          # the base the merge actually uses
+git diff --stat $(git merge-base origin/main HEAD) HEAD   # what this PR applies
+git merge-tree --write-tree origin/main HEAD              # simulate, name conflicts
+```
+
+Measured 2026-09-20: a reviewer read a tip-versus-tip diff as a pending revert
+of another PR and sent a builder to fix a problem that did not exist. The
+collision set from the merge base was one file.
+
 ## Conventions
 
 - **pnpm**, Node 24.19.0 or later in the Node 24 line.
@@ -135,6 +187,19 @@ are transcribed copies kept in step by hand; both say so.
 - Inject a clock rather than calling `Date.now()`, so tests are not
   time-dependent.
 - Run the focused test before the full suite. Keep tests credential-free.
+
+## How to report to Sid
+
+He is skimming, and he is the only reader who matters for a status message.
+
+**End every reply with a list or table of what happens next** — whichever carries the
+information better for that message. Each step names its own timing: a date, or a named
+trigger such as *"when #145 merges"*. A bare "do this next" with no timing attached is not
+answerable, and it gets asked about again.
+
+Keep the body short. Say what changed, what it means for him, and the decision only he can
+make. Do not narrate tool calls, do not restate the task, and do not walk through a mechanism
+he did not ask about — link it instead.
 
 ## Writing style, for code and tests
 
@@ -189,11 +254,11 @@ has decided — writing it to agent memory alone means the next session, or the
 next vendor, never sees it.
 
 Worse, a load-bearing repo document that says the opposite will actively steer
-that session wrong. Memory cannot outvote `docs/HANDOFF.md`, because the handoff
+that session wrong. Memory cannot outvote `docs/STATE.md`, because the state carriers
 is what a new session is told to read first.
 
 **The failure, concretely.** On 2026-09-17 Sid said his school account cannot
-reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md` went
+reach Google Cloud Console. It went into reviewer memory. `docs/HANDOFF.md`, since deleted, went
 on listing *"A1. Google Classroom consent — SID'S ACTION, one sitting. Highest
 value per hour in the whole plan"*, so on 2026-09-18 another session read the
 handoff, opened the runbook, and walked him through an impossible setup a second
@@ -213,9 +278,11 @@ time. The same shape had already happened with the D2L calendar feed.
 4. Agent memory is a cache, not a record. Treat anything living only there as
    one session away from being lost.
 
-`scripts/check-state.mjs` enforces the register's format — every row needs a source
-and a date — and lists rows that are stale or unconfirmed so they get re-verified
-rather than quietly relied on.
+`scripts/check-state.mjs` checks the register's format — every row needs a source
+and a date — and lists rows that are stale or unconfirmed. CI runs it in the
+`state carriers are honest` job on every pull request and every push to `main`; run
+it locally with `pnpm run check:state`. The job is advisory: `main` does not require
+it, so read its result before a carrier change merges.
 
 **Sid is the message bus between chats that cannot talk to each other.** Every
 fact that only lives in one chat is a question he has to answer again.

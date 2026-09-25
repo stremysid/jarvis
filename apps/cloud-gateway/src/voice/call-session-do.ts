@@ -1125,7 +1125,12 @@ export class CallSessionCore {
       this.#clearOwnerRepeatFragments();
       return null;
     }
-    if (status !== "fragment" && status !== "available") {
+    // `spent` means this call's step-up text was already repeated once and the
+    // repeat-check row exists. Returning `text` here handed the repeated
+    // passphrase to the conversation service, which stores it as a turn and
+    // sends it to the model -- the one thing this filter exists to prevent.
+    // `spent` therefore continues into verifyRepeat rather than leaving here.
+    if (status !== "fragment" && status !== "available" && status !== "spent") {
       this.#clearOwnerRepeatFragments();
       return text;
     }
