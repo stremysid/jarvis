@@ -356,6 +356,7 @@ function conversationHarness(
   repo: CallRepository,
   modelOptions: FakeModelProviderOptions,
   turnIds: readonly Ulid[] = [TURN_ID],
+  redactor: Redactor = new Redactor("owner"),
 ) {
   const provider = new FakeModelProvider(modelOptions);
   const service = new DefaultConversationService({
@@ -365,7 +366,7 @@ function conversationHarness(
     dispatcher: {
       async dispatch(): Promise<never> { throw new Error("unexpected_voice_outbox_dispatch"); },
     },
-    redactor: new Redactor(),
+    redactor,
     now: () => new Date(NOW),
   });
   return { stored, provider, ...makeCore({ session: stored, repo, conversation: service, turnIds }) };
@@ -1785,6 +1786,29 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
       sent_assistant_event_id: expect.stringMatching(/^[0-7][0-9a-hjkmnp-tv-z]{25}$/u),
       delivered_assistant_event_id: null,
     });
+  });
+
+  it("streams a PIN only as a placeholder when the session's reader is someone other than Sid", async () => {
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const harness = conversationHarness(stored, repo, {
+      streamText: "safe PIN: 12345678 answer",
+      streamTokenCount: 3,
+    }, [TURN_ID], new Redactor("external"));
+    await authenticateForConversation(harness);
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      text: "What is next?",
+      language: "en-US",
+      final: true,
+    });
+
+    const sentText = harness.sendToken.mock.calls.map(([token]) => token.text).join("");
+    const finishedText = harness.finish.mock.calls[0]?.[0];
+    expect(sentText).toBe(finishedText);
+    expect(sentText).toContain("[REDACTED_AUTH_DIGITS]");
+    expect(JSON.stringify([sentText, finishedText])).not.toContain("12345678");
   });
 
   it.each(["token", "finish"] as const)(

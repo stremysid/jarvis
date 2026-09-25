@@ -148,7 +148,7 @@ export class FakeRelaySessions {
         model: new DefaultModelAdapter(model),
         context: new D1ContextRetriever(env.DB),
         dispatcher: { async dispatch(): Promise<never> { throw new Error("voice_outbox_dispatch_forbidden"); } },
-        redactor: new Redactor(),
+        redactor: new Redactor("owner"),
         now: this.now,
       });
       const factory: CallSessionRuntimeFactory = (input) => new CallSessionCore({

@@ -38,7 +38,7 @@ import {
 
 const audience = "jarvis-local-agent";
 const initialNow = new Date("2026-09-11T12:00:00.000Z");
-const redactor = new Redactor();
+const redactor = new Redactor("owner");
 
 interface SigningIdentity {
   readonly deviceId: string;

@@ -56,7 +56,10 @@ beforeEach(() => {
   deps = {
     webhookSecret: SECRET,
     policy,
-    redactor: new Redactor(),
+    // Production's wiring: the configured owner gets Sid's reader, everyone
+    // else the external one.
+    redactor: new Redactor("external"),
+    owner: { principalId: "principal-1", redactor: new Redactor("owner") },
     events,
     limiter,
     now: () => NOW,
@@ -105,7 +108,7 @@ describe("Telegram webhook", () => {
     // stored value is a string. The guarantee is not that it looks different
     // -- clean text survives unchanged -- but that it can only have arrived
     // via the redactor, which the next test pins down.
-    const redactor = new Redactor();
+    const redactor = new Redactor("owner");
     await handleTelegramWebhook(requestFor(textUpdate("my plaintext message")), deps);
 
     const payload = events.events[0]!.envelope.payload as Record<string, unknown>;
@@ -232,5 +235,28 @@ describe("Telegram webhook", () => {
     await handleTelegramWebhook(requestFor(textUpdate("hello", 77)), deps);
     expect(events.events[0]!.scope).toBe("telegram.update");
     expect(events.events[0]!.key).toBe("77");
+  });
+});
+
+describe("who reads a Telegram message, by authenticated principal", () => {
+  it("stores the configured owner's PIN as he typed it", async () => {
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), deps);
+
+    expect((events.events[0]!.envelope.payload as Record<string, unknown>).text).toBe("my pin is 4821");
+  });
+
+  it("redacts a verified Telegram identity that is not the configured owner, because the channel alone does not make the sender Sid", async () => {
+    policy.result = { principalId: "principal-2", identityState: "active" };
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), deps);
+
+    expect(events.events[0]!.envelope.eventType).toBe(ACCEPTED_EVENT);
+    expect((events.events[0]!.envelope.payload as Record<string, unknown>).text).toBe("my pin is [REDACTED_AUTH_DIGITS]");
+  });
+
+  it("redacts every sender when no owner is configured, the owner included", async () => {
+    const { owner: _owner, ...withoutOwner } = deps;
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), withoutOwner);
+
+    expect((events.events[0]!.envelope.payload as Record<string, unknown>).text).toBe("my pin is [REDACTED_AUTH_DIGITS]");
   });
 });

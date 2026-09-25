@@ -215,7 +215,7 @@ async function runTurn(input: {
       circuitBreaker: new ProviderCircuitBreaker(),
       now: () => NOW,
     }),
-    redactor: new Redactor(),
+    redactor: new Redactor("owner"),
     now: () => NOW,
   });
   const turnId = newUlid();
@@ -458,7 +458,8 @@ async function acceptCallbackTap(
         return Object.freeze({ principalId: harness.principalId, identityState: "active" as const });
       },
     },
-    redactor: new Redactor(),
+    redactor: new Redactor("external"),
+    owner: { principalId: harness.principalId, redactor: new Redactor("owner") },
     events: new EventRepository(env.DB),
     limiter: new TelegramRateLimiter(),
     now: () => new Date(NOW.getTime() + Number(suffix) * 1_000),
@@ -2568,7 +2569,8 @@ describe("owner Telegram agent", () => {
           return Object.freeze({ principalId: harness.principalId, identityState: "active" as const });
         },
       },
-      redactor: new Redactor(),
+      redactor: new Redactor("external"),
+      owner: { principalId: harness.principalId, redactor: new Redactor("owner") },
       events: new EventRepository(env.DB),
       limiter: new TelegramRateLimiter(),
       now: () => new Date(NOW.getTime() + 1_000),

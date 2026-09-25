@@ -1395,11 +1395,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
-    // Sid's codes, PINs, numbers and passphrases are his to remember, so the
-    // owner audience leaves them alone. What it still refuses is a machine
-    // credential (an API key, bot token or bearer header): stored memory is a
-    // fixed point of the owner redactor, and those never reach a reply.
-    const checkedFact = sanitizeRedaction(fact);
+    // Sid's codes, PINs, numbers, passphrases and labelled values such as
+    // `api_key=...` or `client_secret=...` are his to remember, so the owner
+    // audience leaves them alone. It refuses only a value in a known machine
+    // shape: a private-key block, an `Authorization` or bearer header, or a
+    // pattern in `KNOWN_CREDENTIAL` (contracts calls.ts), because stored
+    // memory is a fixed point of the owner redactor. An opaque value behind a
+    // label is not recognised as a machine credential and is kept.
+    const checkedFact = sanitizeRedaction(fact, undefined, false, "owner");
     if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;

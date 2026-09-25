@@ -33,7 +33,8 @@ const MAX_JOB_EVENTS = 16;
 const MAX_JOB_TEXT_BYTES = 262_144;
 const TIERED_READ_D1_STATEMENT_CEILING = 6;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Sid's history: his reader.
+const redactor = new Redactor("owner");
 
 export const LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS = Object.freeze({
   d1Statements: 22,

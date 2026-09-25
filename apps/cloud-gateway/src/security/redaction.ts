@@ -39,10 +39,11 @@ function structuralUlidField(field: string): boolean {
 }
 
 /**
- * Removes what the reader must not receive. The default reader is Sid, who
- * sees his own data as it is; construct `new Redactor("external")` for a
- * surface whose reader is anyone else (a guest caller, an audit or telemetry
- * record). See `RedactionAudience` in the contracts package.
+ * Removes what the reader must not receive. `new Redactor("owner")` is Sid's
+ * reader: he sees his own data as it is. The default is `external` (a guest
+ * caller, an audit or telemetry record), so a construction that forgets to
+ * name its reader hides too much from Sid rather than showing Sid's data to
+ * someone else. See `RedactionAudience` in the contracts package.
  *
  * The field-name markers apply to both audiences. They name provider payload
  * fields, not Sid's words: `authorization`/`token`-style fields are machine
@@ -52,7 +53,7 @@ function structuralUlidField(field: string): boolean {
 export class Redactor implements RedactorContract {
   private readonly audience: RedactionAudience;
 
-  constructor(audience: RedactionAudience = "owner") {
+  constructor(audience: RedactionAudience = "external") {
     if (audience !== "owner" && audience !== "external") throw new TypeError("redaction_audience_invalid");
     this.audience = audience;
   }

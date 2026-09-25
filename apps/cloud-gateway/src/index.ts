@@ -218,7 +218,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         ownerPrincipalId,
       );
       const toolAuthority = ownerTelegramToolAuthority(accepted);
-      const redactor = new Redactor();
+      const redactor = new Redactor("owner");
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
         model: env.DEEPSEEK_MODEL,
@@ -722,7 +722,13 @@ export default {
       return handleTelegramWebhook(request, {
         webhookSecret,
         policy: new PolicyService(new DeviceRepository(env.DB)),
-        redactor: new Redactor(),
+        // The reader is the authenticated principal, not the channel: any
+        // active verified Telegram identity passes, so only the configured
+        // owner gets Sid's reader and everyone else the external one.
+        redactor: new Redactor("external"),
+        ...(env.OWNER_PRINCIPAL_ID === undefined || env.OWNER_PRINCIPAL_ID.length === 0
+          ? {}
+          : { owner: { principalId: env.OWNER_PRINCIPAL_ID, redactor: new Redactor("owner") } }),
         events: new EventRepository(env.DB),
         limiter: telegramLimiter,
         onAccepted: (accepted) => {

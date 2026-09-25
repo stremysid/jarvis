@@ -19,7 +19,7 @@ describe("shared gap table, toward someone who is not Sid", () => {
 
 describe("shared gap table, toward Sid and the Python projection decision", () => {
   it.each(gaps)("$name", ({ text, owner, refuse }) => {
-    const result = sanitizeRedaction(text);
+    const result = sanitizeRedaction(text, undefined, false, "owner");
     expect(result).toMatchObject({ ok: true, text: owner });
     expect(!result.ok || result.text !== text).toBe(refuse);
     expect(owner !== text).toBe(refuse);
@@ -29,7 +29,7 @@ describe("shared gap table, toward Sid and the Python projection decision", () =
 describe("shared Python and gateway projection decisions", () => {
   it.each(vectors.redactionCases)("$name", ({ text, refuse }) => {
     const original = expand(text);
-    const result = sanitizeRedaction(original);
+    const result = sanitizeRedaction(original, undefined, false, "owner");
     expect(result.ok).toBe(true);
     expect(!result.ok || result.text !== original).toBe(refuse);
   });
@@ -37,7 +37,7 @@ describe("shared Python and gateway projection decisions", () => {
   it.each(vectors.jsWhitespaceCodePoints)("recognizes ECMAScript whitespace U+%i", (codePoint) => {
     for (const template of vectors.spaceTemplates) {
       const original = expand(template.replace("<space>", String.fromCodePoint(codePoint)));
-      const result = sanitizeRedaction(original);
+      const result = sanitizeRedaction(original, undefined, false, "owner");
       expect(result.ok).toBe(true);
       expect(!result.ok || result.text !== original).toBe(true);
     }

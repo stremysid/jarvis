@@ -123,7 +123,7 @@ describe("a reply to Sid", () => {
   it.each([false, true])("carries an eight-digit Gmail confirmation code to Sid intact with sentence release %s", (sentences) => {
     const reply = "Your Gmail confirmation code is 99427480. It expires soon.";
     for (let split = 1; split < reply.length; split += 1) {
-      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, sentences);
+      const redactor = new StreamingOutputRedactor(new Redactor("owner"), undefined, sentences);
       let sent = "";
       for (const [index, part] of [reply.slice(0, split), reply.slice(split)].entries()) {
         sent += redactor.push(token(index, part)).map((item) => item.text).join("");

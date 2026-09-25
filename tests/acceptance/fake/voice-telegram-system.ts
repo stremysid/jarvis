@@ -67,7 +67,8 @@ export async function createFakeTelegramCallingSystem(ownerPrincipalId = "princi
         from: { id: input.callerId ?? 12345 }, chat: { id: input.chatId ?? 44 }, text } }),
     });
     const response = await handleTelegramWebhook(request, { webhookSecret: FAKE_TELEGRAM_WEBHOOK_SECRET,
-      policy: new PolicyService(new DeviceRepository(env.DB)), events, limiter, redactor: new Redactor(), now: () => new Date(clock),
+      policy: new PolicyService(new DeviceRepository(env.DB)), events, limiter, redactor: new Redactor("external"),
+      owner: { principalId: ownerPrincipalId, redactor: new Redactor("owner") }, now: () => new Date(clock),
       onAccepted: (update) => {
         accepted.push(update);
         const parsed = parseCommand(update.text, "jarvis_sid_bot");

@@ -33,8 +33,13 @@ const DECISION_CALLBACK_DATA = /^d1:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-z0-9_-]{1,32}
  *   telemetry records. Every rule below applies, so Sid's PINs, codes,
  *   passphrases and phone numbers do not reach them.
  *
- * `owner` is the default because nearly every caller is on Sid's own path; a
- * surface that serves someone else has to say so.
+ * A labelled value of no known machine shape (`api_key=...`, `client_secret=...`)
+ * is Sid's own text on the owner path and reaches him as he wrote it; only the
+ * external reader loses it.
+ *
+ * `external` is the default, so a surface that forgets to name its reader
+ * hides too much from Sid -- a visible bug a test catches -- rather than showing
+ * Sid's codes to someone else. Every one of Sid's own paths names `owner`.
  */
 export type RedactionAudience = "owner" | "external";
 // The rules from here to PHONE_NUMBER run only for the `external` audience.
@@ -195,7 +200,7 @@ export function sanitizeRedaction(
   text: string,
   fieldMarker?: RedactionMarker,
   structuralUlid = false,
-  audience: RedactionAudience = "owner",
+  audience: RedactionAudience = "external",
 ): RedactionResult {
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };

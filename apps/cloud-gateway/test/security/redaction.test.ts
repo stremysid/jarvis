@@ -4,7 +4,7 @@ import { Redactor } from "../../src/security/redaction";
 // The two readers. Sid (the default) sees his own data as it is; anyone else
 // (a guest caller, an audit record) gets every rule. Sid, 2026-09-24: "there
 // should be nothing between Jarvis and I interms of what he knows and I know".
-const toSid = () => new Redactor();
+const toSid = () => new Redactor("owner");
 const toSomeoneElse = () => new Redactor("external");
 
 describe("Redactor toward Sid", () => {
@@ -47,6 +47,12 @@ describe("Redactor toward Sid", () => {
   it("keeps the keypad digits that verify a caller out of storage, because they are authentication input", () => {
     expect(toSid().redact({ text: "4821", channel: "voice", field: "dtmf.digits" }))
       .toEqual({ ok: true, text: "[REDACTED_AUTH_DIGITS]", markers: ["authentication_digits"] });
+  });
+
+  it("redacts as for someone who is not Sid when constructed without naming a reader", () => {
+    expect(new Redactor().redactText("my pin is 4821"))
+      .toEqual(toSomeoneElse().redactText("my pin is 4821"));
+    expect(new Redactor().redactText("my pin is 4821")).toMatchObject({ text: "my pin is [REDACTED_AUTH_DIGITS]" });
   });
 
   it("refuses an audience that is neither Sid nor someone else", () => {

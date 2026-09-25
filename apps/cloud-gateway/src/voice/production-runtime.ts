@@ -1,4 +1,4 @@
-import type { RedactionAudience } from "../../../../packages/contracts/src/calls.js";
+import type { RedactionAudience } from "../../../../packages/contracts/src/index.js";
 import { contextForAudience } from "../conversation/context-retriever.js";
 import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
 import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
@@ -175,7 +175,7 @@ export function createProductionCallSessionCore(
       // response deadline, so hidden reasoning must not spend the claimed tap's
       // remaining window before the validated pipeline can settle its receipt.
       telegramTurn: true, telegramThinking: "disabled",
-    }), new Redactor(), ownerPrincipalId, true, now),
+    }), new Redactor("owner"), ownerPrincipalId, true, now),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
     // The same tier gate Telegram puts in front of its tools, constructed here
     // rather than left out: a channel that dispatches tools without it is the

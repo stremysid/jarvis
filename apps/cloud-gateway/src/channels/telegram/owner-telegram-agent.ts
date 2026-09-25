@@ -121,7 +121,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     super(telegram, snapshotTelegramModelAdapterStreamInput);
     // handleTurn supplies redacted text to the model and durable owner proof.
     // Comparing it with raw ingress text falsely denies every redacted turn.
-    const authority = sanitizeRedaction(safeText(telegram.authorityText, 65_536));
+    const authority = sanitizeRedaction(safeText(telegram.authorityText, 65_536), undefined, false, "owner");
     if (!authority.ok) throw new TypeError("owner_agent_authority_invalid");
     this.authorityText = authority.text;
     if (telegram.replyToBotMessageId !== undefined && telegram.replyToBotMessageId !== null

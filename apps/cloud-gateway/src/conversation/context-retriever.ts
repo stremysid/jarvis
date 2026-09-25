@@ -1,10 +1,10 @@
-import type { RedactionAudience } from "../../../../packages/contracts/src/calls.js";
 import {
   canonicalJson,
   sha256Hex,
   validateEnvelope,
   type JsonValue,
   type Ulid,
+  type RedactionAudience,
 } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../security/redaction.js";
 import {
@@ -46,7 +46,7 @@ const FACT_ID = /^fact_[a-f0-9]{32}$/u;
 const encoder = new TextEncoder();
 // Stored conversation text is a fixed point of the owner redactor; this checks
 // that invariant on read. It is not what a guest-session model is shown.
-const redactor = new Redactor();
+const redactor = new Redactor("owner");
 const externalRedactor = new Redactor("external");
 
 /**
@@ -56,8 +56,12 @@ const externalRedactor = new Redactor("external");
  * is. For anyone else (`external`, a guest call) every item passes through the
  * external redactor first, so a guest session's model never reads Sid's codes,
  * PINs, passphrases or phone numbers. A placeholder can be longer than what it
- * replaces, so an item that no longer fits the caller's budget is left out
- * rather than overrunning it.
+ * replaces, so redaction can push the list past the caller's budget. Both
+ * retrievers return the conversation oldest-first with the newest turn last,
+ * so the list is re-fitted from its end and cut at the first item that no
+ * longer fits, as the base retriever cuts its newest-first walk: skipping that
+ * item and keeping older ones would splice the conversation, dropping a middle
+ * turn while the turns around it still read as continuous.
  */
 export function contextForAudience(retriever: ContextRetriever, audience: RedactionAudience): ContextRetriever {
   if (audience === "owner") return retriever;
@@ -65,17 +69,18 @@ export function contextForAudience(retriever: ContextRetriever, audience: Redact
   return Object.freeze({
     async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
       const items = await retriever.retrieve(input);
-      const shown: RetrievedContext[] = [];
+      const shownNewestFirst: RetrievedContext[] = [];
       let bytes = 0;
-      for (const item of items) {
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index]!;
         const redacted = externalRedactor.redactText(item.text);
         if (!redacted.ok) throw new TypeError("context_redaction_failed");
         const size = encoder.encode(redacted.text).byteLength;
-        if (bytes + size > input.maxTokens) continue;
+        if (bytes + size > input.maxTokens) break;
         bytes += size;
-        shown.push(Object.freeze({ sourceEventId: item.sourceEventId, text: redacted.text, sensitivity: item.sensitivity }));
+        shownNewestFirst.push(Object.freeze({ sourceEventId: item.sourceEventId, text: redacted.text, sensitivity: item.sensitivity }));
       }
-      return Object.freeze(shown);
+      return Object.freeze(shownNewestFirst.reverse());
     },
   });
 }

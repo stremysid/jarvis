@@ -129,7 +129,7 @@ describe("a four-digit PIN inside a turn", () => {
     const seen: string[] = [];
     const telegram = new FakeTelegramProvider();
 
-    const result = await service(seen, telegram, new Redactor()).handleTurn({
+    const result = await service(seen, telegram, new Redactor("owner")).handleTurn({
       sessionId: "telegram:44112233",
       principalId: PRINCIPAL,
       turnId: newUlid(NOW),
@@ -150,7 +150,7 @@ describe("a four-digit PIN inside a turn", () => {
   });
 
   it("reaches the model, the event log and the spoken reply on Sid's own call exactly as he said it", async () => {
-    const { result, seen, spoken, finished } = await voiceTurn(new Redactor());
+    const { result, seen, spoken, finished } = await voiceTurn(new Redactor("owner"));
 
     expect(result.outcome).toBe("voice_sent");
     expect(seen).toEqual([SENTENCE]);

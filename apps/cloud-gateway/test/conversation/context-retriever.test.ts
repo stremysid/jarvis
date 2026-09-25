@@ -112,7 +112,7 @@ async function conversationEnvelope(input: {
   text: string;
   correlationId?: Ulid;
 }): Promise<PersistableEventEnvelopeV1> {
-  const token = new Redactor().redactText(input.text);
+  const token = new Redactor("owner").redactText(input.text);
   if (!token.ok) throw new Error("fixture_redaction_failed");
   return createEnvelope({
     schemaVersion: "1.0",
@@ -337,6 +337,44 @@ describe("D1ContextRetriever", () => {
     ]);
     expect(Object.isFrozen(result)).toBe(true);
     expect(result.every((item) => Object.isFrozen(item))).toBe(true);
+  });
+
+  it("cuts a guest session's redacted context at the newest turn that no longer fits, so no middle turn is spliced out and the newest is kept", async () => {
+    // Oldest first, newest last, as both retrievers return it. Raw, the three
+    // fit the 30-byte budget (8 + 11 + 11); redaction grows the middle one to
+    // 27 bytes. Skipping it would keep the oldest around a gap, and cutting
+    // from the front would drop the newest turn.
+    const oldest = { sourceEventId: newUlid(), text: "old turn", sensitivity: "personal" as const };
+    const middle = { sourceEventId: newUlid(), text: "code 123456", sensitivity: "personal" as const };
+    const newest = { sourceEventId: newUlid(), text: "newest turn", sensitivity: "personal" as const };
+    const base = { async retrieve() { return Object.freeze([oldest, middle, newest]); } };
+
+    const shown = await contextForAudience(base, "external").retrieve({
+      principalId: "principal:context-refit",
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 30,
+    });
+
+    expect(shown).toEqual([newest]);
+  });
+
+  it("keeps a guest session's whole context, in its order, when the redacted items still fit", async () => {
+    const oldest = { sourceEventId: newUlid(), text: "old turn", sensitivity: "personal" as const };
+    const middle = { sourceEventId: newUlid(), text: "code 123456", sensitivity: "personal" as const };
+    const newest = { sourceEventId: newUlid(), text: "newest turn", sensitivity: "personal" as const };
+    const base = { async retrieve() { return Object.freeze([oldest, middle, newest]); } };
+
+    const shown = await contextForAudience(base, "external").retrieve({
+      principalId: "principal:context-refit",
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 46,
+    });
+
+    expect(shown).toEqual([oldest, { ...middle, text: "code [REDACTED_AUTH_DIGITS]" }, newest]);
   });
 
   it("gives Sid's own model his stored PIN and phone number as they are, but a guest session's model neither", async () => {
