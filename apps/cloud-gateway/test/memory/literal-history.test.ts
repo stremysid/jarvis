@@ -222,6 +222,7 @@ async function appendConversation(
     | "conversation.assistant_delivered"
     | "conversation.assistant_sent" = "conversation.user_committed",
   historyEligible = true,
+  memoryItemIds?: readonly string[],
 ): Promise<AppendedEvent> {
   const occurredAt = time.advance();
   const eventId = newUlid(new Date(occurredAt));
@@ -241,6 +242,7 @@ async function appendConversation(
       sensitivityCode: 1,
       historyEligible,
       text,
+      ...(memoryItemIds === undefined ? {} : { memoryItemIds: [...memoryItemIds] }),
     }),
     producerVersion: "conversation-v1",
   });
@@ -1285,6 +1287,21 @@ describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
 
     expect(page.hits.map((hit) => [hit.eventId, hit.channel, hit.speaker]))
       .toEqual([[reply.envelope.eventId, "voice", "assistant"]]);
+  });
+
+  it("finds a call reply that cited a memory, reading past its memory ids", async () => {
+    // #174 writes the ids of memories a spoken reply cited into its payload.
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "You said the maroon folder is for physics.", 1, "conversation.assistant_sent", false,
+      ["7zzzzzzzzzzzzzzzzzzzzzzzzz"],
+    );
+    const literal = await indexed(events, time);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "maroon" });
+
+    expect(page.hits.map((hit) => [hit.eventId, hit.speaker])).toEqual([[reply.envelope.eventId, "assistant"]]);
   });
 
   it("keeps the automatic searchLiteral path to Sid's own words after call replies are indexed", async () => {

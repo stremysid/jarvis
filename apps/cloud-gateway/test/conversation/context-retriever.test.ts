@@ -115,6 +115,7 @@ async function conversationEnvelope(input: {
   historyEligible: boolean;
   text: string;
   correlationId?: Ulid;
+  memoryItemIds?: readonly string[];
 }): Promise<PersistableEventEnvelopeV1> {
   const token = new Redactor().redactText(input.text);
   if (!token.ok) throw new Error("fixture_redaction_failed");
@@ -134,6 +135,13 @@ async function conversationEnvelope(input: {
       sensitivityCode: 1,
       historyEligible: input.historyEligible,
       text: token,
+      ...(input.memoryItemIds === undefined ? {} : {
+        memoryItemIds: input.memoryItemIds.map((itemId) => {
+          const issued = new Redactor().redactText(itemId);
+          if (!issued.ok || issued.text !== itemId) throw new Error("fixture_redaction_failed");
+          return issued;
+        }),
+      }),
     },
     producerVersion: "conversation-v1",
   });
@@ -923,7 +931,7 @@ describe("D1ContextRetriever", () => {
     });
     const newReply = await conversationEnvelope({
       eventType: "conversation.assistant_sent", subjectId: principalId, channelCode: 1,
-      historyEligible: true, text: "and your calculator",
+      historyEligible: true, text: "and your calculator", memoryItemIds: ["7zzzzzzzzzzzzzzzzzzzzzzzzz"],
     });
     await append(events, question);
     const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
