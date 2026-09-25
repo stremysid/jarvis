@@ -21,6 +21,9 @@ required = [
 # Scheduled jobs: OWNER_PRINCIPAL_ID, DIGEST_TIMEZONE.
 # Heartbeats: WATCHDOG_HEARTBEAT_URL, WATCHDOG_HEARTBEAT_SECRET.
 # DEEPSEEK_MODEL: model override. GITHUB_TOKEN: private project polling.
+# Web tools: BROWSER_RENDERING_ACCOUNT_ID + BROWSER_RENDERING_API_TOKEN (the
+# optional JavaScript rendering path for web_read), EXA_API_KEY (optional;
+# web_search is keyless without it).
 # R1 calling: OWNER_PRINCIPAL_ID, IDENTITY_CHALLENGE_HMAC_KEY_VERSION,
 # OWNER_PASSPHRASE_PEPPER_V1,
 # PUBLIC_ORIGIN, TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID,

@@ -36,6 +36,7 @@ import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { OwnerVoiceAgentAdapter } from "./voice-agent.js";
+import { webToolsFromEnv } from "../web/web-tools.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
 import { SensitiveActionPinGate } from "./sensitive-action-pin.js";
 
@@ -191,6 +192,8 @@ export function createProductionCallSessionCore(
       new D1ToolConfirmationStore(env.DB),
       sensitiveActionPin,
     ),
+    // The same web tools Telegram gets, from the same environment.
+    web: webToolsFromEnv(env),
     now,
   });
   const conversation = new DefaultConversationService({

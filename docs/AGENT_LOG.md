@@ -3,6 +3,24 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #195 merged with main after #196
+
+Signed: Claude (builder agent), branch `codex/web-tools` from audited head `0b0e3f74`. Touches rule 8 only.
+
+- **Merged `origin/main` at `9ea215b2`** (#196, migration `0047`). Conflicts: `test/persistence/migration.ts` (newest-runtime list now `0045`, `0047`, `0049`), this log (union of whole entries, none removed) and `OWNER-ACTIONS.md` (#195's three web rows plus main's #193 row, which had replaced the #166 row). The backup-restore list and the remote-D1 syntax list auto-merged in order. No product code changed; main adds no owner tools, so the catalogue stays 18 + 2 = 20.
+- **Evidence:** focused vitest 13 files, 296/296; gateway `typecheck` exit 0; `typecheck:tests` 140 errors, none in touched files; `check-state` pass with its one FACTS warning.
+- **Not verified:** full suites (CI). Claude-authored merge delta. Not merged, deployed or migrated.
+
+## 2026-09-25 — Claude builder: #195 audit round (web tools own-origin fail-closed)
+
+Signed: Claude (builder agent), branch `codex/web-tools`. Touches rules 1, 2, 3, 8, 9. Answers the DeepSeek audit of `d18f05f5` (posted on [#195](https://github.com/stremysid/jarvis/pull/195)).
+
+- **Merged `origin/main` at `605c1773`** (#174, #194). The migration lists keep both `0048` (main) and `0049` (this PR). Since #174 both adapters use `OWNER_TOOL_DEFINITIONS`, so the web catalogue test now asserts that one list.
+- **F1, fixed.** When `PUBLIC_ORIGIN` is missing, blank, unparseable or not http(s), `web_read` now refuses every URL with an `own_origin_unknown` receipt and fetches nothing. The receipt tells Jarvis to tell Sid the secret needs setting. `web_search` is unaffected. Tested through `webToolsFromEnv`.
+- **F2, stated rather than fixed.** Cloudflare's browser follows redirects off this Worker, so this code cannot re-check them. The module doc, the result (`redirectsChecked: false`) and the entry below now say so.
+- **F3, F5 fixed; F4 documented** in the `0049` comments; F6 needs no code change.
+- **Evidence:** `web-tools.test.ts` 23/23 locally; gateway `typecheck` clean; `typecheck:tests` 143 errors, none in touched files. `mutate.ps1`: 7 killed, 0 survived, 0 not applied.
+- **Not verified:** whether production actually has `PUBLIC_ORIGIN` set. `docs/runbooks/deploy.md` lists it under calling secrets "set in production", but that was not checked live. If it is missing, `web_read` will say so.
 ## 2026-09-25 — Claude builder: #196 round 3 (0047 behavioural test, doc fixes)
 
 Signed: Claude (builder agent), `codex/call-pin` from audited head `4047e9d`. Touches Sid's rules 3, 4, 8, 9. Main then moved to `eb4c8e3` (#184), so it was merged normally in `68b52bc`.
@@ -161,6 +179,37 @@ Touches Sid's rules 3, 4 and 8. A normal merge commit; no rebase, no force.
   1589/1589; gateway `tsc` exit 0; `check-state` pass with its one FACTS warning.
 - **Not verified:** full suites (CI), live Telegram or calls. Claude-authored merge delta:
   needs a DeepSeek audit before merge. Not merged or deployed.
+
+## 2026-09-24 — Claude builder: web_read and web_search on calls and Telegram ([#195](https://github.com/stremysid/jarvis/pull/195))
+
+Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid approved the build on 2026-09-24. Touches rules 1, 2, 3, 4, 8, 9. **Claude-built: needs a DeepSeek audit before merge.**
+
+- **What:** two read-only owner tools in `OWNER_ARGUMENT_TOOL_DEFINITIONS`, so both channel catalogues carry the same definitions.
+  - `web_read(url, offset?, renderJavaScript?)` fetches the page in the gateway, converts HTML or PDF with Workers AI `toMarkdown`, and returns the text, final URL and title.
+  - `web_search(query, numResults?)` sends a plain JSON-RPC `tools/call` to Exa's hosted MCP endpoint.
+  - The code is in `apps/cloud-gateway/src/web/web-tools.ts`. `OwnerAgentCore.executeCall` dispatches both tools after the tier gate.
+- **The AI decides.** No topic, keyword or site rules. The only limits:
+  - http/https only;
+  - never `PUBLIC_ORIGIN`'s host, with every redirect re-checked on the direct path (not on the Browser Rendering path, and `web_read` refuses outright when `PUBLIC_ORIGIN` is unset: corrected in the audit round below);
+  - timeouts;
+  - a 5 MB download cap and a 20,000-character reply cap.
+
+  When text is cut, the result says `truncated: true` and gives the offset for the next part.
+- **Web content is data.** Every result carries `untrustedWebContent: true` and a notice. Neither tool can act.
+- **Receipts.** Migration `0049_web_tools.sql` (first opened as `0047`, renumbered because #196 uses `0047` and #194 uses `0048`) seeds `read.web` at tier 1 and adds the append-only `web_tool_receipts` table. Every call writes one row, refused and failed calls included. The row holds the URL or query, final URL, method, outcome, HTTP status, bytes and truncation. The backup inventory and the restore list include the new migration and table.
+- **Exa, verified from docs and source only.**
+  - The docs give `https://mcp.exa.ai/mcp`, a keyless free tier, and the `x-api-key` header.
+  - The source at `exa-labs/exa-mcp-server@f3d71fb` (`api/mcp.ts`) builds a fresh MCP handler per request. The free tier is IP rate-limited on `tools/call` and answers 429.
+  - **Unverified:** a live keyless call from a Worker (no service was contacted), and whether `tools/call` without `initialize` succeeds live.
+- **Limit found, not changed.** The core allows one tool call per turn (`MAX_TOOL_CALLS = 1`, one round), so "search, then read a result" takes two turns.
+- **Evidence.**
+  - `test/web/web-tools.test.ts` passes 18/18.
+  - Neighbour files pass 415/415 (18 files).
+  - `mutate.ps1` at `8e9a0c0`: 16 mutations, all 16 KILLED by the named test and confirmed on a second run.
+  - `tsc` is clean. `check-state` passes with its one existing FACTS warning.
+- **Owner actions:** apply `0049` with the deploy. Optionally set a Browser Rendering token and an Exa key.
+- **Scope:** no merge, deploy, migration application, secret change or production access.
+
 
 ## 2026-09-24 — Claude builder: deadline_record lets the AI decide
 

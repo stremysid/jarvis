@@ -43,6 +43,7 @@ import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_c
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
 import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_call_pin_and_owner_authority.sql?raw";
 import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
+import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -349,6 +350,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       name: "0047_call_pin_and_owner_authority.sql",
       queries: splitMigration(callPinAndOwnerAuthoritySql),
     },
+    { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -407,6 +409,7 @@ const allCloudGatewayMigrations = Object.freeze([
     queries: splitMigration(callPinAndOwnerAuthoritySql),
   },
   { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
 ]);
 
 /**
