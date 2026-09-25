@@ -3,6 +3,29 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: several tools in one turn (branch `codex/multi-step-tools`)
+
+Signed: Claude Opus 5.5 (builder agent), from `f43fcf42`. Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **What changed.** `MAX_TOOL_CALLS = 1` and the one-round Telegram/voice flows are gone.
+  `OwnerAgentCore` runs one tool loop for both channels: the model calls tools (several per
+  step), sees every result, and decides the next step until it answers. Bounds: the turn
+  deadline, and a runaway cap `MAX_TOOL_ROUNDS = 20` after which one tools-off request asks it
+  to answer. Calls in a step run in order, never concurrently (a PIN question cannot be
+  answered twice at once). Every call keeps its own authority check, tier gate and receipt.
+  An ended turn runs nothing further and asks no gate; #196's re-check before gated bodies stays.
+- **Provider.** `earlierToolRounds` on `ModelAgentCompletionInput`; DeepSeek renders each
+  round (assistant tool_calls, then its results) in order before the latest round, which keeps
+  `previousToolCalls`/`toolResults`. A call id reused across rounds is refused.
+- **Found, not fixed (KNOWN_ISSUES.md):** memory controls key idempotency as
+  `<turn event>:mutation`, so a second memory write in one turn is refused (proven by test run).
+  School plan save looks like the same shape (unverified). Long chains can hit the 128 KiB
+  request cap (unverified in practice).
+- **Evidence:** 36 focused files, 972 passed. `tsc --noEmit` clean; test tsconfig 140
+  diagnostics, none in touched files. `mutate.ps1` with
+  `reviewer-tools/mutation-specs-multi-step-tools.json`: 13/13 KILLED, each confirmed.
+  No full suite run locally; CI runs it.
+
 ## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`
