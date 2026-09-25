@@ -150,12 +150,13 @@ describe("accepting a button tap", () => {
     "123456",
     "01m30abcde123456abcdefghjk",
     "d1:01m30abcde123456abcdefghjk:confirm!",
-  ])("still redacts digits in non-decision callback data: %s", async (data) => {
+  ])("stores non-decision callback data from Sid's own tap as it arrived: %s", async (data) => {
+    // A tap on Sid's own chat is Sid's data; his digits are not hidden from him.
     await handleTelegramWebhook(requestFor(tapUpdate(91, data)), deps);
 
     const payload = events.events[0]?.envelope.payload as Record<string, unknown>;
-    expect(payload.data).toContain("[REDACTED_AUTH_DIGITS]");
-    expect(payload.data).not.toContain("123456");
+    expect(payload.data).toBe(data);
+    expect(payload.data).not.toContain("[REDACTED_");
   });
 
   it("refuses to record a tap the redactor will not issue a token for", async () => {

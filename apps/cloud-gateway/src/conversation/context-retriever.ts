@@ -1,3 +1,4 @@
+import type { RedactionAudience } from "../../../../packages/contracts/src/calls.js";
 import {
   canonicalJson,
   sha256Hex,
@@ -43,7 +44,10 @@ const MAX_FTS_TERM_BYTES = 128;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const FACT_ID = /^fact_[a-f0-9]{32}$/u;
 const encoder = new TextEncoder();
+// Stored conversation text is a fixed point of the owner redactor; this checks
+// that invariant on read. It is not what a guest-session model is shown.
 const redactor = new Redactor();
+const externalRedactor = new Redactor("external");
 
 interface StoredHistoryRow {
   readonly sequence: number;
@@ -247,7 +251,11 @@ function literalFtsQuery(query: string): string | null {
   return terms.length === 0 ? null : terms.join(" OR ");
 }
 
-async function factCandidate(row: StoredFactRow, principalId: string): Promise<FactCandidate> {
+async function factCandidate(
+  row: StoredFactRow,
+  principalId: string,
+  present: (text: string) => string,
+): Promise<FactCandidate> {
   let parsedFact: unknown;
   let parsedSources: unknown;
   try {
@@ -313,12 +321,13 @@ async function factCandidate(row: StoredFactRow, principalId: string): Promise<F
   if (fact.contentHash !== expectedHash || fact.factId !== `fact_${expectedHash.slice(0, 32)}`) {
     throw new TypeError("context_fact_invalid");
   }
+  const shown = present(text);
   return Object.freeze({
     factId: fact.factId,
-    bytes: encoder.encode(text).byteLength,
+    bytes: encoder.encode(shown).byteLength,
     item: Object.freeze({
       sourceEventId: row.primary_event_id as Ulid,
-      text,
+      text: shown,
       sensitivity: row.any_sensitive === 1 ? "restricted" as const : "personal" as const,
     }),
   });
@@ -360,9 +369,27 @@ function historyText(payload: unknown, eventType: string): string {
   return text;
 }
 
-/** Reads published projected facts and recent authenticated-principal history from D1. */
+/**
+ * Reads published projected facts and recent authenticated-principal history from D1.
+ *
+ * `audience` is who the model is answering. For Sid (`owner`) the context is
+ * his stored data as it is. For anyone else (`external`, a guest call) every
+ * item passes through the external redactor first, so a guest session's model
+ * never reads Sid's codes, PINs, passphrases or phone numbers.
+ */
 export class D1ContextRetriever implements ContextRetriever {
-  constructor(private readonly database: D1Database) {}
+  private readonly present: (text: string) => string;
+
+  constructor(private readonly database: D1Database, audience: RedactionAudience = "owner") {
+    if (audience !== "owner" && audience !== "external") throw new TypeError("context_audience_invalid");
+    this.present = audience === "owner"
+      ? (text) => text
+      : (text) => {
+        const shown = externalRedactor.redactText(text);
+        if (!shown.ok) throw new TypeError("context_redaction_failed");
+        return shown.text;
+      };
+  }
 
   async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
     const captured = captureInput(input);
@@ -468,7 +495,7 @@ export class D1ContextRetriever implements ContextRetriever {
         if (decodedFactBytes > MAX_DECODED_FACT_BYTES) {
           throw new RangeError("context_fact_budget_exceeded");
         }
-        candidates.push(await factCandidate(row, captured.principalId));
+        candidates.push(await factCandidate(row, captured.principalId, this.present));
       }
       const factByteBudget = Math.floor(captured.maxTokens / 2);
       for (const candidate of candidates) {
@@ -501,7 +528,7 @@ export class D1ContextRetriever implements ContextRetriever {
         || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
         throw new TypeError("context_envelope_invalid");
       }
-      const text = historyText(envelope.payload, row.event_type);
+      const text = this.present(historyText(envelope.payload, row.event_type));
       const textBytes = encoder.encode(text).byteLength;
       if (selectedFacts.length + selectedNewestFirst.length >= MAX_RETURNED_ITEMS) break;
       // History is a newest-first timeline. Reaching past a turn that does not

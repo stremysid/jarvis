@@ -9,6 +9,7 @@ import { EventRepository } from "../../src/persistence/event-repository.js";
 import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider.js";
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { voiceSessionAudience } from "../../src/voice/production-runtime.js";
 import {
   applyCloudMemoryMigration,
   applyFoundationMigration,
@@ -16,15 +17,15 @@ import {
 } from "../persistence/migration.js";
 
 /*
- * The four-digit PIN, driven through the one function every owner turn passes:
+ * A four-digit PIN, driven through the one function every turn passes:
  * `DefaultConversationService.handleTurn`, against real D1.
  *
- * The earlier test for this rule called the redactor directly with
- * `field: "guest.pin"`, a string no production call site passes, so it could not
- * fail the way production failed. Here the PIN arrives the way it would -- inside
- * a sentence Sid sends or says -- and what is checked is what leaves the turn:
- * the text handed to the model, the durable event rows the archive copies, and
- * what is sent back.
+ * Who is on the other end decides what happens to it. Sid, 2026-09-24:
+ * "there should be nothing between Jarvis and I interms of what he knows and
+ * I know". So on Sid's own Telegram chat and his own call the PIN reaches the
+ * model, the event log and the reply exactly as he said it. On a guest call
+ * (the `external` reader, which is how `production-runtime.ts` composes a
+ * guest session) it reaches none of them.
  *
  * The PIN below is synthetic.
  */
@@ -74,7 +75,7 @@ async function storedEnvelopes(): Promise<readonly string[]> {
   return rows.results.map((row) => row.envelope_json);
 }
 
-function service(seen: string[], telegram: FakeTelegramProvider): DefaultConversationService {
+function service(seen: string[], telegram: FakeTelegramProvider, redactor: Redactor): DefaultConversationService {
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB));
   return new DefaultConversationService({
     repository,
@@ -87,12 +88,34 @@ function service(seen: string[], telegram: FakeTelegramProvider): DefaultConvers
       circuitBreaker: new ProviderCircuitBreaker(),
       now: () => new Date(NOW),
     }),
-    redactor: new Redactor(),
+    redactor,
     now: () => new Date(NOW),
   } as never);
 }
 
-describe("a four-digit PIN inside an owner turn", () => {
+async function voiceTurn(redactor: Redactor) {
+  const seen: string[] = [];
+  const spoken: string[] = [];
+  let finished = "";
+  const sessionId = "voice-session-pin";
+  const turnId = newUlid(NOW);
+  const result = await service(seen, new FakeTelegramProvider(), redactor).handleTurn({
+    sessionId,
+    principalId: PRINCIPAL,
+    turnId,
+    text: SENTENCE,
+    signal: new AbortController().signal,
+    ...createVoiceStreamDelivery({
+      sessionId,
+      turnId,
+      sendToken: async (token) => { spoken.push(token.text); },
+      finish: async (finalText) => { finished = finalText; },
+    }),
+  });
+  return { result, seen, spoken: spoken.join(""), finished };
+}
+
+describe("a four-digit PIN inside a turn", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await applyCloudMemoryMigration();
@@ -102,11 +125,11 @@ describe("a four-digit PIN inside an owner turn", () => {
 
   afterEach(clearData);
 
-  it("never reaches the model, the event log or the reply on Telegram, and the year beside it survives", async () => {
+  it("reaches the model, the event log and the reply on Sid's own Telegram chat exactly as he wrote it", async () => {
     const seen: string[] = [];
     const telegram = new FakeTelegramProvider();
 
-    const result = await service(seen, telegram).handleTurn({
+    const result = await service(seen, telegram, new Redactor()).handleTurn({
       sessionId: "telegram:44112233",
       principalId: PRINCIPAL,
       turnId: newUlid(NOW),
@@ -119,34 +142,27 @@ describe("a four-digit PIN inside an owner turn", () => {
     });
 
     expect(result.outcome).toBe("telegram_delivered");
-    expect(seen).toEqual([REDACTED_SENTENCE]);
+    expect(seen).toEqual([SENTENCE]);
     const envelopes = await storedEnvelopes();
-    expect(envelopes.length).toBeGreaterThan(0);
-    for (const envelope of envelopes) expect(envelope).not.toContain(PIN);
-    expect(envelopes.some((envelope) => envelope.includes(REDACTED_SENTENCE))).toBe(true);
-    expect(telegram.requests.map((request) => request.text)).toEqual(["Noted: your PIN is [REDACTED_AUTH_DIGITS]."]);
+    expect(envelopes.some((envelope) => envelope.includes(SENTENCE))).toBe(true);
+    for (const envelope of envelopes) expect(envelope).not.toContain("[REDACTED_");
+    expect(telegram.requests.map((request) => request.text)).toEqual([`Noted: your PIN is ${PIN}.`]);
   });
 
-  it("never reaches the model, the event log or the spoken reply on a call, and the year beside it survives", async () => {
-    const seen: string[] = [];
-    const spoken: string[] = [];
-    let finished = "";
-    const sessionId = "voice-session-pin";
-    const turnId = newUlid(NOW);
+  it("reaches the model, the event log and the spoken reply on Sid's own call exactly as he said it", async () => {
+    const { result, seen, spoken, finished } = await voiceTurn(new Redactor());
 
-    const result = await service(seen, new FakeTelegramProvider()).handleTurn({
-      sessionId,
-      principalId: PRINCIPAL,
-      turnId,
-      text: SENTENCE,
-      signal: new AbortController().signal,
-      ...createVoiceStreamDelivery({
-        sessionId,
-        turnId,
-        sendToken: async (token) => { spoken.push(token.text); },
-        finish: async (finalText) => { finished = finalText; },
-      }),
-    });
+    expect(result.outcome).toBe("voice_sent");
+    expect(seen).toEqual([SENTENCE]);
+    const envelopes = await storedEnvelopes();
+    expect(envelopes.some((envelope) => envelope.includes(SENTENCE))).toBe(true);
+    for (const envelope of envelopes) expect(envelope).not.toContain("[REDACTED_");
+    expect(spoken).toBe(`Noted: your PIN is ${PIN}.`);
+    expect(finished).toBe(`Noted: your PIN is ${PIN}.`);
+  });
+
+  it("never reaches the model, the event log or the spoken reply on a guest call, and the year beside it survives", async () => {
+    const { result, seen, spoken, finished } = await voiceTurn(new Redactor("external"));
 
     expect(result.outcome).toBe("voice_sent");
     expect(seen).toEqual([REDACTED_SENTENCE]);
@@ -154,7 +170,16 @@ describe("a four-digit PIN inside an owner turn", () => {
     expect(envelopes.length).toBeGreaterThan(0);
     for (const envelope of envelopes) expect(envelope).not.toContain(PIN);
     expect(envelopes.some((envelope) => envelope.includes(REDACTED_SENTENCE))).toBe(true);
-    expect(spoken.join("")).not.toContain(PIN);
+    expect(spoken).not.toContain(PIN);
     expect(finished).toBe("Noted: your PIN is [REDACTED_AUTH_DIGITS].");
+  });
+});
+
+describe("which reader a call session composes", () => {
+  it("is Sid only for an owner session, and the external reader for a guest session or anything unrecognized", () => {
+    expect(voiceSessionAudience({ accessKind: "owner" })).toBe("owner");
+    expect(voiceSessionAudience({ accessKind: "guest" })).toBe("external");
+    expect(voiceSessionAudience({ accessKind: "Owner" })).toBe("external");
+    expect(voiceSessionAudience({ accessKind: undefined })).toBe("external");
   });
 });

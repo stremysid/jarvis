@@ -1307,8 +1307,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
-    // Model arguments are separate from the redacted user text. Even a grounded
-    // excerpt must not let an inferred fact reintroduce raw credentials.
+    // Sid's codes, PINs, numbers and passphrases are his to remember, so the
+    // owner audience leaves them alone. What it still refuses is a machine
+    // credential (an API key, bot token or bearer header): stored memory is a
+    // fixed point of the owner redactor, and those never reach a reply.
     const checkedFact = sanitizeRedaction(fact);
     if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);

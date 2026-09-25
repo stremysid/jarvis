@@ -1,5 +1,6 @@
 import {
   sanitizeRedaction,
+  type RedactionAudience,
   type RedactionMarker,
   type RedactionResult,
   type Redactor as RedactorContract,
@@ -37,17 +38,35 @@ function structuralUlidField(field: string): boolean {
   return normalized === "id" || normalized.endsWith("_id") || normalized.endsWith("_ids");
 }
 
-/** Removes values that must never cross the ingress logging or event boundary. */
+/**
+ * Removes what the reader must not receive. The default reader is Sid, who
+ * sees his own data as it is; construct `new Redactor("external")` for a
+ * surface whose reader is anyone else (a guest caller, an audit or telemetry
+ * record). See `RedactionAudience` in the contracts package.
+ *
+ * The field-name markers apply to both audiences. They name provider payload
+ * fields, not Sid's words: `authorization`/`token`-style fields are machine
+ * credentials, and a voice `digits`/`pin` field is the keypad entry that
+ * verifies the caller -- authentication input, which stays out of storage.
+ */
 export class Redactor implements RedactorContract {
+  private readonly audience: RedactionAudience;
+
+  constructor(audience: RedactionAudience = "owner") {
+    if (audience !== "owner" && audience !== "external") throw new TypeError("redaction_audience_invalid");
+    this.audience = audience;
+  }
+
   redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult {
     return sanitizeRedaction(
       input.text,
       fieldMarker(input.channel, input.field),
       structuralUlidField(input.field),
+      this.audience,
     );
   }
 
   redactText(text: string): RedactionResult {
-    return sanitizeRedaction(text);
+    return sanitizeRedaction(text, undefined, false, this.audience);
   }
 }

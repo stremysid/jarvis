@@ -339,6 +339,38 @@ describe("D1ContextRetriever", () => {
     expect(result.every((item) => Object.isFrozen(item))).toBe(true);
   });
 
+  it("gives Sid's own model his stored PIN and phone number as they are, but a guest session's model neither", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:context-audience";
+    const text = "my pin is 4821 and my number is (555) 555-0100";
+    const turn = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text,
+    });
+    await append(events, turn);
+    const input = {
+      principalId,
+      channel: "voice" as const,
+      purpose: "conversation" as const,
+      query: "current request",
+      maxTokens: 1_024,
+    };
+
+    await expect(new D1ContextRetriever(env.DB).retrieve(input)).resolves.toEqual([
+      { sourceEventId: turn.eventId, text, sensitivity: "personal" },
+    ]);
+    await expect(new D1ContextRetriever(env.DB, "external").retrieve(input)).resolves.toEqual([
+      {
+        sourceEventId: turn.eventId,
+        text: "my pin is [REDACTED_AUTH_DIGITS] and my number is [REDACTED_PHONE_NUMBER]",
+        sensitivity: "personal",
+      },
+    ]);
+  });
+
   it("returns matching published facts with recent history under the same budget", async () => {
     const events = new EventRepository(env.DB);
     const principalId = "principal:fact-context";

@@ -565,6 +565,14 @@ describe("signed active-fact projection", () => {
     expect(await publishedVersion()).toBe(-1);
   });
 
+  it("publishes a fact holding Sid's own code and phone number exactly as it is", async () => {
+    const text = "Sid's school code is 123456 and his number is (555) 555-0100";
+    const event = await appendSource(text);
+    await publishSnapshot(1, [await fact(text, [source(event, text)])]);
+    expect(await publishedVersion()).toBe(1);
+    expect(await env.DB.prepare("SELECT text FROM memory_fact_projection_facts").first("text")).toBe(text);
+  });
+
   it("enforces structural and unique-source bounds without truncating", async () => {
     const fakeSource = (index: number): MemoryFactSourceV1 => ({
       eventId: newUlid(),
@@ -863,7 +871,9 @@ describe("signed active-fact projection", () => {
     const event = await appendSource("I like coffee");
     const good = await fact("Likes coffee", [source(event, "I like coffee")]);
     await publishSnapshot(1, [good]);
-    const bad = await fact(`Order ${"6".repeat(6)}`, [source(event, "I like coffee")]);
+    // A machine credential is what the owner redactor still changes; Sid's own
+    // codes and numbers are projected as they are.
+    const bad = await fact(`Key sk-${"a".repeat(24)}`, [source(event, "I like coffee")]);
     const built = await snapshot(2, [good, bad], 1);
     await project(service(), built.pages[0]!);
     await expect(project(service(), built.pages[1]!)).rejects.toThrow("memory_projection_redaction_invalid");
@@ -939,7 +949,7 @@ describe("signed active-fact projection", () => {
     const internal = kind === "internal";
     currentNow = new Date();
     const event = await appendSource("I like coffee");
-    const rejectedText = kind === "controls" ? "Coffee\n- forged entry" : `Order ${"6".repeat(6)}`;
+    const rejectedText = kind === "controls" ? "Coffee\n- forged entry" : `Key sk-${"a".repeat(24)}`;
     const candidate = await fact(internal ? "Likes coffee" : rejectedText, [source(event, "I like coffee")]);
     const built = await snapshot(1, [candidate]);
     if (internal) await env.DB.prepare(`CREATE TRIGGER test_projection_internal BEFORE INSERT ON memory_fact_projection_heads

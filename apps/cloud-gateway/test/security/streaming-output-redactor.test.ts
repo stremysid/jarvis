@@ -5,6 +5,10 @@ import { Redactor } from "../../src/security/redaction.js";
 import { StreamingOutputRedactor } from "../../src/security/streaming-output-redactor.js";
 import gaps from "../../../../tests/fixtures/redaction-gaps.json";
 
+// The streaming mechanism's safety tests use the strictest reader, someone who
+// is not Sid, because that is where a leaked prefix would matter most.
+const external = () => new Redactor("external");
+
 function token(index: number, text: string): ModelToken {
   return { index, text };
 }
@@ -14,7 +18,7 @@ function occurrences(value: string, needle: string): number {
 }
 
 function runSplit(raw: string, split: number) {
-  const redactor = new StreamingOutputRedactor(new Redactor());
+  const redactor = new StreamingOutputRedactor(external());
   const emitted: ModelToken[] = [];
   let index = 0;
   const left = raw.slice(0, split);
@@ -36,11 +40,11 @@ describe("voice sentence release after unsplit redaction", () => {
     ["A safe sentence. Authorization: Digest a1b2c3. d4e5f6g7h8\nContinue safely.", "d4e5f6g7h8"],
     ["Key: -----BEGIN PRIVATE KEY-----\nalpha. bravo charlie\n-----END PRIVATE KEY----- is private.", "bravo charlie"],
   ])("keeps every spoken prefix of %s equal to a prefix of its whole redaction", (raw, secret) => {
-    const canonical = new Redactor().redactText(raw);
+    const canonical = external().redactText(raw);
     expect(canonical.ok).toBe(true);
     if (!canonical.ok) throw new Error("synthetic_redaction_failed");
     for (let split = 1; split < raw.length; split += 1) {
-      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+      const redactor = new StreamingOutputRedactor(external(), undefined, true);
       let heard = "";
       for (const [index, text] of [raw.slice(0, split), raw.slice(split)].entries()) {
         heard += redactor.push(token(index, text)).map((part) => part.text).join("");
@@ -51,7 +55,7 @@ describe("voice sentence release after unsplit redaction", () => {
       heard += redactor.drain().map((part) => part.text).join("");
       expect(heard).toBe(canonical.text);
     }
-    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    const redactor = new StreamingOutputRedactor(external(), undefined, true);
     let heard = "";
     for (const [index, character] of [...raw].entries()) {
       heard += redactor.push(token(index, character)).map((part) => part.text).join("");
@@ -63,7 +67,7 @@ describe("voice sentence release after unsplit redaction", () => {
   });
 
   it("releases a stable sentence with its natural whitespace before EOF", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    const redactor = new StreamingOutputRedactor(external(), undefined, true);
     expect(redactor.push(token(0, "A sentence."))).toEqual([]);
     expect(redactor.push(token(1, " Next"))).toEqual([{ index: 0, text: "A sentence. " }]);
     expect(redactor.complete().text).toBe("A sentence. Next");
@@ -72,7 +76,7 @@ describe("voice sentence release after unsplit redaction", () => {
 
   it("rejects a changed redacted prefix before releasing any additional text", () => {
     let calls = 0;
-    const canonical = new Redactor();
+    const canonical = external();
     const redactor = new StreamingOutputRedactor({
       ...canonical,
       redact: (input) => canonical.redact(input),
@@ -83,19 +87,26 @@ describe("voice sentence release after unsplit redaction", () => {
   });
 
   it("preserves an EOF suffix containing only whitespace in sentence mode", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor(), undefined, true);
+    const redactor = new StreamingOutputRedactor(external(), undefined, true);
     expect(redactor.push(token(0, " "))).toEqual([]);
     expect(redactor.complete().text).toBe(" ");
     expect(redactor.drain()).toEqual([{ index: 0, text: " " }]);
   });
 });
 
-describe.each([false, true])("redaction gaps with sentence release %s", (sentences) => {
-  it.each(gaps)("$name at every split and character by character", ({ text, expected }) => {
+// Each gap case streams to both readers: Sid (`owner`) hears his own data as
+// it is, and anyone else (`external`) hears the full redaction.
+describe.each([
+  ["Sid", "owner", false], ["Sid", "owner", true],
+  ["someone else", "external", false], ["someone else", "external", true],
+] as const)("redaction gaps streamed to %s (%s) with sentence release %s", (_reader, audience, sentences) => {
+  it.each(gaps)("$name at every split and character by character", (item) => {
+    const { text } = item;
+    const expected = item[audience];
     const partitions = [Array.from(text), ...Array.from({ length: text.length + 1 }, (_, split) =>
       [text.slice(0, split), text.slice(split)].filter(Boolean))];
     for (const chunks of partitions) {
-      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, sentences);
+      const redactor = new StreamingOutputRedactor(new Redactor(audience), undefined, sentences);
       let emitted = "";
       for (const [index, part] of chunks.entries()) {
         emitted += redactor.push(token(index, part)).map((item) => item.text).join("");
@@ -108,9 +119,25 @@ describe.each([false, true])("redaction gaps with sentence release %s", (sentenc
   });
 });
 
+describe("a reply to Sid", () => {
+  it.each([false, true])("carries an eight-digit Gmail confirmation code to Sid intact with sentence release %s", (sentences) => {
+    const reply = "Your Gmail confirmation code is 99427480. It expires soon.";
+    for (let split = 1; split < reply.length; split += 1) {
+      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, sentences);
+      let sent = "";
+      for (const [index, part] of [reply.slice(0, split), reply.slice(split)].entries()) {
+        sent += redactor.push(token(index, part)).map((item) => item.text).join("");
+      }
+      expect(redactor.complete().text).toBe(reply);
+      sent += redactor.drain().map((item) => item.text).join("");
+      expect(sent).toBe(reply);
+    }
+  });
+});
+
 describe("StreamingOutputRedactor cross-token safety", () => {
   it("holds a bearer label and its following value line until they can be redacted together", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
     expect(redactor.push(token(0, "Safe line.\n"))).toEqual([{ index: 0, text: "Safe line.\n" }]);
     expect(redactor.push(token(1, "Authorization: Bearer\n"))).toEqual([]);
     expect(redactor.push(token(2, "synthetic-bearer-fixture\nNext."))).toEqual([]);
@@ -194,7 +221,7 @@ describe("StreamingOutputRedactor cross-token safety", () => {
   }
 
   it("releases a confirmed complete safe line before provider completion", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
 
     const immediate = redactor.push(token(0, "safe line\n"));
 
@@ -210,7 +237,7 @@ describe("StreamingOutputRedactor cross-token safety", () => {
     ["quoted assignment", "password=\"raw-open-value", "[REDACTED_CREDENTIAL]", "raw-open-value"],
     ["private-key block", "-----BEGIN PRIVATE KEY-----\nraw-open-value", "[REDACTED_CREDENTIAL]", "raw-open-value"],
   ])("suppresses an open %s until EOF", (_name, raw, marker, secret) => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
 
     expect(redactor.push(token(0, raw))).toEqual([]);
     const final = redactor.complete();
@@ -223,7 +250,7 @@ describe("StreamingOutputRedactor cross-token safety", () => {
   });
 
   it("normalizes across provider-token boundaries and issues exactly what was emitted", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
     const emitted = [
       ...redactor.push(token(0, "caf")),
       ...redactor.push(token(1, "e")),
@@ -249,7 +276,7 @@ describe("StreamingOutputRedactor state and capture boundary", () => {
         return "raw secret";
       },
     });
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
 
     expect(() => redactor.push(accessor as ModelToken))
       .toThrow(expect.objectContaining({ code: "stream_redaction_input_invalid" }));
@@ -257,17 +284,17 @@ describe("StreamingOutputRedactor state and capture boundary", () => {
   });
 
   it("rejects an index gap and extra token fields before forwarding data", () => {
-    const gap = new StreamingOutputRedactor(new Redactor());
+    const gap = new StreamingOutputRedactor(external());
     expect(() => gap.push(token(1, "safe")))
       .toThrow(expect.objectContaining({ code: "stream_redaction_input_invalid" }));
 
-    const extra = new StreamingOutputRedactor(new Redactor());
+    const extra = new StreamingOutputRedactor(external());
     expect(() => extra.push({ index: 0, text: "safe", raw: "secret" } as ModelToken))
       .toThrow(expect.objectContaining({ code: "stream_redaction_input_invalid" }));
   });
 
   it("clears an ambiguous open value on cancel and permits no later flush", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
     expect(redactor.push(token(0, "Authorization: Bearer never-forward-this"))).toEqual([]);
 
     expect(redactor.cancel()).toBeUndefined();
@@ -280,7 +307,7 @@ describe("StreamingOutputRedactor state and capture boundary", () => {
   });
 
   it("makes EOF drain one-shot and returns frozen snapshots", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
     expect(redactor.push(token(0, "last line"))).toEqual([]);
     redactor.complete();
 
@@ -309,7 +336,7 @@ describe("StreamingOutputRedactor state and capture boundary", () => {
 
 describe("StreamingOutputRedactor independent bounds", () => {
   it("aborts raw scalar overflow before the additional token can be forwarded", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor(), {
+    const redactor = new StreamingOutputRedactor(external(), {
       maxRawCharacters: 4,
       maxSanitizedCharacters: 64,
     });
@@ -322,14 +349,14 @@ describe("StreamingOutputRedactor independent bounds", () => {
   });
 
   it("enforces the independent 64 KiB raw UTF-8 ceiling", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
 
     expect(() => redactor.push(token(0, "😀".repeat(16_385))))
       .toThrow(expect.objectContaining({ code: "stream_redaction_raw_limit" }));
   });
 
   it("aborts sanitized scalar overflow before redacted text is returned", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor(), {
+    const redactor = new StreamingOutputRedactor(external(), {
       maxRawCharacters: 64,
       maxSanitizedCharacters: 5,
     });
@@ -339,7 +366,7 @@ describe("StreamingOutputRedactor independent bounds", () => {
   });
 
   it("enforces the independent 64 KiB sanitized UTF-8 ceiling", () => {
-    const redactor = new StreamingOutputRedactor(new Redactor());
+    const redactor = new StreamingOutputRedactor(external());
     const expanding = `${"123456 ".repeat(3_000)}\n`;
 
     expect(() => redactor.push(token(0, expanding)))

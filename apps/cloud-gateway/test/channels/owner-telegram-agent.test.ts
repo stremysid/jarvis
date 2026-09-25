@@ -894,15 +894,17 @@ describe("owner Telegram agent", () => {
   });
 
   it.each([
-    ["raw excerpt", "my code is 12"],
-    ["redacted excerpt", "my code is [REDACTED_AUTH_DIGITS]"],
-  ])("refuses raw credential memory arguments from a direct turn with a %s without storing a memory", async (
+    ["raw excerpt", "my key is sk-aaaaaaaaaaaaaaaaaaaaaaaa"],
+    ["redacted excerpt", "my key is [REDACTED_CREDENTIAL]"],
+  ])("refuses a machine credential in memory arguments from a direct turn with a %s without storing a memory", async (
     label, supportingExcerpt,
   ) => {
+    // An API key is the shape of Jarvis's own infrastructure secrets, the one
+    // thing the owner redactor still keeps out of stored memory and replies.
     const harness = await ownerHarness(`direct-credential-${label.replaceAll(" ", "-")}`);
     const provider = new FakeAgentProvider([
       called(tool("credential-refused", "memory_remember", {
-        fact: "my code is 12",
+        fact: "my key is sk-aaaaaaaaaaaaaaaaaaaaaaaa",
         supportingExcerpt,
         evidenceClass: "stated",
         previousOfferExcerpt: null,
@@ -912,9 +914,11 @@ describe("owner Telegram agent", () => {
       stopped("Nothing changed."),
     ]);
 
-    const reply = await runTurn({ harness, text: "remember my code is 12", provider, directOwnerText: true });
+    const reply = await runTurn({
+      harness, text: "remember my key is sk-aaaaaaaaaaaaaaaaaaaaaaaa", provider, directOwnerText: true,
+    });
 
-    expect(provider.requests[0]?.userText).toBe("remember my code is [REDACTED_AUTH_DIGITS]");
+    expect(provider.requests[0]?.userText).toBe("remember my key is [REDACTED_CREDENTIAL]");
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "refused",
       receiptId: null,
@@ -924,11 +928,11 @@ describe("owner Telegram agent", () => {
     expect(reply).toBe("Nothing changed.");
   });
 
-  it("stores only the redacted fact and names that exact fact in a direct turn's receipt", async () => {
-    const harness = await ownerHarness("direct-redacted-credential");
-    const fact = "my code is [REDACTED_AUTH_DIGITS]";
+  it("remembers Sid's own code exactly as he said it and names that exact fact in a direct turn's receipt", async () => {
+    const harness = await ownerHarness("direct-owner-code");
+    const fact = "my code is 12";
     const provider = new FakeAgentProvider([
-      called(tool("redacted-remember", "memory_remember", {
+      called(tool("owner-code-remember", "memory_remember", {
         fact,
         supportingExcerpt: fact,
         evidenceClass: "stated",
@@ -941,11 +945,11 @@ describe("owner Telegram agent", () => {
 
     const reply = await runTurn({ harness, text: "remember my code is 12", provider, directOwnerText: true });
 
-    expect(provider.requests[0]?.userText).toBe("remember my code is [REDACTED_AUTH_DIGITS]");
+    expect(provider.requests[0]?.userText).toBe("remember my code is 12");
     const receipt = `Remembered 1 memory. You can ask in ordinary language to forget it. Memory: ${JSON.stringify(fact)}`;
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",
-      receiptId: "receipt:redacted-remember",
+      receiptId: "receipt:owner-code-remember",
       receipt,
     });
     expect(reply).toBe(receipt);
@@ -954,12 +958,12 @@ describe("owner Telegram agent", () => {
     expect(rows[0]).toMatchObject({ text: fact, excerpt: fact, basis: "stated", lifecycle_state: "active" });
   });
 
-  it("refuses a direct turn whose redacted text differs from the accepted authority text", async () => {
+  it("refuses a direct turn whose text differs from the accepted authority text", async () => {
     const harness = await ownerHarness("different-redacted-authority");
     const provider = new FakeAgentProvider([
       called(tool("different-authority", "memory_remember", {
-        fact: "my code is [REDACTED_AUTH_DIGITS]",
-        supportingExcerpt: "my code is [REDACTED_AUTH_DIGITS]",
+        fact: "my code is 12",
+        supportingExcerpt: "my code is 12",
         evidenceClass: "stated",
         previousOfferExcerpt: null,
         kind: "fact",

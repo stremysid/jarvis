@@ -11,8 +11,11 @@ import {
 } from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
-function redacted(text: string) {
-  const result = new Redactor().redactText(text);
+// The default reader is Sid; `external` is anyone else (a guest caller, an
+// audit record). The envelope mechanism is audience-blind: it persists exactly
+// the issued token it is handed.
+function redacted(text: string, audience: "owner" | "external" = "owner") {
+  const result = new Redactor(audience).redactText(text);
   if (!result.ok) throw new Error("test redaction failed");
   return result;
 }
@@ -45,8 +48,20 @@ describe("event envelopes", () => {
     await expect(validateEnvelope(envelope)).resolves.toEqual(envelope);
   });
 
-  it("constructs persisted text from the exact successful redaction result", async () => {
+  it("persists Sid's own sign-in code exactly as it arrived", async () => {
     const result = redacted("Your sign-in code is 123456.");
+
+    const envelope = await createEnvelope({
+      ...input,
+      payload: { text: result, safeField: result },
+    } as never);
+
+    expect(envelope.payload).toEqual({ text: "Your sign-in code is 123456.", safeField: "Your sign-in code is 123456." });
+    expect(envelope.redaction).toEqual({ status: "none", markers: [] });
+  });
+
+  it("constructs persisted text from the exact successful redaction result for someone who is not Sid", async () => {
+    const result = redacted("Your sign-in code is 123456.", "external");
 
     const envelope = await createEnvelope({
       ...input,
@@ -73,8 +88,13 @@ describe("event envelopes", () => {
     expect(envelope.redaction).toEqual({ status: "none", markers: [] });
   });
 
-  it("redacts six authentication digits when a canonical ULID is only part of the text", () => {
-    const result = redacted("Reference 01abcde123456fghjkmnpqrstv is not a structural field.");
+  it("leaves a ULID inside Sid's own text alone", () => {
+    expect(redacted("Reference 01abcde123456fghjkmnpqrstv is ordinary text.").text)
+      .toBe("Reference 01abcde123456fghjkmnpqrstv is ordinary text.");
+  });
+
+  it("redacts six authentication digits for someone who is not Sid when a canonical ULID is only part of the text", () => {
+    const result = redacted("Reference 01abcde123456fghjkmnpqrstv is not a structural field.", "external");
 
     expect(result.text).toBe(
       "Reference 01abcde[REDACTED_AUTH_DIGITS]fghjkmnpqrstv is not a structural field.",
@@ -82,8 +102,8 @@ describe("event envelopes", () => {
     expect(result.markers).toContain("authentication_digits");
   });
 
-  it("redacts six authentication digits when the whole text looks like a canonical ULID", () => {
-    const result = redacted("01abcde123456fghjkmnpqrstv");
+  it("redacts six authentication digits for someone who is not Sid when the whole text looks like a canonical ULID", () => {
+    const result = redacted("01abcde123456fghjkmnpqrstv", "external");
 
     expect(result.text).toBe("01abcde[REDACTED_AUTH_DIGITS]fghjkmnpqrstv");
     expect(result.markers).toContain("authentication_digits");
@@ -147,7 +167,7 @@ describe("event envelopes", () => {
 
   it("materializes a nested payload from multiple issued redactions and combines markers", async () => {
     const plain = redacted("plain text");
-    const secret = redacted("Code 123456");
+    const secret = redacted("Code 123456", "external");
     const envelope = await createEnvelope({
       ...input,
       payload: { title: plain, nested: [secret, { alternate: plain }] },
@@ -162,7 +182,7 @@ describe("event envelopes", () => {
   });
 
   it("does not retain whitespace-separated API-key credentials in materialized payloads", async () => {
-    const credential = redacted("api key = whitespace-secret");
+    const credential = redacted("api key = whitespace-secret", "external");
     const envelope = await createEnvelope({ ...input, payload: { credential } } as never);
 
     expect(envelope.payload).toEqual({ credential: "[REDACTED_CREDENTIAL]" });
@@ -176,7 +196,7 @@ describe("event envelopes", () => {
       ...input,
       payload: {
         bearer: redacted(bearer),
-        pin: redacted("PIN 12345678"),
+        pin: redacted("PIN 12345678", "external"),
         privateKey: redacted(privateKey),
       },
     } as never);

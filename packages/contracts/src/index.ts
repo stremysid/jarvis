@@ -35,6 +35,7 @@ export type {
   ExpectedOutboundCall,
   FailedRedaction,
   OutboundCallCommand,
+  RedactionAudience,
   RedactionResult,
   Redactor,
   RelayBinding,

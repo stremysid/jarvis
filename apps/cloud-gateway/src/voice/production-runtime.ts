@@ -1,3 +1,4 @@
+import type { RedactionAudience } from "../../../../packages/contracts/src/calls.js";
 import { D1ContextRetriever } from "../conversation/context-retriever.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
@@ -57,6 +58,17 @@ export function readVoiceRuntimeConfiguration(env: Env) {
     challengeKeyVersion: configured(env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION, /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/u),
     ownerPassphrasePepper: decodeCanonicalBase64(env.OWNER_PASSPHRASE_PEPPER_V1, 32, "voice_runtime_configuration_invalid"),
   });
+}
+
+/**
+ * Who hears a call, for redaction. `accessKind` is the session's authority kind
+ * (the authority service refuses a persisted kind that differs from it), so an
+ * owner session is Sid and hears his own data as it is. Every other session --
+ * a guest, or anything unrecognized -- keeps the full redaction on what it
+ * says, what it stores and the context its model reads, exactly as before.
+ */
+export function voiceSessionAudience(binding: Readonly<{ accessKind: unknown }>): RedactionAudience {
+  return binding.accessKind === "owner" ? "owner" : "external";
 }
 
 /**
@@ -165,12 +177,13 @@ export function createProductionCallSessionCore(
     ),
     now,
   });
+  const audience = voiceSessionAudience(input.initialization.binding);
   const conversation = new DefaultConversationService({
     repository: conversations,
     model: agent,
-    context: new D1ContextRetriever(env.DB),
+    context: new D1ContextRetriever(env.DB, audience),
     dispatcher,
-    redactor: new Redactor(),
+    redactor: new Redactor(audience),
     now,
   });
   return new CallSessionCore({
