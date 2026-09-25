@@ -80,11 +80,15 @@ class ScriptedModel implements ModelAgentProvider, ModelAgentStreamProvider {
   constructor(private readonly next: (index: number) => ModelAgentCompletion) {}
 
   async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
+    // Every request is checked the way the real provider checks it, so each
+    // chain test proves its history would be accepted on the wire.
+    assertAgentToolHistory(input);
     this.requests.push(input);
     return this.next(this.requests.length - 1);
   }
 
   async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    assertAgentToolHistory(input);
     this.requests.push(input);
     const completion = this.next(this.requests.length - 1);
     if (completion.content !== null) yield { type: "text", text: completion.content };
@@ -198,6 +202,11 @@ async function seedEmail(ownerPrincipalId: string, body: string): Promise<string
 beforeAll(async () => {
   await applyNewestRuntimeMigration();
   await applyAutonomyToolCapabilitiesMigration();
+  // Since 0051 only Sid's five actions are tier 3, and none of them has a tool
+  // the agent dispatches yet. This file proves a tier-3 action inside a chain is
+  // gated exactly as a lone one is, so it promotes the collector revoke to tier
+  // 3. Its production tier is pinned in five-confirmed-actions.test.ts.
+  await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.collector.revoke'").run();
 }, 120_000);
 
 afterEach(() => { vi.restoreAllMocks(); });
