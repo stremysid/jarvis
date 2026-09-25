@@ -49,6 +49,8 @@ const NOW = new Date("2026-09-24T14:00:00.000Z");
 let serial = 7_300_000;
 /** Every Telegram message the owner turns delivered, newest last. */
 const telegramSent: string[] = [];
+/** What the last call turn spoke, token by token. */
+let callSpoken = "";
 
 interface Owner {
   readonly principalId: string;
@@ -154,8 +156,9 @@ async function callTurn(who: Owner, text: string, reply: string, call?: ModelFun
   });
   const turnId = newUlid();
   const sessionId = `voice:history-search:${turnId}`;
+  callSpoken = "";
   const delivery = createVoiceStreamDelivery({
-    sessionId, turnId, sendToken: async () => {}, finish: async () => {},
+    sessionId, turnId, sendToken: async (token) => { callSpoken += token.text; }, finish: async () => {},
   });
   const result = await service.handleTurn({
     sessionId, principalId: who.principalId, turnId, text, signal: new AbortController().signal, ...delivery,
@@ -375,6 +378,7 @@ describe("history_search through the owner agents", () => {
       who, "what was my gym locker code?", "Your gym locker code is 4417.",
       searchCall("history-code-call", { query: "gym locker code" }),
     ));
+    const spokenOnCall = callSpoken;
     const fromTelegram = toolResult(await telegramTurn(
       who, "what was my gym locker code?", "Your gym locker code is 4417.",
       searchCall("history-code-telegram", { query: "gym locker code" }),
@@ -385,6 +389,7 @@ describe("history_search through the owner agents", () => {
       expect(result.receipt).toContain('Sid said: "My gym locker code is 4417."');
     }
     expect(telegramSent.at(-1)).toContain("Your gym locker code is 4417.");
+    expect(spokenOnCall).toContain("Your gym locker code is 4417.");
   });
 
   it("returns a named failure rather than an empty result when the query has nothing to search for", async () => {
