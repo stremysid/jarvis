@@ -25,6 +25,8 @@ describe("reminder voice parity", () => {
   it("offers the same reminder tools on a call as the shared owner catalogue", async () => {
     const turn = await voiceArgumentTurn("What reminders do I have?", reminderCall("reminder_list"));
     for (const name of ["reminder_schedule", "reminder_list", "reminder_cancel"]) {
+      // Compare against a defined entry: two missing definitions would otherwise match.
+      expect(turn.requests[0]?.tools.map(tool => tool.name)).toContain(name);
       expect(turn.requests[0]?.tools.find(tool => tool.name === name))
         .toEqual(OWNER_TOOL_DEFINITIONS.find(tool => tool.name === name));
     }
