@@ -1364,6 +1364,46 @@ Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
 - **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
 - **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
 
+## 2026-09-24 — Codex builder: #166 and #178 review lows
+
+Signed: Codex GPT-6 Sol, headless cloud builder, codex/deadline-d2l-test-lows
+
+This branch began clean at `origin/main` `f5ba9a8`. Git remained read-only.
+
+- #166 X: added refusal cases for `\v`, `\f`, U+2029 and bare `\r` between
+  `Math quiz` and `English essay due Friday at 3pm`. Each checks
+  `deadline_ambiguous_date` and no stored deadline.
+- #166 Y: added acceptance of `Math Mr O’Brien’s quiz due Friday at 3pm`
+  with Math as course and quiz as title, checking the completed receipt and
+  stored due date.
+- #166 Z: left the `[.!?;]` hard-separator arm unchanged for Sid's decision.
+- #178 L-a: added the exact older-row, route-only clause to the
+  `school_d2l_status` instructions and pinned it in the existing folder-label test.
+- #178 L-c: renamed the route-level projection test and made it assert the
+  exact one-label route shape instead of only the label count.
+
+New and renamed test names:
+
+- `refuses a vertical tab from tying Math quiz to the essay's due phrase`
+- `refuses a form feed from tying Math quiz to the essay's due phrase`
+- `refuses a Unicode paragraph separator from tying Math quiz to the essay's due phrase`
+- `refuses a bare carriage return from tying Math quiz to the essay's due phrase`
+- `accepts an apostrophe-only gap containing a content word between the course and title`
+- `records one route-level projection label when several items cannot be projected`
+
+Harness must run the focused tests first:
+`pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/deadline-review-r7.test.ts apps/cloud-gateway/test/school/collector-compatibility.test.ts`.
+Then run `pnpm test:cloud`, `pnpm --filter @jarvis/cloud-gateway typecheck`,
+and `pnpm --filter @jarvis/cloud-gateway typecheck:tests`; compare test-typecheck
+diagnostics with its existing baseline.
+
+Verified here: `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` and
+`git diff --check` passed. The test TypeScript check still reports 143
+diagnostics, with none naming either changed test file. Vitest, pnpm,
+behavioral results, full-suite results and mutation kills could not be
+verified in this sandbox. No migration, deployment, secret, credential,
+call or live school operation was performed.
+
 ## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
 
 Branch `docs/d2l-api-findings` (PR #161). `origin/main` `f56f279` (#170) merged
