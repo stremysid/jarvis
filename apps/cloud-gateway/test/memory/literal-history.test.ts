@@ -1176,6 +1176,36 @@ describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
     expect(Object.keys(result.hits[0] ?? {})).not.toContain("speaker");
   });
 
+  it("keeps a call reply archived to R2 out of Sid-only results, where SQL cannot see its type", async () => {
+    // Once an event is sealed into R2 and purged from D1, the SQL speaker
+    // filter has no event_type to read, so the decoded-hit filter is the only
+    // thing keeping Jarvis's words out of the owner-only paths.
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      live, time, "The garnet ring is in the drawer.", 1, "conversation.assistant_sent",
+    );
+    const { archive } = await archiveEvent(live, reply);
+    const mine = await appendConversation(live, time, "Where did I put the garnet ring?", 1);
+    const tiered = new TieredEventReader({ live, archive, state: new ArchiveRepository(env.DB) });
+    const literal = service(tiered, time);
+    for (let step = 0; step < 4; step += 1) {
+      const result = await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+      if (result.complete) break;
+    }
+
+    const automatic = await literal.searchLiteral({ principalId: OWNER_ID, query: "garnet" });
+    const sidOnly = await literal.searchHistory({ principalId: OWNER_ID, query: "garnet", speakers: ["user"] });
+    const both = await literal.searchHistory({ principalId: OWNER_ID, query: "garnet" });
+
+    expect(automatic.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(sidOnly.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(both.hits.map((hit) => [hit.eventId, hit.speaker, hit.sourceLocation]).sort()).toEqual([
+      [mine.envelope.eventId, "user", "live"],
+      [reply.envelope.eventId, "assistant", "archived"],
+    ].sort());
+  });
+
   it("filters by speaker when asked for only Sid's words or only Jarvis's", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);

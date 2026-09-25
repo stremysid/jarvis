@@ -1523,7 +1523,10 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       const chunkText = safeText(row.chunk_text, 32_768, "telegram_memory_meaning_history_invalid");
       if (!Number.isSafeInteger(eventSequence) || (eventSequence as number) < 1
         || hit.itemId !== eventId && hit.itemId !== chunkId
-        || row.chunk_content_hash !== hit.contentHash || await sha256Hex(chunkText) !== hit.contentHash
+        // The chunk holds the search form (line breaks as spaces) and the hash of
+        // the ORIGINAL text, so the hash is checked against the event text below,
+        // together with the search form, not against the chunk text here.
+        || row.chunk_content_hash !== hit.contentHash
         || row.source_location !== "live" && row.source_location !== "archived") {
         throw new TypeError("telegram_memory_meaning_history_invalid");
       }

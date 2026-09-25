@@ -1535,9 +1535,13 @@ describe("Telegram meaning recall", () => {
       contentHashText: text,
     });
 
-    const contexts = await retrieve(principalId, "When is the science write-up due?", { hits: [hit] });
+    // No word in this query is in the message, so the literal path cannot
+    // find it and only the meaning-history path can.
+    const contexts = await retrieve(principalId, "science write-up deadline", { hits: [hit] });
 
+    // Through the meaning-history path itself, not any other recall path.
     expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.text).toContain(`History evidence [live D1; event ${event.eventId};`);
     expect(contexts[0]?.text).toContain("The chemistry report:\ndue Thursday");
   });
 
