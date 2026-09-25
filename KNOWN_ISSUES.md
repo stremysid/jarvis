@@ -1,5 +1,50 @@
 # Known issues
 
+## Call transcripts drop "uh" and "um", so a call's scribe `raw` is not verbatim (2026-09-24)
+
+`guided_assignment_save` stores "the owner's current received text verbatim as
+raw" (`GUIDED_ASSIGNMENT_TOOL_DEFINITIONS` in
+`apps/cloud-gateway/src/school/guided-assignment-tools.ts`, as of `a7cd355`). On a
+call that text is the speech-to-text transcript, not Sid's speech. Both call legs
+render `transcriptionProvider="Deepgram"` and `speechModel="nova-3-general"`
+(`renderConversationRelayTwiml` in `apps/cloud-gateway/src/voice/twiml.ts`, as of
+`a7cd355`).
+
+Deepgram's [Filler Words](https://developers.deepgram.com/docs/filler-words) page
+says: "When `filler_words=false` or the parameter is not set, the two most common
+fillers, 'uh' and 'um', are stripped out". It also says filler words are "only
+available for Deepgram's Nova, Nova-2 and Nova-3 general models".
+
+Twilio's [`<ConversationRelay>` attribute table](https://www.twilio.com/docs/voice/twiml/connect/conversationrelay)
+has no attribute that passes `filler_words` or any other raw Deepgram query option
+(page read 2026-09-24). The only Deepgram transcript-format attribute is
+`deepgramSmartFormat`, which applies Smart Format. Neither that page nor the
+[WebSocket messages page](https://www.twilio.com/docs/voice/conversationrelay/websocket-messages)
+mentions filler words. So the gateway cannot turn fillers on, and this change does
+not try to. Twilio does not document which Deepgram parameters it sends, so it is
+**unverified** whether Twilio already sets `filler_words` itself. One live owner call
+that says "um" and then reads back the stored `raw` would settle it.
+
+What this means:
+
+- A **Telegram** answer's `raw` is Sid's exact typed text. A **call** answer's `raw`
+  is Deepgram's transcript without "uh"/"um". Hesitations are lost before any
+  Jarvis code sees them, so the model has nothing to clean. Scribing still works.
+- `deepgramSmartFormat` defaults to `true`, and that page says it converts "dates,
+  times, currency, numbers, addresses, and other entities into their conventional
+  written forms". So a call's `raw` may say "25" where Sid said "twenty-five". It is
+  not set, and it is not changed here. Setting it to `false` would make `raw` more
+  literal and could make dates and numbers harder to read; that trade-off is left
+  for a later change.
+- Do not fix this in code by adding fillers back or stripping them. Sid's rule
+  is that the model cleans spoken answers and code never regex-strips filler
+  words. The transcript is what the provider returned.
+
+Routes that could close the gap (none built, neither researched here): Twilio
+adding a filler-words attribute, or a call audio path in which the gateway makes
+the Deepgram request itself. The second would redesign the call leg; it is not a
+fix.
+
 ## Tier-3 confirmations issued before tool binding (2026-09-24)
 
 #182 changes confirmation references from
