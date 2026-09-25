@@ -41,6 +41,7 @@ import schoolCollectorSql from "../../src/persistence/migrations/0040_school_col
 import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
 import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_channel_parity.sql?raw";
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
+import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_call_pin_and_owner_authority.sql?raw";
 import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
@@ -163,14 +164,29 @@ export async function applyOwnerPassphraseMigration(): Promise<void> {
   await ownerPassphraseMigrated;
 }
 
-/** Applies the durable owner-call step-up schema and authority boundary. */
+/**
+ * Applies the durable owner-call schema and its current authority boundary.
+ *
+ * `0047` supersedes the owner-authority guard `0018` installs, so it belongs in
+ * this same step: an owner call now mints its authority from relay setup with
+ * no step-up row, and 0018's guard aborts every such insert. A fixture that
+ * applied only `0018` would build a database in which no owner call can leave
+ * `pre_auth`, which is not a state production can be in.
+ */
 export async function applyOwnerCallStepUpMigration(): Promise<void> {
   await applyOwnerPassphraseMigration();
   ownerCallStepUpMigrated ??= applyD1Migrations(env.DB, [
     { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
   ]);
   await ownerCallStepUpMigrated;
 }
+
+/** Alias kept for the call PIN gate's focused tests. */
+export const applySensitiveActionPinMigration = applyOwnerCallStepUpMigration;
 
 /** Applies durable refusal completion and guest-notice delivery after current main. */
 export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
@@ -329,6 +345,10 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
     { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
     { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
   ]);
   await newestRuntimeMigrated;
 }
@@ -382,6 +402,10 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
   { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
   { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+  {
+    name: "0047_call_pin_and_owner_authority.sql",
+    queries: splitMigration(callPinAndOwnerAuthoritySql),
+  },
   { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
 ]);
 
@@ -500,6 +524,26 @@ export async function clearGuestGrantNoticeDrainStateForTest(): Promise<void> {
     ) VALUES (1, 'ready', NULL, NULL, NULL, NULL, '1970-01-01T00:00:00.000Z', NULL)`).run();
   } finally {
     for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/**
+ * Test-only reset for the wrong-PIN ledger.
+ *
+ * The rows are append-only in production, so the delete guard has to come off
+ * for a fixture to be repeatable. It is restored immediately.
+ */
+export async function clearSensitiveActionPinDataForTest(): Promise<void> {
+  await applySensitiveActionPinMigration();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS sensitive_action_pin_attempts_reject_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM sensitive_action_pin_attempts").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER sensitive_action_pin_attempts_reject_delete
+      BEFORE DELETE ON sensitive_action_pin_attempts
+      BEGIN
+        SELECT RAISE(ABORT, 'sensitive_action_pin_attempt_delete_forbidden');
+      END`).run();
   }
 }
 

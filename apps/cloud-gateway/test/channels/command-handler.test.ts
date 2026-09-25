@@ -51,7 +51,7 @@ async function text(...args: Parameters<typeof runCommand>): Promise<string> {
 describe("help", () => {
   it("lists every command", async () => {
     const help = await text("help", "", context());
-    for (const name of ["/status", "/queue", "/digest", "/exam", "/shadow", "/vault", "/call", "/disable-owner-step-up"]) {
+    for (const name of ["/status", "/queue", "/digest", "/exam", "/shadow", "/vault", "/call"]) {
       expect(help).toContain(name);
     }
   });
@@ -91,38 +91,6 @@ describe("calling", () => {
     } }));
     expect(reply).toBe("Could not confirm whether the call was placed. Check your phone before trying again.");
     expect(reply).not.toContain("private fixture");
-  });
-});
-
-describe("owner call step-up disable", () => {
-  it("requires the exact confirmation and does not invoke the bound receipt port otherwise", async () => {
-    const disable = vi.fn(async () => "disabled" as const);
-    for (const argument of ["", "confirm", "--confirm later", "--confirm\ndo not disable"]) {
-      expect(await text("disable-owner-step-up", argument, context({ ownerStepUp: { disable } })))
-        .toBe("Use /disable-owner-step-up --confirm exactly to disable spoken owner-call step-up.");
-    }
-    expect(disable).not.toHaveBeenCalled();
-  });
-
-  it("reports that only a device-signed CLI generate can re-enable a committed disable", async () => {
-    const disable = vi.fn(async () => "disabled" as const);
-    const reply = await text("disable-owner-step-up", "--confirm", context({ ownerStepUp: { disable } }));
-    expect(disable).toHaveBeenCalledExactlyOnceWith();
-    expect(reply).toBe("Owner call step-up disabled. A new device-signed CLI generate is required to re-enable it.");
-  });
-
-  it("directs a non-private disable request to the owner's private chat", async () => {
-    const disable = vi.fn(async () => "private_chat_required" as const);
-    expect(await text("disable-owner-step-up", "--confirm", context({ ownerStepUp: { disable } })))
-      .toBe("Use /disable-owner-step-up --confirm in your private chat with Jarvis.");
-  });
-
-  it("contains disable failures without exposing their private detail", async () => {
-    const reply = await text("disable-owner-step-up", "--confirm", context({ ownerStepUp: {
-      disable: async () => { throw new Error("private D1 body"); },
-    } }));
-    expect(reply).toBe("Owner call step-up could not be disabled. Its current state is unchanged or could not be confirmed.");
-    expect(reply).not.toContain("private");
   });
 });
 

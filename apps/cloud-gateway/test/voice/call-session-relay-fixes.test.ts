@@ -10,7 +10,6 @@ import { EventRepository } from "../../src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
 import { FakeModelProvider } from "../../src/providers/fake-model-provider.js";
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
-import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
   CallSession,
@@ -20,7 +19,7 @@ import {
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { AuthenticationAttemptBudget } from "../../src/voice/inbound-auth.js";
-import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
+import type { SensitiveActionPinPort } from "../../src/voice/sensitive-action-pin.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
 import {
   applyVoiceOwnerDeliveryMigration,
@@ -38,8 +37,6 @@ import {
 } from "../persistence/voice-access-fixture.js";
 
 const ACCOUNT_SID = `AC${"6".repeat(32)}`;
-// seedOwnerAuthority uses this synthetic pepper.
-const SYNTHETIC_OWNER_PEPPER = new Uint8Array(32).fill(19);
 
 function prompt(text: string) {
   return { type: "prompt", voicePrompt: text, lang: "en-US", last: true };
@@ -50,10 +47,11 @@ async function relayHarness(kind: "owner" | "guest", options: {
   callSidLimit?: number;
   holdFirstTurn?: Promise<void>;
   holdFirstTurnAfterReply?: Promise<void>;
+  sensitiveActionPin?: SensitiveActionPinPort;
 } = {}) {
   const repository = new CallRepository(env.DB, new EventRepository(env.DB));
   const access = new VoiceAccessRepository(env.DB);
-  const owner = await seedOwnerAuthority(env.DB, access, { stepUpVerified: true });
+  const owner = await seedOwnerAuthority(env.DB, access);
   let stored;
   if (kind === "owner") {
     stored = await repository.transitionCallSession({
@@ -83,9 +81,6 @@ async function relayHarness(kind: "owner" | "guest", options: {
     verifier: new GuestPinVerifier(new Uint8Array(32).fill(12)),
     proofs,
   });
-  const ownerStepUp = new OwnerCallStepUpService(
-    env.DB, new OwnerPassphraseVerifier(SYNTHETIC_OWNER_PEPPER, "v1"),
-  );
   let observedAt = new Date(NOW.valueOf() + 1_000);
   const provider = new FakeModelProvider({ streamText: "Understood." });
   const conversation = new DefaultConversationService({
@@ -129,7 +124,7 @@ async function relayHarness(kind: "owner" | "guest", options: {
   const close = vi.fn<(code?: number, reason?: string) => void>();
   const socket = { send, close, deserializeAttachment: () => ({ sessionId: stored.sessionId }) } as unknown as WebSocket;
   return {
-    stored, provider, handleTurn, send, close, ownerStepUp, repository,
+    stored, provider, handleTurn, send, close, repository,
     atOffset(milliseconds: number) { observedAt = new Date(NOW.valueOf() + milliseconds); },
     async run(action: (message: (frame: Record<string, unknown>) => Promise<void>) => Promise<void>) {
       const stub = env.CALL_SESSION.getByName(stored.sessionId) as DurableObjectStub<CallSession>;
@@ -140,8 +135,8 @@ async function relayHarness(kind: "owner" | "guest", options: {
           repository,
           expectedAccountSid: ACCOUNT_SID,
           capacity: options.capacity ?? { async assertAcceptingNewTurn() {} },
-          authority, guestAuthentication, ownerStepUp, conversation,
-          ownerStepUpAlarm: input.ownerStepUpAlarm,
+          authority, guestAuthentication, conversation,
+          sensitiveActionPin: options.sensitiveActionPin ?? null,
           relay: input.relay,
           newTurnId: newUlid,
           now: () => observedAt,
@@ -167,8 +162,7 @@ async function relayHarness(kind: "owner" | "guest", options: {
 describe("CallSession relay fixes", () => {
   beforeEach(async () => {
     await applyVoiceRuntimeMigration();
-    // Step-up begin reads 0021's disabled-rejection table even for an active owner.
-    // Teardown also installs it, which otherwise hides its absence after test one.
+    // Teardown reads 0021's tables, so install it before the first test as well.
     await applyVoiceOwnerDeliveryMigration();
   });
 
@@ -190,7 +184,6 @@ describe("CallSession relay fixes", () => {
     const gate = new Promise<void>(resolve => { release = resolve; });
     const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
     const harness = await relayHarness("owner", { capacity });
-    // Past the 2 s post-match guard window, where main drops every owner utterance.
     harness.atOffset(4_000);
     await harness.run(async message => {
       const first = message(prompt("Tell me what is next."));
@@ -222,8 +215,7 @@ describe("CallSession relay fixes", () => {
       const harness = await relayHarness("owner", {
         capacity: { async assertAcceptingNewTurn() { throw new Error(errorMessage); } },
       });
-      // Past the 2 s post-match guard window, where main drops every owner utterance.
-      harness.atOffset(4_000);
+        harness.atOffset(4_000);
       await harness.run(async message => {
         await expect(message(prompt("Tell me what is next."))).resolves.toBeUndefined();
         expect(harness.close).toHaveBeenCalledExactlyOnceWith(1011, "relay processing failed");
@@ -322,17 +314,13 @@ describe("CallSession relay fixes", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
     const harness = await relayHarness("owner", { holdFirstTurn: held });
     harness.atOffset(4_000);
-    const repeatStatus = vi.spyOn(harness.ownerStepUp, "repeatStatus");
     await harness.run(async message => {
       const first = message(prompt("Tell me what is next."));
       try {
         await vi.waitFor(() => expect(harness.handleTurn).toHaveBeenCalledTimes(1));
         await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
-        repeatStatus.mockClear();
         // Turn 1 is still held, so this resolves only because the 2 s bound expired.
         await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
-        // Dropped at the slot, before it spends the passphrase repeat check.
-        expect(repeatStatus).not.toHaveBeenCalled();
         expect(harness.close).not.toHaveBeenCalled();
         expect(harness.provider.requests).toHaveLength(0);
       } finally {
@@ -346,30 +334,39 @@ describe("CallSession relay fixes", () => {
     });
   });
 
-  it("two owner prompts racing the D1 repeat check never both start a turn", async () => {
+  // On this branch the passphrase repeat check is gone. The one await a prompt
+  // makes before the slot check is the late-PIN claim, so that is where a slow
+  // D1 read can hold one prompt while another claims the slot.
+  it("two owner prompts racing the late-PIN claim never both start a turn", async () => {
     let releaseCapacity!: () => void;
     const capacityGate = new Promise<void>((resolve) => { releaseCapacity = resolve; });
     const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await capacityGate; }) };
-    const harness = await relayHarness("owner", { capacity });
-    harness.atOffset(4_000);
-    let releaseRepeat!: () => void;
-    const repeatGate = new Promise<void>((resolve) => { releaseRepeat = resolve; });
-    const real = harness.ownerStepUp.repeatStatus.bind(harness.ownerStepUp);
-    let firstRepeat = true;
-    // Holds prompt A inside its repeat lookup, the way D1 latency would.
-    vi.spyOn(harness.ownerStepUp, "repeatStatus").mockImplementation(async (...args) => {
-      if (firstRepeat) {
-        firstRepeat = false;
-        await repeatGate;
+    let releaseClaim!: () => void;
+    const claimGate = new Promise<void>((resolve) => { releaseClaim = resolve; });
+    let firstClaim = true;
+    const claimLateAnswer = vi.fn(async () => {
+      // Holds prompt A inside its late-PIN lookup, the way D1 latency would.
+      if (firstClaim) {
+        firstClaim = false;
+        await claimGate;
       }
-      return real(...args);
+      return false;
     });
+    const sensitiveActionPin: SensitiveActionPinPort = {
+      attachSession() {},
+      hasPendingPrompt: () => false,
+      async submitSpoken() {},
+      async submitKeypad() {},
+      claimLateAnswer,
+    };
+    const harness = await relayHarness("owner", { capacity, sensitiveActionPin });
+    harness.atOffset(4_000);
     await harness.run(async message => {
       const a = message(prompt("Question A."));
-      await vi.waitFor(() => expect(harness.ownerStepUp.repeatStatus).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(claimLateAnswer).toHaveBeenCalledTimes(1));
       const b = message(prompt("Question B."));
       await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledTimes(1));
-      releaseRepeat();
+      releaseClaim();
       await new Promise((resolve) => setTimeout(resolve, 250));
       const turnsStarted = capacity.assertAcceptingNewTurn.mock.calls.length;
       releaseCapacity();
@@ -378,40 +375,6 @@ describe("CallSession relay fixes", () => {
       expect(harness.close).not.toHaveBeenCalled();
       expect({ turnsStarted, modelRequests: harness.provider.requests.length })
         .toEqual({ turnsStarted: 1, modelRequests: 1 });
-    });
-  });
-
-  it("a prompt past the slot check never claims over an aborted turn that still owns it", async () => {
-    let releaseReceipt!: () => void;
-    const receipt = new Promise<void>((resolve) => { releaseReceipt = resolve; });
-    const harness = await relayHarness("owner", { holdFirstTurnAfterReply: receipt });
-    harness.atOffset(4_000);
-    const gates: Array<() => void> = [];
-    const real = harness.ownerStepUp.repeatStatus.bind(harness.ownerStepUp);
-    // Holds A, then B, inside the repeat lookup, so B passes the slot check while it is free.
-    vi.spyOn(harness.ownerStepUp, "repeatStatus").mockImplementation(async (...args) => {
-      if (gates.length < 2) await new Promise<void>((resolve) => { gates.push(resolve); });
-      return real(...args);
-    });
-    await harness.run(async message => {
-      const a = message(prompt("Question A."));
-      await vi.waitFor(() => expect(gates).toHaveLength(1));
-      const b = message(prompt("Question B."));
-      await vi.waitFor(() => expect(gates).toHaveLength(2));
-      gates[0]!();
-      // A has spoken its reply and is waiting on its receipt, still owning the slot.
-      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(1));
-      await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
-      gates[1]!();
-      await expect(b).resolves.toBeUndefined();
-      releaseReceipt();
-      await expect(a).resolves.toBeUndefined();
-      expect(harness.close).not.toHaveBeenCalled();
-      expect(harness.handleTurn).toHaveBeenCalledTimes(1);
-      expect(harness.provider.requests).toHaveLength(1);
-      await expect(message(prompt("Thanks."))).resolves.toBeUndefined();
-      expect(harness.close).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(2);
     });
   });
 
@@ -433,32 +396,6 @@ describe("CallSession relay fixes", () => {
       await first;
       expect(harness.close).not.toHaveBeenCalled();
       expect(harness.provider.requests).toHaveLength(1);
-    });
-  });
-
-  it("refuses an overlapping owner prompt before it reaches the passphrase repeat check", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
-    const harness = await relayHarness("owner", { capacity });
-    harness.atOffset(4_000);
-    const repeatStatus = vi.spyOn(harness.ownerStepUp, "repeatStatus");
-    await harness.run(async message => {
-      const first = message(prompt("Tell me what is next."));
-      try {
-        await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
-        // Turn 1 has already passed the guard, so any repeatStatus call now is the
-        // overlapping prompt spending verification it must never reach.
-        repeatStatus.mockClear();
-        await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
-        expect(repeatStatus).not.toHaveBeenCalled();
-        expect(harness.close).not.toHaveBeenCalled();
-      } finally {
-        release();
-        await expect(first).resolves.toBeUndefined();
-      }
-      expect(harness.provider.requests).toHaveLength(1);
-      expect(harness.provider.requests[0]).toMatchObject({ userText: "Tell me what is next." });
     });
   });
 });
