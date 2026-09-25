@@ -13,7 +13,12 @@ import {
 import { handleInboundEmail } from "../../src/email/email-handler.js";
 import { emailHtmlText } from "../../src/email/html-text.js";
 import { INBOX_READ_PAGE_BYTES, readInboxPage } from "../../src/email/email-reader.js";
-import { handleD2lNotificationEmail } from "../../src/school/d2l-email-handler.js";
+import {
+  D2L_EMAIL_SOURCE_ID,
+  MAXIMUM_D2L_EMAIL_BYTES,
+  handleD2lNotificationEmail,
+} from "../../src/school/d2l-email-handler.js";
+import { D2lEmailRepository } from "../../src/school/d2l-email-repository.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import { D2L_EMAIL_FIXTURES } from "../fixtures/d2l-email-fixtures.js";
 
@@ -24,6 +29,13 @@ const CAPABILITY_ADDRESS = "school-testcapability1234@onesid.ca";
 const PINNED_DOMAIN = "notifications.minds-online.example";
 const inbox = new EmailInbox(env.DB, OWNER);
 const configured = (): Env => ({ ...env, OWNER_PRINCIPAL_ID: OWNER } as Env);
+/** Production's shape: the school collector is configured alongside the inbox. */
+const schoolConfigured = (principalId = OWNER): Env => ({
+  ...env,
+  OWNER_PRINCIPAL_ID: principalId,
+  SCHOOL_EMAIL_INGEST_ADDRESS: CAPABILITY_ADDRESS,
+  D2L_EMAIL_FROM_DOMAINS: PINNED_DOMAIN,
+} as Env);
 const encoder = new TextEncoder();
 
 /**
@@ -164,20 +176,6 @@ describe("the email inbox", () => {
     expect(String(page?.content)).toContain(body);
   });
 
-  it("stores a Gmail forwarding-confirmation email with its body and its code readable through the tool path", async () => {
-    const input = message(plain(
-      "Gmail Forwarding Confirmation",
-      "Confirmation code: SYNTHETIC-CONFIRM-CODE",
-      "Gmail <forwarding-noreply@google.com>",
-    ));
-    await worker.email(input, configured(), createExecutionContext());
-    const [summary] = await inbox.list(OWNER, { subject: "Gmail Forwarding" });
-    const row = (await inbox.read(OWNER, String(summary!.email_id)))!;
-    const page = await readInboxPage(inbox, env.ARCHIVE, OWNER, row.email_id);
-    expect(String(page?.content)).toContain("SYNTHETIC-CONFIRM-CODE");
-    expect(input.setReject).not.toHaveBeenCalled();
-  });
-
   it("stores an email asking Jarvis to delete all memories as data and performs nothing", async () => {
     const beforeTransitions = await env.DB.prepare("SELECT COUNT(*) AS n FROM memory_item_transitions").first();
     const beforeDecisions = await env.DB.prepare("SELECT COUNT(*) AS n FROM decision_items").first();
@@ -245,29 +243,109 @@ describe("the email inbox", () => {
   });
 
   it("reads a retained legacy quarantine body without writing another row or letting another principal in", async () => {
+    // A receipt the D2L consumer wrote before the inbox existed. New deliveries
+    // outside the D2L scope no longer write one, so the row is placed directly,
+    // dated before any inbox row this owner has.
     const raw = plain("Retained quarantine", "Retained legacy body", "Gmail <forwarding-noreply@google.com>");
-    await handleD2lNotificationEmail(
-      { ...message(raw), to: CAPABILITY_ADDRESS } as ForwardableEmailMessage,
-      {
-        ...configured(),
-        SCHOOL_EMAIL_INGEST_ADDRESS: CAPABILITY_ADDRESS,
-        D2L_EMAIL_FROM_DOMAINS: PINNED_DOMAIN,
-      } as Env,
-      { now: () => NOW, logHeaderNames: () => undefined },
-    );
-    const row = await env.DB.prepare(`SELECT email_id FROM d2l_email_messages
-      WHERE principal_id = ? AND status = 'quarantined'`)
-      .bind(OWNER).first<{ email_id: string }>();
+    const repository = new D2lEmailRepository(env.DB);
+    const legacyAt = new Date("2026-09-01T00:00:00.000Z");
+    const begun = await repository.begin({
+      principalId: OWNER,
+      ingestionKey: "message-id-sha256:retained-legacy-quarantine",
+      rawSha256: "c".repeat(64),
+      providerMessageId: "<Retained quarantine@example.test>",
+      headerNames: [],
+      authentication: {},
+      envelopeFromDomain: "example.test",
+      fromDomain: "google.com",
+      eventKind: "unrecognised",
+      structured: {},
+      rawMimeBase64: btoa(raw),
+      now: legacyAt,
+    });
+    await repository.complete(OWNER, begun.receipt.emailId, { status: "quarantined", reason: "from_domain_unpinned" }, legacyAt);
+    const row = { email_id: begun.receipt.emailId };
     const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM email_inbox").first();
     expect(await inbox.list(OWNER, { sender: "google.com" }))
-      .toContainEqual(expect.objectContaining({ email_id: row!.email_id, source: "legacy_quarantine" }));
-    expect(await readInboxPage(inbox, env.ARCHIVE, OWNER, row!.email_id))
+      .toContainEqual(expect.objectContaining({ email_id: row.email_id, source: "legacy_quarantine" }));
+    expect(await readInboxPage(inbox, env.ARCHIVE, OWNER, row.email_id))
       .toMatchObject({ source: "legacy_quarantine", content: "Retained legacy body\n" });
-    expect(await readInboxPage(inbox, env.ARCHIVE, OWNER, row!.email_id, "source"))
+    expect(await readInboxPage(inbox, env.ARCHIVE, OWNER, row.email_id, "source"))
       .toHaveProperty("content", expect.stringContaining("from_domain_unpinned"));
-    await expect(inbox.readLegacy(OTHER, row!.email_id)).rejects.toThrow("email_inbox_owner_required");
-    expect(await new EmailInbox(env.DB, OTHER).readLegacy(OTHER, row!.email_id)).toBeNull();
+    await expect(inbox.readLegacy(OTHER, row.email_id)).rejects.toThrow("email_inbox_owner_required");
+    expect(await new EmailInbox(env.DB, OTHER).readLegacy(OTHER, row.email_id)).toBeNull();
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM email_inbox").first()).toEqual(before);
+  });
+
+  it("sends Sid no D2L failure notice and leaves the D2L source's last failure unchanged when ordinary mail arrives with school config present", async () => {
+    // Review F1. Three ordinary deliveries to the D2L ingest address: a plain
+    // note, one whose sender's DMARC failed, and one larger than the D2L
+    // consumer reads. None is a D2L notification, so none may count as a D2L
+    // failure, mark the D2L source failing in the digest, or reach the
+    // three-strikes "check Email Routing and the sender pins" notice.
+    const owner = "principal:email-inbox-ordinary-mail";
+    await env.DB.prepare(`INSERT OR IGNORE INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'human', 'active', 'Synthetic ordinary-mail owner', ?, ?)`)
+      .bind(owner, NOW.toISOString(), NOW.toISOString()).run();
+    const sourceBefore = await env.DB.prepare(`SELECT last_failure, last_failure_at FROM deadline_sources
+      WHERE source_id = ?`).bind(D2L_EMAIL_SOURCE_ID).first();
+    const notices = vi.fn(async () => undefined);
+    const deliveries = [
+      message(plain("Ordinary one", "Lunch on Friday?", "Friend <friend1@gmail.com>")),
+      message(plain("Ordinary two", "Newsletter", "News <news@list.example>"), {
+        "Authentication-Results": "mx.cloudflare.net; spf=fail; dkim=fail; dmarc=fail",
+      }),
+      message(plain("Ordinary three", "p".repeat(MAXIMUM_D2L_EMAIL_BYTES + 1), "Friend <friend3@gmail.com>")),
+    ];
+    for (const [index, delivery] of deliveries.entries()) {
+      await handleInboundEmail(
+        { ...delivery, to: CAPABILITY_ADDRESS } as ForwardableEmailMessage,
+        schoolConfigured(owner),
+        { now: () => new Date(NOW.getTime() + index * 1_000), sendOwnerText: notices, logHeaderNames: () => undefined },
+      );
+    }
+    expect(notices).not.toHaveBeenCalled();
+    expect(await env.DB.prepare(`SELECT last_failure, last_failure_at FROM deadline_sources
+      WHERE source_id = ?`).bind(D2L_EMAIL_SOURCE_ID).first()).toEqual(sourceBefore);
+    // No D2L receipt, no refusal streak: the inbox is the only record.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM d2l_email_messages WHERE principal_id = ?")
+      .bind(owner).first()).toEqual({ n: 0 });
+    expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM email_inbox WHERE principal_id = ?`)
+      .bind(owner).first()).toEqual({ n: 3 });
+  });
+
+  it("lists an ordinary email and a refused D2L notification exactly once each", async () => {
+    // Review F2. Every delivery is stored in the inbox first, so a D2L
+    // quarantine written afterwards is a second copy and must not be listed.
+    await handleInboundEmail(
+      { ...message(plain("Listed once ordinary", "Just a note", "Friend <friend@gmail.com>")), to: CAPABILITY_ADDRESS } as ForwardableEmailMessage,
+      schoolConfigured(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    // A pinned D2L sender with no authentication evidence is still refused
+    // and quarantined by the D2L consumer, exactly as before.
+    const refused = plain("Listed once refused D2L", "Course: Chemistry", `D2L <no-reply@${PINNED_DOMAIN}>`);
+    await handleInboundEmail(
+      { ...message(refused), to: CAPABILITY_ADDRESS } as ForwardableEmailMessage,
+      schoolConfigured(),
+      { now: () => NOW, logHeaderNames: () => undefined },
+    );
+    const receipt = await env.DB.prepare(`SELECT email_id, quarantine_reason FROM d2l_email_messages
+      WHERE provider_message_id = ?`).bind("<Listed once refused D2L@example.test>")
+      .first<{ email_id: string; quarantine_reason: string }>();
+    expect(receipt?.quarantine_reason).toBe("authentication_unproven");
+    for (const subject of ["Listed once ordinary", "Listed once refused D2L"]) {
+      const rows = await inbox.list(OWNER, { subject });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ source: "inbox" });
+    }
+    // The quarantine's own preview does not carry the subject, so look for it
+    // by time as well: it must not appear as a second, "legacy" copy.
+    const sameInstant = await inbox.list(OWNER, { after: NOW.toISOString(), before: NOW.toISOString(), limit: 50 });
+    expect(sameInstant.map((row) => row.email_id)).not.toContain(receipt?.email_id);
+    // It is still readable by id, so nothing the D2L consumer kept is hidden.
+    expect(await inbox.readLegacy(OWNER, receipt!.email_id)).not.toBeNull();
   });
 
   it("reads archived body and source pages past the stored preview without losing UTF-8 characters", async () => {

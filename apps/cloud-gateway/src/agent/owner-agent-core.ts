@@ -53,7 +53,7 @@ import { composeCoreProfile, readCoreProfile } from "../memory/core-profile.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { EmailInbox, type InboxQuery } from "../email/email-inbox.js";
 import { readInboxPage } from "../email/email-reader.js";
-import { emailInboxEvidence, EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
+import { emailInboxEvidence, EMAIL_INBOX_TOOL_DEFINITIONS, inboxListPage } from "../email/email-tools.js";
 
 /**
  * The accepted argument names of the two inbox tools, read from their own
@@ -1203,7 +1203,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         query = parseArguments(call, optionalArgumentKeys(call, EMAIL_INBOX_LIST_ARGUMENTS));
       }
       const result = await inbox.list(input.principalId, query as InboxQuery);
-      return unactionedTool(call, emailInboxEvidence(result), []);
+      return unactionedTool(call, emailInboxEvidence(inboxListPage(result, (query as InboxQuery).offset ?? 0)), []);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);

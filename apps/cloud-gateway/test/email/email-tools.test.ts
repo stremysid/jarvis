@@ -5,8 +5,13 @@ import { OwnerTelegramAgentAdapter, OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../.
 import { OWNER_VOICE_TOOL_DEFINITIONS } from "../../src/voice/voice-agent.js";
 import { AGENT_MAX_TOOLS } from "../../src/providers/deepseek-provider.js";
 import { SHARED_OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
-import { EMAIL_INBOX_TOOL_DEFINITIONS } from "../../src/email/email-tools.js";
-import { EmailInbox, storeInboundEmail } from "../../src/email/email-inbox.js";
+import { EMAIL_INBOX_TOOL_DEFINITIONS, emailInboxEvidence, inboxListPage } from "../../src/email/email-tools.js";
+import { EmailInbox, INBOX_EVIDENCE_BYTES, storeInboundEmail } from "../../src/email/email-inbox.js";
+import { handleInboundEmail } from "../../src/email/email-handler.js";
+import { readInboxPage } from "../../src/email/email-reader.js";
+import type { Env } from "../../src/env.js";
+import { Redactor } from "../../src/security/redaction.js";
+import { StreamingOutputRedactor } from "../../src/security/streaming-output-redactor.js";
 import { DecisionRepository } from "../../src/decisions/decision-repository.js";
 import { DecisionService } from "../../src/decisions/decision-service.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
@@ -20,6 +25,8 @@ import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
 const OWNER = "principal:email-tools-owner";
+const CAPABILITY_ADDRESS = "school-testcapability1234@onesid.ca";
+const PINNED_DOMAIN = "notifications.minds-online.example";
 const NOW = new Date("2026-09-24T04:00:00.000Z");
 const encoder = new TextEncoder();
 
@@ -116,6 +123,26 @@ async function collect(stream: AsyncIterable<ModelToken>): Promise<string> {
  */
 function toolResultContent(provider: FakeAgentProvider): readonly string[] {
   return (provider.requests[1]?.toolResults ?? []).map((result) => result.content);
+}
+
+/**
+ * What Sid receives on Telegram: the agent's reply tokens through the same
+ * output redactor, limits and line mode that `ConversationService` applies to
+ * every Telegram turn.
+ */
+async function deliveredToSid(stream: AsyncIterable<ModelToken>): Promise<string> {
+  const output = new StreamingOutputRedactor(new Redactor(), {
+    maxRawCharacters: 8_000,
+    maxSanitizedCharacters: 8_000,
+  }, false);
+  for await (const token of stream) output.push(token);
+  return output.complete().text;
+}
+
+function redactedReply(reply: string): string {
+  const result = new Redactor().redactText(reply);
+  if (!result.ok) throw new Error("redaction_failed");
+  return result.text;
 }
 
 /** A delivered message, with the raw stream and runtime headers a delivery produces. */
@@ -262,6 +289,99 @@ describe("the email inbox tools", () => {
       .toContain("I could not safely apply that tool call");
     expect(readerSpy).not.toHaveBeenCalled();
     readerSpy.mockRestore();
+  });
+
+  it("delivers a Gmail forwarding code to Sid through the production email path, the read tool and the reply redactor", async () => {
+    // Review F3 on PR #190. Production: the Worker's email() with school
+    // configuration present, so the D2L consumer runs on this message too.
+    // Gmail's real confirmation mail labels an eight-digit number
+    // "Confirmation code:" (two public archived samples: 99427480, 33821484).
+    const notices = vi.fn(async () => undefined);
+    const code = "99427480";
+    const raw = "From: Gmail Team <forwarding-noreply@google.com>\r\nTo: school@onesid.ca\r\n"
+      + `Subject: (#${code}) Gmail Forwarding Confirmation - Receive Mail from sid@example.test\r\n`
+      + "Date: Thu, 24 Sep 2026 04:00:00 +0000\r\nMessage-ID: <gmail-confirmation@google.com>\r\n"
+      + "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+      + "sid@example.test has requested to automatically forward mail to your email address.\r\n"
+      + `Confirmation code: ${code}\r\n`;
+    await handleInboundEmail({ ...message(raw), to: CAPABILITY_ADDRESS } as ForwardableEmailMessage, {
+      ...env,
+      OWNER_PRINCIPAL_ID: OWNER,
+      SCHOOL_EMAIL_INGEST_ADDRESS: CAPABILITY_ADDRESS,
+      D2L_EMAIL_FROM_DOMAINS: PINNED_DOMAIN,
+    } as Env, { now: () => NOW, sendOwnerText: notices, logHeaderNames: () => undefined });
+    // Not a D2L notification, so no D2L alarm about it either.
+    expect(notices).not.toHaveBeenCalled();
+    const [row] = await new EmailInbox(env.DB, OWNER).list(OWNER, { subject: "Gmail Forwarding Confirmation" });
+    const emailId = String(row!.email_id);
+
+    const authorityText = "what's the gmail forwarding code";
+    const provider = new FakeAgentProvider([
+      called({ id: "gmail-read", name: "email_inbox_read", arguments: JSON.stringify({ email_id: emailId }) }),
+      stopped(`Your Gmail confirmation code is ${code}.`),
+    ]);
+    const agent = await telegramAgent(provider, { authorityText });
+    const delivered = await deliveredToSid(agent.stream(turnInput(authorityText)));
+    // The model was handed the body through the real read dispatch...
+    expect(toolResultContent(provider).join("\n")).toContain(`Confirmation code: ${code}`);
+    // ...and the code reaches Sid after output redaction.
+    expect(delivered).toContain(code);
+    expect(delivered).not.toContain("[REDACTED");
+  });
+
+  it("keeps real credentials and login codes redacted in a reply while the read tool says which forms are hidden", () => {
+    // The redactor is unchanged by this PR (#183 owns it). These are the
+    // existing rules the read tool now describes, so the model can quote a
+    // confirmation code in a form that reaches Sid instead of guessing.
+    expect(redactedReply("Your Gmail confirmation code is 99427480.")).toContain("99427480");
+    expect(redactedReply("Your verification code is 99427480.")).not.toContain("99427480");
+    expect(redactedReply("The login code is 482913.")).not.toContain("482913");
+    expect(redactedReply("It contains api_key=sk-live-abcdefghijklmnopqrstuvwx")).not.toContain("abcdefghijklmnop");
+    expect(redactedReply("It contains sk-abcdefghijklmnopqrstuvwxyz0123")).not.toContain("abcdefghijklmnop");
+    const read = EMAIL_INBOX_TOOL_DEFINITIONS.find((tool) => tool.name === "email_inbox_read")!;
+    expect(read.description).toContain("standalone six-digit number");
+    expect(read.description).toContain("quote a code with the label the email itself gives it");
+  });
+
+  it("reads a body of 5000 double quotes page by page, whole, with no page cut by the evidence cap", async () => {
+    // Review F5. A quote is one byte of text but two once JSON-escaped, so a
+    // 4096-byte page of them used to overflow the 8192-byte evidence cap and
+    // lose its tail while next_offset pointed past it.
+    const body = '"'.repeat(5_000);
+    const emailId = await seedEmail("Quote pages", body);
+    const inbox = new EmailInbox(env.DB, OWNER);
+    let offset: number | null = 0;
+    let rebuilt = "";
+    let pages = 0;
+    while (offset !== null) {
+      const page = (await readInboxPage(inbox, env.ARCHIVE, OWNER, emailId, "body", offset))!;
+      const evidence = emailInboxEvidence(page);
+      expect(evidence).toContain("inbox_tool_preview_truncated=false");
+      expect(encoder.encode(JSON.stringify(page)).byteLength).toBeLessThanOrEqual(INBOX_EVIDENCE_BYTES);
+      rebuilt += String(page.content);
+      offset = page.next_offset as number | null;
+      pages += 1;
+    }
+    // postal-mime ends a text body with a newline, as the other read tests show.
+    expect(rebuilt).toBe(`${body}\n`);
+    expect(pages).toBeGreaterThan(1);
+  });
+
+  it("cuts a list page at a whole row and says where to resume instead of truncating the JSON", () => {
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      email_id: `row-${index}`,
+      subject: "s".repeat(600),
+    }));
+    const page = inboxListPage(rows, 10);
+    const included = page.rows as readonly Record<string, unknown>[];
+    expect(included.length).toBeGreaterThan(0);
+    expect(included.length).toBeLessThan(rows.length);
+    expect(page).toMatchObject({
+      rows_omitted_to_fit: rows.length - included.length,
+      resume_offset: 10 + included.length,
+    });
+    expect(emailInboxEvidence(page)).toContain("inbox_tool_preview_truncated=false");
+    expect(inboxListPage(rows.slice(0, 2), 0)).toEqual({ rows: rows.slice(0, 2), rows_omitted_to_fit: 0, resume_offset: null });
   });
 
   it("hands an email's instruction text to the model as stored data and executes nothing it asks for", async () => {

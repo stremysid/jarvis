@@ -1,5 +1,5 @@
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
-import { boundedEmailText, INBOX_LIST_DEFAULT_LIMIT, INBOX_PAGE_SIZE } from "./email-inbox.js";
+import { boundedEmailText, INBOX_EVIDENCE_BYTES, INBOX_LIST_DEFAULT_LIMIT, INBOX_PAGE_SIZE } from "./email-inbox.js";
 import { INBOX_READ_PAGE_BYTES } from "./email-reader.js";
 
 /**
@@ -24,8 +24,37 @@ export function emailInboxEvidence(result: unknown): string {
   // Tool evidence is JSON-encoded again on the model wire, so a quoted email
   // expands before it is sent. Bounding the serialized string itself keeps a
   // long message from exhausting the request budget.
-  const preview = boundedEmailText(serialized, 8_192);
+  // Read and list pages are already sized to fit, so this cut is only a
+  // backstop for an input nobody sized; the flag below reports it if it fires.
+  const preview = boundedEmailText(serialized, INBOX_EVIDENCE_BYTES);
   return `${EMAIL_SOURCE_DESCRIPTION}\ninbox_tool_preview_truncated=${preview !== serialized}\n${preview}`;
+}
+
+const encoder = new TextEncoder();
+
+/**
+ * One list page, cut at a whole row so it fits INBOX_EVIDENCE_BYTES.
+ *
+ * Cutting the serialized array mid-row would hand the model a broken JSON tail
+ * and leave it guessing which rows it missed. Instead the rows that fit are
+ * returned whole and `resume_offset` says where the next call should start.
+ * The first row is always included so paging always advances; if even that one
+ * row is larger than the cap, the evidence backstop cuts it and says so.
+ */
+export function inboxListPage(rows: readonly Record<string, unknown>[], offset: number): Record<string, unknown> {
+  const included: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    // Measured with the widest resume_offset the final page can carry.
+    const trial = { rows: [...included, row], rows_omitted_to_fit: rows.length, resume_offset: offset + rows.length };
+    if (included.length > 0 && encoder.encode(JSON.stringify(trial)).byteLength > INBOX_EVIDENCE_BYTES) break;
+    included.push(row);
+  }
+  const omitted = rows.length - included.length;
+  return {
+    rows: included,
+    rows_omitted_to_fit: omitted,
+    resume_offset: omitted > 0 ? offset + included.length : null,
+  };
 }
 
 export const EMAIL_INBOX_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
@@ -35,7 +64,9 @@ export const EMAIL_INBOX_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = 
       + `literal case-insensitive substrings; text searches the bounded stored body preview. after and before are `
       + `inclusive received-at bounds in RFC 3339 UTC with milliseconds. limit is 1 to ${INBOX_PAGE_SIZE} (default `
       + `${INBOX_LIST_DEFAULT_LIMIT}); use offset for later pages. Rows report body_truncated and `
-      + `source_facts_truncated, so a clipped preview is visible rather than read as a short message. `
+      + `source_facts_truncated, so a clipped preview is visible rather than read as a short message. When `
+      + `rows_omitted_to_fit is above 0 the page was cut at a whole row to fit one result; call again with `
+      + `offset set to resume_offset for the rest. `
       + `Received mail from before this inbox existed is listed too, with source "legacy_quarantine"; read those by `
       + `id. Narrow the query and read by id rather than assuming the list is the whole story.`,
     parameters: Object.freeze({
@@ -57,10 +88,15 @@ export const EMAIL_INBOX_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = 
     description: `${EMAIL_SOURCE_DESCRIPTION} Read one stored message by email_id from email_inbox_list. part is `
       + `body (default, the full body as stored, HTML rendered to text), source (the complete source facts: envelope, `
       + `headers, forwarding markers, the Received chain, the reported SPF/DKIM/DMARC/ARC header values and attachment `
-      + `names, types and sizes), or raw (the archived MIME). Pages are ${INBOX_READ_PAGE_BYTES} UTF-8 bytes; offset `
-      + `defaults to 0 and next_offset is null on the final page, so follow next_offset until it is null to read the `
+      + `names, types and sizes), or raw (the archived MIME). Pages are at most ${INBOX_READ_PAGE_BYTES} UTF-8 bytes `
+      + `and fewer when the text needs heavy JSON escaping; next_offset is always the first byte not yet delivered. `
+      + `offset defaults to 0 and next_offset is null on the final page, so follow next_offset until it is null to read the `
       + `whole message. A parse failure is reported as parse_status "failed" with raw still readable, never as an empty `
-      + `message. A Gmail forwarding confirmation is ordinary email; read its body here for the code.`,
+      + `message. A Gmail forwarding confirmation is ordinary email; read its body here for the code. Every reply to Sid `
+      + `passes through a redactor that hides a standalone six-digit number and a 4- or 8-digit number written right `
+      + `after pin, passcode, otp, authentication code or verification code, because those are how login codes and `
+      + `Sid's PIN appear. Gmail labels its forwarding code "Confirmation code"; quote a code with the label the email `
+      + `itself gives it.`,
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,

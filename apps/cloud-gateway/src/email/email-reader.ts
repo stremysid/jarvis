@@ -1,14 +1,43 @@
 import PostalMime from "postal-mime";
 import type { ArchiveBucket } from "../archive/archival-service.js";
-import { boundedEmailText, type EmailInbox } from "./email-inbox.js";
+import { boundedEmailText, INBOX_EVIDENCE_BYTES, type EmailInbox } from "./email-inbox.js";
 import { emailHtmlText } from "./html-text.js";
 
 const encoder = new TextEncoder();
-/** What one read page carries. The model pages until `next_offset` is null. */
+/**
+ * The most text bytes one read page carries. A page carries fewer when its
+ * JSON-escaped form would not fit INBOX_EVIDENCE_BYTES; `next_offset` is then
+ * the first byte not delivered. The model pages until `next_offset` is null.
+ */
 export const INBOX_READ_PAGE_BYTES = 4_096;
 const MAXIMUM_PART_CHARACTERS = 16;
 
 export type InboxReadPart = "body" | "source" | "raw";
+
+function jsonBytes(value: unknown): number {
+  return encoder.encode(JSON.stringify(value)).byteLength;
+}
+
+/**
+ * The longest prefix of `candidate` whose JSON-escaped form fits `budget` bytes.
+ *
+ * A page is at most INBOX_READ_PAGE_BYTES of text, but JSON escaping can
+ * multiply that (a quote becomes two bytes, a control character six), and the
+ * evidence cap applies to the escaped form. Measuring each code point's escaped
+ * size keeps the page whole, so `next_offset` always points at the first byte
+ * the model has not been given.
+ */
+function fittingPrefix(candidate: string, budget: number): string {
+  let used = 0;
+  let end = 0;
+  for (const character of candidate) {
+    const escaped = jsonBytes(character) - 2;
+    if (used + escaped > budget) break;
+    used += escaped;
+    end += character.length;
+  }
+  return candidate.slice(0, end);
+}
 
 function readPart(value: unknown): InboxReadPart {
   if (typeof value !== "string" || value.length === 0 || value.length > MAXIMUM_PART_CHARACTERS
@@ -74,9 +103,8 @@ export async function readInboxPage(
       ? source
       : parsed?.text ?? emailHtmlText(parsed?.html ?? "");
   const bytes = encoder.encode(text);
-  const content = new TextDecoder().decode(bytes.slice(start, start + INBOX_READ_PAGE_BYTES), { stream: true });
-  const end = start + encoder.encode(content).byteLength;
-  return {
+  const candidate = new TextDecoder().decode(bytes.slice(start, start + INBOX_READ_PAGE_BYTES), { stream: true });
+  const page = {
     email_id: emailId,
     source: row === null ? "legacy_quarantine" : "inbox",
     received_at: row?.received_at ?? legacy!.received_at,
@@ -84,9 +112,16 @@ export async function readInboxPage(
     subject: boundedEmailText(parsed?.subject ?? "", 512),
     part: requested,
     offset: start,
-    next_offset: end < bytes.byteLength ? end : null,
+    // The widest value either field can take, so the measured envelope is
+    // never smaller than the one finally serialized.
+    next_offset: bytes.byteLength as number | null,
     total_text_bytes: bytes.byteLength,
     parse_status: parsed === null ? "failed" : "parsed",
-    content,
+    content: "",
   };
+  const content = fittingPrefix(candidate, INBOX_EVIDENCE_BYTES - jsonBytes(page));
+  const end = start + encoder.encode(content).byteLength;
+  page.next_offset = end < bytes.byteLength ? end : null;
+  page.content = content;
+  return page;
 }

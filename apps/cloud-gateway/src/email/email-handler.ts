@@ -15,9 +15,14 @@ import { storeInboundEmail } from "./email-inbox.js";
  * the original runtime headers. That is a deliberate narrowing of `setReject`,
  * whose callers in the legacy path reject the SMTP delivery. A message the
  * inbox has already accepted must not then bounce: General mail is the point of
- * this path, and the legacy consumer refuses anything that is not a pinned D2L
- * notification. Real operational failures still propagate so Cloudflare retries,
+ * this path. Real operational failures still propagate so Cloudflare retries,
  * which is why only the configuration error is contained.
+ *
+ * The D2L consumer returns `outside_d2l_scope` for mail that is not addressed
+ * to it (the envelope recipient is not the ingest address, or the visible From
+ * is not a pinned D2L domain) before it writes anything. Ordinary mail therefore
+ * never counts as a D2L failure, never marks the D2L source failing in the
+ * digest and never reaches the "check your sender pins" notice.
  */
 export async function handleInboundEmail(
   message: ForwardableEmailMessage,

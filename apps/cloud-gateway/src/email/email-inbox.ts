@@ -14,6 +14,13 @@ export const INBOX_BODY_BYTES = 32_768;
 export const INBOX_FACT_BYTES = 65_536;
 export const INBOX_PAGE_SIZE = 50;
 export const INBOX_LIST_DEFAULT_LIMIT = 20;
+/**
+ * The most serialized JSON bytes one inbox tool result hands the model. Tool
+ * evidence is JSON-encoded again on the model wire, so this bounds what a
+ * single quoted email can cost a request. Read pages and list pages are sized
+ * to fit it whole, so nothing is cut off the end without the model being told.
+ */
+export const INBOX_EVIDENCE_BYTES = 8_192;
 const MAXIMUM_QUERY_VALUE_BYTES = 1_024;
 const encoder = new TextEncoder();
 
@@ -112,7 +119,14 @@ export class EmailInbox {
    * percent signs and SQL punctuation in a message or a search never become
    * query syntax or wildcards.
    *
-   * Legacy quarantines are listed too. Their searchable preview holds only the
+   * Legacy quarantines are listed too, but only those received before the
+   * owner's first inbox row. From then on every delivery is stored in
+   * `email_inbox` before the D2L consumer sees it, so a D2L quarantine written
+   * after that point is a second copy of a message already listed; listing it
+   * would show the same email twice under a label that says it predates the
+   * inbox. It stays readable by id.
+   *
+   * Their searchable preview holds only the
    * old sender domain and the stored structured facts because that is all the
    * old table kept searchable, so a text search does not reach their bodies --
    * read them by id for that. The `source` column says which table a row came from.
@@ -158,7 +172,11 @@ export class EmailInbox {
           CASE WHEN length(authentication_json) >= 65536 THEN 1 ELSE 0 END,
           'legacy_quarantine', 0, 'legacy_quarantine',
           COALESCE(json_extract(structured_json, '$.title'), '') || ' ' || COALESCE(from_domain, '')
-        FROM d2l_email_messages WHERE status = 'quarantined' AND raw_mime_base64 <> ''
+        FROM d2l_email_messages AS legacy
+        WHERE status = 'quarantined' AND raw_mime_base64 <> ''
+          AND legacy.received_at < COALESCE(
+            (SELECT MIN(earliest.received_at) FROM email_inbox AS earliest WHERE earliest.principal_id = legacy.principal_id),
+            '9999-12-31T23:59:59.999Z')
       ) WHERE ${conditions.join(" AND ")}
       ORDER BY received_at DESC, email_id DESC LIMIT ? OFFSET ?`).bind(...values, limit, offset)
       .all<Record<string, unknown>>();
