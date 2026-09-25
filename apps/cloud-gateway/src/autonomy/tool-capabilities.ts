@@ -69,6 +69,10 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // dispatchable set from the definitions, leaving it out would have failed a
   // named test rather than silently refusing every search in production.
   memory_search: "memory.read",
+  // Read-only like memory_search: it searches the owner's own stored
+  // conversation and changes nothing, so it shares `memory.read`'s tier-1 row
+  // and needs no migration.
+  history_search: "memory.read",
   // Pinning changes a stored preference rather than an item's existence, so it is
   // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
   // the whole reason these two needed no migration: `0035` already seeds the tier.
@@ -83,8 +87,15 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // authority still applies. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
   school_collector_revoke: "school.collector.revoke",
+  reminder_schedule: "notify.owner",
+  reminder_list: "notify.owner",
+  reminder_cancel: "notify.owner",
   university_update: "university.track",
   study_coach: "study.coach",
+  // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
+  // Sid and change nothing outside the gateway's own receipt table.
+  web_read: "read.web",
+  web_search: "read.web",
 });
 
 /**

@@ -351,7 +351,7 @@ function assistantStagePayload(
   // hundred -- is rewritten to `[REDACTED_AUTH_DIGITS]` in place, and the id then
   // reads back from storage as invalid, which refused the delivery.
   const issueStructural = (value: string, error: string) => {
-    const issued = sanitizeRedaction(value, undefined, true);
+    const issued = sanitizeRedaction(value, undefined, true, "owner");
     if (!issued.ok) throw new Error(error);
     return issued;
   };
@@ -368,7 +368,7 @@ function assistantStagePayload(
   // it -- otherwise the exemption would be a way to store arbitrary text, which
   // is the property the redaction contract is built to prevent.
   const issue = (value: string) => {
-    const issued = sanitizeRedaction(value);
+    const issued = sanitizeRedaction(value, undefined, false, "owner");
     if (!issued.ok) throw new Error("assistant_reply_markup_redaction_failed");
     return issued;
   };
@@ -766,7 +766,7 @@ export class ConversationRepository {
     const targetIdentityId = requireSafeText(captured.targetIdentityId, "target_identity_id");
     const replyToMessageId = requireReplyMessageId(captured.replyToMessageId);
     const observedAt = snapshotDate(captured.now, "system_notice_now");
-    const text = sanitizeRedaction("Jarvis is busy. Please try again shortly.");
+    const text = sanitizeRedaction("Jarvis is busy. Please try again shortly.", undefined, false, "owner");
     if (!text.ok) throw new Error("system_notice_redaction_failed");
     const deliveryId = requireDeliveryId(this.deliveryIdFactory());
     const eventId = requireUlid(this.eventIdFactory(), "conversation_event_id");
@@ -960,7 +960,9 @@ export class ConversationRepository {
     if (row === null || row.state !== "claimed" || row.lease_token_hash !== binding.leaseTokenHash) {
       throw new Error("delivery_lease_invalid");
     }
-    const issuedText = sanitizeRedaction(binding.text);
+    // The staged text already passed the session reader's output redactor
+    // (external for a guest), so this re-issue must not rewrite Sid's own.
+    const issuedText = sanitizeRedaction(binding.text, undefined, false, "owner");
     if (!issuedText.ok) throw new Error("delivery_staged_text_invalid");
     const eventId = requireUlid(this.eventIdFactory(), "conversation_event_id");
     const eventType = binding.historyMode === "assistant"

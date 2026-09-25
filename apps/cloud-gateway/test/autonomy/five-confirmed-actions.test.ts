@@ -19,6 +19,7 @@ import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import type { AutonomyMode } from "../../src/autonomy/autonomy-types.js";
+import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
 import { ToolAutonomyGate } from "../../src/autonomy/tool-gate.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
@@ -102,6 +103,9 @@ describe("the actions Jarvis confirms with Sid before doing", () => {
       (await gate.evaluateToolCall({ toolName, principalId: PRINCIPAL, arguments: "{}" })).verdict;
 
     // The reserved email tool is the one tool name already mapped into the five.
+    // Its own row, not contact.third_party: an email asks whoever it is to,
+    // and a merge that restored the older mapping must fail here.
+    expect(capabilityForTool("send_email")).toBe("send.email");
     expect(await verdict("send_email")).toBe("confirm");
     expect(await verdict("tesla_unlock")).toBe("permit");
     expect(await verdict("tesla_precondition")).toBe("permit");

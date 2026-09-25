@@ -27,6 +27,7 @@ import {
   type MemoryExplanation,
 } from "../memory/memory-owner-controls.js";
 import { composeCoreProfile, readCoreProfile } from "../memory/core-profile.js";
+import { HISTORY_SEARCH_TOOL_NAME, HistorySearchTool } from "../memory/history-search.js";
 import {
   composeMemorySearchResults,
   MemorySearchService,
@@ -54,6 +55,7 @@ import { VoiceReplyStream, type CheckedVoiceSentence } from "./voice-reply.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader, readGuidedAssignmentReferences } from "../school/guided-assignment.js";
 import { GUIDED_ASSIGNMENT_PROMPT, GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
+import { isWebToolName, runWebTool, type WebToolsDependencies } from "../web/web-tools.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 
@@ -405,6 +407,14 @@ export interface OwnerAgentCoreDependencies {
    * layer down, so a caller that forgets it is a compile error instead.
    */
   readonly autonomy: ToolAutonomyGateContract;
+  /**
+   * web_read and web_search's network, AI binding and optional secrets.
+   *
+   * Optional so a construction site without them still compiles, but not
+   * defaulted to "no results": a web call with nothing wired says so to the
+   * model, which is a different answer from "the web had nothing".
+   */
+  readonly web?: WebToolsDependencies;
   /** Test seam and an explicit cap below the channel's outer allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -1208,6 +1218,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         now: this.dependencies.now ?? (() => new Date()),
       }).execute(input, call);
     }
+    if (call.name === HISTORY_SEARCH_TOOL_NAME) {
+      // A read of the owner's own stored conversation: the same owner authority
+      // and tier gate as memory_search, on both channels. It does not take the
+      // swipe-target check, which grounds a memory *write* in the reply Sid is
+      // answering; a search grounds nothing and changes nothing.
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return this.historySearch(input, call);
+    }
     // The gate can consume a tap. Finish channel refusals first so a call that
     // cannot dispatch does not spend approval or record an authorized action.
     // Once dispatch starts, audit or tool failures do not refund that tap.
@@ -1224,6 +1244,20 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
+    }
+    if (isWebToolName(call.name)) {
+      // Reads of the public web, on every channel alike. No owner-turn proof is
+      // needed because nothing is written as Sid, but the tier gate still runs
+      // first so every call is audited before any request leaves the gateway.
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return runWebTool({
+        web: this.dependencies.web,
+        database: this.dependencies.database,
+        input,
+        call,
+        now: this.dependencies.now ?? (() => new Date()),
+      });
     }
     const argumentTool = port.argumentTool?.(call);
     if (argumentTool != null) {
@@ -1480,9 +1514,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
-    // Model arguments are separate from the redacted user text. Even a grounded
-    // excerpt must not let an inferred fact reintroduce raw credentials.
-    const checkedFact = sanitizeRedaction(fact);
+    // Sid's codes, PINs, numbers, passphrases and labelled values such as
+    // `api_key=...` or `client_secret=...` are his to remember, so the owner
+    // audience leaves them alone. It refuses only a value in a known machine
+    // shape: a private-key block, an `Authorization` or bearer header, or a
+    // pattern in `KNOWN_CREDENTIAL` (contracts calls.ts), because stored
+    // memory is a fixed point of the owner redactor. An opaque value behind a
+    // label is not recognised as a machine credential and is kept.
+    const checkedFact = sanitizeRedaction(fact, undefined, false, "owner");
     if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
@@ -1767,6 +1806,26 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       composed ?? "Memory search returned no matching memory. Nothing matched, which is not a failure; say you do not have anything on it.",
       Object.freeze(results.map((result) => result.itemId as Ulid)),
     );
+  }
+
+  /**
+   * `history_search`: the real messages, found by their words. Like
+   * `memory_search` it mints no receipt, because looking changes nothing; a
+   * failed search is returned as `refused` with its reason, never as an empty
+   * result the model could read as "Sid never said that".
+   */
+  private async historySearch(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool> {
+    const outcome = await new HistorySearchTool({
+      database: this.dependencies.database,
+      archive: this.dependencies.archive,
+      now: this.dependencies.now,
+    }).run(input.principalId, call.arguments);
+    return outcome.status === "completed"
+      ? unactionedTool(call, outcome.evidence, Object.freeze([]))
+      : refusedTool(call, outcome.evidence);
   }
 
   private async runPipeline(

@@ -130,6 +130,15 @@ jobs:
         working-directory: apps/local-agent
       - run: uv run pytest -q
         working-directory: apps/local-agent
+      # Cross-runtime redaction parity: Python's projection decisions against the
+      # gateway's owner and external readers. It lived outside CI once and went
+      # red unnoticed when the default reader flipped to external (PR #197).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: uv run python tests/memory/redaction_differential.py --output "${{ runner.temp }}/redaction-python.json"
+        working-directory: apps/local-agent
+      - run: node scripts/check-redaction-differential.mjs --python-results "${{ runner.temp }}/redaction-python.json"
 
   # Fails if a byte-exact file would change on checkout. Catches the CRLF
   # class of bug directly rather than waiting for a downstream test to

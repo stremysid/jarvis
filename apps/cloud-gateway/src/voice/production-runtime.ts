@@ -1,3 +1,5 @@
+import type { RedactionAudience } from "../../../../packages/contracts/src/index.js";
+import { contextForAudience } from "../conversation/context-retriever.js";
 import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
 import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
@@ -36,6 +38,7 @@ import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { OwnerVoiceAgentAdapter } from "./voice-agent.js";
+import { webToolsFromEnv } from "../web/web-tools.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
 import { SensitiveActionPinGate } from "./sensitive-action-pin.js";
 
@@ -76,6 +79,17 @@ export function readVoiceRuntimeConfiguration(env: Env) {
     challengePepper: decodeCanonicalBase64(env.IDENTITY_CHALLENGE_HMAC_PEPPER, 32, "voice_runtime_configuration_invalid"),
     challengeKeyVersion: configured(env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION, /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/u),
   });
+}
+
+/**
+ * Who hears a call, for redaction. `accessKind` is the session's authority kind
+ * (the authority service refuses a persisted kind that differs from it), so an
+ * owner session is Sid and hears his own data as it is. Every other session --
+ * a guest, or anything unrecognized -- keeps the full redaction on what it
+ * says, what it stores and the context its model reads, exactly as before.
+ */
+export function voiceSessionAudience(binding: Readonly<{ accessKind: unknown }>): RedactionAudience {
+  return binding.accessKind === "owner" ? "owner" : "external";
 }
 
 /**
@@ -179,7 +193,7 @@ export function createProductionCallSessionCore(
       // response deadline, so hidden reasoning must not spend the claimed tap's
       // remaining window before the validated pipeline can settle its receipt.
       telegramTurn: true, telegramThinking: "disabled",
-    }), new Redactor(), ownerPrincipalId, true, now),
+    }), new Redactor("owner"), ownerPrincipalId, true, now),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
     // The same tier gate Telegram puts in front of its tools, constructed here
     // rather than left out: a channel that dispatches tools without it is the
@@ -191,14 +205,20 @@ export function createProductionCallSessionCore(
       new D1ToolConfirmationStore(env.DB),
       sensitiveActionPin,
     ),
+    // The same web tools Telegram gets, from the same environment.
+    web: webToolsFromEnv(env),
     now,
   });
+  const audience = voiceSessionAudience(input.initialization.binding);
   const conversation = new DefaultConversationService({
     repository: conversations,
     model: agent,
-    context: new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, meaningSearch, now }),
+    context: contextForAudience(
+      new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, meaningSearch, now }),
+      audience,
+    ),
     dispatcher,
-    redactor: new Redactor(),
+    redactor: new Redactor(audience),
     now,
   });
   return new CallSessionCore({

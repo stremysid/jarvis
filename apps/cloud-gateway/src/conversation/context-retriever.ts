@@ -4,6 +4,7 @@ import {
   validateEnvelope,
   type JsonValue,
   type Ulid,
+  type RedactionAudience,
 } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../security/redaction.js";
 import {
@@ -15,6 +16,7 @@ import type {
   ContextRetrieverInput,
   RetrievedContext,
 } from "./conversation-types.js";
+import { admitsHistoryEligible } from "./history-eligibility.js";
 
 const INPUT_FIELDS = new Set(["principalId", "channel", "purpose", "query", "maxTokens"]);
 const HISTORY_PAYLOAD_FIELDS = new Set([
@@ -29,6 +31,17 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   "directOwnerText",
 ]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
+/**
+ * Sid's messages on either channel, Jarvis's delivered Telegram replies, and
+ * Jarvis's spoken call replies (`assistant_sent`). Without the third, what
+ * Jarvis said on a call was missing from the recent context of that same call
+ * and of the next Telegram turn.
+ */
+const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "conversation.user_committed",
+  "conversation.assistant_delivered",
+  "conversation.assistant_sent",
+]);
 const MAX_CANDIDATES = 128;
 const MAX_FACT_CANDIDATES = 128;
 const MAX_FACT_ITEMS = 32;
@@ -43,7 +56,46 @@ const MAX_FTS_TERM_BYTES = 128;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const FACT_ID = /^fact_[a-f0-9]{32}$/u;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Stored conversation text is a fixed point of the owner redactor; this checks
+// that invariant on read. It is not what a guest-session model is shown.
+const redactor = new Redactor("owner");
+const externalRedactor = new Redactor("external");
+
+/**
+ * The context a reader's model may be given.
+ *
+ * For Sid (`owner`) the retriever is returned unchanged: his stored data as it
+ * is. For anyone else (`external`, a guest call) every item passes through the
+ * external redactor first, so a guest session's model never reads Sid's codes,
+ * PINs, passphrases or phone numbers. A placeholder can be longer than what it
+ * replaces, so redaction can push the list past the caller's budget. Both
+ * retrievers return the conversation oldest-first with the newest turn last,
+ * so the list is re-fitted from its end and cut at the first item that no
+ * longer fits, as the base retriever cuts its newest-first walk: skipping that
+ * item and keeping older ones would splice the conversation, dropping a middle
+ * turn while the turns around it still read as continuous.
+ */
+export function contextForAudience(retriever: ContextRetriever, audience: RedactionAudience): ContextRetriever {
+  if (audience === "owner") return retriever;
+  if (audience !== "external") throw new TypeError("context_audience_invalid");
+  return Object.freeze({
+    async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
+      const items = await retriever.retrieve(input);
+      const shownNewestFirst: RetrievedContext[] = [];
+      let bytes = 0;
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index]!;
+        const redacted = externalRedactor.redactText(item.text);
+        if (!redacted.ok) throw new TypeError("context_redaction_failed");
+        const size = encoder.encode(redacted.text).byteLength;
+        if (bytes + size > input.maxTokens) break;
+        bytes += size;
+        shownNewestFirst.push(Object.freeze({ sourceEventId: item.sourceEventId, text: redacted.text, sensitivity: item.sensitivity }));
+      }
+      return Object.freeze(shownNewestFirst.reverse());
+    },
+  });
+}
 
 interface StoredHistoryRow {
   readonly sequence: number;
@@ -180,7 +232,7 @@ function snapshotRows(value: unknown): readonly StoredHistoryRow[] {
     );
     if (!Number.isSafeInteger(row.sequence) || (row.sequence as number) <= 0
       || typeof row.event_id !== "string" || !ULID.test(row.event_id)
-      || row.event_type !== "conversation.user_committed" && row.event_type !== "conversation.assistant_delivered"
+      || typeof row.event_type !== "string" || !HISTORY_EVENT_TYPES.has(row.event_type)
       || typeof row.subject_id !== "string" || typeof row.content_hash !== "string"
       || typeof row.envelope_json !== "string") {
       throw new TypeError("context_row_invalid");
@@ -347,10 +399,24 @@ async function executeStatements(
   return Promise.all(statements.map(async (statement) => statement.all()));
 }
 
+/**
+ * A call reply's payload may carry `memoryItemIds`, the ids of memories the
+ * reply cited (#174). They are identifiers, not message text.
+ */
+function withoutMemoryReferences(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+    || !Object.hasOwn(value, "memoryItemIds")) return value;
+  const { memoryItemIds: _references, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
 function historyText(payload: unknown, eventType: string): string {
-  const value = historyPayload(payload);
-  if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
+  const value = historyPayload(eventType === "conversation.assistant_sent" ? withoutMemoryReferences(payload) : payload);
+  // One shared reading of the flag; a call reply's is legacy (history-eligibility.ts).
+  const eligible = admitsHistoryEligible(eventType, value.historyEligible);
+  if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || !eligible
     || eventType === "conversation.assistant_delivered" && value.channelCode !== 2
+    || eventType === "conversation.assistant_sent" && value.channelCode !== 1
     || eventType === "conversation.user_committed" && value.channelCode !== 1 && value.channelCode !== 2) {
     throw new TypeError("context_payload_invalid");
   }
@@ -439,7 +505,9 @@ export class D1ContextRetriever implements ContextRetriever {
     const historyStatement = this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
       FROM events INDEXED BY events_subject_sequence_idx
       WHERE subject_id = ?1
-        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+        AND event_type IN (
+          'conversation.user_committed', 'conversation.assistant_delivered', 'conversation.assistant_sent'
+        )
         AND NOT EXISTS (
           SELECT 1 FROM memory_active_event_suppressions suppression
           WHERE suppression.principal_id = ?1

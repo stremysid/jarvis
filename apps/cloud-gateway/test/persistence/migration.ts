@@ -43,6 +43,8 @@ import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_c
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
 import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_call_pin_and_owner_authority.sql?raw";
 import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
+import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
+import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
 import confirmOnlyFiveActionsSql from "../../src/persistence/migrations/0051_confirm_only_five_actions.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
@@ -152,6 +154,10 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     // fixture has not installed those tables or triggers, so applying 0044 here
     // would make its first DROP fail rather than exercise memory ingress. The
     // current-schema and full-schema fixtures below both apply 0044.
+    { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+    // 0051 is deliberately NOT here. It UPDATEs the collector row 0040 seeds,
+    // and this chain runs before the newest chain applies 0040: recorded here
+    // first, 0051 would be skipped there and leave the revoke at tier 3.
   ]);
   await memoryIngressMigrated;
 }
@@ -350,6 +356,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
       name: "0047_call_pin_and_owner_authority.sql",
       queries: splitMigration(callPinAndOwnerAuthoritySql),
     },
+    { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
     { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
   ]);
   await newestRuntimeMigrated;
@@ -409,6 +416,8 @@ const allCloudGatewayMigrations = Object.freeze([
     queries: splitMigration(callPinAndOwnerAuthoritySql),
   },
   { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+  { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
   { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
 ]);
 

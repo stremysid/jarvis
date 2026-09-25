@@ -34,7 +34,8 @@ const legacy = JSON.parse(readFileSync(resolve(root, "tests/fixtures/memory-proj
 const expand = (text) => text.replaceAll("<six>", "6".repeat(6)).replaceAll("<eight>", "7".repeat(8))
   .replaceAll("<four>", "4".repeat(4)).replaceAll("<bearer>", "a".repeat(15) + "1");
 const cases = [
-  ...gaps.map((item) => ({ ...item, refuse: item.text !== item.expected })),
+  // Python projects Sid's own memory, so parity is with the owner audience.
+  ...gaps.map((item) => ({ ...item, expected: item.owner, refuse: item.text !== item.owner })),
   ...legacy.redactionCases.map((item) => ({ ...item, text: expand(item.text) })),
   ...legacy.jsWhitespaceCodePoints.flatMap((point) => legacy.spaceTemplates.map((template, index) => ({
     name: `ECMAScript whitespace ${point}, template ${index}`,
@@ -45,7 +46,9 @@ const python = JSON.parse(readFileSync(pythonPath, "utf8"));
 assert.deepEqual(python.map((item) => item.name), cases.map((item) => item.name));
 const { Redactor } = await import(moduleUrl("apps/cloud-gateway/src/security/redaction.ts"));
 const { StreamingOutputRedactor } = await import(moduleUrl("apps/cloud-gateway/src/security/streaming-output-redactor.ts"));
-const redactor = new Redactor();
+// Name the reader: the default is external, and every expectation above is Sid's.
+const redactor = new Redactor("owner");
+const audiences = [["owner", redactor], ["external", new Redactor("external")]];
 const failures = [];
 let differences = 0;
 for (const [index, item] of cases.entries()) {
@@ -74,27 +77,28 @@ if (failures.length) {
 } else {
   let streams = 0;
   for (const item of gaps) {
-    for (const sentences of [false, true]) {
+    for (const [audience, streamRedactor] of audiences) for (const sentences of [false, true]) {
+      const expected = item[audience];
       const partitions = [Array.from(item.text), ...Array.from({ length: item.text.length + 1 }, (_, split) =>
         [item.text.slice(0, split), item.text.slice(split)].filter(Boolean))];
       for (const chunks of partitions) {
         try {
-          const stream = new StreamingOutputRedactor(redactor, undefined, sentences);
+          const stream = new StreamingOutputRedactor(streamRedactor, undefined, sentences);
           let emitted = "";
           for (const [index, text] of chunks.entries()) {
             emitted += stream.push({ index, text }).map((part) => part.text).join("");
-            assert.ok(item.expected.startsWith(emitted), `${item.name}: unsafe streamed prefix`);
+            assert.ok(expected.startsWith(emitted), `${item.name}: unsafe streamed prefix`);
           }
-          assert.equal(stream.complete().text, item.expected, item.name);
+          assert.equal(stream.complete().text, expected, item.name);
           emitted += stream.drain().map((part) => part.text).join("");
-          assert.equal(emitted, item.expected, item.name);
+          assert.equal(emitted, expected, item.name);
           streams += 1;
         } catch {
-          console.error(`${item.name}: streaming mismatch with sentence release ${sentences}.`);
+          console.error(`${item.name}: ${audience} streaming mismatch with sentence release ${sentences}.`);
           process.exit(1);
         }
       }
     }
   }
-  console.log(`${streams} streams match exact expectations at every two-part split and character-by-character in both release modes.`);
+  console.log(`${streams} streams match exact expectations at every two-part split and character-by-character in both release modes, for both audiences.`);
 }

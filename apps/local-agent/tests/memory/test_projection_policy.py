@@ -1,4 +1,9 @@
-"""Refusal uses the gateway's redaction categories without rewriting facts."""
+"""Refusal uses the gateway's owner-audience redaction without rewriting facts.
+
+A projected fact is Sid's own memory going to his own cloud store, so Sid's
+codes, PINs, phone numbers and passphrases are projected as they are. Only a
+machine credential (Jarvis's infrastructure-secret shapes) is refused.
+"""
 
 import json
 from pathlib import Path
@@ -16,10 +21,10 @@ GAPS = json.loads(
 
 
 @pytest.mark.parametrize("case", GAPS, ids=lambda case: case["name"])
-def test_redaction_gaps_match_the_gateway_decision(case: dict[str, str | bool]) -> None:
+def test_redaction_gaps_match_the_gateway_owner_decision(case: dict[str, str | bool]) -> None:
     text = str(case["text"])
     assert redaction_would_change(text) is case["refuse"]
-    assert (text != case["expected"]) is case["refuse"]
+    assert (text != case["owner"]) is case["refuse"]
 
 
 def expand(text: str) -> str:
@@ -56,17 +61,15 @@ def test_shared_fact_byte_boundary_is_enforced_by_the_python_producer() -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "Order " + "6" * 6,
-        "pin is " + "7" * 8,
         "authorization: synthetic",
         "bearer " + "a" * 15 + "1",
-        'password="synthetic fixture"',
         "sk-" + "a" * 20,
+        "123456789:" + "A" * 35,
         "-----BEGIN PRIVATE KEY-----not a key",
     ],
-    ids=["digits", "context", "header", "bearer", "assignment", "known-prefix", "key-block"],
+    ids=["header", "bearer", "known-prefix", "bot-token", "key-block"],
 )
-def test_every_redaction_category_is_refused(text: str) -> None:
+def test_every_machine_credential_category_is_refused(text: str) -> None:
     assert redaction_would_change(text)
 
 
@@ -74,13 +77,22 @@ def test_every_redaction_category_is_refused(text: str) -> None:
     "text",
     [
         "A coffee preference",
-        "Order " + "7" * 7,
+        "My sign-in code is " + "6" * 6,
+        "my pin is 4821",
+        "pin is " + "7" * 8,
+        "Call (555) 555-0100",
+        "my passphrase is synthetic meadow lantern",
+        'password="synthetic fixture"',
         "Order " + "8" * 8,
         "bearer of good news",
         "[REDACTED_AUTH_DIGITS]",
         "é" * 2048,
     ],
-    ids=["ordinary", "seven-digits", "eight-digits", "ordinary-bearer", "already-redacted", "unicode"],
+    ids=[
+        "ordinary", "sign-in-code", "pin", "eight-digit-pin", "phone", "passphrase", "password",
+        "eight-digits", "ordinary-bearer", "already-redacted", "unicode",
+    ],
 )
-def test_ordinary_facts_are_not_rewritten_or_refused(text: str) -> None:
+def test_sids_own_data_is_projected_as_it_is(text: str) -> None:
     assert not redaction_would_change(text)
+    assert representable_fact_text(text)

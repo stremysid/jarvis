@@ -41,6 +41,8 @@ import migration0044 from "../persistence/migrations/0044_owner_channel_parity.s
 import migration0045 from "../persistence/migrations/0045_school_collector_hosts.sql";
 import migration0047 from "../persistence/migrations/0047_call_pin_and_owner_authority.sql";
 import migration0048 from "../persistence/migrations/0048_note_sources_without_markdown_citation.sql";
+import migration0049 from "../persistence/migrations/0049_web_tools.sql";
+import migration0050 from "../persistence/migrations/0050_owner_reminders.sql";
 import migration0051 from "../persistence/migrations/0051_confirm_only_five_actions.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
@@ -88,6 +90,8 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0045_school_collector_hosts.sql", sql: migration0045 }),
   Object.freeze({ name: "0047_call_pin_and_owner_authority.sql", sql: migration0047 }),
   Object.freeze({ name: "0048_note_sources_without_markdown_citation.sql", sql: migration0048 }),
+  Object.freeze({ name: "0049_web_tools.sql", sql: migration0049 }),
+  Object.freeze({ name: "0050_owner_reminders.sql", sql: migration0050 }),
   Object.freeze({ name: "0051_confirm_only_five_actions.sql", sql: migration0051 }),
 ]);
 

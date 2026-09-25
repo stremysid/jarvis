@@ -11,7 +11,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
+import { contextForAudience, D1ContextRetriever } from "../../src/conversation/context-retriever.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import type { ConversationDeliveryId } from "../../src/conversation/conversation-types.js";
 import {
@@ -105,14 +105,19 @@ async function suppressEventForTest(input: {
 }
 
 async function conversationEnvelope(input: {
-  eventType: "conversation.user_committed" | "conversation.assistant_delivered" | "conversation.assistant_staged";
+  eventType:
+    | "conversation.user_committed"
+    | "conversation.assistant_delivered"
+    | "conversation.assistant_staged"
+    | "conversation.assistant_sent";
   subjectId: string;
   channelCode: 1 | 2;
   historyEligible: boolean;
   text: string;
   correlationId?: Ulid;
+  memoryItemIds?: readonly string[];
 }): Promise<PersistableEventEnvelopeV1> {
-  const token = new Redactor().redactText(input.text);
+  const token = new Redactor("owner").redactText(input.text);
   if (!token.ok) throw new Error("fixture_redaction_failed");
   return createEnvelope({
     schemaVersion: "1.0",
@@ -130,6 +135,13 @@ async function conversationEnvelope(input: {
       sensitivityCode: 1,
       historyEligible: input.historyEligible,
       text: token,
+      ...(input.memoryItemIds === undefined ? {} : {
+        memoryItemIds: input.memoryItemIds.map((itemId) => {
+          const issued = new Redactor().redactText(itemId);
+          if (!issued.ok || issued.text !== itemId) throw new Error("fixture_redaction_failed");
+          return issued;
+        }),
+      }),
     },
     producerVersion: "conversation-v1",
   });
@@ -337,6 +349,78 @@ describe("D1ContextRetriever", () => {
     ]);
     expect(Object.isFrozen(result)).toBe(true);
     expect(result.every((item) => Object.isFrozen(item))).toBe(true);
+  });
+
+  it("cuts a guest session's redacted context at the newest turn that no longer fits, so no middle turn is spliced out and the newest is kept", async () => {
+    // Oldest first, newest last, as both retrievers return it. Raw, the three
+    // fit the 30-byte budget (8 + 11 + 11); redaction grows the middle one to
+    // 27 bytes. Skipping it would keep the oldest around a gap, and cutting
+    // from the front would drop the newest turn.
+    const oldest = { sourceEventId: newUlid(), text: "old turn", sensitivity: "personal" as const };
+    const middle = { sourceEventId: newUlid(), text: "code 123456", sensitivity: "personal" as const };
+    const newest = { sourceEventId: newUlid(), text: "newest turn", sensitivity: "personal" as const };
+    const base = { async retrieve() { return Object.freeze([oldest, middle, newest]); } };
+
+    const shown = await contextForAudience(base, "external").retrieve({
+      principalId: "principal:context-refit",
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 30,
+    });
+
+    expect(shown).toEqual([newest]);
+  });
+
+  it("keeps a guest session's whole context, in its order, when the redacted items still fit", async () => {
+    const oldest = { sourceEventId: newUlid(), text: "old turn", sensitivity: "personal" as const };
+    const middle = { sourceEventId: newUlid(), text: "code 123456", sensitivity: "personal" as const };
+    const newest = { sourceEventId: newUlid(), text: "newest turn", sensitivity: "personal" as const };
+    const base = { async retrieve() { return Object.freeze([oldest, middle, newest]); } };
+
+    const shown = await contextForAudience(base, "external").retrieve({
+      principalId: "principal:context-refit",
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 46,
+    });
+
+    expect(shown).toEqual([oldest, { ...middle, text: "code [REDACTED_AUTH_DIGITS]" }, newest]);
+  });
+
+  it("gives Sid's own model his stored PIN and phone number as they are, but a guest session's model neither", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:context-audience";
+    const text = "my pin is 4821 and my number is (555) 555-0100";
+    const turn = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 2,
+      historyEligible: true,
+      text,
+    });
+    await append(events, turn);
+    const input = {
+      principalId,
+      channel: "voice" as const,
+      purpose: "conversation" as const,
+      query: "current request",
+      maxTokens: 1_024,
+    };
+
+    const owner = new D1ContextRetriever(env.DB);
+    expect(contextForAudience(owner, "owner")).toBe(owner);
+    await expect(owner.retrieve(input)).resolves.toEqual([
+      { sourceEventId: turn.eventId, text, sensitivity: "personal" },
+    ]);
+    await expect(contextForAudience(new D1ContextRetriever(env.DB), "external").retrieve(input)).resolves.toEqual([
+      {
+        sourceEventId: turn.eventId,
+        text: "my pin is [REDACTED_AUTH_DIGITS] and my number is [REDACTED_PHONE_NUMBER]",
+        sensitivity: "personal",
+      },
+    ]);
   });
 
   it("returns matching published facts with recent history under the same budget", async () => {
@@ -897,6 +981,50 @@ describe("D1ContextRetriever", () => {
     })).resolves.toEqual([
       { sourceEventId: admission.turn.userEventId, text: "remembered question", sensitivity: "personal" },
       { sourceEventId: delivered.deliveredAssistantEventId, text: "acknowledged answer", sensitivity: "personal" },
+    ]);
+  });
+
+  it("puts a call reply into the next turn's recent context, including one stored with historyEligible false", async () => {
+    // A call reply is `conversation.assistant_sent`; without it here, what
+    // Jarvis said on a call was missing from that call's own next turn and from
+    // the next Telegram turn. Replies stored before call replies were history
+    // carry `historyEligible: false`, and must be read too. The transition
+    // guard needs a claimed turn row for this type, which is not what this
+    // test is about, so it is lifted for the two appends only.
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:context-call-reply";
+    const question = await conversationEnvelope({
+      eventType: "conversation.user_committed", subjectId: principalId, channelCode: 1,
+      historyEligible: true, text: "which binder do I need",
+    });
+    const oldReply = await conversationEnvelope({
+      eventType: "conversation.assistant_sent", subjectId: principalId, channelCode: 1,
+      historyEligible: false, text: "the lime binder",
+    });
+    const newReply = await conversationEnvelope({
+      eventType: "conversation.assistant_sent", subjectId: principalId, channelCode: 1,
+      historyEligible: true, text: "and your calculator", memoryItemIds: ["7zzzzzzzzzzzzzzzzzzzzzzzzz"],
+    });
+    await append(events, question);
+    const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'events_conversation_transition_guard'`).first<{ sql: string }>();
+    if (guard === null) throw new Error("context_transition_guard_missing");
+    await env.DB.prepare("DROP TRIGGER events_conversation_transition_guard").run();
+    try {
+      await append(events, oldReply);
+      await append(events, newReply);
+    } finally {
+      await env.DB.prepare(guard.sql).run();
+    }
+
+    const result = await new D1ContextRetriever(env.DB).retrieve({
+      principalId, channel: "telegram", purpose: "conversation", query: "and the binder", maxTokens: 1_024,
+    });
+
+    expect(result).toEqual([
+      { sourceEventId: question.eventId, text: "which binder do I need", sensitivity: "personal" },
+      { sourceEventId: oldReply.eventId, text: "the lime binder", sensitivity: "personal" },
+      { sourceEventId: newReply.eventId, text: "and your calculator", sensitivity: "personal" },
     ]);
   });
 
