@@ -7,14 +7,14 @@ import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 
 const text = "Chem lab due tomorrow at 3pm";
 const call = { id: "voice-deadline", name: "deadline_record", arguments: JSON.stringify({ course: "Chem", title: "lab",
-  dueAt: "2026-09-24T22:00:00.000Z", effort: "project", evidenceExcerpt: text, dueExcerpt: "tomorrow at 3pm" }) };
+  dueAt: "2026-09-24T22:00:00.000Z", effort: "project" }) };
 const options = { messageAt: new Date("2026-09-24T05:00:00.000Z"), processingAt: new Date("2026-09-26T14:00:00.000Z"), timeZone: "America/Vancouver" };
 const rows = async () => (await env.DB.prepare("SELECT * FROM deadlines").all()).results;
 
 describe("deadline voice parity", () => {
   beforeEach(resetDeadlineTables);
 
-  it("records a marked spoken deadline claim from the durable turn date in the configured owner zone", async () => {
+  it("records a marked spoken deadline claim and receipts it in the configured owner zone", async () => {
     const turn = await voiceArgumentTurn(text, call, options);
     expect(turn.result.outcome).toBe("voice_sent");
     expect(await rows()).toMatchObject([{ course: "Chem", title: "lab", due_at: "2026-09-24T22:00:00.000Z" }]);

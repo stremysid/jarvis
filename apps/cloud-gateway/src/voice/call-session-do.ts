@@ -62,6 +62,13 @@ const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const ACTIVATION_RESPONSE = /^\d{6}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_RELAY_FRAME_BYTES = 64 * 1024;
+// A barge-in aborts the live turn's controller, but the turn keeps the slot until
+// it finishes unwinding. This bounds how long the next prompt waits for that.
+const ACTIVE_TURN_SETTLE_BOUND_MS = 2_000;
+const GUEST_REJECTED_SPEECH = "I couldn't verify access. Goodbye.";
+// Fixed handoff data, never interpolated: the relay callback matches it exactly
+// (the way voice-callbacks.ts matches OWNER_STEP_UP_HANDOFF_DATA).
+export const GUEST_REJECTED_HANDOFF_DATA = "jarvis:guest-rejected:v1";
 const INITIALIZATION_KEY = "call-session.initialization.v1";
 const TERMINATION_KEY = "call-session.termination.v1";
 const OWNER_STEP_UP_ALARM_KEY = "call-session.owner-step-up-alarm.v1";
@@ -98,6 +105,16 @@ const reserveActivationAttempt = AuthenticationAttemptBudget.prototype.reserveAc
 const issueObservation = VerifiedChannelObservationAuthority.prototype.issue;
 const confirmIdentityChallenge = IdentityChallengeService.prototype.confirm;
 const reserveGuestPinAttempt = AuthenticationAttemptBudget.prototype.reservePinAttempt;
+
+// Resolves when `promise` does or when the bound elapses, whichever is first.
+// The timer is cleared on the winning promise so a settled turn leaves no timer
+// holding the isolate awake for the rest of the bound.
+async function settleWithin(promise: Promise<void>, milliseconds: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<void>((resolve) => { timer = setTimeout(resolve, milliseconds); });
+  try { await Promise.race([promise, bound]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
+}
 
 function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -661,6 +678,12 @@ export interface OwnerStepUpAlarmPort {
   clear(): Promise<void>;
 }
 
+class TurnInProgressError extends Error {
+  constructor() {
+    super("turn_in_progress");
+  }
+}
+
 /**
  * Dependency-independent portion of the per-call state machine.
  * Conversation streaming and the Durable Object wrapper are added only after
@@ -698,6 +721,9 @@ export class CallSessionCore {
   #ownerStepUpRepromptInFlight = false;
   #ownerStepUpRejection: Promise<void> | null = null;
   #activeTurnAbort: AbortController | null = null;
+  // Set and cleared with #activeTurnAbort so a prompt arriving after barge-in can
+  // wait for the aborted turn to release the slot instead of being dropped.
+  #activeTurnSettled: Promise<void> | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
   #authority: VoiceCallAuthority | null = null;
@@ -1085,6 +1111,20 @@ export class CallSessionCore {
       && this.#activeTurnAbort === controller;
   }
 
+  // A barge-in aborts the live turn's controller but does not clear the slot until
+  // that turn's finally runs. A prompt arriving in that gap must wait, bounded, for
+  // the aborted turn to settle; an un-aborted turn is a true overlap and is dropped.
+  async #awaitTurnSlot(): Promise<void> {
+    const live = this.#activeTurnAbort;
+    if (live === null) return;
+    if (!live.signal.aborted) throw new TurnInProgressError();
+    const settled = this.#activeTurnSettled;
+    if (settled !== null) await settleWithin(settled, ACTIVE_TURN_SETTLE_BOUND_MS);
+    // The bound expired: the aborted turn still owns the slot, so keep the drop
+    // (TurnInProgressError returns without closing, so the call stays open).
+    if (this.#activeTurnAbort !== null) throw new TurnInProgressError();
+  }
+
   #isActiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
     return this.#ownsLiveTurn(lifecycleGeneration, controller) && !controller.signal.aborted;
   }
@@ -1414,6 +1454,9 @@ export class CallSessionCore {
     }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
     if (this.#isFixedStepUpEcho(event.text)) return;
+    // The overlap check precedes the passphrase guard: a competing prompt must not
+    // spend repeat verification (or speak a guard reply) on text it will not use.
+    await this.#awaitTurnSlot();
     const promptText = this.#authority?.kind === "owner"
       ? await this.#guardOwnerRepeat(event.text, this.#now())
       : event.text;
@@ -1422,7 +1465,6 @@ export class CallSessionCore {
     if (Array.from(promptText).length > 8_000 || encoder.encode(promptText).byteLength > 65_536) {
       throw new Error("turn_too_large");
     }
-    if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
     if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
       const draft = parseOwnerAccessIntent(promptText);
       if (draft !== null) {
@@ -1440,11 +1482,17 @@ export class CallSessionCore {
     }
 
     if (this.#conversation === null) throw new Error("conversation_unavailable");
+    // Re-check in the same synchronous run as the claim below: the awaits above
+    // (the slot wait, the repeat guard) let a competing prompt claim the slot first.
+    if (this.#activeTurnAbort !== null) throw new TurnInProgressError();
     const lifecycleGeneration = this.#lifecycleGeneration;
     const controller = new AbortController();
+    let settleTurn!: () => void;
+    const turnSettled = new Promise<void>((resolve) => { settleTurn = resolve; });
     // Collection can await network I/O. Reserve ownership first so interruption
     // and a competing prompt cannot slip past a turn that has not reached the model.
     this.#activeTurnAbort = controller;
+    this.#activeTurnSettled = turnSettled;
     try {
       await this.#awaitAdmission(this.#assertCapacity(), controller.signal);
       if (!this.#ownsLiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
@@ -1500,6 +1548,10 @@ export class CallSessionCore {
       }
     } finally {
       if (this.#activeTurnAbort === controller) this.#activeTurnAbort = null;
+      // Release after the slot is clear, so a waiter resumed by this promise sees
+      // #activeTurnAbort === null and can claim the slot.
+      settleTurn();
+      if (this.#activeTurnSettled === turnSettled) this.#activeTurnSettled = null;
     }
   }
 
@@ -1555,12 +1607,12 @@ export class CallSessionCore {
         });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "authentication_budget_exhausted") throw error;
-        await this.#transition("rejected", observedAt);
+        await this.#rejectGuest(observedAt);
         return;
       }
       if (result.proof === null) {
         const decision = evaluatePinAttempt({ failedAttempts: result.attemptOrdinal - 1, pinMatches: false });
-        if (decision.terminateCall) await this.#transition("rejected", observedAt);
+        if (decision.terminateCall) await this.#rejectGuest(observedAt);
         return;
       }
       this.#authority = await this.#authorityService.mintGuest({
@@ -1579,6 +1631,20 @@ export class CallSessionCore {
     } finally {
       candidate.fill(0);
       this.#guestPin.clear();
+    }
+  }
+
+  async #rejectGuest(observedAt: Date): Promise<void> {
+    await this.#transition("rejected", observedAt);
+    try {
+      await this.#relay.sendNeutralText(GUEST_REJECTED_SPEECH);
+      // Prefer the handoff frame the owner rejection path also uses. It is
+      // best-effort: a provider without end() still gets the close below.
+      if (this.#relay.end !== undefined) await this.#relay.end(GUEST_REJECTED_HANDOFF_DATA);
+    } catch {
+      // A failed final send must not stop the close: the caller is released below.
+    } finally {
+      this.#relay.close(1008);
     }
   }
 
@@ -2083,7 +2149,9 @@ export class CallSession extends DurableObject<Env> {
         return;
       }
       await resolved.core.handleRelayEvent(event);
-    } catch {
+    } catch (error) {
+      // There is no prompt queue. Drop overlap without ending the current call.
+      if (error instanceof TurnInProgressError) return;
       if (!this.#policyClosedSockets.has(socket)) {
         closeSocket(socket, 1011, "relay processing failed");
       }
