@@ -3,6 +3,30 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #194 round 2 (history line breaks, bad rows, older backup sets)
+
+Signed: Claude (builder agent), branch `codex/memory-fixes` after `e53dc852` plus a
+normal merge of `origin/main` (`2e12b3b9`). **Claude-authored, so this delta needs a
+DeepSeek audit.** Touches Sid's rules 2, 4, 8 and 9. No merge to main, deploy,
+migration apply or production access.
+
+- **B1 (blocking):** `memory_history_chunks.text` now holds the search form, with
+  `\n`, `\r` and `\t` written as spaces, so the 0016 CHECK accepts it. There is no
+  migration. `content_hash` covers the stored form. Literal search, the meaning
+  index and the Telegram retriever compare against that form; excerpts and
+  recalled text still come from the original event, line breaks included. The
+  acceptance test is un-skipped and passes on the real migrations.
+- **B2:** exhaustive search jobs store and hash the query's search form (the 0025
+  CHECK).
+- **One bad row:** an undecodable row gets a `failed` coverage row with a named
+  `failure_code`, and the cursor moves on. The redactor-mismatch stop is removed.
+- **S1/S2:** added the mid-list backup fixture. Restore now accepts a set whose
+  cuts are a subset of the current tables, restores each table by name and skips
+  tables the target schema lacks.
+- **Evidence:** focused Vitest 236 + 226 passed. `typecheck` is clean;
+  `typecheck:tests` shows the same errors before and after this change, all in
+  other files. mutate.ps1: 13/13 KILLED and confirmed (details in the PR comment).
+
 ## 2026-09-24 — DeepSeek builder: three memory root causes (codex/memory-fixes)
 
 Signed: DeepSeek (builder), branch `codex/memory-fixes` from `a7cd3553`. No merge,

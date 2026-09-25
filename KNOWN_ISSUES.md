@@ -1,33 +1,35 @@
 # Known issues
 
-## Literal-history line breaks are still blocked by the table constraint (2026-09-24)
+## Literal-history rows that cannot be decoded are skipped, not surfaced to search (2026-09-25)
 
-`rowText` in
-[`literal-history.ts`](apps/cloud-gateway/src/memory/literal-history.ts) no
-longer treats newline, carriage return and tab as corruption, but
-`memory_history_chunks.text` in
-[`0016_cloud_memory.sql`](apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql)
-still carries `text NOT GLOB ('*[' || char(1) || '-' || char(31) ...)`, which
-every code character from 1 to 31 fails. A message containing a line break is
-therefore still refused when the chunk batch is written, as
-`memory_history_unavailable`, and the history cursor still does not advance past
-it. Migration `0025` constrains `memory_literal_search_jobs.query_text` the same
-way. Clearing either is a SQLite table rebuild -- `CHECK` constraints cannot be
-altered -- carrying FTS bindings and the insert and immutable-update triggers,
-so it is a separate change with its own review. The acceptance test
-`indexes a history row containing a newline, carriage return or tab` is present
-and skipped until that migration lands.
+Since #194 round 2, `indexSequences` in
+[`literal-history.ts`](apps/cloud-gateway/src/memory/literal-history.ts) records a
+row it cannot decode (an envelope that fails validation, a control character
+other than a line break or tab, non-NFC or oversize text, a payload that is not
+history-eligible) as a `failed` row in `memory_history_coverage`, with a named
+`failure_code` such as `history_row_text_invalid`, and moves the cursor past it.
+The hourly job reports the count as "rows skipped". What is not done yet:
 
-## A backup run that predates a table-list growth cannot be restored (2026-09-24)
+- `searchLiteral` does not tell the model that a skipped row exists, so a
+  `no_hit` covers every row that was indexed, not literally every row.
+- An exhaustive search job still fails as `history_step_corrupt` when its walk
+  reaches such a row.
+- A skipped archived row settles on its segment id alone, and no test drives a
+  skipped row through the archive path.
 
-`memory-backup.ts` now completes such a run and publishes a manifest of its own
-tables, but
-[`memory-backup-restore.ts`](apps/cloud-gateway/src/backup/memory-backup-restore.ts)
-`requireManifestShape` requires the manifest's cuts to be exactly the current
-`MEMORY_BACKUP_TABLES` set, so it refuses that manifest as
-`memory_backup_restore_manifest_invalid`. The run is complete and durable; it is
-only unrestorable. Teaching the restore to accept a subset is a change to a file
-PR #174 is editing, so it is not made here.
+Line breaks themselves are no longer a problem: the search copy stores them as
+spaces (the 0016 and 0025 CHECKs refuse them) and the event keeps the original.
+
+## Restoring a set at an older schema version still checks today's seeded rows (2026-09-25)
+
+Since #194 round 2, the restore accepts a set whose table cuts are a subset of
+`MEMORY_BACKUP_TABLES`, restores each table it holds by name, and skips backup
+tables the target schema does not have. `assertFreshRestoreTarget` still
+compares the migration-seeded rows (`capability_tiers` and the singletons) with
+the list in the current code. A target migrated only to an older set's schema
+version, from before a migration that seeded new capabilities, fails that check
+as `memory_backup_restore_target_not_fresh:capability_tiers`. This is older
+than #194 and applies to any older-version set.
 
 ## Tier-3 confirmations issued before tool binding (2026-09-24)
 
