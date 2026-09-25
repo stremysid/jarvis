@@ -12,7 +12,7 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
   ...SCHOOL_COLLECTOR_TOOLS,
   Object.freeze({
     name: "school_update",
-    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline, a missed deadline or an explicit submission; finished alone does not mean submitted.",
+    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline or a deadline's status (open, submitted, missed, cancelled); you judge which one Sid's words mean, and ask him if unsure.",
     parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({

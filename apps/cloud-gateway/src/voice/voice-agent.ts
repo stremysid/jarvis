@@ -47,7 +47,7 @@ A receipt added to your words is read aloud verbatim by the system, so never rea
 
 There is no screen and Sid cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here. Describe links or files in spoken words when needed.
 
-When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap. For a staged model-inferred memory, ask Sid to open /queue in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /queue in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
+For a staged model-inferred memory, ask Sid to open /queue in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, the system itself asks him for his four digit PIN at that moment, and he says it or keys it in; a Telegram tap he already gave for the same action also counts. Never ask for the PIN yourself and never repeat it back. If the system says it cannot take a PIN on this call, ask him to open /queue in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 confirmation.`;
 
 /**
  * The spoken refusals name `/queue`, which is the bot's real decision list.
@@ -117,7 +117,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
+      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. You resolve deadline dates and times from what Sid says; if you are unsure which one he means, ask him.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
@@ -165,9 +165,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because I cannot tell which memory you meant. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
-        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
-        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
-          channelCode: 1, requireDirectOwnerText: false })),
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto"),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);

@@ -64,7 +64,7 @@ describe("OwnerAccessService", () => {
   beforeEach(async () => {
     await clearVoiceAccessFixture(env.DB);
     repository = new VoiceAccessRepository(env.DB);
-    await seedOwnerAuthority(env.DB, repository, { stepUpVerified: true });
+    await seedOwnerAuthority(env.DB, repository);
     registry = new CapabilityRegistry({
       installed: ["conversation.basic", "research.web", "calls.place", "access.manage"],
     });

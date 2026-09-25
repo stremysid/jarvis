@@ -15,12 +15,12 @@ export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   ...WEB_TOOL_DEFINITIONS,
 ]);
 
+// Authority is checked by the shared core before this runs: OwnerAgentCore
+// requires direct owner text, re-reads the durable committed owner turn for
+// this channel (memoryOwnerTurn) and passes the tier gate. That stored turn,
+// with Sid's raw words, is the evidence for whatever the model records here.
 export function ownerArgumentTool(database: D1Database, input: Readonly<ModelAdapterStreamInput>,
-  call: ModelFunctionCall, now: () => Date, ownerZone: string,
-  readTurn: () => Promise<{ occurredAt: string }>): (() => Promise<ExecutedTool>) | null {
-  if (call.name === "deadline_record") return async () => {
-    const turn = await readTurn();
-    return recordDeadline(database, input, call, now(), { ownerZone, messageAt: turn.occurredAt });
-  };
+  call: ModelFunctionCall, now: () => Date, ownerZone: string): (() => Promise<ExecutedTool>) | null {
+  if (call.name === "deadline_record") return async () => recordDeadline(database, input, call, now(), { ownerZone });
   return null;
 }

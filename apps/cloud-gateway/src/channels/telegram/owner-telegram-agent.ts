@@ -136,7 +136,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
+      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time; if you are unsure which date or time Sid means, ask him.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -179,8 +179,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
-        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto",
-        () => readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null })),
+        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto"),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await adapter.previousAssistant(turnInput);

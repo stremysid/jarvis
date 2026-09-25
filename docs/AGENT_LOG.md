@@ -13,6 +13,68 @@ Signed: Claude (builder agent), branch `codex/web-tools`. Touches rules 1, 2, 3,
 - **F3, F5 fixed; F4 documented** in the `0049` comments; F6 needs no code change.
 - **Evidence:** `web-tools.test.ts` 23/23 locally; gateway `typecheck` clean; `typecheck:tests` 143 errors, none in touched files. `mutate.ps1`: 7 killed, 0 survived, 0 not applied.
 - **Not verified:** whether production actually has `PUBLIC_ORIGIN` set. `docs/runbooks/deploy.md` lists it under calling secrets "set in production", but that was not checked live. If it is missing, `web_read` will say so.
+## 2026-09-25 — Claude builder: #196 round 3 (0047 behavioural test, doc fixes)
+
+Signed: Claude (builder agent), `codex/call-pin` from audited head `4047e9d`. Touches Sid's rules 3, 4, 8, 9. Main then moved to `eb4c8e3` (#184), so it was merged normally in `68b52bc`.
+
+- **Audit finding 2:** `owner-call-step-up-migration.test.ts` runs the migrated schema. It refuses owner authority to a stranger's voice identity and to Sid's own second, unenrolled number, and admits the enrolled identity as the control. The three 0006 session guards are suspended only to forge the session row, then recreated from their stored SQL.
+- **Findings 3, 4, 7:** OWNER-ACTIONS migration numbers (#196 `0047`, #194 `0048`, #195 `0049`, checked via `gh`); STATE and KNOWN_ISSUES now say a call's tier-3 confirmation is the PIN once #196 is deployed; #196 row added to QUEUE.
+- **Verified here:** `mutate.ps1` 2/2 killed and confirmed (`WHERE 1 = 1`; identity match dropped alone), restore byte-identical; focused file 3/3 passed; gateway `tsc` exit 0; test typecheck 140 errors before and after, 0 in the changed file; `check-state` pass (1 existing FACTS warning).
+- **#184 merge:** `call-session-do.ts` keeps #184's bounded turn-slot wait, re-check and guest rejection, with the late-PIN claim still ahead of the slot wait. The passphrase echo/repeat-guard lines stay deleted. #184's new `call-session-relay-fixes.test.ts` is ported off the deleted step-up service: the repeat-check race is now a late-PIN-claim race, and two tests that only covered the repeat check are dropped. Merge mutations 3/3 killed and confirmed (no slot wait; no re-check; slot wait moved ahead of the late-PIN claim). Focused voice/autonomy/migration: 7 files, 187 passed.
+- **Not done:** finding 1 (tier-3 list trim) is a separate follow-up PR. Finding 5 skipped: a new abort guard needs its own test and mutation check, so it is not a one-liner, and it guards a read that spends no authority. Claude-authored; not merged or deployed.
+
+## 2026-09-25 — Claude builder: #196 round 2 (call PIN tied to its turn)
+
+Signed: Claude (builder agent), `codex/call-pin` from reviewed head `4db957d`. Touches Sid's rules 1, 3, 4, 5, 8, 9.
+
+- **Merged main twice, normally:** `02fe89f` (#174) and `605c177` (#194). Migration lists keep `0047` and `0048` in order.
+- **Fixed review findings 1-6:** a PIN'd action never runs after its turn ends (signal through the gate, question closes on abort, re-check before the body; barge-in stops only the prompt audio); the turn clock is held during the question, 20 s per attempt re-armed; transcript punctuation/capitals/"oh"/any "cancel"; a late PIN within 10 s is consumed, never a turn; OWNER-ACTIONS row rewritten (runbook commands, Sid's five, no memory PIN); PIN stays a plain Worker secret per the reviewer ruling (constant-time, never logged, stored or spoken).
+- **Verified here:** `mutation-specs-call-pin-round2.json` 24/24 killed (one survivor removed as dead code, then killed); focused voice/autonomy/persistence/backup/acceptance-voice 70 files, 1567 passed; gateway `tsc` 0; `check-state` pass.
+- **Not done:** the `0047` trigger survivor test, the tier-3 registry trim. Claude-authored: needs a DeepSeek audit. Not merged or deployed.
+
+## 2026-09-24 — DeepSeek builder: remove the every-call passphrase, add the spoken PIN
+
+Signed: DeepSeek V4.1 Flash (builder), branch `codex/call-pin` from `a7cd3553`.
+
+- **What Sid decided, and what this does.** (2026-09-17) "a spoken 4 digit pin will
+  work best on only sensitive things"; re-confirmed 2026-09-24: an ordinary owner call
+  gets no passphrase and no PIN. The every-call owner-passphrase step-up is deleted, and
+  a 4-digit PIN is asked only at a tier-3 action on a call. Sid knowingly accepts the
+  caller-ID spoofing risk and no gate was added for it.
+- **Removed:** `src/voice/owner-call-step-up.ts` and its wiring in `call-session-do.ts`
+  (the interaction, `#guardOwnerRepeat`, `#handleOwnerStepUpPrompt`, the window/assembly
+  alarms, the DO alarm, the rejected-call resume path, the handoff data),
+  `production-runtime.ts`, `production-routes.ts`, `inbound.ts`, `outbound.ts`,
+  `voice-route-construction.ts`, `voice-callbacks.ts`, the `/disable-owner-step-up`
+  Telegram command, and `OwnerCallStepUpService`. Kept deliberately: the owner-passphrase
+  verifier, its repository, migration `0017`/`0018` and their tables (the foundation,
+  unused for now).
+- **Kept and extracted:** the owner capacity-refusal alert is now
+  `src/voice/owner-call-alerts.ts` (`D1OwnerCallAdmissionAlertSink`); the `rejected` and
+  `configuration` alert classes are gone with the gate.
+- **Added:** `src/voice/sensitive-action-pin.ts` (the gate), a third
+  `ToolChannelAuthorizationPort` argument on `ToolAutonomyGate`, routing of a call's
+  utterance and DTMF to the PIN question in `CallSessionCore`, forgiving
+  `normalizeSpokenPin` (digits, digit words, two two-digit numbers), and migration
+  `0047_sensitive_action_pin_attempts.sql` as the append-only wrong-candidate ledger.
+- **The PIN itself** is a Worker secret (`OWNER_ACTION_PIN`), read in
+  `production-runtime.ts`, never logged, never stored, never spoken back, and compared in
+  constant time. No derived material is stored. `docs/OWNER-ACTIONS.md` has the row.
+- **Fail-closed:** no PIN configured, no surface attached, a broken ledger write, a
+  question nobody answers, or a missing channel gate are all refusals; the action is
+  never run unguarded.
+- **Finding to carry forward:** "reading memories marked sensitive" is **not** tier-3 at
+  the tool-gate boundary and this change does not make it so. The boundary classifies per
+  tool name and sensitivity is a per-item property, so the only ways to gate it are
+  gating every `memory_explain`/`memory_search` (not what Sid asked for) or reading the
+  model's `itemId` argument to choose a tier (forbidden by `tool-gate.ts`'s own contract).
+  Stated in the PR body rather than papered over with a second list.
+- **Docs rewritten:** `docs/runbooks/owner-passphrase.md`, `docs/runbooks/voice-smoke.md`,
+  the live smoke evidence schema (now `1.4`, with
+  `authenticationPromptsBeforeFirstModelTurn: 0` for an owner call), and the release gate
+  filters.
+- **Scope:** no merge, no deploy, no migration applied to any real database, no live call.
+
 
 ## 2026-09-25 — Claude builder: #194 round 2 (history line breaks, bad rows, older backup sets)
 
@@ -141,6 +203,89 @@ Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid ap
 - **Scope:** no merge, deploy, migration application, secret change or production access.
 
 
+## 2026-09-24 — Claude builder: deadline_record lets the AI decide
+
+Signed: Claude (builder agent), branch `codex/deadline-judgment-removal` from `a7cd355`. Needs a DeepSeek audit (cross-vendor).
+
+- **Why:** Sid, 2026-09-24: "why would jarvis refuse? … why doesnt he just ask for clarity?" and "code should never make a decision or restrict jarvis". The #166 proof contract was code judging Sid's wording.
+- **Removed:** `deadline-date-proof.ts` (whole file: `DUE_PHRASE`, `resolveDate`, the relative-date and bare-clock parsing, small-hours logic, passed-clock refusal, the "code cannot choose between them" refusals); `statusOf`/`STATUS_WORDS`; the course/title/due order and gap checks; the `evidenceExcerpt`/`dueExcerpt` arguments; the uncertain-prefix refusal, which is now a receipt hint naming similar stored rows. The `school_update` description no longer says "finished alone does not mean submitted". The argument tool's second turn read is gone: the core's `memoryOwnerTurn` already re-reads the durable owner turn before any argument tool runs.
+- **Kept:** a real `YYYY-MM-DD` or ISO instant with an offset (date-only is stored at end of day in the zone and labelled date-only), a real IANA zone, effort/status enums, nonblank course/title, owner authority via the shared core, principal-scoped storage and dedupe, and the refusal when two stored rows already share one identity.
+- **Tests:** `deadline-date-proof.test.ts` and `deadline-review-r1..r7` deleted (they pinned the grammar); the kept behaviours moved into `deadline-tool.test.ts` (62 tests), including previously refused phrasings, now accepted: `Chem lab report. due 3pm friday`, a due phrase in the next sentence, an abbreviation the model expands, a same-day weekday, a passed clock, and a "finished … put it in the dropbox" submission.
+- **Mutation:** 18 guards, all KILLED via `reviewer-tools/mutate.ps1`. The first run reported 2 SURVIVED; both were bad specs, not weak guards: `false && a || b` left the month clause live, and the removed turn read was redundant. Specs fixed and re-run.
+- **Focused runs:** `test/deadlines` 183/183; `voice-agent`, `owner-telegram-agent`, `deepseek-agent-catalogue`, `tool-classification` 154/154. `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its existing FACTS warning. Full suite: GitHub Actions only.
+- **Docs:** CODE-VS-JUDGMENT's deadline section is now marked removed. OWNER-ACTIONS drops the small-hours question and rewrites the live check.
+- **Merge from main:** #180 (`e831e34`) added more gap-grammar cases to `deadline-review-r7.test.ts`. Kept the deletion, because they pin the removed grammar.
+- **Evidence link, as found:** a deadline row has no column pointing at its owner turn, before or after this PR. Sid's raw text is in the durable turn's user event, and the receipt is in that turn's delivered reply. A row-level link would need a migration, so it is not done here.
+- **Round 2 (DeepSeek audit 1):** pinned the skipped-day refusal (Pacific/Apia 2011-12-30); the mutation was KILLED, confirmed on a second run. QUEUE's row now matches OWNER-ACTIONS, and the #166 round-7 X/Y rows are retired. The bare OWNER-ACTIONS row, left by my merge script, is replaced with a live deadline check. The voice prompt no longer claims code checks dates. `EFFORT_KEYWORDS` is deferred to its own PR. Deadlines 184/184, channel/voice 158/158.
+- **Scope:** no merge, deploy, migration or production access.
+## 2026-09-24 — Claude builder: #184 round 3, turn slot re-check and pinned bounds
+
+Signed: Claude (builder agent), `codex/call-session-fixes` after `90ebdf78`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches rules 3, 4, 5 and 8.
+
+- **R1 (blocking):** `CallSessionCore` re-checks `#activeTurnAbort` in the same
+  synchronous run as the claim, so two racing prompts can no longer both claim
+  and close the call with 1011. The two review tests (owner prompts racing the D1
+  repeat lookup; two prompts after one barge-in) failed on `90ebdf78` with
+  `close(1011, "relay processing failed")` and pass with the line. A third test
+  pins that a prompt past the slot check never claims over an aborted turn that
+  still owns it.
+- **R2:** the barge-in replacement must reach the model within 500 ms of the
+  settle; a new test holds the aborted turn past the 2 s bound and checks that the
+  late prompt is dropped before the repeat check with the call still open.
+- **R3:** the third-bad-candidate test now asserts the `rejected` transition is
+  invoked, and resolves, before the first send.
+- **Gates:** `test/voice` + `tests/acceptance/fake/voice-*`, `tsc`, `check-state`
+  and a `mutate.ps1` run (8 mutants, 8 killed, each confirmed on a second run).
+  Main merged; this log kept both sides. No passphrase change, merge, deploy,
+  migration or live call.
+
+## 2026-09-24 — DeepSeek builder: #184 round 2 narrowed to the non-passphrase call fixes
+
+Signed: **DeepSeek (dsh headless builder, effort high), codex/call-session-fixes round 2 (narrowed)**.
+
+Scope changed mid-task (coordinator relaying Sid, 2026-09-24): the every-call owner
+passphrase is being removed (Sid's Sep 17 decision — a spoken 4-digit PIN for
+sensitive things only, built in a separate PR). #184 must not change passphrase
+behaviour, so this round REVERTS every passphrase-window edit and keeps only the
+call fixes. No new branch and no new PR: the existing `codex/call-session-fixes`
+head was advanced by merging `origin/main` (`a7cd3553` → `82113f0d`).
+
+- Reverted to `origin/main`: the `#guardOwnerRepeat` guard branch (`return null;`),
+  the neutral reply on guard suppression, the `voice-owner-passphrase-security`
+  fixture edit, `docs/CODE-VS-JUDGMENT.md` row 1, and the five passphrase-window
+  tests in `call-session-relay-fixes.test.ts`. Those two passphrase files are now
+  byte-identical to main (`git diff origin/main -- <both files>` is empty).
+- Kept: `TurnInProgressError` and the `CallSession` catch that returns on it (an
+  overlap no longer closes 1011); `#rejectGuest` (neutral line then 1008).
+- Dropped: F1 entirely (`containsOwnerPassphraseWord`, the seven forms, the
+  KNOWN_ISSUES note). It was never present in this branch; `git grep` finds nothing.
+
+Round-1 review fixes added:
+
+- **F2 (Medium):** `#activeTurnSettled` now accompanies `#activeTurnAbort`. When a
+  prompt arrives with the live controller already aborted (barge-in),
+  `#awaitTurnSlot` awaits the aborted turn's settle promise, bounded at 2 s, then
+  admits the prompt; an un-aborted live turn still throws `TurnInProgressError`, and
+  an expired bound keeps the drop. Two tests: "admits a prompt sent after barge-in
+  once the still-unwinding turn settles" (relay) and "admits a prompt sent after
+  barge-in once the aborted turn releases the slot" (core).
+- **F3 (Low):** the overlap check (`#awaitTurnSlot`) now runs above
+  `#guardOwnerRepeat`, so an overlapping owner prompt never reaches `repeatStatus`.
+  `#guardOwnerRepeat` is passphrase-only (`#ownerStepUp`); nothing inside it changed.
+  Test: "refuses an overlapping owner prompt before it reaches the passphrase repeat
+  check".
+- **F4 (Low):** `#rejectGuest` sends a fixed guest handoff
+  (`GUEST_REJECTED_HANDOFF_DATA = "jarvis:guest-rejected:v1"`, never interpolated)
+  after the neutral line, with `close(1008)` in `finally` as the fallback. Live
+  playback of that handoff is unverified, and `voice-callbacks.ts` does not yet
+  branch on the guest constant (it still returns 204 for it).
+
+Verification observed: `call-session-relay-fixes.test.ts` 7/7,
+`call-session-do.test.ts` 131/131, `voice-owner-passphrase-security.test.ts` 38/38;
+source `tsc --noEmit -p apps/cloud-gateway` exit 0; test tsconfig 143 diagnostics,
+none in changed files; `check-state` and `git diff --check` pass; mutation kills
+recorded in the PR. No merge, deploy, live call, migration or credential.
 
 ## 2026-09-24 10:19 PM — Claude builder: #191 review nits and main merge
 
@@ -1734,6 +1879,98 @@ Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
 - **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
 - **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
 
+## 2026-09-24 — Codex builder: call-session relay fixes, harness execution pending
+
+Signed: Codex GPT-6 Astra, headless cloud builder, codex/call-session-fixes
+
+Built from a clean checkout with HEAD and `origin/main` both at `f5ba9a8`.
+The three salvage findings were rechecked against that source before editing.
+Confirmation is by reading, not a runtime reproduction; no falsifier was
+established. The code contains no prompt queue. Provider event scheduling,
+transcript arrival latency and audible playback remain unmeasured.
+
+| Item | Result |
+|---|---|
+| Overlapping final prompt | Confirmed: the core threw a generic `turn_in_progress` and the DO catch closed with 1011. The core now throws an internal typed condition with the same message, preserving the existing core tests. The DO catches only that type and drops the overlapping prompt with no queue or second model call. Unexpected errors still close, including an unrelated error with the same message. |
+| Third bad guest candidate | Confirmed: the terminating decision only transitioned to `rejected`; speech and closure waited for nothing that could deliver them. Both this path and authentication-budget exhaustion now send a fixed neutral final text frame and close with 1008. The close runs even if sending fails. No candidate enters speech or logs. |
+| Owner speech just after verification | Confirmed: `guard` returned null without inspecting the text. It now applies `ownerPassphraseFragmentWordCount`, allowing ordinary speech such as `Stop` while keeping passphrase-shaped text suppressed. Every null result from this guard sends a neutral reply. Later fragment/repeat rules stay in place. The judgment register records the partial correction and leaves model-prompt disclosure open. |
+
+All new tests live in
+`apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts`. The harness
+imports the existing migration and voice-access helpers, uses real authentication
+and conversation services with a fake model, and drives `webSocketMessage` through
+the real socket relay adapter. New test names (ten cases across seven declarations):
+
+- `drops an overlapping prompt without closing the relay or starting another model turn`
+- `closes the relay for an unexpected error even when its message is %s`
+  (`unexpected_capacity_failure`, `turn_in_progress`)
+- `sends a final rejection frame and closes after the third bad guest candidate`
+- `closes a rejected guest relay even when sending the rejection fails`
+- `passes ordinary owner speech %s to the model within the guard window`
+  (`Stop`, `What comes next?`)
+- `keeps a passphrase repeat out of the model within the guard window and speaks a neutral reply`
+- `speaks a neutral reply for each suppressed passphrase fragment at %i milliseconds`
+  (1000, 2500)
+
+One existing acceptance input in
+`tests/acceptance/fake/voice-owner-passphrase-security.test.ts` explicitly demanded
+that ordinary speech inside the guard be lost. Changed that input to its existing
+synthetic passphrase, retaining its no-model/no-transcript security assertions.
+No new test was added there. The four files reserved for #174 are untouched.
+
+Verification here: source `tsc --noEmit -p apps/cloud-gateway` passed. Test
+typechecking reports 143 existing diagnostics, none in the new file or changed
+runtime source. `git diff --check` passed. `node scripts/check-state.mjs` passed
+with one pre-existing FACTS re-verification warning about background collector
+access. No Vitest, pnpm or mutation execution was attempted under the harness
+rules, so there is no runtime pass count and no mutation claim.
+
+Next actions, with timing:
+
+1. **When the harness takes this worktree:** run
+   `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-relay-fixes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-guest-access.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts`.
+2. **After the focused run passes:** perform the isolated mutations listed in
+   `.codex-pr-body.md` (typed overlap handling, same-message fault handling, guest
+   speech/close and budget rejection, unconditional guard, passphrase leakage,
+   neutral suppression reply), restoring and rerunning focused tests afterwards.
+3. **When the harness opens the PR:** run the full suite in GitHub Actions and
+   record results. Claude reviews this calling change at max effort on its exact
+   head after those results, per BUILDING. Live playback and event timing are
+   still unverified, not implied by synthetic frame assertions.
+
+`.codex-commit-msg.txt` and `.codex-pr-body.md` are ready for the harness. Git was
+read-only throughout. No push, merge, deploy, migration application, secret
+access, live call or Linux runbook step; no migration added.
+
+**Harness round 2.** Owner-reported round-1 results: 25 files, **606 passed,
+1 failed**, source tsc 0 and check-state passed. The overlap test failed before
+its first prompt: `beforeEach` stopped at 0018, but owner verification reads
+`owner_call_step_up_disabled_rejections`, created by 0021. Its `afterEach` cleanup
+installs 0021 through `clearVoiceAccessFixture` → `clearOwnerCallStepUpDataForTest`,
+explaining the other nine passes. Setup now imports and awaits the existing
+`applyVoiceOwnerDeliveryMigration`; the overlap assertions and runtime fix are
+unchanged. No new migration or schema workaround.
+
+The old acceptance input stays changed because finding 3 and Sid's explicit
+brief require ordinary speech within two seconds to reach the conversation.
+Its original no-model assertion for `This final arrives inside the repeat guard.`
+required the exact speech-loss defect being fixed. The acceptance test retains
+its no-model/no-transcript assertions for the synthetic passphrase. Added
+`passes the ordinary utterance formerly dropped by the guard to the conversation`
+using that exact ordinary sentence at +1000 ms, and
+`suppresses a passphrase split after word %i across two finals inside the guard window`
+for splits after word 1 and word 2, at +500/+1500 ms. Each split final must reach
+neither conversation nor model and must receive a neutral reply. All three new
+cases are in `call-session-relay-fixes.test.ts` (now thirteen cases total).
+
+Round-2 local checks: source tsc 0; test tsc still 143 existing diagnostics,
+none in the new test or runtime file; check-state passed with the same FACTS
+warning; diff check clean. Runtime and mutation reruns remain unavailable here.
+**When the harness resumes:** run the new file alone in a fresh worker first,
+then the same voice and fake acceptance directories, using the commands in
+`.codex-pr-body.md`; retain the mutation and independent-review steps above.
+Handoff files updated. Nothing staged and no Git writes.
+
 ## 2026-09-24 — Codex builder: remaining redaction gaps, harness handoff
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/redaction-gaps.
@@ -1951,6 +2188,7 @@ follow-up. The commit message and 12-line PR addendum are updated.
   independent reviewer checks the exact resulting head. F5 remains a follow-up.
 
 Round 2 CI lint follow-up, signed Codex, 2026-09-24: replaced Python's literal curly apostrophe with raw regex `\u2019` for RUF001 without changing its meaning; `rg` found no other curly-quote literals in `apps/local-agent`; TypeScript unchanged; harness runs Ruff, pytest and the differential.
+
 
 ## 2026-09-24 — Codex builder: #166 and #178 review lows
 

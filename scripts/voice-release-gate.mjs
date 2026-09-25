@@ -12,9 +12,15 @@ export const VOICE_FAKE_TEST_FILTERS = Object.freeze([
   "apps/cloud-gateway/test/voice/capability-registry.test.ts",
   "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
   "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",
-  "apps/cloud-gateway/test/voice/owner-call-step-up-alert.test.ts",
   "apps/cloud-gateway/test/voice/call-session-do.test.ts",
-  "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+  "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+  // The PIN gate replaced the per-call passphrase, so the release gate runs its
+  // recognition, its ledger and its tier-3 boundary rather than the removed
+  // step-up file that used to sit here.
+  "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+  "apps/cloud-gateway/test/voice/pin-capture.test.ts",
+  "apps/cloud-gateway/test/voice/owner-call-alerts.test.ts",
+  "apps/cloud-gateway/test/autonomy/tier3-pin.test.ts",
   "apps/cloud-gateway/test/policy/policy-engine.test.ts",
   "apps/cloud-gateway/test/policy/outbound-runtime.test.ts",
   "apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts",

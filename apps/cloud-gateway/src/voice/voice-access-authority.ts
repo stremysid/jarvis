@@ -410,9 +410,13 @@ export class VoiceAccessAuthorityService {
       if (!authority.capabilityIds.includes(capabilityId as GuestCapabilityId)) throw new Error("capability_denied");
     }
     await this.#repository.requireCurrentAuthority(issued.persisted, now);
-    if (authority.kind === "owner" && capabilityId === "access.manage") {
-      await this.#repository.requireOwnerStepUpVerified(issued.persisted);
-    }
+    // The passphrase-success check that used to sit here for `access.manage` is
+    // gone with the per-call passphrase gate (Sid, 2026-09-24). It could only be
+    // satisfied by a passphrase match that no code path can produce any more, so
+    // keeping it would have made owner access administration impossible rather
+    // than protected. What still guards it: the owner authority on this call,
+    // the durable current-authority check above, and the explicit confirm-and-PIN
+    // step of the owner-access flow itself.
     const current = this.#issued.get(authority);
     if (current !== issued || current.value !== authority) invalidAuthority();
     return authority;
