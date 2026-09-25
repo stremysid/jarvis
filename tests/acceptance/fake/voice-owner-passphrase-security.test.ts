@@ -568,7 +568,7 @@ describe("owner-call passphrase security contract", () => {
       const call = await openOwnerCall(system, "inbound");
       await call.prompt(FAKE_OWNER_PASSPHRASE);
       expect(await call.phase()).toBe("active");
-      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      await call.prompt("This final arrives inside the repeat guard.");
       expect(await call.modelRequests()).toEqual([]);
       system.advanceTime(2_001);
       await call.prompt(FAKE_OWNER_PASSPHRASE);

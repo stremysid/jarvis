@@ -11,9 +11,13 @@ import { VoiceAccessRepository } from "../../src/persistence/voice-access-reposi
 import { FakeModelProvider } from "../../src/providers/fake-model-provider.js";
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
 import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
-import { OWNER_PASSPHRASE_WORDS } from "../../src/security/owner-passphrase-word-list.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { CallSession, CallSessionCore, GuestCallAuthentication } from "../../src/voice/call-session-do.js";
+import {
+  CallSession,
+  CallSessionCore,
+  GUEST_REJECTED_HANDOFF_DATA,
+  GuestCallAuthentication,
+} from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { AuthenticationAttemptBudget } from "../../src/voice/inbound-auth.js";
 import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
@@ -34,8 +38,7 @@ import {
 } from "../persistence/voice-access-fixture.js";
 
 const ACCOUNT_SID = `AC${"6".repeat(32)}`;
-// seedOwnerAuthority uses these public word-list entries and this synthetic pepper.
-const SYNTHETIC_PHRASE = OWNER_PASSPHRASE_WORDS.slice(0, 3).join(" ");
+// seedOwnerAuthority uses this synthetic pepper.
 const SYNTHETIC_OWNER_PEPPER = new Uint8Array(32).fill(19);
 
 function prompt(text: string) {
@@ -45,6 +48,7 @@ function prompt(text: string) {
 async function relayHarness(kind: "owner" | "guest", options: {
   capacity?: Pick<CapacityGuard, "assertAcceptingNewTurn">;
   callSidLimit?: number;
+  holdFirstTurn?: Promise<void>;
 } = {}) {
   const repository = new CallRepository(env.DB, new EventRepository(env.DB));
   const access = new VoiceAccessRepository(env.DB);
@@ -91,7 +95,21 @@ async function relayHarness(kind: "owner" | "guest", options: {
     redactor: new Redactor(),
     now: () => observedAt,
   });
+  const realHandleTurn = conversation.handleTurn.bind(conversation);
   const handleTurn = vi.spyOn(conversation, "handleTurn");
+  if (options.holdFirstTurn !== undefined) {
+    const gate = options.holdFirstTurn;
+    let first = true;
+    handleTurn.mockImplementation(async (input) => {
+      // Deliberately ignores input.signal: the abort must not settle this turn, so
+      // the slot stays owned exactly as a slow teardown leaves it.
+      if (first) {
+        first = false;
+        await gate;
+      }
+      return realHandleTurn(input);
+    });
+  }
   const send = vi.fn<(message: string) => void>();
   const close = vi.fn<(code?: number, reason?: string) => void>();
   const socket = { send, close, deserializeAttachment: () => ({ sessionId: stored.sessionId }) } as unknown as WebSocket;
@@ -157,6 +175,8 @@ describe("CallSession relay fixes", () => {
     const gate = new Promise<void>(resolve => { release = resolve; });
     const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
     const harness = await relayHarness("owner", { capacity });
+    // Past the 2 s post-match guard window, where main drops every owner utterance.
+    harness.atOffset(4_000);
     await harness.run(async message => {
       const first = message(prompt("Tell me what is next."));
       try {
@@ -187,6 +207,8 @@ describe("CallSession relay fixes", () => {
       const harness = await relayHarness("owner", {
         capacity: { async assertAcceptingNewTurn() { throw new Error(errorMessage); } },
       });
+      // Past the 2 s post-match guard window, where main drops every owner utterance.
+      harness.atOffset(4_000);
       await harness.run(async message => {
         await expect(message(prompt("Tell me what is next."))).resolves.toBeUndefined();
         expect(harness.close).toHaveBeenCalledExactlyOnceWith(1011, "relay processing failed");
@@ -195,7 +217,7 @@ describe("CallSession relay fixes", () => {
     },
   );
 
-  it("sends a final rejection frame and closes after the third bad guest candidate", async () => {
+  it("sends the rejection speech, a fixed guest handoff, and closes after the third bad guest candidate", async () => {
     const harness = await relayHarness("guest");
     await harness.run(async message => {
       // Synthetic all-zero spoken input cannot match the shared synthetic verifier.
@@ -205,11 +227,18 @@ describe("CallSession relay fixes", () => {
       expect(harness.send).not.toHaveBeenCalled();
       expect(harness.close).not.toHaveBeenCalled();
       await expect(badCandidate()).resolves.toBeUndefined();
-      expect(harness.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
+      expect(harness.send).toHaveBeenNthCalledWith(1, JSON.stringify({
         type: "text", token: "I couldn't verify access. Goodbye.", last: true,
       }));
+      expect(harness.send).toHaveBeenNthCalledWith(2, JSON.stringify({
+        type: "end", handoffData: GUEST_REJECTED_HANDOFF_DATA,
+      }));
       expect(harness.close).toHaveBeenCalledExactlyOnceWith(1008, "relay policy violation");
-      expect(harness.send.mock.invocationCallOrder[0]).toBeLessThan(harness.close.mock.invocationCallOrder[0]!);
+      // Every frame precedes the close: the caller hears the rejection and the
+      // handoff is offered before the relay is released.
+      for (const order of harness.send.mock.invocationCallOrder) {
+        expect(order).toBeLessThan(harness.close.mock.invocationCallOrder[0]!);
+      }
       expect(await env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?")
         .bind(harness.stored.sessionId).first()).toEqual({ phase: "rejected" });
       expect(await env.DB.prepare("SELECT count(*) AS count FROM authentication_attempt_reservations").first())
@@ -235,84 +264,53 @@ describe("CallSession relay fixes", () => {
     });
   });
 
-  it.each(["Stop", "What comes next?"])("passes ordinary owner speech %s to the model within the guard window", async text => {
-    const harness = await relayHarness("owner");
-    await expect(harness.ownerStepUp.repeatStatus(harness.stored.sessionId, new Date(NOW.valueOf() + 1_000)))
-      .resolves.toBe("guard");
+  it("admits a prompt sent after barge-in once the still-unwinding turn settles", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const harness = await relayHarness("owner", { holdFirstTurn: held });
+    harness.atOffset(4_000);
     await harness.run(async message => {
-      await expect(message(prompt(text))).resolves.toBeUndefined();
-      expect(harness.handleTurn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text }));
-      expect(harness.provider.requests).toHaveLength(1);
-      expect(harness.provider.requests[0]).toMatchObject({ userText: text });
+      const first = message(prompt("Tell me what is next."));
+      await vi.waitFor(() => expect(harness.handleTurn).toHaveBeenCalledTimes(1));
+      await expect(message({
+        type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0,
+      })).resolves.toBeUndefined();
+      const second = message(prompt("And after that?"));
+      // Let the replacement reach the overlap check while turn 1 still owns the
+      // slot. Without the bounded wait it is dropped here and never reaches the model.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      release();
+      await expect(second).resolves.toBeUndefined();
+      await expect(first).resolves.toBeUndefined();
       expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.provider.requests).toHaveLength(1);
+      expect(harness.provider.requests[0]).toMatchObject({ userText: "And after that?" });
     });
   });
 
-  it("keeps a passphrase repeat out of the model within the guard window and speaks a neutral reply", async () => {
-    const harness = await relayHarness("owner");
+  it("refuses an overlapping owner prompt before it reaches the passphrase repeat check", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
+    const harness = await relayHarness("owner", { capacity });
+    harness.atOffset(4_000);
+    const repeatStatus = vi.spyOn(harness.ownerStepUp, "repeatStatus");
     await harness.run(async message => {
-      await expect(message(prompt(SYNTHETIC_PHRASE))).resolves.toBeUndefined();
-      expect(harness.handleTurn).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(0);
-      expect(harness.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
-        type: "text", token: "I'm ready for your request.", last: true,
-      }));
-      expect(harness.close).not.toHaveBeenCalled();
-      await message(prompt("Stop"));
-      expect(harness.provider.requests).toHaveLength(1);
-      expect(harness.provider.requests[0]).toMatchObject({ userText: "Stop" });
-    });
-  });
-
-  it("passes the ordinary utterance formerly dropped by the guard to the conversation", async () => {
-    const harness = await relayHarness("owner");
-    const text = "This final arrives inside the repeat guard.";
-    harness.atOffset(1_000);
-    await expect(harness.ownerStepUp.repeatStatus(harness.stored.sessionId, new Date(NOW.valueOf() + 1_000)))
-      .resolves.toBe("guard");
-    await harness.run(async message => {
-      await expect(message(prompt(text))).resolves.toBeUndefined();
-      expect(harness.handleTurn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text }));
-      expect(harness.provider.requests).toHaveLength(1);
-      expect(harness.provider.requests[0]).toMatchObject({ userText: text });
-      expect(harness.close).not.toHaveBeenCalled();
-    });
-  });
-
-  it.each([1, 2])("suppresses a passphrase split after word %i across two finals inside the guard window", async splitAfter => {
-    const harness = await relayHarness("owner");
-    const words = SYNTHETIC_PHRASE.split(" ");
-    const fragments = [words.slice(0, splitAfter).join(" "), words.slice(splitAfter).join(" ")];
-    await harness.run(async message => {
-      for (const [index, fragment] of fragments.entries()) {
-        const offset = 500 + index * 1_000;
-        harness.atOffset(offset);
-        await expect(harness.ownerStepUp.repeatStatus(harness.stored.sessionId, new Date(NOW.valueOf() + offset)))
-          .resolves.toBe("guard");
-        await expect(message(prompt(fragment))).resolves.toBeUndefined();
-        expect(harness.handleTurn).not.toHaveBeenCalled();
-        expect(harness.provider.requests).toHaveLength(0);
+      const first = message(prompt("Tell me what is next."));
+      try {
+        await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+        // Turn 1 has already passed the guard, so any repeatStatus call now is the
+        // overlapping prompt spending verification it must never reach.
+        repeatStatus.mockClear();
+        await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
+        expect(repeatStatus).not.toHaveBeenCalled();
+        expect(harness.close).not.toHaveBeenCalled();
+      } finally {
+        release();
+        await expect(first).resolves.toBeUndefined();
       }
-      expect(harness.send.mock.calls).toEqual(Array.from({ length: 2 }, () => [JSON.stringify({
-        type: "text", token: "I'm ready for your request.", last: true,
-      })]));
-      expect(harness.close).not.toHaveBeenCalled();
-    });
-  });
-
-  it.each([1_000, 2_500])("speaks a neutral reply for each suppressed passphrase fragment at %i milliseconds", async offset => {
-    const harness = await relayHarness("owner");
-    harness.atOffset(offset);
-    await harness.run(async message => {
-      for (const word of SYNTHETIC_PHRASE.split(" ")) {
-        await expect(message(prompt(word))).resolves.toBeUndefined();
-      }
-      expect(harness.handleTurn).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(0);
-      expect(harness.send.mock.calls).toEqual(Array.from({ length: 3 }, () => [JSON.stringify({
-        type: "text", token: "I'm ready for your request.", last: true,
-      })]));
-      expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.provider.requests).toHaveLength(1);
+      expect(harness.provider.requests[0]).toMatchObject({ userText: "Tell me what is next." });
     });
   });
 });

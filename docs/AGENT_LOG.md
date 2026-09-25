@@ -3,6 +3,53 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: #184 round 2 narrowed to the non-passphrase call fixes
+
+Signed: **DeepSeek (dsh headless builder, effort high), codex/call-session-fixes round 2 (narrowed)**.
+
+Scope changed mid-task (coordinator relaying Sid, 2026-09-24): the every-call owner
+passphrase is being removed (Sid's Sep 17 decision — a spoken 4-digit PIN for
+sensitive things only, built in a separate PR). #184 must not change passphrase
+behaviour, so this round REVERTS every passphrase-window edit and keeps only the
+call fixes. No new branch and no new PR: the existing `codex/call-session-fixes`
+head was advanced by merging `origin/main` (`a7cd3553` → `82113f0d`).
+
+- Reverted to `origin/main`: the `#guardOwnerRepeat` guard branch (`return null;`),
+  the neutral reply on guard suppression, the `voice-owner-passphrase-security`
+  fixture edit, `docs/CODE-VS-JUDGMENT.md` row 1, and the five passphrase-window
+  tests in `call-session-relay-fixes.test.ts`. Those two passphrase files are now
+  byte-identical to main (`git diff origin/main -- <both files>` is empty).
+- Kept: `TurnInProgressError` and the `CallSession` catch that returns on it (an
+  overlap no longer closes 1011); `#rejectGuest` (neutral line then 1008).
+- Dropped: F1 entirely (`containsOwnerPassphraseWord`, the seven forms, the
+  KNOWN_ISSUES note). It was never present in this branch; `git grep` finds nothing.
+
+Round-1 review fixes added:
+
+- **F2 (Medium):** `#activeTurnSettled` now accompanies `#activeTurnAbort`. When a
+  prompt arrives with the live controller already aborted (barge-in),
+  `#awaitTurnSlot` awaits the aborted turn's settle promise, bounded at 2 s, then
+  admits the prompt; an un-aborted live turn still throws `TurnInProgressError`, and
+  an expired bound keeps the drop. Two tests: "admits a prompt sent after barge-in
+  once the still-unwinding turn settles" (relay) and "admits a prompt sent after
+  barge-in once the aborted turn releases the slot" (core).
+- **F3 (Low):** the overlap check (`#awaitTurnSlot`) now runs above
+  `#guardOwnerRepeat`, so an overlapping owner prompt never reaches `repeatStatus`.
+  `#guardOwnerRepeat` is passphrase-only (`#ownerStepUp`); nothing inside it changed.
+  Test: "refuses an overlapping owner prompt before it reaches the passphrase repeat
+  check".
+- **F4 (Low):** `#rejectGuest` sends a fixed guest handoff
+  (`GUEST_REJECTED_HANDOFF_DATA = "jarvis:guest-rejected:v1"`, never interpolated)
+  after the neutral line, with `close(1008)` in `finally` as the fallback. Live
+  playback of that handoff is unverified, and `voice-callbacks.ts` does not yet
+  branch on the guest constant (it still returns 204 for it).
+
+Verification observed: `call-session-relay-fixes.test.ts` 7/7,
+`call-session-do.test.ts` 131/131, `voice-owner-passphrase-security.test.ts` 38/38;
+source `tsc --noEmit -p apps/cloud-gateway` exit 0; test tsconfig 143 diagnostics,
+none in changed files; `check-state` and `git diff --check` pass; mutation kills
+recorded in the PR. No merge, deploy, live call, migration or credential.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
