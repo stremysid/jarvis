@@ -42,6 +42,7 @@ export async function voiceArgumentTurn(text: string,
     .bind(principalId, VOICE_NOW.toISOString(), VOICE_NOW.toISOString()).run();
   const requests: ModelAgentCompletionInput[] = [];
   const spoken: string[] = [];
+  const unusedPipeline = { async *stream() { throw new Error("unexpected_pipeline_dispatch"); } };
   const model = new OwnerVoiceAgentAdapter({
     database: env.DB, archive: env.ARCHIVE,
     ownerPrincipalId: options.wrongOwner ? "principal:another-owner" : principalId,
@@ -50,6 +51,7 @@ export async function voiceArgumentTurn(text: string,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
+    schoolModel: unusedPipeline, universityModel: unusedPipeline, studyCoachModel: unusedPipeline,
     provider: {
       async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_argument_must_stream"); },
       async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {

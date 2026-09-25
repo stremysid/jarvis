@@ -32,6 +32,25 @@ describe("owner reported deadlines", () => {
     expect(await repo.listStudyCandidates(NOW)).toHaveLength(1);
   });
 
+  it("hides deadline_record from a Telegram guest and refuses a forged call without writing a row", async () => {
+    // Keep direct text, durable evidence and valid arguments: only the principal
+    // differs from the successful owner turn, so another refusal cannot mask it.
+    const turn = await argumentTurn(message, call(), { wrongOwner: true });
+    expect(turn.result.outcome).toBe("telegram_delivered");
+    expect(turn.requests).toHaveLength(2);
+    for (const request of turn.requests) {
+      expect(request.tools).toEqual([]);
+      expect(request.tools.map(tool => tool.name)).not.toContain("deadline_record");
+      expect(request.toolChoice).toBe("none");
+    }
+    expect(JSON.parse(turn.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: "I refused that tool call because this is not Sid's direct current Telegram text. Nothing changed.",
+    });
+    expect((await rows()).results).toEqual([]);
+    expect(await new DeadlineRepository(env.DB).readSource("owner-reported")).toBeNull();
+  });
+
   it.each(["submitted", "missed", "cancelled"])("records the explicitly stated %s status", async (status) => {
     const text = `${message} ${status}`;
     await recordDeadline(env.DB, input(text), call({ status, evidenceExcerpt: text }), NOW);

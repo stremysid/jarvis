@@ -11,7 +11,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
+import { contextForAudience, D1ContextRetriever } from "../../src/conversation/context-retriever.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import type { ConversationDeliveryId } from "../../src/conversation/conversation-types.js";
 import {
@@ -359,10 +359,12 @@ describe("D1ContextRetriever", () => {
       maxTokens: 1_024,
     };
 
-    await expect(new D1ContextRetriever(env.DB).retrieve(input)).resolves.toEqual([
+    const owner = new D1ContextRetriever(env.DB);
+    expect(contextForAudience(owner, "owner")).toBe(owner);
+    await expect(owner.retrieve(input)).resolves.toEqual([
       { sourceEventId: turn.eventId, text, sensitivity: "personal" },
     ]);
-    await expect(new D1ContextRetriever(env.DB, "external").retrieve(input)).resolves.toEqual([
+    await expect(contextForAudience(new D1ContextRetriever(env.DB), "external").retrieve(input)).resolves.toEqual([
       {
         sourceEventId: turn.eventId,
         text: "my pin is [REDACTED_AUTH_DIGITS] and my number is [REDACTED_PHONE_NUMBER]",

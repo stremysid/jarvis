@@ -454,14 +454,14 @@ function captureInput(value: unknown): Readonly<ContextRetrieverInput> {
   const input = value as Record<string, unknown>;
   const principalId = safePrincipal(input.principalId);
   const query = safeText(input.query, MAX_QUERY_BYTES, "telegram_memory_query_invalid");
-  if (Array.from(query).length > MAX_QUERY_CHARACTERS || input.channel !== "telegram"
+  if (Array.from(query).length > MAX_QUERY_CHARACTERS || (input.channel !== "telegram" && input.channel !== "voice")
     || input.purpose !== "conversation" || !Number.isSafeInteger(input.maxTokens)
     || (input.maxTokens as number) < 1 || (input.maxTokens as number) > 32_000) {
     throw new TypeError("telegram_memory_input_invalid");
   }
   return Object.freeze({
     principalId,
-    channel: "telegram",
+    channel: input.channel,
     purpose: "conversation",
     query,
     maxTokens: input.maxTokens as number,
@@ -726,7 +726,7 @@ function citedMemoryItemIds(text: string): readonly Ulid[] {
   return Object.freeze(itemIds);
 }
 
-function restatesMemory(reply: string, memoryText: string): boolean {
+export function restatesMemory(reply: string, memoryText: string): boolean {
   const required = recallTerms(memoryText).map(({ folded }) => folded);
   if (required.length === 0 || required.length === 1 && required[0]!.length < 5) return false;
   const available = new Set(recallTerms(reply).map(({ folded }) => folded));
@@ -1615,7 +1615,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           FROM memory_item_state state
           JOIN memory_item_versions version
             ON version.principal_id = state.principal_id
-            AND version.item_id = state.item_id
+            AND version.version_id = state.current_version_id
           WHERE state.principal_id = ?1 AND state.lifecycle_state = 'forgotten'
           ORDER BY state.item_id ASC
           LIMIT ?${forgottenLimitParameter}

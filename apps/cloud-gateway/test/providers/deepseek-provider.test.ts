@@ -50,6 +50,23 @@ function agentResponse(choice: unknown): Response {
 }
 
 describe("DeepSeekAgentProvider", () => {
+  it("accepts a catalogue at the provider's sixty-four-tool sanity bound and refuses one above it before fetching", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "stop", message: { content: JSON.stringify({ reply: "Hello.", claimedActions: [] }) },
+    }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const tools = Array.from({ length: 65 }, (_, index) => ({
+      name: `owner_tool_${index}`, description: "One owner capability.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    }));
+    await expect(provider.completeAgent(agentInput({ tools: tools.slice(0, 64) })))
+      .resolves.toMatchObject({ finishReason: "stop" });
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as { tools: unknown[] };
+    expect(request.tools).toHaveLength(64);
+    await expect(provider.completeAgent(agentInput({ tools }))).rejects.toThrow("agent_request_invalid");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("pins non-thinking JSON function calling and parses an ordinary answer", async () => {
     const content = JSON.stringify({ reply: "Hello.", claimedActions: [] });
     const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
@@ -293,7 +310,7 @@ describe("DeepSeekModelAdapter", () => {
     }
   });
 
-  it("keeps the exact voice request body byte-identical", async () => {
+  it("uses the same configured thinking policy for an owner pipeline on voice", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
     const adapter = new DeepSeekModelAdapter({
       apiKey: API_KEY,
@@ -310,7 +327,7 @@ describe("DeepSeekModelAdapter", () => {
         { role: "user", content: "hello" },
       ],
       stream: true,
-      reasoning_effort: "high",
+      thinking: { type: "disabled" },
       max_tokens: 65_536,
     }));
   });
