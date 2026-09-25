@@ -197,9 +197,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       // that runs it.
       pipelineModel: (): ModelAdapter | null => null,
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
-        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
-        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
-          channelCode: 1, requireDirectOwnerText: false })),
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto"),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
         (await adapter.previousAssistant(turnInput))?.text ?? null,
