@@ -3,6 +3,14 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #195 merged with main after #196
+
+Signed: Claude (builder agent), branch `codex/web-tools` from audited head `0b0e3f74`. Touches rule 8 only.
+
+- **Merged `origin/main` at `9ea215b2`** (#196, migration `0047`). Conflicts: `test/persistence/migration.ts` (newest-runtime list now `0045`, `0047`, `0049`), this log (union of whole entries, none removed) and `OWNER-ACTIONS.md` (#195's three web rows plus main's #193 row, which had replaced the #166 row). The backup-restore list and the remote-D1 syntax list auto-merged in order. No product code changed; main adds no owner tools, so the catalogue stays 18 + 2 = 20.
+- **Evidence:** focused vitest 13 files, 296/296; gateway `typecheck` exit 0; `typecheck:tests` 140 errors, none in touched files; `check-state` pass with its one FACTS warning.
+- **Not verified:** full suites (CI). Claude-authored merge delta. Not merged, deployed or migrated.
+
 ## 2026-09-25 — Claude builder: #195 audit round (web tools own-origin fail-closed)
 
 Signed: Claude (builder agent), branch `codex/web-tools`. Touches rules 1, 2, 3, 8, 9. Answers the DeepSeek audit of `d18f05f5` (posted on [#195](https://github.com/stremysid/jarvis/pull/195)).
