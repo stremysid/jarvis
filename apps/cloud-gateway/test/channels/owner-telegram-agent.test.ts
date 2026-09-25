@@ -155,6 +155,7 @@ async function runTurn(input: {
   readonly text: string;
   readonly provider: ModelAgentProvider;
   readonly directOwnerText?: boolean;
+  readonly authorityText?: string;
   readonly durableDirectOwnerText?: boolean;
   readonly directPipelineText?: boolean;
   readonly turnTimeoutMs?: number;
@@ -186,7 +187,7 @@ async function runTurn(input: {
     ownerPrincipalId: input.configuredOwnerPrincipalId ?? input.harness.principalId,
     directOwnerText,
     directPipelineText: input.directPipelineText,
-    authorityText: input.text,
+    authorityText: input.authorityText ?? input.text,
     replyToBotMessageId: input.replyToBotMessageId,
     targets: { async findControlTargets() { return Object.freeze([...(input.controlTargetIds ?? [])]); } },
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
@@ -890,6 +891,93 @@ describe("owner Telegram agent", () => {
       status: "refused",
       receipt: "I refused that memory tool call because this is not Sid's direct current Telegram text. Nothing changed.",
     });
+  });
+
+  it.each([
+    ["raw excerpt", "my code is 12"],
+    ["redacted excerpt", "my code is [REDACTED_AUTH_DIGITS]"],
+  ])("refuses raw credential memory arguments from a direct turn with a %s without storing a memory", async (
+    label, supportingExcerpt,
+  ) => {
+    const harness = await ownerHarness(`direct-credential-${label.replaceAll(" ", "-")}`);
+    const provider = new FakeAgentProvider([
+      called(tool("credential-refused", "memory_remember", {
+        fact: "my code is 12",
+        supportingExcerpt,
+        evidenceClass: "stated",
+        previousOfferExcerpt: null,
+        kind: "fact",
+        sensitivity: "sensitive",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    const reply = await runTurn({ harness, text: "remember my code is 12", provider, directOwnerText: true });
+
+    expect(provider.requests[0]?.userText).toBe("remember my code is [REDACTED_AUTH_DIGITS]");
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receiptId: null,
+      receipt: "I could not safely apply that tool call, so nothing changed.",
+    });
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
+    expect(reply).toBe("Nothing changed.");
+  });
+
+  it("stores only the redacted fact and names that exact fact in a direct turn's receipt", async () => {
+    const harness = await ownerHarness("direct-redacted-credential");
+    const fact = "my code is [REDACTED_AUTH_DIGITS]";
+    const provider = new FakeAgentProvider([
+      called(tool("redacted-remember", "memory_remember", {
+        fact,
+        supportingExcerpt: fact,
+        evidenceClass: "stated",
+        previousOfferExcerpt: null,
+        kind: "fact",
+        sensitivity: "sensitive",
+      })),
+      stopped(""),
+    ]);
+
+    const reply = await runTurn({ harness, text: "remember my code is 12", provider, directOwnerText: true });
+
+    expect(provider.requests[0]?.userText).toBe("remember my code is [REDACTED_AUTH_DIGITS]");
+    const receipt = `Remembered 1 memory. You can ask in ordinary language to forget it. Memory: ${JSON.stringify(fact)}`;
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receiptId: "receipt:redacted-remember",
+      receipt,
+    });
+    expect(reply).toBe(receipt);
+    const rows = await memoryRows(harness.principalId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ text: fact, excerpt: fact, basis: "stated", lifecycle_state: "active" });
+  });
+
+  it("refuses a direct turn whose redacted text differs from the accepted authority text", async () => {
+    const harness = await ownerHarness("different-redacted-authority");
+    const provider = new FakeAgentProvider([
+      called(tool("different-authority", "memory_remember", {
+        fact: "my code is [REDACTED_AUTH_DIGITS]",
+        supportingExcerpt: "my code is [REDACTED_AUTH_DIGITS]",
+        evidenceClass: "stated",
+        previousOfferExcerpt: null,
+        kind: "fact",
+        sensitivity: "sensitive",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({
+      harness, text: "remember my code is 12", authorityText: "remember my locker is 12",
+      provider, directOwnerText: true,
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: "I refused that tool call because this is not Sid's direct current Telegram text. Nothing changed.",
+    });
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
   });
 
   it.each([

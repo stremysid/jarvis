@@ -29,6 +29,7 @@
  */
 
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
 import { SchoolCollectorPairing } from "../school/collector-pairing.js";
 import type { ArchiveBucket } from "../archive/archival-service.js";
@@ -1306,6 +1307,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseRememberArguments(call);
     const fact = safeText(args.fact, 4_096);
+    // Model arguments are separate from the redacted user text. Even a grounded
+    // excerpt must not let an inferred fact reintroduce raw credentials.
+    const checkedFact = sanitizeRedaction(fact);
+    if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
     let confirmedQuestion: string | null = null;
