@@ -10,6 +10,7 @@ import { Redactor } from "../../src/security/redaction.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
+import type { WebToolsDependencies } from "../../src/web/web-tools.js";
 import type {
   ModelAgentCompletion, ModelAgentCompletionInput, ModelAgentStreamChunk, ModelAgentStreamInput, ModelFunctionCall,
 } from "../../src/providers/provider-types.js";
@@ -34,7 +35,7 @@ export async function withMismatchedVoiceOwnerTurn<T>(run: () => Promise<T>): Pr
 export async function voiceArgumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
     timeZone?: string; messageAt?: Date; processingAt?: Date; direct?: boolean; wrongOwner?: boolean;
-    gate?: ToolAutonomyGateContract;
+    gate?: ToolAutonomyGateContract; web?: WebToolsDependencies;
   } = {}) {
   await applyNewestRuntimeMigration();
   const principalId = `principal:voice-argument:${newUlid()}`;
@@ -49,6 +50,7 @@ export async function voiceArgumentTurn(text: string,
     directOwnerText: options.direct ?? true, autonomy: options.gate ?? await testToolGate(env.DB),
     now: () => options.processingAt ?? VOICE_NOW,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
+    ...(options.web === undefined ? {} : { web: options.web }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
     schoolModel: unusedPipeline, universityModel: unusedPipeline, studyCoachModel: unusedPipeline,

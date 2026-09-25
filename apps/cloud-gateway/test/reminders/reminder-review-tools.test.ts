@@ -16,7 +16,7 @@ describe("reviewed reminder scheduling", () => {
     expect(JSON.stringify(result.requests[1])).toContain(reason);
   });
 
-  it.each([-5 * 60_000, 400 * 86_400_000 + 1])("accepts the inclusive scheduling boundary at offset %s", async (offset) => {
+  it.each([-5 * 60_000, 400 * 86_400_000 + 1])("accepts the inclusive past grace edge and a time beyond the old 400-day horizon, at offset %s", async (offset) => {
     const at = new Date(NOW.getTime() + offset).toISOString();
     const result = await argumentTurn("Remind me.", reminderCall("reminder_schedule", { at, text: "Study." }));
     expect(await new OwnerReminderRepository(env.DB).list(result.principalId)).toMatchObject([{ due_at: at }]);

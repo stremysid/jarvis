@@ -14,7 +14,6 @@ import {
   type GuestPinVerifierRecordV2,
 } from "../../src/security/guest-pin-verifier.js";
 import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
-import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
 import {
   applyOwnerCallStepUpMigration,
   clearCallSessionsForTest,
@@ -43,26 +42,6 @@ export const EMPTY_SCOPES: VoiceResourceScopesV1 = Object.freeze({
 });
 const TEST_OWNER_PASSPHRASE = "ablaze abrasion abrasive";
 const TEST_OWNER_PASSPHRASE_PEPPER = new Uint8Array(32).fill(19);
-
-export async function verifyOwnerStepUpForTest(
-  database: D1Database,
-  sessionId: Ulid,
-  binding: RelayBinding,
-): Promise<void> {
-  const stepUp = new OwnerCallStepUpService(
-    database,
-    new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
-  );
-  await stepUp.bind({
-    sessionId, callSid: binding.callSid,
-    ownerPrincipalId: binding.principalId, ownerIdentityId: binding.identityId,
-    direction: binding.direction, lifecycleGeneration: 1, requirement: "required",
-    attestationClass: "absent", policy: "passphrase_always", createdAt: NOW.toISOString(),
-  });
-  await stepUp.begin(sessionId, NOW);
-  const result = await stepUp.verifyCandidate(sessionId, TEST_OWNER_PASSPHRASE, NOW);
-  if (result !== "matched") throw new Error("fixture_owner_step_up_failed");
-}
 
 export const SYNTHETIC_RECORD: GuestPinVerifierRecordV2 = decodeGuestPinVerifierRecord({
   schemaVersion: "2.0",
@@ -100,10 +79,8 @@ export async function clearVoiceAccessFixture(database: D1Database): Promise<voi
 export async function seedOwnerAuthority(
   database: D1Database,
   repository: VoiceAccessRepository,
-  options: Readonly<{ stepUpVerified?: boolean }> = {},
 ): Promise<PersistedCallAuthority> {
   const now = NOW.toISOString();
-  const stepUpVerified = options.stepUpVerified === true;
   const principals = [
     database.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'owner', ?, ?)")
       .bind(OWNER_PRINCIPAL_ID, now, now),
@@ -159,10 +136,6 @@ export async function seedOwnerAuthority(
     guestGrantVersion: null,
     accessDocumentHash: null,
   });
-  const stepUp = new OwnerCallStepUpService(
-    database,
-    new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
-  );
   const verifier = new OwnerPassphraseVerifier(
     TEST_OWNER_PASSPHRASE_PEPPER,
     "v1",
@@ -181,16 +154,8 @@ export async function seedOwnerAuthority(
     commitId: "01m2ddddddddddddddddddd001",
     committedAt: now,
   });
-  if (stepUpVerified) {
-    await verifyOwnerStepUpForTest(database, OWNER_SESSION_ID, binding);
-  } else {
-    await stepUp.bind({
-      sessionId: OWNER_SESSION_ID, callSid: binding.callSid,
-      ownerPrincipalId: OWNER_PRINCIPAL_ID, ownerIdentityId: OWNER_IDENTITY_ID,
-      direction: "inbound", lifecycleGeneration: 1, requirement: "waived_passed_a",
-      attestationClass: "passed_a", policy: "waive_on_passed_a", createdAt: now,
-    });
-  }
+  // An owner call needs no step-up binding row: minting the authority is all
+  // that stands between this session and an active owner. Sid, 2026-09-24.
   return repository.mintOwnerAuthority({ sessionId: OWNER_SESSION_ID, binding, now: NOW });
 }
 
