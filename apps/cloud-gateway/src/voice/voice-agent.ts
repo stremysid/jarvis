@@ -32,7 +32,12 @@ import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
 import type { TelegramMemoryTargetFinder } from "../memory/memory-control-targets.js";
-import type { ModelAgentProvider, ModelAgentStreamProvider, ModelFunctionCall } from "../providers/provider-types.js";
+import type {
+  ModelAgentProvider,
+  ModelAgentStreamProvider,
+  ModelFunctionCall,
+  ModelFunctionDefinition,
+} from "../providers/provider-types.js";
 import {
   composeReceiptReply,
   OwnerAgentCore,
@@ -57,6 +62,14 @@ A receipt added to your words is read aloud verbatim by the system, so never rea
 There is no screen and he cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here.
 
 When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap.`;
+
+/** The tools a call can use; exported so the provider's tool cap is tested against it. */
+export const OWNER_VOICE_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
+  ...MEMORY_TOOL_DEFINITIONS,
+  ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
+  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
+  ...SCHOOL_COLLECTOR_TOOLS,
+]);
 
 interface PreviousVoiceAssistantRow {
   readonly causation_id: unknown;
@@ -129,7 +142,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
     const adapter = this;
     return Object.freeze({
       channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
-      toolDefinitions: [...MEMORY_TOOL_DEFINITIONS, ...OWNER_ARGUMENT_TOOL_DEFINITIONS, ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS, ...SCHOOL_COLLECTOR_TOOLS],
+      toolDefinitions: OWNER_VOICE_TOOL_DEFINITIONS,
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
       authorityRefusal:
