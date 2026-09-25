@@ -3,10 +3,11 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-25 — DeepSeek builder: school judgments to the AI (CODE-VS-JUDGMENT rows 10–12)
+## 2026-09-25 — DeepSeek builder: school judgments to the AI (CODE-VS-JUDGMENT rows 10–12, PR #204)
 
 Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/school-judgment-to-ai` from
-`e2af1aa2`. Touches Sid's rules 1, 2, 8, 9. No migration.
+`e2af1aa2`, PR [#204](https://github.com/stremysid/jarvis/pull/204). Touches Sid's rules
+1, 2, 8, 9. No migration.
 
 - **Row 12, removed.** `isUniversityExecutionRequest` and its regex engine
   (`REQUESTED_ACTION`, `REQUEST_PARTY`, `REQUEST_EXTERNAL_OBJECT`, `DECISION_OBJECT`,

@@ -148,7 +148,7 @@ and rewrite are unchanged by #171.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 (`codex/school-judgment-to-ai`):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
+| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -156,7 +156,8 @@ intake finding is row 12, avoiding a second row 10 when those branches meet.
 ### School reply and scope judgments: removed (rows 11 and 12, 2026-09-25)
 
 Removed by the PR titled "School: the AI decides, not code (register rows 10-12)"
-(branch `codex/school-judgment-to-ai`, 2026-09-25). Both were code deciding what
+([#204](https://github.com/stremysid/jarvis/pull/204), branch `codex/school-judgment-to-ai`,
+2026-09-25). Both were code deciding what
 Sid's words or the model's sentences meant, which Sid's 2026-09-25 rule —
 "any judgment and decisions and thought should be the ai brain remember" —
 puts in the model, not here. Neither removal needed a migration.
@@ -206,8 +207,8 @@ The school pipeline has storage and planning, but no external execution hands.
 The `school_update` description now tells Jarvis when to select that tool;
 forwarded-text provenance checks and `guardReplyClaims` remain in place.
 **That function and its regex engine were deleted on 2026-09-25
-(`codex/school-judgment-to-ai`, row 12 above): every scope now reaches the model,
-which decides what Sid means.**
+([#204](https://github.com/stremysid/jarvis/pull/204), row 12 above): every scope now reaches
+the model, which decides what Sid means.**
 Pinned daily capacity, due-date priority and stated weight are prompt guidance,
 not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
 The core-profile reference is capped at 8,192 UTF-8 bytes and omitted with a rules
