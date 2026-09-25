@@ -49,14 +49,38 @@ export const REDACTION_FAILED_EVENT = "ingest.redaction.failed";
 export const IDEMPOTENCY_SCOPE = "telegram.update";
 export const PRODUCER_VERSION = "cloud-gateway@0.1.0";
 
+type TelegramRedactor = {
+  redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult;
+};
+
+/** True only for the configured owner; the Telegram channel alone proves nothing. */
+function isConfiguredOwner(dependencies: TelegramWebhookDependencies, principalId: string): boolean {
+  return dependencies.owner !== undefined && dependencies.owner.principalId === principalId;
+}
+
+/** The redactor for what this principal sent: Sid's only for the configured owner. */
+function readerFor(dependencies: TelegramWebhookDependencies, principalId: string): TelegramRedactor {
+  return isConfiguredOwner(dependencies, principalId) ? dependencies.owner!.redactor : dependencies.redactor;
+}
+
 export interface TelegramWebhookDependencies {
   readonly webhookSecret: string;
   readonly policy: {
     authenticateTelegram(input: unknown): Promise<TelegramAuthenticationResult>;
   };
-  readonly redactor: {
-    redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult;
-  };
+  /**
+   * The reader for every principal that is not the configured owner, and for
+   * refusals recorded before anyone is authenticated. Production passes
+   * `new Redactor("external")`.
+   */
+  readonly redactor: TelegramRedactor;
+  /**
+   * Sid's reader. Chosen only when the authenticated principal is exactly
+   * `owner.principalId`; the Telegram channel alone proves nothing, because
+   * any active verified Telegram identity passes authentication. Without it,
+   * every principal gets `redactor`.
+   */
+  readonly owner?: Readonly<{ principalId: string; redactor: TelegramRedactor }>;
   readonly events: { append(input: EventAppendInput): Promise<AppendedEvent> };
   readonly limiter: TelegramRateLimiter;
   readonly now?: () => Date;
@@ -155,10 +179,10 @@ function isoMilliseconds(moment: Date): string {
  * shape is unchanged.
  */
 function token(
-  dependencies: TelegramWebhookDependencies,
+  redactor: TelegramRedactor,
   value: string,
 ): RedactionResult {
-  return dependencies.redactor.redact({ text: value, channel: "telegram", field: "metadata" });
+  return redactor.redact({ text: value, channel: "telegram", field: "metadata" });
 }
 
 async function persist(
@@ -212,7 +236,7 @@ async function refuse(
     updateId,
     // Built from the minimal payload's two fields only; the update itself is
     // not in scope here, so nothing else can reach the event.
-    payload: { updateId: minimal.updateId, reason: token(dependencies, minimal.reason) },
+    payload: { updateId: minimal.updateId, reason: token(dependencies.redactor, minimal.reason) },
     requestHash,
     now,
   });
@@ -259,6 +283,8 @@ export async function handleTelegramWebhook(
     return refuse(dependencies, update.updateId, "unauthorized", requestHash, now, subject);
   }
 
+  const reader = readerFor(dependencies, authenticated.principalId);
+
   const admission = dependencies.limiter.check(authenticated.principalId, now.getTime());
   if (!admission.allowed) {
     return refuse(dependencies, update.updateId, "rate_limited", requestHash, now, subject);
@@ -275,12 +301,12 @@ export async function handleTelegramWebhook(
       updateId: tap.updateId,
       payload: {
         updateId: tap.updateId,
-        chatId: token(dependencies, tap.chatId),
+        chatId: token(reader, tap.chatId),
         messageId: tap.messageId,
         // Memory authorization compares these bytes with the stored decision.
         // Free-text redaction can erase six-digit runs inside its random ULID;
         // only the exact decision grammar earns structural-identifier handling.
-        data: dependencies.redactor.redact({
+        data: reader.redact({
           text: tap.data,
           channel: "telegram",
           field: parseDecisionCallbackData(tap.data) === null ? "metadata" : "decision_callback_id",
@@ -311,7 +337,7 @@ export async function handleTelegramWebhook(
   // each its own copy of them is how the two paths drift apart.
   const message = classification.value;
 
-  const redacted = dependencies.redactor.redact({
+  const redacted = reader.redact({
     text: message.text,
     channel: "telegram",
     field: "text",
@@ -340,7 +366,7 @@ export async function handleTelegramWebhook(
     payload: {
       updateId: update.updateId,
       principalBinding: await telegramPrincipalBinding(authenticated.principalId),
-      chatId: token(dependencies, update.chatId),
+      chatId: token(reader, update.chatId),
       messageId: update.messageId,
       text: redacted as unknown as Record<string, unknown>,
     },
@@ -359,10 +385,11 @@ export async function handleTelegramWebhook(
       telegramUserId: update.telegramUserId,
       chatId: update.chatId,
       messageId: update.messageId,
-      // The original text, not the stored token: the model needs what was
-      // actually said. It has already passed the redactor, so nothing
-      // sensitive survives into this path either.
-      text: message.text,
+      // Sid gets his own words back unredacted: the model needs what he
+      // actually said. Anyone else gets the external reader's text, the same
+      // bytes that were stored, so a guest's raw PIN or password never reaches
+      // the model, the conversation store or the reply path.
+      text: isConfiguredOwner(dependencies, authenticated.principalId) ? message.text : redacted.text,
       isDirectText: message.isDirectText,
       isPrivateHumanText: message.isPrivateHumanText,
       isMemoryControlAuthoritative: message.isMemoryControlAuthoritative,

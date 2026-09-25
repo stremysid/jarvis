@@ -44,7 +44,8 @@ export class PolicyAudit {
     ) {
       throw new TypeError("policy_audit_timestamp_invalid");
     }
-    const redactor = new Redactor();
+    // An audit record is developer telemetry, not Sid's conversation.
+    const redactor = new Redactor("external");
     const decision = redactor.redactText(decisionValue);
     const reason = redactor.redactText(reasonValue);
     const checkedAt = redactor.redactText(checkedAtValue);
