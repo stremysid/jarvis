@@ -53,6 +53,73 @@ redacted; it cannot be recovered.
 
 **Coordination.** `literal-history.ts` is untouched (PR #194 owns it); it
 inherits the owner default. #190 re-merges main after this lands.
+
+## 2026-09-24 10:19 PM — Claude builder: #191 review nits and main merge
+
+Signed: Claude (builder agent), `codex/d2l-ext-unblock` after `d97c77f`.
+**Claude-authored, so this delta needs a DeepSeek audit.** Touches rules 4 and 8.
+
+- **Merge, not rebase.** `origin/main` (`e831e34`) merged normally. `docs/QUEUE.md`
+  conflicted with #179's regeneration: main's table kept, and its row "D2L extension
+  compatibility hold and host-failure emission" now says #191 deletes the hold and
+  host-only failure emission remains. `docs/AGENT_LOG.md` merged cleanly, both sides kept.
+- **N1:** `docs/runbooks/d2l-extension.md` drops "Held entries do not consume upload
+  attempts." (no held entries exist now).
+- **N2:** `receiver-contract.test.js` now asserts the pinned receiver refuses
+  `news/?x=1` with `school_route_invalid`, so the comment's "both halves" is true.
+- **N3:** new test "It feeds real collectHost output for both boards through the pinned
+  receiver parser and mapper." Both hosts, a good read with two folders (no mapping
+  failures) and a versions failure with cached courses (parsed, failures recorded).
+  Mutations planted by hand and restored: bare `submissions/` label, a query on the news
+  label, and `news` dropped from `ROUTES` each fail it (0 pass / 1 fail).
+- **Unchanged:** `protocol.js`, `delivery.js`, all other production files and the
+  receiver snapshots are byte-identical to `d97c77f`; snapshots still equal main's
+  `collector-protocol.ts` and `collector-mapping.ts`.
+- **Gates:** extension `npm test` 51 pass / 0 fail / 0 skip; `test:mutations` 133/133
+  killed, 0 not applied, 0 unconfirmed; `check-state.mjs` passed with its one existing
+  FACTS warning. No merge to main, deploy or migration.
+
+## 2026-09-24 — DeepSeek dsh headless builder: the D2L extension's receiver hold is gone
+
+Signed: DeepSeek (dsh headless builder, effort low), `codex/d2l-ext-unblock`.
+
+Read the brief, AGENTS.md, CODE-VS-JUDGMENT.md and the #170 review note, then verified
+every premise at `a7cd3553166e10293e27656c4b800f26b0dec7cb`, this branch's fork point
+of `origin/main`. No migration.
+
+- **Premises confirmed.** `protocol.js:uploadBlock` held every non-LDSB host and every
+  route outside its narrow regex; `collector.js:ROUTES` reads `news` and `quizzes`, so
+  every full Durham course batch was held. `delivery.js` used it in `enqueue` and
+  `flush`. The receiver at #175 (`c66c38709a9774e32546bfd7cbd7766995278a71`) has
+  `SCHOOL_HOSTS = [SCHOOL_HOST, "durham.elearningontario.ca"]` and a route regex with
+  `news\/` and `quizzes\/`; `collector-mapping.ts:199` maps quizzes; migration
+  `0045_school_collector_hosts.sql` exists.
+- **Path premise, reported not papered over.** The old hold allowed
+  `dropbox/folders/<id>/submissions/` without `mysubmissions/`, which the receiver
+  rejects. The extension never builds it: its only submissions route is
+  `dropbox/folders/<folder>/submissions/mysubmissions/` (`probe.js` `LABELS.submissions`).
+  No client-side filter was re-added; the receiver's schema is the only gate.
+- **Deleted:** `uploadBlock` and its comment, the `delivery.js` import, the `enqueue`
+  assignment, the `flush` hold check, the `blocked` flag and the
+  `receiver-contract-incompatible` result. `grep` finds no `uploadBlock` and no
+  production `receiver-contract-` reference left in the extension.
+- **N1 from the #170 review is closed by deletion.** The reviewer's M8 survived because
+  `continue` for a held entry ran before `attempts += 1`; with no held-entry path there
+  is nothing to count, and the 8-attempt bound now covers every batch the loop submits.
+  The runbook sentence "Held entries do not consume upload attempts" stays true.
+- **Tests:** `protocol.test.js` gains "It sends every board and tool the receiver now
+  accepts, including Durham, news and quizzes."; `queue.test.js` replaces the held-Durham
+  test with "It sends a Durham board batch and a news and quizzes batch instead of
+  holding them."; `receiver-contract.test.js` flips the Durham/news/quizzes and
+  myItems/empty-submission assertions to acceptance and keeps the wrong-host,
+  unknown-route, non-`mysubmissions` and empty-manifest refusals. Snapshots in
+  `test/receiver/` are refreshed verbatim (LF) from #175 and the README cites it.
+- **Observed gates:** extension suite 50 pass / 0 fail / 0 skip before and after;
+  mutations 133 selected / 133 killed / 0 NOT APPLIED / 0 unconfirmed; `check-state.mjs`
+  passed with its one existing FACTS advisory. Planting a host check and a news-route
+  check made the named queue test fail 0/1 and both restores passed 1/0 byte-exactly.
+- **Scope:** extension and documentation only. No merge, push of main, deploy,
+  migration, secret or production access, and no browser or live D2L session.
 ## 2026-09-24 — Hermes round 2: the tar host comes from the system directory
 
 Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not

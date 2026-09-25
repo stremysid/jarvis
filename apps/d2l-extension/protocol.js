@@ -4,19 +4,6 @@ export const PATHS = Object.freeze(["/school/pairing/start", "/school/pairing/pr
 const encoder = new TextEncoder();
 const base64 = (value) => btoa(String.fromCharCode(...new Uint8Array(value)));
 
-// #169 at dfc284e accepts fewer sources than Sid's collector reads. Keep the
-// original queued evidence; never relabel a board or drop tools to pass its parser.
-export function uploadBlock(batch) {
-  if (batch.host !== "ldsb.elearningontario.ca") return "receiver-contract-host-unsupported";
-  const prefix = `/d2l/api/le/1.82/${batch.course.id}/`;
-  const items = `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${batch.course.id}`;
-  if (batch.routes.some(({ route }) => !(route === items || route.startsWith(prefix)
-    && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/(mysubmissions\/)?|content\/toc|grades\/values\/myGradeValues\/)$/.test(route.slice(prefix.length))))) {
-    return "receiver-contract-route-unsupported";
-  }
-  return null;
-}
-
 // These are the receiver's canonical JSON and structural bounds, not course filters.
 export function canonical(value) {
   let items = 0;
