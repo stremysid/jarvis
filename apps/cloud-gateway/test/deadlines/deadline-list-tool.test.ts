@@ -39,6 +39,9 @@ describe("deadline_list", () => {
     expect(text).toContain("due 2026-09-25T18:00:00.000Z");
     expect(text).toContain(undatedId);
     expect(text).toContain("Comparative essay");
+    // The per-line form, not just the trailing notice: the row itself must read
+    // "no due date" rather than a blank or an invented date.
+    expect(text).toContain("-- no due date;");
     expect(text).toContain("no due date");
     expect(text).toContain("source brightspace-ical");
     // No category and no warning lead are shown, because none is stored.
