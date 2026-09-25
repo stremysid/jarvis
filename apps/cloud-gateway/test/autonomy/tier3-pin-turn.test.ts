@@ -70,9 +70,9 @@ interface TurnResult {
 }
 
 /**
- * One owner voice turn that calls the tier-3 `school_collector_revoke`, with a
- * real `AutonomyService` and D1 behind the gate. Only the channel port (the
- * PIN question) and the model are fakes.
+ * One owner voice turn that calls `school_collector_revoke`, promoted to tier 3
+ * by this file's `beforeAll`, with a real `AutonomyService` and D1 behind the
+ * gate. Only the channel port (the PIN question) and the model are fakes.
  */
 async function runTurn(input: {
   readonly channel?: (request: ToolChannelAuthorizationRequest, turn: AbortController) => Promise<ToolChannelAuthorization>;
@@ -127,6 +127,11 @@ describe("a PIN'd action and the turn that asked for it", () => {
   beforeAll(async () => {
     await applyNewestRuntimeMigration();
     await applyAutonomyToolCapabilitiesMigration();
+    // Since 0051 only Sid's five actions are tier 3, and none of them has a
+    // tool the agent dispatches yet. The PIN turn is exercised through a real
+    // dispatchable tool, so this file promotes the collector revoke to tier 3.
+    // Its production tier is pinned in five-confirmed-actions.test.ts.
+    await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = 'school.collector.revoke'").run();
   }, 120_000);
 
   afterEach(() => { vi.restoreAllMocks(); });

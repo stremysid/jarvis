@@ -35,7 +35,7 @@ function gate(): ToolAutonomyGate {
 
 /** A tier-3 capability the reserved tool mapping already points at. */
 const TIER3_TOOL = "send_email";
-const TIER3_CAPABILITY = "contact.third_party";
+const TIER3_CAPABILITY = "send.email";
 /** The reversible vehicle action 0008 seeds as tier 2. */
 const TIER2_TOOL = "tesla_precondition";
 
