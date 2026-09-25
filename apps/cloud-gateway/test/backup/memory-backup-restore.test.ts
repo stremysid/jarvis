@@ -770,7 +770,7 @@ describe("verified memory backup restore", () => {
       VALUES ('identity:backup-tap', 'principal:owner', 'telegram', 'synthetic-backup-tap', 'active', ?, ?)`)
       .bind(timestamp, timestamp).run();
     const lookup = {
-      principalId: "principal:owner", toolName: "send_email", capability: "contact.third_party", argumentsHash: await argumentsFingerprint("{}"),
+      principalId: "principal:owner", toolName: "send_email", capability: "send.email", argumentsHash: await argumentsFingerprint("{}"),
     };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => instant });
     const item = await decisions.raise({

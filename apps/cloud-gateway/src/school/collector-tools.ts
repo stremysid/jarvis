@@ -5,6 +5,6 @@ export const SCHOOL_COLLECTOR_TOOLS: readonly ModelFunctionDefinition[] = Object
     parameters: { type: "object", additionalProperties: false, properties: {
       cursor: { type: "string", description: "Empty string for the first page, then evidenceNextCursor." }, limit: { type: "integer", minimum: 1, maximum: 100 }, staleAfterMs: { type: "integer", minimum: 1 },
     }, required: ["cursor", "limit", "staleAfterMs"] } },
-  { name: "school_collector_revoke", description: "Revoke one school collector identified by school_d2l_status. This disables only its school uploads. Ask for the owner confirmation tap before revoking.",
+  { name: "school_collector_revoke", description: "Revoke one school collector identified by school_d2l_status. This disables only its school uploads; Sid pairs it again in Telegram to undo it.",
     parameters: { type: "object", additionalProperties: false, properties: { collectorId: { type: "string" } }, required: ["collectorId"] } },
 ]);

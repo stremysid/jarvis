@@ -13,7 +13,7 @@ import { DecisionService } from "../../src/decisions/decision-service.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
 const TAP_AT = new Date("2026-09-23T12:00:00.000Z");
-const CAPABILITY = "contact.third_party";
+const CAPABILITY = "send.email";
 let serial = 0;
 
 async function harness() {
@@ -281,7 +281,7 @@ describe("single-use tier-3 taps", () => {
   it("does not consume a refusal or a tap for another capability or principal", async () => {
     const h = await harness();
     const refusal = await h.tap("cancel");
-    const otherCapability = await h.tap("confirm", "vehicle.unlock");
+    const otherCapability = await h.tap("confirm", "contact.third_party");
     expect((await h.gate().evaluateToolCall(h.request)).verdict).toBe("confirm");
     const other = await harness();
     await h.tap();
