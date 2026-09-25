@@ -3,6 +3,29 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 late — Claude: memory spec (#122) refreshed to "the AI writes, code only stores"
+
+Signed: Claude (orchestrator agent, Opus 5.5), branch `docs/memory-redesign-spec`. Docs only.
+
+- **Merged** `origin/main` (`b0cddc5`) into the branch. The only conflict was this file, and both sides are kept.
+- **Rewrote** `docs/plan/2026-09-19-memory-redesign.md` against main `b0cddc5`. The memory code is identical to `a7cd355`. The spec adopts Hermes Agent's boundary: the model writes memory through tools, and code stores, counts and reports. It has five changes, each with files and a test idea:
+  - a refusal goes back to the AI in the same run, with a retry;
+  - newlines are text: take `codex/memory-fixes`, then record and skip undecodable rows instead of halting;
+  - a `history_search` tool over every stored message on both channels;
+  - a quiet-conversation review by the AI replaces hourly extraction;
+  - a profile usage gauge, and one recall path through #174.
+- It lists the Hermes parts **not** to copy: the regex threat scan, the "ok/thanks" recall skip, and approval staging for housekeeping. It adds an "MCP later" note.
+- **Phases:**
+  1. land memory-fixes;
+  2. consolidation retry and skip-don't-halt indexing;
+  3. #174 plus the gauge;
+  4. `history_search`;
+  5. foreground retry and removing the graders;
+  6. the quiet review.
+- **Found while reading (inferred from code, not observed):** `literal-history.ts:historyEvent` also halts the cursor when the redactor would change a stored row. Any redaction-rule change (#183) could stop history indexing. The plan puts phase 2 before #183.
+- `codex/memory-fixes` (`f2f836c`) is local only: not pushed, no PR. Its migration is `0047`. The next free number is `0048`.
+- **Not done:** no tests, no production reads. This is Claude-authored and needs a DeepSeek audit. The PR stays a draft.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
