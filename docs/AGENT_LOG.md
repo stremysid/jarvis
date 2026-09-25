@@ -3,6 +3,104 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Hermes: the tar listing host is the absolute system executable
+
+Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not
+established with certainty in this session; no name is asserted.
+
+Branch `fix/hermes-tar-and-flake`, worktree `C:\w\hf`, based on `f56f279d` (#170)
+with `origin/main` `68675ba6` merged before any edit. Only
+`apps/hermes-runtime/scripts/HermesRuntime.psm1` and
+`apps/hermes-runtime/test/source-lock.test.mjs` are touched.
+
+**What changed and why.** `Assert-SafeCpythonArchive` reached tar as
+`& tar.exe`, a bare name PowerShell resolves through `PATH`. Any host whose
+`PATH` puts another `tar` first runs the listing with a different tar than the
+one that wrote the archive, so every hostile-member assertion in the file
+reports a reason unrelated to the members. `Get-HermesSystemTarPath` now returns
+the reviewed absolute executable: the machine-scope `SystemRoot`, falling back
+to the process-scope value and then the Windows special folder; the path
+`<root>\System32\tar.exe`, extension-checked; then a reparse-point walk from the
+executable to the volume root. `Assert-SafeCpythonArchive` holds it in `$tar`
+and calls `& $tar -tf` / `& $tar -tvf`. The helper is exported so a test can
+call it.
+
+**Two tests, both in `test/source-lock.test.mjs`, committed in the same commit
+as the code:**
+
+- "resolves the tar listing host to the fully qualified system executable" —
+  compiles a shadow `tar.exe` with the real csc, prepends its directory to the
+  child's `PATH`, then asserts the resolved value is *exactly*
+  `$env:SystemRoot\System32\tar.exe` and fully qualified.
+- "contains no bare tar.exe invocation for PATH to resolve" — asserts the module
+  source matches `/&\s*tar\.exe\s/g` zero times and that the listing calls go
+  through `$tar`.
+
+**Why the two are shaped that way, and not as a "which binary ran" test.** PATH
+order is *not* observable for a bare name on this host: with a shadow first on
+`PATH`, `Get-Command tar.exe` still answers System32. That is measured, not
+assumed, and it is why the first test asserts the *resolved value* and the second
+asserts the *source*. A test that asserted the shadow won would be pinning a
+property this host does not have.
+
+**Mutations.** Each was applied to a clean tree, run against one named test,
+then reverted with `git checkout --` and the green re-confirmed.
+
+| # | Mutation | Test run | Result |
+|---|---|---|---|
+| M2 | `return $full` → `return 'System32\tar.exe'` (relative host, resolves against the caller's cwd) | T1, tar-host | **KILLED** — `tar_host_not_absolute_System32\tar.exe`, that test failed, 78 skipped |
+| M3 | `& $tar -tvf $Archive` → `& tar.exe -tvf $Archive` (the pre-fix call) | T2, no-bare-name | **KILLED** — `the module invokes tar.exe by bare name: & tar.exe`, that test failed, 78 skipped |
+| M1 | deleted both validation guards (`IsPathFullyQualified($systemRoot)`, `IsPathFullyQualified($full) -or GetExtension($full) -cne '.exe'`) | T1 and T2 | **SURVIVED** — see below |
+
+**What M1 means, stated rather than buried.** Removing those two guards leaves
+both tests green and the whole file green. They are unpinned, and on a healthy
+host they are also unreachable: `SystemRoot` is always set, fully qualified, and
+`System32\tar.exe` is always absolute with a `.exe` extension, so no input this
+host can produce reaches either `throw`. I have kept them rather than deleted
+them — they are cheap and they are the two checks whose removal would otherwise
+make a silently relative host acceptable — but **no test in this PR establishes
+that they fire**, and the next session should not read their presence as
+coverage. An unreachable guard is indistinguishable from a broken one; pinning
+them needs a seam this change does not have.
+
+**Ordering.** `origin/main` is that branch's *ancestor*: `git rev-parse HEAD`
+equalled `git rev-parse origin/main` at the start, so this is a plain merge
+commit, no rebase and no force-push. `git diff --name-only <merge-base>
+origin/main` lists no `apps/hermes-runtime` file, so the merge could not have
+disturbed this change; it is present for CI.
+
+**The flake half of this branch is not in this PR.** The branch is named
+`fix/hermes-tar-and-flake` and the worktree carried a local, uncommitted
+`30_000`-timeout edit to `test/path-residue-review3.test.mjs`. That edit is
+**reverted** and is not in this branch: #185
+(`codex/local-agent-retry-wait-flake`, not merged) already bounds that file with
+`180_000`, so carrying a second, smaller bound here would be a worse duplicate of
+a change already under review. Nothing else from the flake work is included.
+
+**Gates, and exactly what each covers.**
+
+- `npx vitest run apps/hermes-runtime/test/source-lock.test.mjs` — full file,
+  unmodified tree: **79 passed (79), 1343 s**. One file, not the package.
+- Both new tests alone, after every mutation was reverted: 1 passed / 1 skipped
+  for T2, and the four tests matching `-t "tar"` passed 5 / 74 skipped.
+- `node --check apps/hermes-runtime/test/source-lock.test.mjs` — exit 0.
+- `node scripts/check-state.mjs` — "state check passed … 1 warning(s)"; the
+  warning is the pre-existing `docs/FACTS.md:62` Opera GX re-verification, not
+  this change.
+- **Not run:** the workspace suite, the hermes package suite, the other hermes
+  test files, and the gateway tests. Focused files only on this PC. CI is the
+  authority, and the PR reports what it observed.
+
+**Not done, deliberately:** no deploy, no migration, no merge, no change to
+`apps/cloud-gateway` or `apps/local-agent`, and no edit to the residue test.
+
+**Out of scope, named not fixed.** `test/source-lock.test.mjs` is the only file
+where the tar host is reached, but the same "resolve a Windows system
+executable through PATH" shape is used elsewhere in this repository's tests (for
+example `csc.exe` reached by its literal `Framework64` path, which is at least
+absolute, and `pwsh` reached by bare name). I did not sweep them; a bare-name
+`pwsh` is a host choice the harness documents.
+
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.
