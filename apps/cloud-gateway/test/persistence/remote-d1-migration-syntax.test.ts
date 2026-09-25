@@ -133,7 +133,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0040_school_collector_keys.sql",
       "0043_guided_assignment.sql",
       "0045_school_collector_hosts.sql",
-      "0047_web_tools.sql",
+      "0049_web_tools.sql",
     ]);
   });
 

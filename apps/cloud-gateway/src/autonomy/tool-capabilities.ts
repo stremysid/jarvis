@@ -77,7 +77,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   school_collector_revoke: "school.collector.revoke",
   university_update: "university.track",
   study_coach: "study.coach",
-  // Reads of the public web. Tier 1 in 0047_web_tools.sql: they send nothing as
+  // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
   // Sid and change nothing outside the gateway's own receipt table.
   web_read: "read.web",
   web_search: "read.web",

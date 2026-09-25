@@ -19,7 +19,7 @@ Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid ap
 
   When text is cut, the result says `truncated: true` and gives the offset for the next part.
 - **Web content is data.** Every result carries `untrustedWebContent: true` and a notice. Neither tool can act.
-- **Receipts.** Migration `0047_web_tools.sql` seeds `read.web` at tier 1 and adds the append-only `web_tool_receipts` table. Every call writes one row, refused and failed calls included. The row holds the URL or query, final URL, method, outcome, HTTP status, bytes and truncation. The backup inventory and the restore list include the new migration and table.
+- **Receipts.** Migration `0049_web_tools.sql` (first opened as `0047`, renumbered because #196 uses `0047` and #194 uses `0048`) seeds `read.web` at tier 1 and adds the append-only `web_tool_receipts` table. Every call writes one row, refused and failed calls included. The row holds the URL or query, final URL, method, outcome, HTTP status, bytes and truncation. The backup inventory and the restore list include the new migration and table.
 - **Exa, verified from docs and source only.**
   - The docs give `https://mcp.exa.ai/mcp`, a keyless free tier, and the `x-api-key` header.
   - The source at `exa-labs/exa-mcp-server@f3d71fb` (`api/mcp.ts`) builds a fresh MCP handler per request. The free tier is IP rate-limited on `tools/call` and answers 429.
@@ -30,7 +30,7 @@ Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid ap
   - Neighbour files pass 415/415 (18 files).
   - `mutate.ps1` at `8e9a0c0`: 16 mutations, all 16 KILLED by the named test and confirmed on a second run.
   - `tsc` is clean. `check-state` passes with its one existing FACTS warning.
-- **Owner actions:** apply `0047` with the deploy. Optionally set a Browser Rendering token and an Exa key.
+- **Owner actions:** apply `0049` with the deploy. Optionally set a Browser Rendering token and an Exa key.
 - **Scope:** no merge, deploy, migration application, secret change or production access.
 
 
