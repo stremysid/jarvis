@@ -59,6 +59,7 @@ function deadline(overrides: Partial<StudyDeadlineCandidate> = {}): StudyDeadlin
       title: "Untrusted worksheet title",
       dueAt: "2026-09-16T14:00:00.000Z",
       effort: "other",
+      effortJudged: false,
       leadMinutes: 60,
       status: "open",
       contentHash: "a".repeat(64),

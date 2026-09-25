@@ -32,8 +32,8 @@ describe("DeadlineIngestion", () => {
   let sourceId: string;
   let now: Date;
 
-  function ingestion(courseEffort?: ReadonlyMap<string, DeadlineEffort>): DeadlineIngestion {
-    return new DeadlineIngestion({ repository, now: () => now, courseEffort });
+  function ingestion(): DeadlineIngestion {
+    return new DeadlineIngestion({ repository, now: () => now });
   }
 
   beforeEach(async () => {
@@ -186,23 +186,43 @@ describe("DeadlineIngestion", () => {
     });
   });
 
-  it("lets a per-course rule beat a source's own tag, and stores other when neither is supplied", async () => {
-    const rules = new Map<string, DeadlineEffort>([["SPH4U Physics", "test"]]);
-    const report = await ingestion(rules).ingest(
-      sourceId,
-      items({ ...QUIZ, effort: "project" }, ESSAY),
-    );
-
-    // The rule exists because the source's answer was wrong for that course. A
-    // rule the source can overrule is not a rule.
-    expect(report.created[0]).toMatchObject({ effort: "test", leadMinutes: 2_880 });
-    // No rule and no tag is `other`, never a guess from the title.
-    expect(report.created[1]).toMatchObject({ effort: "other", leadMinutes: 1_440 });
-  });
-
-  it("takes a source's own tag where no rule covers the course, with that effort's default lead", async () => {
+  it("takes a source's own effort tag with that effort's default lead", async () => {
     const report = await ingestion().ingest(sourceId, items({ ...QUIZ, effort: "exam" }));
     expect(report.created[0]).toMatchObject({ effort: "exam", leadMinutes: 10_080 });
+  });
+
+  it("keeps the effort and lead Jarvis judged when a later collector sweep moves the date", async () => {
+    const first = await ingestion().ingest(sourceId, items(QUIZ));
+    const deadlineId = first.created[0]!.deadlineId;
+    // The same write path deadline_judge uses, so this is the real stored state
+    // and not a test-only shortcut.
+    await repository.upsert({ sourceId, externalId: QUIZ.externalId, course: QUIZ.course, title: QUIZ.title,
+      dueAt: QUIZ.dueAt, effort: "exam", leadMinutes: 10_080, replaceEffortAndLead: true, effortJudged: true, now: MONDAY });
+
+    now = TUESDAY;
+    const moved = await ingestion().ingest(sourceId, items({ ...QUIZ, dueAt: "2026-09-22T18:00:00.000Z" }));
+
+    // A content revision is the source's date moving, not a reason to undo the
+    // model's judgment on the same write.
+    expect(moved.moved).toHaveLength(1);
+    expect(moved.moved[0]!.deadline).toMatchObject({
+      effort: "exam", leadMinutes: 10_080, effortJudged: true, dueAt: "2026-09-22T18:00:00.000Z",
+    });
+    expect(await repository.readDeadline(deadlineId)).toMatchObject({ effort: "exam", effortJudged: true });
+  });
+
+  it("still lets a source's tag replace an unjudged effort when the date moves", async () => {
+    await ingestion().ingest(sourceId, items(QUIZ));
+
+    now = TUESDAY;
+    const revised = await ingestion().ingest(
+      sourceId,
+      items({ ...QUIZ, effort: "test", dueAt: "2026-09-22T18:00:00.000Z" }),
+    );
+
+    // No model has judged this row, so there is nothing of ours to protect and
+    // the source's own assertion wins.
+    expect(revised.moved[0]!.deadline).toMatchObject({ effort: "test", leadMinutes: 2_880, effortJudged: false });
   });
 
   it("stores a source's own lead time over the effort's default", async () => {

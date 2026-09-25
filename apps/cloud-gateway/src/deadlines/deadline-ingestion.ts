@@ -103,17 +103,6 @@ export interface DeadlineIngestionReport {
 export interface DeadlineIngestionOptions {
   readonly repository: DeadlineRepository;
   readonly now?: () => Date;
-  /**
-   * The owner's standing per-course rules, keyed by course name, supplied by
-   * the caller.
-   *
-   * These beat anything a source asserts, and that ordering is the point: a
-   * rule exists because the source's answer was wrong for that course, so a
-   * rule that can be overruled by the thing it was written to correct is not a
-   * rule. Nothing in this file derives an effort from a title; with no rule
-   * and no source tag the item is stored as `other`.
-   */
-  readonly courseEffort?: ReadonlyMap<string, DeadlineEffort>;
 }
 
 interface NormalizedItem {
@@ -203,12 +192,10 @@ function normalizeItem(item: RawDeadlineItem): { ok: true; value: NormalizedItem
 export class DeadlineIngestion {
   readonly #repository: DeadlineRepository;
   readonly #now: () => Date;
-  readonly #courseEffort: ReadonlyMap<string, DeadlineEffort>;
 
   constructor(options: DeadlineIngestionOptions) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
-    this.#courseEffort = options.courseEffort ?? new Map();
   }
 
   /**
@@ -304,10 +291,12 @@ export class DeadlineIngestion {
         }
         seen.add(item.externalId);
 
-        // No course rule and no source tag means we do not know what this is,
-        // and `other` says exactly that. The title is not consulted: choosing a
-        // category from its words would be this code making Jarvis's decision.
-        const effort = this.#courseEffort.get(item.course) ?? item.effort ?? "other";
+        // Nothing here derives an effort from the title. A source tag is the
+        // source's own assertion; otherwise the row is `other` and stays
+        // unjudged until the model judges it through `deadline_judge`. Choosing
+        // a category from the title's words would be this code making Jarvis's
+        // decision.
+        const effort = item.effort ?? "other";
         const result = await this.#repository.upsert({
           sourceId,
           externalId: item.externalId,

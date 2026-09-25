@@ -70,8 +70,21 @@ assignment title, "Final Draft" is an essay and "Final Project" is a project.
 
 | Symbol (as of `f43fcf42`) | What it decided | Now |
 |---|---|---|
-| `classifyEffort` / `EFFORT_KEYWORDS` / `titleTokens` (`effort-classifier.ts`) | Whether a deadline was a quiz, test, exam, essay or project, from words in its title | File replaced by `effort-lead-times.ts`, which keeps only `DEFAULT_LEAD_MINUTES`. Ingestion stores the caller's explicit override (a per-course rule or a source tag) or `other`; it never reads the title. Jarvis sets effort through `deadline_record`, from the title, the course and Sid's words, and asks Sid when unsure |
-| `EffortBasis` / `matchedKeyword` | A receipt-shaped claim about which word decided the category, so a caller could show the classifier's working | Deleted with the classifier. There is no automatic category to explain; `lead_minutes` is stored on the row and the model-supplied `effort` is the only source |
+| `classifyEffort` / `EFFORT_KEYWORDS` / `titleTokens` (`effort-classifier.ts`) | Whether a deadline was a quiz, test, exam, essay or project, from words in its title | File replaced by `effort-lead-times.ts`, which keeps only `DEFAULT_LEAD_MINUTES`. Ingestion stores a source's own tag or `other`, never reads the title, and marks a defaulted row `effort_judged = 0`. `deadline_record` sets a deadline Sid stated; `deadline_judge` sets any stored row by `deadlineId`, including a collected one; `deadline_list` shows which rows are still unjudged. The model judges from the title, the course and Sid's words and asks when unsure |
+| `EffortBasis` / `matchedKeyword` | A receipt-shaped claim about which word decided the category, so a caller could show the classifier's working | Deleted with the classifier. There is no automatic category to explain; `effort_judged` and `lead_minutes` are stored on the row and the model-supplied `effort` is the only source |
+| `DeadlineIngestionOptions.courseEffort` | Which effort a caller's standing per-course rules imposed, beating both a source tag and the model | Deleted: it had no production caller, no store and no tool that could show it to the model. A standing preference belongs in memory or a tool the model reads, not in an invisible map |
+
+**Scope, corrected 2026-09-25.** The first version of this row said "Jarvis sets
+effort through `deadline_record`". That held only for owner-reported rows: a
+collected deadline was stored `other` with the `other` lead and no tool could
+change it, so a D2L final exam got one day of warning and never opened the exam
+quiet window, and a collector revision overwrote an effort the model had set.
+Both are fixed above -- every stored row can be judged by id, and `upsert` keeps
+a judged effort and lead when the source merely moves the date. There is still
+**no scheduled model pass over newly collected deadlines**: the digest is
+deterministic and composes no model prompt, so a collected row is judged on an
+owner turn that lists deadlines, not automatically. That limit is stated here
+rather than implied away.
 
 ## Owner-requested redaction grammar, 2026-09-24
 

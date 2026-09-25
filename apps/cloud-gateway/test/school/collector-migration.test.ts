@@ -11,7 +11,12 @@ import { SchoolCollectorRepository } from "../../src/school/collector-repository
 
 const migrationName = "0045_school_collector_hosts.sql";
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, MEMORY_BACKUP_RESTORE_MIGRATIONS.filter((row) => row.name < migrationName)
+  // Everything before the collector-host migration, plus `0053`. That one only
+  // alters `deadlines`, which this test writes through `DeadlineIngestion`, and
+  // it is independent of the host migration this fixture is about applying
+  // second. Leaving it out built an older row shape than any live database has.
+  await applyD1Migrations(env.DB, MEMORY_BACKUP_RESTORE_MIGRATIONS.filter((row) =>
+    row.name < migrationName || row.name === "0053_deadline_effort_judgment.sql")
     .map((row) => ({ name: row.name, queries: splitMigration(row.sql) })));
 });
 

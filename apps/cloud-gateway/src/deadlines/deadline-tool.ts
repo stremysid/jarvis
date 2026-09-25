@@ -3,7 +3,7 @@ import { parseArguments, refusedTool, successfulTool, type ExecutedTool } from "
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import { DeadlineRepository } from "./deadline-repository.js";
-import { DEFAULT_LEAD_MINUTES } from "./effort-lead-times.js";
+import { leadMinutesForWrite } from "./effort-lead-times.js";
 import {
   DEADLINE_STATUSES,
   requireEffort,
@@ -108,10 +108,16 @@ function resolveDue(value: unknown, timeZone: string): ResolvedDue {
   return { dueAt: new Date(Date.parse(text)).toISOString(), dateOnlyZone: null };
 }
 
-interface ExistingDeadline { external_id: string; course: string; title: string }
+interface ExistingDeadline {
+  external_id: string;
+  course: string;
+  title: string;
+  effort: string;
+  lead_minutes: number;
+}
 
 async function ownedDeadlines(database: D1Database, principal: string): Promise<ExistingDeadline[]> {
-  const rows = await database.prepare("SELECT external_id, course, title FROM deadlines WHERE source_id = 'owner-reported'").all<ExistingDeadline>();
+  const rows = await database.prepare("SELECT external_id, course, title, effort, lead_minutes FROM deadlines WHERE source_id = 'owner-reported'").all<ExistingDeadline>();
   const owned: ExistingDeadline[] = [];
   for (const row of rows.results) {
     // Older rows hashed literal spelling. Both generations must retain their
@@ -155,20 +161,26 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     const title = requireText(args.title, "deadline_title", 512);
     if (normalize(course).length === 0 || normalize(title).length === 0) invalid("course and title must not be blank.");
     const effort = requireEffort(args.effort);
-    const leadMinutes = args.leadMinutes === undefined
-      ? DEFAULT_LEAD_MINUTES[effort]
-      : requireLeadMinutes(args.leadMinutes);
     const status: DeadlineStatus | undefined = args.status === undefined ? undefined : requireStatus(args.status);
     const ownerZone = requireZone(context.ownerZone, "deadline_owner_zone");
     const timeZone = args.timeZone === undefined ? ownerZone : requireZone(args.timeZone, "deadline_zone");
     const due = resolveDue(args.dueAt, timeZone);
     const { match, similar } = sameAndSimilar(await ownedDeadlines(database, input.principalId), course, title);
+    // A lead named earlier is kept unless this call names a new one; see
+    // `leadMinutesForWrite`. The stored row is the match `sameAndSimilar` found,
+    // so no extra read is needed.
+    const stored = match === null ? null : { effort: requireEffort(match.effort), leadMinutes: match.lead_minutes };
+    const leadMinutes = leadMinutesForWrite(
+      args.leadMinutes === undefined ? null : requireLeadMinutes(args.leadMinutes),
+      stored,
+      effort,
+    );
     const repository = new DeadlineRepository(database);
     await repository.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
     const externalId = match?.external_id ?? await identity(input.principalId, courseKey(course), normalize(title));
     const result = await repository.upsert({ sourceId: "owner-reported", externalId,
       course: match?.course ?? course, title: match?.title ?? title, dueAt: due.dueAt,
-      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes, now });
+      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, effortJudged: true, leadMinutes, now });
     const local = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: ownerZone, dateStyle: "full", timeStyle: "short" }).format(new Date(at));
     const action = result.outcome === "created" ? "Created" : result.outcome === "unchanged" ? "Unchanged" : "Updated";
     const previous = result.previous !== null && result.previous.dueAt !== result.deadline.dueAt
@@ -177,7 +189,7 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
       : ` Date-only: stored at end of day in ${due.dateOnlyZone}, not a stated clock time.`;
     const alike = similar.length === 0 ? "" : ` Similar stored deadlines: ${similar.map((row) =>
       `${JSON.stringify(row.course)} / ${JSON.stringify(row.title)}`).join(", ")}; if one is the same assignment, tell Sid.`;
-    return successfulTool(call, `${action} ${JSON.stringify(result.deadline.course)}: ${JSON.stringify(result.deadline.title)}, due ${local(result.deadline.dueAt)} (${ownerZone}); ${result.deadline.status}.${qualification}${previous}${alike} Source: owner-reported.`);
+    return successfulTool(call, `${action} ${JSON.stringify(result.deadline.course)}: ${JSON.stringify(result.deadline.title)}, due ${local(result.deadline.dueAt)} (${ownerZone}); ${result.deadline.status}; effort ${result.deadline.effort}; lead ${result.deadline.leadMinutes} minutes.${qualification}${previous}${alike} Source: owner-reported.`);
   } catch (error) {
     if (error instanceof DeadlineToolError) return refusedTool(call, `${error.reason}: ${error.detail} Nothing changed.`);
     if (error instanceof TypeError || error instanceof SyntaxError) return refusedTool(call,

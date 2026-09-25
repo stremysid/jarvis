@@ -160,6 +160,13 @@ export interface Deadline {
   readonly title: string;
   readonly dueAt: string;
   readonly effort: DeadlineEffort;
+  /**
+   * False means ingestion defaulted `effort` to `other` because no one had
+   * judged the row yet. The listing shows it as unjudged so the model can see
+   * what still needs a judgment, and a collector revision keeps a judged effort
+   * instead of overwriting it. See `deadline-judgment-tools.ts`.
+   */
+  readonly effortJudged: boolean;
   readonly leadMinutes: number;
   readonly status: DeadlineStatus;
   /** Lowercase hex SHA-256 over the fields the source controls. See `deadlineContentHash`. */
@@ -214,7 +221,11 @@ export interface RawDeadlineItem {
   readonly course: string;
   readonly title: string;
   readonly dueAt: string;
-  /** Set when the source itself knows the type; still loses to a per-course rule. See `deadline-ingestion.ts`. */
+  /**
+   * Set only when the source itself states the type. It is the source's
+   * assertion, not a model judgment; `deadline_judge` is how the model judges
+   * a collected row. See `deadline-ingestion.ts`.
+   */
   readonly effort?: DeadlineEffort;
   /** Set to override the effort's default lead time for this one item. */
   readonly leadMinutes?: number;

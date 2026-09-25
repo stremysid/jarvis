@@ -77,6 +77,11 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_unpin: "memory.write",
   school_update: "school.track",
   deadline_record: "school.track",
+  // Reading and re-tagging Sid's own deadlines, including collected ones, is
+  // owner-scoped and reversible in the same store, so both share school.track's
+  // tier-1 row and need no migration.
+  deadline_list: "school.track",
+  deadline_judge: "school.track",
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",

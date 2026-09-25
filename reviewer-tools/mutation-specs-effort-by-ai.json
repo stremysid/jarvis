@@ -2,18 +2,10 @@
   {
     "name": "E1 ingestion falls back to a guessed effort instead of other",
     "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
-    "find": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"other\";",
-    "replace": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"exam\";",
+    "find": "const effort = item.effort ?? \"other\";",
+    "replace": "const effort = item.effort ?? \"exam\";",
     "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
     "expect": "does not infer an effort from a title, so Final Exam is stored as other"
-  },
-  {
-    "name": "E2 ingestion ignores the per-course rule",
-    "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
-    "find": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"other\";",
-    "replace": "const effort = item.effort ?? \"other\";",
-    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
-    "expect": "lets a per-course rule beat a source's own tag, and stores other when neither is supplied"
   },
   {
     "name": "E3 ingestion ignores a source's own lead time",
@@ -26,16 +18,16 @@
   {
     "name": "E4 deadline_record ignores the model's lead time and never validates it",
     "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
-    "find": "    const leadMinutes = args.leadMinutes === undefined\n      ? DEFAULT_LEAD_MINUTES[effort]\n      : requireLeadMinutes(args.leadMinutes);",
-    "replace": "    const leadMinutes = DEFAULT_LEAD_MINUTES[effort];",
+    "find": "      args.leadMinutes === undefined ? null : requireLeadMinutes(args.leadMinutes),",
+    "replace": "      null,",
     "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
     "expect": "stores a model-supplied lead time instead of the effort's default"
   },
   {
     "name": "E5 deadline_record stops replacing effort and lead on an existing row",
     "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
-    "find": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes, now });",
-    "replace": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: false, leadMinutes, now });",
+    "find": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, effortJudged: true, leadMinutes, now });",
+    "replace": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: false, effortJudged: true, leadMinutes, now });",
     "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
     "expect": "updates effort and its lead window without calling the change unchanged"
   },
@@ -54,5 +46,61 @@
     "replace": "",
     "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
     "expect": "tells the model to decide the fields itself and to ask Sid when it is unsure"
+  },
+  {
+    "name": "F1 a stored lead override is recomputed instead of kept",
+    "file": "apps/cloud-gateway/src/deadlines/effort-lead-times.ts",
+    "find": "  if (stored !== null && stored.effort === effort) return stored.leadMinutes;",
+    "replace": "  if (stored !== null && stored.effort === effort) return DEFAULT_LEAD_MINUTES[effort];",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "keeps a model-supplied lead when a later status update leaves leadMinutes out"
+  },
+  {
+    "name": "F2 the receipt never says which effort and lead were stored",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "; effort ${result.deadline.effort}; lead ${result.deadline.leadMinutes} minutes.",
+    "replace": ".",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "states the stored effort and lead minutes in the receipt"
+  },
+  {
+    "name": "F3 a collector revision overwrites an effort Jarvis judged",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-repository.ts",
+    "find": "const keepJudgedEffort = !replaceEffortAndLead && existing.effort_judged === 1;",
+    "replace": "const keepJudgedEffort = false;",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
+    "expect": "keeps the effort and lead Jarvis judged when a later collector sweep moves the date"
+  },
+  {
+    "name": "F4 the listing shows a collected row's default other as if it were judged",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-judgment-tools.ts",
+    "find": "  const effort = deadline.effortJudged ? `effort ${deadline.effort}` : \"unjudged effort (stored other)\";",
+    "replace": "  const effort = `effort ${deadline.effort}`;",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-judgment-tools.test.ts",
+    "expect": "shows a collected row as unjudged effort so the model can see what needs judging"
+  },
+  {
+    "name": "F5 deadline_judge does not mark the row as judged",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-judgment-tools.ts",
+    "find": "    effortJudged: true,\n",
+    "replace": "    effortJudged: false,\n",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-judgment-tools.test.ts",
+    "expect": "shows a deadline Jarvis judged as a judged effort, not as unjudged"
+  },
+  {
+    "name": "F6 the listing stops telling the model to judge unjudged rows",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-judgment-tools.ts",
+    "find": "After listing, call deadline_judge for every row marked unjudged effort, using its title, its course and anything Sid has said. Never infer an effort from a title word list.",
+    "replace": "List the rows.",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-judgment-tools.test.ts",
+    "expect": "tells the model the listing is where it learns which rows it must judge"
+  },
+  {
+    "name": "F7 deadline_record does not mark the row as judged",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "replaceEffortAndLead: true, effortJudged: true, leadMinutes, now });",
+    "replace": "replaceEffortAndLead: true, effortJudged: false, leadMinutes, now });",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "marks an owner-recorded deadline as a judged effort"
   }
 ]

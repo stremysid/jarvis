@@ -14,7 +14,7 @@ const action: SchoolCatchupAction = {
 };
 const deadline: Deadline = {
   deadlineId: id, sourceId: "fixture", externalId: "fixture", course: "Physics", title: "Unit test",
-  dueAt: "2026-11-01T06:30:00.000Z", leadMinutes: 90, effort: "test", status: "open",
+  dueAt: "2026-11-01T06:30:00.000Z", leadMinutes: 90, effort: "test", effortJudged: true, status: "open",
   contentHash: "a".repeat(64), firstSeenAt: now.toISOString(), lastSeenAt: now.toISOString(), remindedAt: null,
 };
 const application: UniversityApplicationDigestItem = {

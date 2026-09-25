@@ -20,7 +20,7 @@ const ownerRow = async (course: string, title: string, principalId = "principal:
   const repo = new DeadlineRepository(env.DB);
   await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now: NOW });
   await repo.upsert({ sourceId: "owner-reported", externalId: await sha256Hex(canonicalJson({ principal: principalId, course, title })),
-    course, title, dueAt: "2026-09-25T19:30:00.000Z", effort: "project", leadMinutes: 0, now: NOW });
+    course, title, dueAt: "2026-09-25T19:30:00.000Z", effort: "project", leadMinutes: DEFAULT_LEAD_MINUTES.project, now: NOW });
 };
 
 describe("owner reported deadlines", () => {
@@ -151,6 +151,48 @@ describe("owner reported deadlines", () => {
   it("stores a model-supplied lead time instead of the effort's default", async () => {
     await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
     expect((await rows()).results[0]).toMatchObject({ effort: "exam", lead_minutes: 45 });
+  });
+
+  it("keeps a model-supplied lead when a later status update leaves leadMinutes out", async () => {
+    await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
+    await recordDeadline(env.DB, input(), call({ effort: "exam", status: "submitted" }), NOW);
+
+    // A missing leadMinutes means "keep the stored lead", the same way a missing
+    // status keeps the stored status. Recomputing the default here silently
+    // replaced an explicit 45-minute warning with 7 days.
+    expect((await rows()).results[0]).toMatchObject({ effort: "exam", lead_minutes: 45, status: "submitted" });
+  });
+
+  it("keeps a model-supplied lead when a later correction moves the due date", async () => {
+    await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
+    await recordDeadline(env.DB, input(), call({ effort: "exam", dueAt: "2026-09-26T15:30:00-04:00" }), NOW);
+
+    expect((await rows()).results[0]).toMatchObject({
+      effort: "exam", lead_minutes: 45, due_at: "2026-09-26T19:30:00.000Z",
+    });
+  });
+
+  it("uses the new effort's default lead when the effort changes without a lead", async () => {
+    await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
+    await recordDeadline(env.DB, input(), call({ effort: "quiz" }), NOW);
+
+    // The old 45-minute lead described an exam and no longer fits a quiz, so it
+    // is not kept across a change of kind; the new effort's default applies.
+    expect((await rows()).results[0]).toMatchObject({ effort: "quiz", lead_minutes: 720 });
+  });
+
+  it("states the stored effort and lead minutes in the receipt", async () => {
+    const result = await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
+
+    // Rule 2: a reply may claim only what a receipt shows, so the receipt has to
+    // name the judgment and the lead that were actually stored.
+    expect(result.receipt).toContain("effort exam");
+    expect(result.receipt).toContain("lead 45 minutes");
+  });
+
+  it("marks an owner-recorded deadline as a judged effort", async () => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    expect((await rows()).results[0]).toMatchObject({ effort: "project", effort_judged: 1 });
   });
 
   it("lets the model change both effort and lead time on an existing deadline", async () => {

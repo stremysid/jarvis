@@ -62,6 +62,7 @@ interface DeadlineRow {
   readonly title: string;
   readonly due_at: string;
   readonly effort: string;
+  readonly effort_judged: number;
   readonly lead_minutes: number;
   readonly status: string;
   readonly content_hash: string;
@@ -115,6 +116,7 @@ function toDeadline(row: DeadlineRow): Deadline {
     title: row.title,
     dueAt: row.due_at,
     effort: requireEffort(row.effort),
+    effortJudged: row.effort_judged === 1,
     leadMinutes: row.lead_minutes,
     status: requireStatus(row.status),
     contentHash: row.content_hash,
@@ -164,9 +166,10 @@ function toQuietWindow(row: QuietWindowRow): QuietWindow {
  * The hash that decides whether a sighting is a new version.
  *
  * It covers exactly what the source controls: the course, the title, and the
- * due date. `effort` and `lead_minutes` are ours -- derived from the title or
- * set by the owner -- and folding them in would make his own retag of a course
- * look like every teacher in it moved every date on the same afternoon.
+ * due date. `effort`, `effort_judged` and `lead_minutes` are ours -- judged by
+ * the model or defaulted by ingestion -- and folding them in would make his own
+ * retag of a course look like every teacher in it moved every date on the same
+ * afternoon.
  *
  * `canonicalJson` rather than string concatenation, so a title containing the
  * separator cannot be arranged to collide with a different course and title.
@@ -195,6 +198,12 @@ export interface DeadlineUpsertInput {
   readonly dueAt: string;
   readonly effort: DeadlineEffort;
   readonly leadMinutes: number;
+  /**
+   * Whether `effort` is the model's judgment (`deadline_record` /
+   * `deadline_judge`) or an ingestion default. Defaults to
+   * `replaceEffortAndLead`, so a tool that deliberately sets effort is judged.
+   */
+  readonly effortJudged?: boolean;
   /** Omission preserves the stored status, including a prior submission. */
   readonly status?: DeadlineStatus;
   /** Owner tools may retag unchanged content; collector sweeps preserve a prior retag. */
@@ -370,12 +379,19 @@ export class DeadlineRepository {
    * Insert or update one deadline, appending a revision only when the content
    * hash moved.
    *
-   * On a change the row's `effort` and `lead_minutes` are rewritten from the
-   * arguments, and on no change they are left alone. That asymmetry is what
-   * lets the owner retag a deadline by hand and keep the tag: the sweep sees
-   * the same title tomorrow, computes the same hash, and does not reach the
-   * branch that would overwrite him. When the teacher actually edits the item,
-   * the tag we derived from the old text is stale anyway and is re-derived.
+   * On a change the row's `effort`, `effort_judged` and `lead_minutes` are
+   * rewritten from the arguments, and on no change they are left alone. That
+   * asymmetry is what lets the owner retag a deadline by hand and keep the tag:
+   * the sweep sees the same title tomorrow, computes the same hash, and does
+   * not reach the branch that would overwrite him.
+   *
+   * A sweep also preserves a judgment it did not make: when
+   * `replaceEffortAndLead` is false and the stored row is `effort_judged`, the
+   * revision keeps the stored effort and lead rather than writing the incoming
+   * `other`. Without that, a collector noticing a moved due date would undo the
+   * model's judgment on the same write, which is the bug this branch would
+   * otherwise have.
+   *
    * An explicit owner status also replaces effort on unchanged content, so a
    * spoken submission or retag cannot be swallowed by the polling fast path.
    *
@@ -393,6 +409,10 @@ export class DeadlineRepository {
     const leadMinutes = requireLeadMinutes(input.leadMinutes);
     const status = input.status === undefined ? null : requireStatus(input.status);
     const replaceEffortAndLead = input.replaceEffortAndLead === true || status !== null;
+    // A tool that says "this is my judgment" is what makes the effort judged;
+    // an ingestion default is not. Defaulting to the replace flag keeps every
+    // caller that deliberately sets effort judged without a second argument.
+    const effortJudged = input.effortJudged ?? replaceEffortAndLead;
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
@@ -400,14 +420,20 @@ export class DeadlineRepository {
       // The common hourly path is one statement per unchanged item. Reading
       // first and then touching last_seen_at tripled the D1 cost of a steady
       // school feed before the caller even computed disappearances.
+      //
+      // The `effort_judged` term matters when replacing: a row still marked
+      // unjudged whose effort happens to match must fall through to the
+      // metadata update, or a judgment of "other" with the default lead would
+      // never be recorded as judged.
       const unchanged = await this.#database.prepare(
         `UPDATE deadlines
          SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
              status = coalesce(?, status)
          WHERE source_id = ? AND external_id = ? AND content_hash = ?
-           AND (? IS NULL OR status = ?) AND (? = 0 OR (effort = ? AND lead_minutes = ?))
+           AND (? IS NULL OR status = ?) AND (? = 0 OR (effort = ? AND lead_minutes = ? AND effort_judged = ?))
          RETURNING *`,
-      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status, replaceEffortAndLead ? 1 : 0, effort, leadMinutes).first<DeadlineRow>();
+      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status,
+        replaceEffortAndLead ? 1 : 0, effort, leadMinutes, effortJudged ? 1 : 0).first<DeadlineRow>();
       if (unchanged !== null) {
         return Object.freeze({
           outcome: "unchanged" as const,
@@ -425,12 +451,12 @@ export class DeadlineRepository {
         const results = await this.#transactions.batch([
           this.#database.prepare(
             `INSERT INTO deadlines (
-               deadline_id, source_id, external_id, course, title, due_at, effort, lead_minutes,
+               deadline_id, source_id, external_id, course, title, due_at, effort, effort_judged, lead_minutes,
                status, content_hash, first_seen_at, last_seen_at, reminded_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, coalesce(?, 'open'), ?, ?, ?, NULL)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, coalesce(?, 'open'), ?, ?, ?, NULL)
              ON CONFLICT (source_id, external_id) DO NOTHING`,
           ).bind(
-            deadlineId, sourceId, externalId, course, title, dueAt, effort, leadMinutes,
+            deadlineId, sourceId, externalId, course, title, dueAt, effort, effortJudged ? 1 : 0, leadMinutes,
             status, contentHash, observedAt, observedAt,
           ),
           // Guarded on the insert above having landed. Without the guard a lost
@@ -461,14 +487,24 @@ export class DeadlineRepository {
         const updated = await this.#database.prepare(`UPDATE deadlines
           SET status = coalesce(?, status),
               effort = CASE WHEN ? THEN ? ELSE effort END,
-              lead_minutes = CASE WHEN ? THEN ? ELSE lead_minutes END, last_seen_at = max(last_seen_at, ?)
+              lead_minutes = CASE WHEN ? THEN ? ELSE lead_minutes END,
+              effort_judged = CASE WHEN ? THEN ? ELSE effort_judged END, last_seen_at = max(last_seen_at, ?)
           WHERE deadline_id = ? AND content_hash = ?
-          RETURNING *`).bind(status, replaceEffortAndLead ? 1 : 0, effort, replaceEffortAndLead ? 1 : 0, leadMinutes, observedAt, existing.deadline_id,
+          RETURNING *`).bind(status, replaceEffortAndLead ? 1 : 0, effort, replaceEffortAndLead ? 1 : 0, leadMinutes,
+          replaceEffortAndLead ? 1 : 0, effortJudged ? 1 : 0, observedAt, existing.deadline_id,
           contentHash).first<DeadlineRow>();
         if (updated === null) continue;
         return Object.freeze({ outcome: "updated" as const, deadline: toDeadline(updated), revisionId: null, previous: null });
       }
 
+      // A collector revision of an already-judged row keeps the judgment. The
+      // source controls the date and title, not what kind of work it is, so
+      // writing the incoming `other` here would silently undo the model on the
+      // same write that moved the deadline.
+      const keepJudgedEffort = !replaceEffortAndLead && existing.effort_judged === 1;
+      const writtenEffort = keepJudgedEffort ? requireEffort(existing.effort) : effort;
+      const writtenLeadMinutes = keepJudgedEffort ? existing.lead_minutes : leadMinutes;
+      const writtenJudged = keepJudgedEffort ? true : effortJudged;
       const revisionId = newUlid();
       const results = await this.#transactions.batch([
         // SQLite evaluates every SET expression against the pre-update row, so
@@ -476,11 +512,12 @@ export class DeadlineRepository {
         // incoming one.
         this.#database.prepare(
           `UPDATE deadlines
-           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, content_hash = ?, last_seen_at = ?, status = coalesce(?, status),
+           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, effort_judged = ?,
+               content_hash = ?, last_seen_at = ?, status = coalesce(?, status),
                reminded_at = CASE WHEN due_at = ? THEN reminded_at ELSE NULL END
            WHERE deadline_id = ? AND content_hash = ?`,
         ).bind(
-          course, title, dueAt, effort, leadMinutes, contentHash, observedAt, status,
+          course, title, dueAt, writtenEffort, writtenLeadMinutes, writtenJudged ? 1 : 0, contentHash, observedAt, status,
           dueAt, existing.deadline_id, existing.content_hash,
         ),
         // Guarded on the new hash being what the row now holds, so a concurrent

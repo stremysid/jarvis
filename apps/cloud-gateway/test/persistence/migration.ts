@@ -46,6 +46,7 @@ import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrati
 import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
 import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
 import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
+import deadlineEffortJudgmentSql from "../../src/persistence/migrations/0053_deadline_effort_judgment.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -109,6 +110,10 @@ export function applyFoundationMigration(): Promise<void> {
     ...voiceAccessBaseMigrations,
     voiceAccessBoundariesMigration,
     ...assistantMigrations,
+    // 0053 alters `deadlines` (from 0011), and every fixture that reads a
+    // deadline column needs it. It lives here rather than in a later chain so a
+    // fixture that stops at the foundation still builds the current row shape.
+    { name: "0053_deadline_effort_judgment.sql", queries: splitMigration(deadlineEffortJudgmentSql) },
   ]);
   return migrated;
 }
@@ -417,6 +422,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
   { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
   { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+  { name: "0053_deadline_effort_judgment.sql", queries: splitMigration(deadlineEffortJudgmentSql) },
 ]);
 
 /**
