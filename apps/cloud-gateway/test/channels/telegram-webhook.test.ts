@@ -9,8 +9,10 @@ import {
   SECRET_HEADER,
   handleTelegramWebhook,
   secretsMatch,
+  type AcceptedTelegramUpdate,
   type TelegramWebhookDependencies,
 } from "../../src/channels/telegram/telegram-webhook.js";
+import { telegramTurnRedactor } from "../../src/index.js";
 
 const SECRET = "webhook-secret-value";
 const NOW = new Date("2026-09-02T10:00:00.000Z");
@@ -258,5 +260,57 @@ describe("who reads a Telegram message, by authenticated principal", () => {
     await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), withoutOwner);
 
     expect((events.events[0]!.envelope.payload as Record<string, unknown>).text).toBe("my pin is [REDACTED_AUTH_DIGITS]");
+  });
+});
+
+// The event store is not the only reader: onAccepted feeds the model, the
+// conversation store and the owner agent's authority text. If only the event
+// were redacted, a verified guest's raw PIN would still reach all three.
+describe("what the reply path receives, by authenticated principal", () => {
+  function capture(dependencies: TelegramWebhookDependencies): AcceptedTelegramUpdate[] {
+    const accepted: AcceptedTelegramUpdate[] = [];
+    Object.assign(dependencies, { onAccepted: (update: AcceptedTelegramUpdate) => accepted.push(update) });
+    return accepted;
+  }
+
+  it("hands the configured owner his own words exactly as he typed them", async () => {
+    const accepted = capture(deps);
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), deps);
+
+    expect(accepted.map((update) => update.text)).toEqual(["my pin is 4821"]);
+  });
+
+  it("hands a verified Telegram identity that is not the owner only the external reader's text, never the raw message", async () => {
+    policy.result = { principalId: "principal-2", identityState: "active" };
+    const accepted = capture(deps);
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), deps);
+
+    expect(accepted.map((update) => update.text)).toEqual(["my pin is [REDACTED_AUTH_DIGITS]"]);
+    expect(accepted[0]!.principalId).toBe("principal-2");
+  });
+
+  it("hands every sender redacted text when no owner is configured, the owner included", async () => {
+    const { owner: _owner, ...withoutOwner } = deps;
+    const accepted = capture(withoutOwner);
+    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), withoutOwner);
+
+    expect(accepted.map((update) => update.text)).toEqual(["my pin is [REDACTED_AUTH_DIGITS]"]);
+  });
+});
+
+describe("the reader a Telegram turn is answered with", () => {
+  it("uses Sid's reader only for the configured owner, so his PIN survives in his own turn", () => {
+    expect(telegramTurnRedactor("principal-1", "principal-1").redactText("my pin is 4821"))
+      .toMatchObject({ ok: true, text: "my pin is 4821" });
+  });
+
+  it("uses the external reader for a verified guest, so a guest turn neither stores a raw PIN nor gets one back", () => {
+    expect(telegramTurnRedactor("principal-2", "principal-1").redactText("my pin is 4821"))
+      .toMatchObject({ ok: true, text: "my pin is [REDACTED_AUTH_DIGITS]" });
+  });
+
+  it("uses the external reader for everyone when no owner is configured", () => {
+    expect(telegramTurnRedactor("principal-1", undefined).redactText("my pin is 4821"))
+      .toMatchObject({ ok: true, text: "my pin is [REDACTED_AUTH_DIGITS]" });
   });
 });

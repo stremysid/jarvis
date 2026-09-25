@@ -53,12 +53,14 @@ type TelegramRedactor = {
   redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult;
 };
 
+/** True only for the configured owner; the Telegram channel alone proves nothing. */
+function isConfiguredOwner(dependencies: TelegramWebhookDependencies, principalId: string): boolean {
+  return dependencies.owner !== undefined && dependencies.owner.principalId === principalId;
+}
+
 /** The redactor for what this principal sent: Sid's only for the configured owner. */
 function readerFor(dependencies: TelegramWebhookDependencies, principalId: string): TelegramRedactor {
-  const owner = dependencies.owner;
-  return owner !== undefined && owner.principalId === principalId
-    ? owner.redactor
-    : dependencies.redactor;
+  return isConfiguredOwner(dependencies, principalId) ? dependencies.owner!.redactor : dependencies.redactor;
 }
 
 export interface TelegramWebhookDependencies {
@@ -383,10 +385,11 @@ export async function handleTelegramWebhook(
       telegramUserId: update.telegramUserId,
       chatId: update.chatId,
       messageId: update.messageId,
-      // The original text, not the stored token: the model needs what was
-      // actually said. It has already passed the redactor, so nothing
-      // sensitive survives into this path either.
-      text: message.text,
+      // Sid gets his own words back unredacted: the model needs what he
+      // actually said. Anyone else gets the external reader's text, the same
+      // bytes that were stored, so a guest's raw PIN or password never reaches
+      // the model, the conversation store or the reply path.
+      text: isConfiguredOwner(dependencies, authenticated.principalId) ? message.text : redacted.text,
       isDirectText: message.isDirectText,
       isPrivateHumanText: message.isPrivateHumanText,
       isMemoryControlAuthoritative: message.isMemoryControlAuthoritative,

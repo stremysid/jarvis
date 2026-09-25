@@ -46,7 +46,8 @@ const python = JSON.parse(readFileSync(pythonPath, "utf8"));
 assert.deepEqual(python.map((item) => item.name), cases.map((item) => item.name));
 const { Redactor } = await import(moduleUrl("apps/cloud-gateway/src/security/redaction.ts"));
 const { StreamingOutputRedactor } = await import(moduleUrl("apps/cloud-gateway/src/security/streaming-output-redactor.ts"));
-const redactor = new Redactor();
+// Name the reader: the default is external, and every expectation above is Sid's.
+const redactor = new Redactor("owner");
 const audiences = [["owner", redactor], ["external", new Redactor("external")]];
 const failures = [];
 let differences = 0;

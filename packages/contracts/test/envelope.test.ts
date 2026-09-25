@@ -11,9 +11,10 @@ import {
 } from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
-// The default reader is Sid; `external` is anyone else (a guest caller, an
-// audit record). The envelope mechanism is audience-blind: it persists exactly
-// the issued token it is handed.
+// The Redactor's default reader is `external` (a guest caller, an audit
+// record); this helper defaults to Sid (`owner`) and names him explicitly.
+// The envelope mechanism is audience-blind: it persists exactly the issued
+// token it is handed.
 function redacted(text: string, audience: "owner" | "external" = "owner") {
   const result = new Redactor(audience).redactText(text);
   if (!result.ok) throw new Error("test redaction failed");

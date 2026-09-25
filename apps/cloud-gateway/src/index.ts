@@ -134,6 +134,16 @@ export function buildTelegramConversationRepository(
   });
 }
 
+/**
+ * The reader for one Telegram turn: Sid's only when the authenticated principal
+ * is the configured owner. A verified guest identity also reaches `replyTo`, and
+ * Sid's reader would store the guest's raw PIN and let a labelled credential
+ * through to the guest's reply.
+ */
+export function telegramTurnRedactor(principalId: string, ownerPrincipalId: string | undefined): Redactor {
+  return new Redactor(ownerPrincipalId !== undefined && principalId === ownerPrincipalId ? "owner" : "external");
+}
+
 export type TelegramReplyFailureReason = "identity_lookup" | "conversation" | "dispatcher" | "other";
 
 export class TelegramReplyFailure extends Error {
@@ -218,7 +228,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         ownerPrincipalId,
       );
       const toolAuthority = ownerTelegramToolAuthority(accepted);
-      const redactor = new Redactor("owner");
+      const redactor = telegramTurnRedactor(accepted.principalId, ownerPrincipalId);
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
         model: env.DEEPSEEK_MODEL,

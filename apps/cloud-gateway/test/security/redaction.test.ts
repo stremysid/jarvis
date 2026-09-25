@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Redactor } from "../../src/security/redaction";
 
-// The two readers. Sid (the default) sees his own data as it is; anyone else
-// (a guest caller, an audit record) gets every rule. Sid, 2026-09-24: "there
-// should be nothing between Jarvis and I interms of what he knows and I know".
+// The two readers. Sid ("owner", always named) sees his own data as it is;
+// anyone else (a guest caller, an audit record; the default) gets every
+// rule. Sid, 2026-09-24: "there should be nothing between Jarvis and I
+// interms of what he knows and I know".
 const toSid = () => new Redactor("owner");
 const toSomeoneElse = () => new Redactor("external");
 

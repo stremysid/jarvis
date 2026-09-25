@@ -3,6 +3,24 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #197 round 3 (parity script, guest Telegram text, stale comments)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
+`2dfc85ab`, plus a normal merge of `origin/main` (`976d5b2b`). Touches Sid's rules 3, 4, 8.
+Answers the DeepSeek re-audit of `2dfc85ab` (3 findings).
+
+- **Parity script:** `scripts/check-redaction-differential.mjs` names `new Redactor("owner")`.
+  Before: exit 1, 69 expectation failures; after: 0 differences, 0 failures, 13128 streams.
+  Now run in CI's local-agent job (both OSes) so it cannot go red unnoticed again.
+- **Guest Telegram:** a verified non-owner identity is a designed path (acceptance
+  "refuses an authenticated guest before outbound policy"), so it is not rejected.
+  `onAccepted` now carries the external reader's text for any non-owner, and
+  `replyTo` answers a guest turn with the external reader (`telegramTurnRedactor`);
+  this PR had made that reader `owner` for every principal. Sid's path is unchanged.
+- **Comments:** the two "default is Sid" comments now say the default is `external`.
+- **Evidence:** focused Vitest green locally; mutations via `reviewer-tools/mutate.ps1`
+  recorded in the PR comment. Full suites on CI.
+
 ## 2026-09-25 — Claude builder: #197 audit round (reader named everywhere, external by default)
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` after
