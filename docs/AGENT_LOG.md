@@ -3,10 +3,111 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Hermes round 2: the tar host comes from the system directory
+
+Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not
+established with certainty in this session; no name is asserted. Branch
+`fix/hermes-tar-and-flake-r2`, worktree `C:\w\hf2`, on PR #188. `origin/main`
+`a7cd3553` (#189) merged in; only `docs/AGENT_LOG.md` conflicted, and both
+entries are kept with the newest first.
+
+**This entry corrects the one below.** Four findings from the round-2 review are
+fixed here, and two of them were claims in that entry that are false.
+
+**F1 — the Machine-scope read was dead, and the description was wrong.** Measured
+on this PC: `[Environment]::GetEnvironmentVariable('SystemRoot','Machine')`
+returns **empty**, and
+`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment` carries
+`windir` and no `SystemRoot`. So the first line of the old chain never supplied a
+value; everything came from the **process** environment, which a caller controls.
+The review's M4 (deleting that line) survived for exactly this reason. The chain
+is gone, replaced by `[Environment]::SystemDirectory`, which calls
+`GetSystemDirectoryW` and never reads the environment. Measured here:
+`SystemDirectory` is `C:\WINDOWS\system32` (the API lower-cases it) while
+`$env:SystemRoot` is `C:\WINDOWS`, so the two spellings differ and the test
+compares them case-insensitively — noting that this also makes the test blind to
+casing, which is how the API and the environment differ in the first place.
+
+**F2 — the hostile PATH was inert, and "PATH order is not observable" was
+false.** The old test spread `process.env` and added a `Path` key. Under Git Bash
+Node's key is `PATH`, so the child received **two** keys and saw the original
+PATH; the csc shadow and the prepend proved nothing. Every PATH-like key is now
+deleted before one is set. The test also asserts the property that makes the
+environment real rather than decorative: `Get-Command tar.exe` must resolve to
+the planted copy and the helper must **not** return it. Measured from pwsh in
+this worktree, one key: bare name `C:\w\hf2\shadowprobe\tar.exe`, helper
+`C:\WINDOWS\System32\tar.exe`. The csc compile is dropped for a real
+`copyFile` of the system tar, because "is it on PATH" is all the test needs.
+
+**F3 — guards 1 and 2 are deleted.** With the environment out of the picture
+both were unreachable: guard 2 could never fire (once the root is absolute,
+`GetFullPath` output is absolute and the last segment is the literal `tar.exe`),
+and the review's own probe showed a relative `SystemRoot` reaching guard 1 only
+because of F1. A guard that cannot fire is not coverage, and Sid's rule 4 is
+"why are we adding so much security".
+
+**F4 — the bare-name regex is widened** to
+`/(^|[\s;&(|])tar(\.exe)?\s+-(?!-)/gm`, so a future bare `tar -xf` or
+`tar.exe -tf` without `&` is caught. Checked against `"& tar.exe -tvf $Archive"`
+(matches), `"$names = @(& tar -tf $a 2>&1);"` (matches), `"tar.exe -cf out.tar"`
+(matches), `"$tar -tf x"` (does not), `"& $tar -tvf $Archive"` (does not),
+`"Get-HermesSystemTarPath"` (does not), `"tar -xf a.tar -C out"` (matches).
+
+**Mutations.** Applied under `git checkout` on a committed tree; after F1 the
+"revert mutation" needed `git checkout <merge-commit>` rather than
+`git checkout --`, and that slip produced the R0 control below.
+
+| # | Mutation | Test | Result |
+|---|---|---|---|
+| F5 | `Join-Path ([Environment]::SystemDirectory) 'tar.exe'` → `(Get-Command tar.exe).Source` | T1 | **KILLED** — `tar_host_is_the_shadow_…\jarvis-hermes-tar-host-…\tar.exe` |
+| F6 | `& $tar -tf $Archive` → `& tar.exe -tf $Archive` | T2 | **KILLED** — `the module invokes tar by a name PATH could resolve:  tar.exe -` |
+| F7 | the whole F1 fix reverted to the old environment chain | T1 | **SURVIVED** — see below |
+| R0 | module reverted to the **pre-fix** `81830c73`, new tests kept | `-t "tar"` | **3 FAILED** — hostile-archive, T1, T2 (`Get-HermesSystemTarPath` not recognised; `tar_host_not_system_directory_`) |
+
+**F7 survived, and that is the honest half.** The old environment chain still
+resolves to the same file, so it is behaviourally equivalent and T1 cannot
+distinguish it. F1's defect was the false *description* of where the value came
+from, plus the dead line; the replacement is a correctness and honesty change,
+not a behaviour change on a healthy host. What T1 does pin is the thing that
+matters: a **PATH-derived** host is rejected (F5).
+
+**The reparse walk remains unpinned.** It is the one guard an attacker would need
+to defeat — a junction in place of a real system directory would send every
+listing to an arbitrary tar — but reaching it means rewriting `HKLM`, so no test
+establishes that it fires. It is kept, and the module comment and the PR body both
+say its presence is not coverage.
+
+**Gates — focused files only, on this PC.**
+
+- `npx vitest run apps/hermes-runtime/test/source-lock.test.mjs -t "tar"` at the
+  round-2 head, after every mutation was reverted: **5 passed / 74 skipped**
+  (7.0 s). One file and a name filter, not the package and not the suite.
+- `node --check apps/hermes-runtime/test/source-lock.test.mjs` — exit 0.
+- **Not run locally:** the full file, the hermes package, the workspace suite and
+  every gateway suite. CI is the authority and the PR reports what it observed.
+- The merge brought in #189's own changes; none of them was tested here.
+
+**Not done, deliberately:** no merge of the PR, no deploy, no migration, no change
+to `apps/cloud-gateway` or `apps/local-agent`, and no edit to the residue test.
+
+## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
+
+Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
+
+- **Bug (runtime-proven at `68675ba`):** `AGENT_MAX_TOOLS` in `apps/cloud-gateway/src/providers/deepseek-provider.ts` was 16, and `requestBody` throws `agent_request_invalid` above it. `OWNER_TELEGRAM_TOOL_DEFINITIONS` has 18 tools (voice has 15), so every owner Telegram turn failed before any model call and no message was sent. CI stayed green because the Telegram tests use `FakeAgentProvider`.
+- **Fix:** `AGENT_MAX_TOOLS` is 64 and exported; it stays a sanity bound. Voice's catalogue is now the exported `OWNER_VOICE_TOOL_DEFINITIONS` (same four lists, same order), so the test reads the real one.
+- **Test:** `apps/cloud-gateway/test/providers/deepseek-agent-catalogue.test.ts`, 4 tests: the real Telegram catalogue through `completeAgent`; the real voice catalogue through `completeAgent` and `streamAgent`; both lengths within the exported cap; 65 tools still rejected with no fetch.
+- **Mutation:** cap set back to 16 made the Telegram test fail with `agent_request_invalid` and the cap test fail (2 of 4 failed); restored, 4 of 4 pass.
+- **Verification:** focused runs 4/4 (new file), 99/99 (`deepseek-provider` + `deepseek-agent-stream`), 36/36 (`voice-agent`). `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its one existing FACTS warning. The test tsconfig still reports 143 diagnostics, the count the Codex entry below recorded on main; none are in touched files.
+- **Scope:** no merge, deploy, migration or production access. A DeepSeek audit follows; this is meant to merge before tonight's deploy.
+
 ## 2026-09-24 — Hermes: the tar listing host is the absolute system executable
 
 Signed: DeepSeek Harness (Jarvis Builder) — model and reasoning effort not
 established with certainty in this session; no name is asserted.
+
+**Round 1, kept for the record. Its F1–F3 description is superseded by the
+round-2 entry above; the code it describes is no longer what the module does.**
 
 Branch `fix/hermes-tar-and-flake`, worktree `C:\w\hf`, based on `f56f279d` (#170)
 with `origin/main` `68675ba6` merged before any edit. Only
@@ -17,89 +118,46 @@ with `origin/main` `68675ba6` merged before any edit. Only
 `& tar.exe`, a bare name PowerShell resolves through `PATH`. Any host whose
 `PATH` puts another `tar` first runs the listing with a different tar than the
 one that wrote the archive, so every hostile-member assertion in the file
-reports a reason unrelated to the members. `Get-HermesSystemTarPath` now returns
-the reviewed absolute executable: the machine-scope `SystemRoot`, falling back
-to the process-scope value and then the Windows special folder; the path
-`<root>\System32\tar.exe`, extension-checked; then a reparse-point walk from the
-executable to the volume root. `Assert-SafeCpythonArchive` holds it in `$tar`
-and calls `& $tar -tf` / `& $tar -tvf`. The helper is exported so a test can
-call it.
+reports a reason unrelated to the members. `Get-HermesSystemTarPath` returned the
+absolute executable and `Assert-SafeCpythonArchive` holds it in `$tar`, calling
+`& $tar -tf` / `& $tar -tvf`. The helper is exported so a test can call it.
 
 **Two tests, both in `test/source-lock.test.mjs`, committed in the same commit
-as the code:**
+as the code:** one asserting the resolved value, one asserting that the module
+source contains no bare `tar.exe` invocation.
 
-- "resolves the tar listing host to the fully qualified system executable" —
-  compiles a shadow `tar.exe` with the real csc, prepends its directory to the
-  child's `PATH`, then asserts the resolved value is *exactly*
-  `$env:SystemRoot\System32\tar.exe` and fully qualified.
-- "contains no bare tar.exe invocation for PATH to resolve" — asserts the module
-  source matches `/&\s*tar\.exe\s/g` zero times and that the listing calls go
-  through `$tar`.
+**Mutations, round 1.** M2 (`return $full` → a relative literal) and M3
+(`& $tar -tvf` → `& tar.exe -tvf`) were KILLED. M1 (deleting both validation
+guards) SURVIVED — which is what led to F3 above, where both guards are deleted
+rather than left in place unpinned. Rounds 2's entries carry the current
+mutation table and the R0 control.
 
-**Why the two are shaped that way, and not as a "which binary ran" test.** PATH
-order is *not* observable for a bare name on this host: with a shadow first on
-`PATH`, `Get-Command tar.exe` still answers System32. That is measured, not
-assumed, and it is why the first test asserts the *resolved value* and the second
-asserts the *source*. A test that asserted the shadow won would be pinning a
-property this host does not have.
+**Ordering.** `origin/main` was that branch's ancestor, so round 1 was a plain
+merge commit, no rebase and no force-push.
 
-**Mutations.** Each was applied to a clean tree, run against one named test,
-then reverted with `git checkout --` and the green re-confirmed.
-
-| # | Mutation | Test run | Result |
-|---|---|---|---|
-| M2 | `return $full` → `return 'System32\tar.exe'` (relative host, resolves against the caller's cwd) | T1, tar-host | **KILLED** — `tar_host_not_absolute_System32\tar.exe`, that test failed, 78 skipped |
-| M3 | `& $tar -tvf $Archive` → `& tar.exe -tvf $Archive` (the pre-fix call) | T2, no-bare-name | **KILLED** — `the module invokes tar.exe by bare name: & tar.exe`, that test failed, 78 skipped |
-| M1 | deleted both validation guards (`IsPathFullyQualified($systemRoot)`, `IsPathFullyQualified($full) -or GetExtension($full) -cne '.exe'`) | T1 and T2 | **SURVIVED** — see below |
-
-**What M1 means, stated rather than buried.** Removing those two guards leaves
-both tests green and the whole file green. They are unpinned, and on a healthy
-host they are also unreachable: `SystemRoot` is always set, fully qualified, and
-`System32\tar.exe` is always absolute with a `.exe` extension, so no input this
-host can produce reaches either `throw`. I have kept them rather than deleted
-them — they are cheap and they are the two checks whose removal would otherwise
-make a silently relative host acceptable — but **no test in this PR establishes
-that they fire**, and the next session should not read their presence as
-coverage. An unreachable guard is indistinguishable from a broken one; pinning
-them needs a seam this change does not have.
-
-**Ordering.** `origin/main` is that branch's *ancestor*: `git rev-parse HEAD`
-equalled `git rev-parse origin/main` at the start, so this is a plain merge
-commit, no rebase and no force-push. `git diff --name-only <merge-base>
-origin/main` lists no `apps/hermes-runtime` file, so the merge could not have
-disturbed this change; it is present for CI.
-
-**The flake half of this branch is not in this PR.** The branch is named
-`fix/hermes-tar-and-flake` and the worktree carried a local, uncommitted
-`30_000`-timeout edit to `test/path-residue-review3.test.mjs`. That edit is
-**reverted** and is not in this branch: #185
+**The flake half of this branch is not in this PR.** The worktree carried a
+local, uncommitted `30_000`-timeout edit to `test/path-residue-review3.test.mjs`.
+That edit is **reverted** and is not in this branch: #185
 (`codex/local-agent-retry-wait-flake`, not merged) already bounds that file with
 `180_000`, so carrying a second, smaller bound here would be a worse duplicate of
 a change already under review. Nothing else from the flake work is included.
 
-**Gates, and exactly what each covers.**
+**Gates, round 1.** `npx vitest run apps/hermes-runtime/test/source-lock.test.mjs`
+— full file, unmodified tree: **79 passed (79), 1343 s**. `node --check` exit 0.
+`node scripts/check-state.mjs` passed with its one pre-existing `docs/FACTS.md:62`
+warning. The workspace suite, the hermes package and the gateway suites were not
+run locally.
 
-- `npx vitest run apps/hermes-runtime/test/source-lock.test.mjs` — full file,
-  unmodified tree: **79 passed (79), 1343 s**. One file, not the package.
-- Both new tests alone, after every mutation was reverted: 1 passed / 1 skipped
-  for T2, and the four tests matching `-t "tar"` passed 5 / 74 skipped.
-- `node --check apps/hermes-runtime/test/source-lock.test.mjs` — exit 0.
-- `node scripts/check-state.mjs` — "state check passed … 1 warning(s)"; the
-  warning is the pre-existing `docs/FACTS.md:62` Opera GX re-verification, not
-  this change.
-- **Not run:** the workspace suite, the hermes package suite, the other hermes
-  test files, and the gateway tests. Focused files only on this PC. CI is the
-  authority, and the PR reports what it observed.
-
-**Not done, deliberately:** no deploy, no migration, no merge, no change to
-`apps/cloud-gateway` or `apps/local-agent`, and no edit to the residue test.
+**Not done, deliberately:** no deploy, no migration, no merge of the PR, no change
+to `apps/cloud-gateway` or `apps/local-agent`, and no edit to the residue test.
 
 **Out of scope, named not fixed.** `test/source-lock.test.mjs` is the only file
-where the tar host is reached, but the same "resolve a Windows system
-executable through PATH" shape is used elsewhere in this repository's tests (for
-example `csc.exe` reached by its literal `Framework64` path, which is at least
-absolute, and `pwsh` reached by bare name). I did not sweep them; a bare-name
-`pwsh` is a host choice the harness documents.
+where the tar host is reached, but the same "resolve a Windows system executable
+through PATH" shape appears elsewhere in this repository's tests (for example
+`csc.exe` reached by its literal `Framework64` path, and `pwsh` reached by bare
+name). I did not sweep them.
+
+## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
