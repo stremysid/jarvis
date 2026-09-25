@@ -269,10 +269,20 @@ function exactRow(value: object, fields: ReadonlySet<string>): void {
     || keys.some((key) => typeof key !== "string" || !fields.has(key))) corrupt();
 }
 
-function rowText(value: unknown, maximumBytes: number): string {
+/**
+ * Newline, carriage return and tab are text, not corruption. The owner types
+ * multi-line messages and the model writes multi-line search queries; treating
+ * them as corrupt threw from the event decode before the cursor advanced, so
+ * indexing stopped permanently at the first message containing a line break
+ * (stuck from 2026-09-18). Every other control character still corrupts.
+ */
+const FORBIDDEN_TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+/** Exported so the line-break allowance can be tested without a database write. */
+export function rowText(value: unknown, maximumBytes: number): string {
   if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
     || value.normalize("NFC") !== value || encoder.encode(value).byteLength > maximumBytes
-    || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)) corrupt();
+    || FORBIDDEN_TEXT_CONTROL.test(value)) corrupt();
   return value;
 }
 
@@ -280,7 +290,7 @@ function inputText(value: unknown, maximumBytes: number): string {
   try {
     if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
       || value.normalize("NFC") !== value || encoder.encode(value).byteLength > maximumBytes
-      || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)) refuse();
+      || FORBIDDEN_TEXT_CONTROL.test(value)) refuse();
     return value;
   } catch (error) {
     if (error instanceof LiteralHistoryError) throw error;

@@ -1126,12 +1126,12 @@ export class MemoryBackupService {
         if (this.options.bucket === undefined) {
           throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.bindingMissing);
         }
-        const cutCount = MEMORY_BACKUP_TABLES.length;
-        if (claimed.currentTableIndex < cutCount) {
-          const cut = await retryTransient(
-            () => this.repository.readCut(claimed.runId, claimed.currentTableIndex),
-          );
-          if (cut === null) throw new Error("memory_backup_cut_missing");
+        // The cut set the run started with, never the current table constant: a
+        // migration that adds tables must not make a running set ask for a cut
+        // its own capture never wrote (memory_backup_cut_missing).
+        const cuts = await retryTransient(() => this.repository.listCuts(claimed.runId));
+        const cut = cuts.find((candidate) => candidate.tableIndex === claimed.currentTableIndex);
+        if (cut !== undefined) {
           await retryTransient(() => this.exportPage(claimed, cut));
         } else if (claimed.verifiedObjectCount < claimed.nextObjectNumber) {
           await retryTransient(() => this.reverifyObject(claimed));
@@ -1163,8 +1163,12 @@ export class MemoryBackupService {
     const bucket = this.options.bucket;
     if (bucket === undefined) throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.bindingMissing);
     const descriptors = await this.repository.descriptors();
-    const descriptor = descriptors[cut.tableIndex];
-    if (descriptor === undefined || descriptor.table !== cut.table || descriptor.keyKind !== cut.keyKind) {
+    // By name, not by position. `git blame` shows commit 7b805fa2 inserted
+    // `guided_assignment_answers` in the middle of MEMORY_BACKUP_TABLES, so a
+    // positional lookup against the current list would hand this cut the wrong
+    // descriptor and export one table's rows under another table's name.
+    const descriptor = descriptors.find((candidate) => candidate.table === cut.table);
+    if (descriptor === undefined || descriptor.keyKind !== cut.keyKind) {
       throw new Error("memory_backup_cut_descriptor_mismatch");
     }
     if (cut.throughKey === null) {
@@ -1224,7 +1228,10 @@ export class MemoryBackupService {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.manifestReadback);
     }
     const cuts = await this.repository.listCuts(run.runId);
-    if (cuts.length !== MEMORY_BACKUP_TABLES.length) {
+    // Compared against the run's own cuts, not the current constant: a set
+    // captured before a migration added tables must still publish, and its
+    // manifest describes exactly the tables it holds.
+    if (cuts.length === 0 || cuts.some((cut, index) => cut.tableIndex !== index)) {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.manifestReadback);
     }
     const exportedRows = new Map<MemoryBackupTableName, number>();

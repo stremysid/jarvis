@@ -18,6 +18,7 @@ import {
   LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
+  rowText,
 } from "../../src/memory/literal-history.js";
 import { EventRepository, type AppendedEvent } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -552,6 +553,77 @@ describe("LiteralHistoryService", () => {
     if (result.status !== "hits") throw new Error("literal_history_expected_multibyte_hit");
     expect(result.hits[0]?.excerpt).toContain("quartz");
     expect(new TextEncoder().encode(result.hits[0]?.excerpt).byteLength).toBeLessThanOrEqual(1_024);
+  });
+
+  /**
+   * Blocked, deliberately, on the database rather than on this code.
+   *
+   * `rowText` now admits newline, carriage return and tab, but
+   * `memory_history_chunks.text` in
+   * `src/persistence/migrations/0016_cloud_memory.sql:577-582` still carries
+   * `text NOT GLOB (... char(1) || '-' || char(31) ...)`, which every code
+   * character from 1 to 31 fails -- newline, carriage return and tab included.
+   * A message that contains a line break therefore still fails as
+   * `memory_history_unavailable` when the chunk batch is written, and the
+   * cursor still does not advance. Clearing it is a SQLite table rebuild
+   * (CHECK constraints cannot be altered), carrying the FTS bindings and both
+   * insert and immutable-update triggers, so it is its own change with its own
+   * review. Recorded in KNOWN_ISSUES.md under "literal-history line breaks".
+   *
+   * When that migration lands this test is the acceptance test: remove `.skip`.
+   */
+  it.skip("indexes a history row containing a newline, carriage return or tab", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The multi-line list is\nfirst\rsecond\tthird.");
+    await appendConversation(events, time, "The single-line control.");
+    const literal = service(events, time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ eventsExamined: 2, complete: true });
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "multi-line" });
+
+    expect(result.status).toBe("hits");
+    if (result.status !== "hits") throw new Error("literal_history_expected_multiline_hit");
+    expect(result.hits[0]?.excerpt).toBe("The multi-line list is\nfirst\rsecond\tthird.");
+  });
+
+  it("lets a history row's line breaks through the row decoder while still refusing other control characters", () => {
+    // The code half of the fix above. The regex this replaced rejected the
+    // newline, and the assertions fail when that regex is restored.
+    expect(rowText("line one\nline two\rline three\tcolumn", 1_024))
+      .toBe("line one\nline two\rline three\tcolumn");
+    expect(() => rowText("bell\u0007here", 1_024)).toThrow(LiteralHistoryError);
+    expect(() => rowText("nul\u0000here", 1_024)).toThrow(LiteralHistoryError);
+    expect(() => rowText("line\u2028separator", 1_024)).toThrow(LiteralHistoryError);
+  });
+
+  it("still refuses a history row containing another control character", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "A bell\u0007is not a line break.");
+    const literal = service(events, time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+  });
+
+  it("accepts a search query that carries a line break", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The cobalt phrase is on the first line.");
+    const literal = service(events, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+
+    // `searchLiteral` does not persist its query, so this proves only the
+    // input filter. `createExhaustiveSearch` writes query_text, which 0025
+    // constrains the same way as a history chunk.
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "cobalt\nphrase" });
+
+    expect(result.status).toBe("hits");
+    if (result.status !== "hits") throw new Error("literal_history_expected_multiline_query_hit");
+    expect(result.hits[0]?.excerpt).toContain("cobalt phrase");
   });
 
   it("keeps an active suppression out of chunks, FTS, and results, then reindexes it after a lift", async () => {

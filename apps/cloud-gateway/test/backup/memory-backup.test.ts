@@ -205,7 +205,7 @@ describe("nightly verified memory backup", () => {
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
   const manifest = await readLatestManifest();
-  expect(manifest.databaseSchemaVersion).toBe("0045_school_collector_hosts.sql");
+  expect(manifest.databaseSchemaVersion).toBe("0047_note_sources_without_markdown_citation.sql");
   expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({
@@ -249,6 +249,52 @@ describe("nightly verified memory backup", () => {
     expect(result.outcome.outcome).toBe("verified");
     expect(result.invocations).toBeLessThan(10);
   }, 120_000);
+
+  it("completes a run whose own table cuts are fewer than the current table constant", async () => {
+    await env.DB.prepare("DELETE FROM scheduled_runs").run();
+    await appendEvents(2);
+    const backup = service({ stepsPerInvocation: 2, pageRowLimit: 1 });
+    const first = await backup.runNightly(runDate);
+    expect(first.outcome).toBe("pending");
+
+    // A migration that adds a table gives the constant a cut index this run
+    // never captured. The run must finish against the cuts it wrote, not ask for
+    // the index the constant now has -- that read returned null and the run
+    // failed as memory_backup_cut_missing.
+    const kept = 3;
+    const runId = await env.DB.prepare("SELECT run_id FROM memory_backup_runs WHERE run_date = ?")
+      .bind(runDate).first<string>("run_id");
+    if (runId === null) throw new Error("memory_backup_run_missing_for_growth_test");
+    // The cut table is append-only by trigger, which is the product guarantee
+    // this test must not weaken, so the trigger is dropped for exactly this
+    // statement and restored from the schema's own text afterwards.
+    const cutGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'memory_backup_table_cuts_delete_guard'`).first<{ sql: string }>();
+    if (cutGuard === null) throw new Error("memory_backup_cut_delete_guard_missing");
+    await env.DB.prepare("DROP TRIGGER memory_backup_table_cuts_delete_guard").run();
+    try {
+      await env.DB.prepare("DELETE FROM memory_backup_table_cuts WHERE run_id = ? AND table_index >= ?")
+        .bind(runId, kept).run();
+    } finally {
+      await env.DB.prepare(cutGuard.sql).run();
+    }
+
+    let outcome: MemoryBackupOutcome = { outcome: "pending", detail: "seeded" };
+    for (let invocation = 0; invocation < 80 && outcome.outcome === "pending"; invocation += 1) {
+      outcome = await service({ stepsPerInvocation: 2 }).continueActive(runDate);
+    }
+
+    expect(outcome.outcome).toBe("verified");
+    const cuts = await env.DB.prepare(
+      "SELECT table_index FROM memory_backup_table_cuts WHERE run_id = ? ORDER BY table_index",
+    ).bind(runId).all<{ table_index: number }>();
+    expect(cuts.results.map(({ table_index }) => table_index)).toEqual([0, 1, 2]);
+    const manifest = await readLatestManifest();
+    expect(manifest.tableCuts).toHaveLength(kept);
+    expect(kept).toBeLessThan(MEMORY_BACKUP_TABLES.length);
+    expect((manifest.tableCuts as Array<{ table: string }>).map((cut) => cut.table))
+      .toEqual(MEMORY_BACKUP_TABLES.slice(0, kept));
+  }, 300_000);
 
   it("classifies every table declared by the migration files", () => {
     const migrated = tablesDeclaredByMigrations();
@@ -769,3 +815,5 @@ describe("nightly verified memory backup", () => {
     ]);
   });
 });
+
+

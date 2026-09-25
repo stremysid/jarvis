@@ -1,5 +1,34 @@
 # Known issues
 
+## Literal-history line breaks are still blocked by the table constraint (2026-09-24)
+
+`rowText` in
+[`literal-history.ts`](apps/cloud-gateway/src/memory/literal-history.ts) no
+longer treats newline, carriage return and tab as corruption, but
+`memory_history_chunks.text` in
+[`0016_cloud_memory.sql`](apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql)
+still carries `text NOT GLOB ('*[' || char(1) || '-' || char(31) ...)`, which
+every code character from 1 to 31 fails. A message containing a line break is
+therefore still refused when the chunk batch is written, as
+`memory_history_unavailable`, and the history cursor still does not advance past
+it. Migration `0025` constrains `memory_literal_search_jobs.query_text` the same
+way. Clearing either is a SQLite table rebuild -- `CHECK` constraints cannot be
+altered -- carrying FTS bindings and the insert and immutable-update triggers,
+so it is a separate change with its own review. The acceptance test
+`indexes a history row containing a newline, carriage return or tab` is present
+and skipped until that migration lands.
+
+## A backup run that predates a table-list growth cannot be restored (2026-09-24)
+
+`memory-backup.ts` now completes such a run and publishes a manifest of its own
+tables, but
+[`memory-backup-restore.ts`](apps/cloud-gateway/src/backup/memory-backup-restore.ts)
+`requireManifestShape` requires the manifest's cuts to be exactly the current
+`MEMORY_BACKUP_TABLES` set, so it refuses that manifest as
+`memory_backup_restore_manifest_invalid`. The run is complete and durable; it is
+only unrestorable. Teaching the restore to accept a subset is a change to a file
+PR #174 is editing, so it is not made here.
+
 ## Tier-3 confirmations issued before tool binding (2026-09-24)
 
 `codex/tool-gate-binding` changes confirmation references from
