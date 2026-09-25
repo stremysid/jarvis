@@ -29,14 +29,40 @@ _AUTHENTICATION_WORD = (
     r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
     r"(?:\s+is)?\s*[=:]?\s*"
 )
+# Syntactic parity with calls.ts: prose requires digits, never an arbitrary word.
+_SPOKEN_DIGIT = r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b"
 
 _REDACTED_PATTERNS = (
     re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}(?![0-9])"),
-    _js_whitespace_pattern(r"\bauthorization\s*:\s*[^\r\n]*"),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}\b"),
+    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}\b"),
     _js_whitespace_pattern(
-        r"(?<![A-Za-z0-9])([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*(?:\"|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|(?=\r?\n|$))|[^\s,;]+)",
+        r"\b(?:pin|passcode|code)(?:\s+number)?(?:\s+(?:is|was)\s+|['\u2019]s\s+)"
+        + r"(?:[0-9]+\b|" + _SPOKEN_DIGIT + r"(?:[ -]+" + _SPOKEN_DIGIT + r"){2,})"
+    ),
+    _js_whitespace_pattern(r"(?<![A-Za-z0-9])([\"']?)code\1\s*[=:]\s*[0-9]+\b"),
+    _js_whitespace_pattern(
+        r"\bauthorization\s*:\s*(?:bearer[ \t\r\n]+[A-Za-z0-9._~+/=-]+[^\r\n]*|[^\r\n]*)"
+    ),
+    _js_whitespace_pattern(
+        r"(?<![A-Za-z0-9])(?:([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|"
+        r"access(?:[_-]|\s+)?token|token|secret|pin|passphrase|passcode)\1"
+        r"\s*[=:]\s*|\bpassphrase\s+is\s+)(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*"
+        r"(?:\"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*"
+        r"(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|"
+        r"(?!\[REDACTED_(?:AUTH_DIGITS|AUTHORIZATION|CREDENTIAL|PHONE_NUMBER)\]"
+        r"[.!?]*(?:\s|[,;]|$))[^\s,;]+)",
+    ),
+    _js_whitespace_pattern(
+        r"\bpassphrase(?:\s*[=:]\s*|\s+is\s+)"
+        + f"(?![{_JS_WHITESPACE}\"'])[^{_JS_WHITESPACE},;.!?]"
+        + r"[^,;.!?\r\n]*"
+    ),
+    re.compile(
+        r"(?<![A-Za-z0-9_+-])(?:\+1[ \t.-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|"
+        r"(?:[0-9]{3}[ .-])?[0-9]{3}[ .-][0-9]{4}|[0-9]{10})|"
+        r"\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:1[ .-])?[0-9]{3}[ .-][0-9]{3}[ .-][0-9]{4})"
+        r"(?![A-Za-z0-9_]|-[0-9])"
     ),
     re.compile(
         r"\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b",
@@ -44,7 +70,7 @@ _REDACTED_PATTERNS = (
     ),
     re.compile(r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*)-----"),
 )
-_BEARER = re.compile(r"\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})", re.I | re.ASCII)
+_BEARER = re.compile(r"\bbearer[ \t\r\n]+([A-Za-z0-9._~+/=-]{8,})", re.I | re.ASCII)
 
 
 def redaction_would_change(text: str) -> bool:

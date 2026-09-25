@@ -58,6 +58,20 @@ wording, and writing them down did not make them right.
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
+## Owner-requested redaction grammar, 2026-09-24
+
+`sanitizeRedaction` and Python's `redaction_would_change` classify credential
+assignments, bearer pairs and specified phone shapes under Sid's explicit
+`codex/redaction-gaps` brief. Bare four-digit values remain ordinary text.
+This is an owner-requested privacy boundary rather than a model relevance rule.
+Its remaining judgment is syntactic: `pin is on` treats `on` as a value, and
+`code is` cannot distinguish a credential from an ordinary identifier.
+That ambiguity is now a [known limit](../KNOWN_ISSUES.md), with exact fixtures;
+semantic disambiguation would need a separately agreed policy surface rather
+than an undisclosed list of prose exceptions. Streaming retention only holds
+potentially unfinished credential context within the existing size limits.
+This register remains partial; this change is not a fresh audit of other rules.
+
 ## The list
 
 Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision
