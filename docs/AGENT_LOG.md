@@ -3,6 +3,38 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: the call names the real decision command, plus the #189 main merge
+
+Signed: DeepSeek (dsh headless builder, effort high), codex/channel-parity F1 + main merge.
+
+**F1 (merge-delta review of `ac5c89e`) — the one instruction a call gives Sid for a tier-3 confirmation named a Telegram command that does not exist.** `OWNER_VOICE_AGENT_CHANNEL_PROMPT` named `/decisions` twice, and the two spoken refusals plus the comment above them named it once each. The bot's commands are `help, status, queue, digest, exam, shadow, call, disable-owner-step-up, vault`, so `/decisions` parsed as `unknown_command` and `index.ts` answered "No such command." A call has no keyboard, so this was the only confirmation route voice offered for a tier-3 action or a staged memory.
+
+- **Fix:** all four occurrences now say `/queue`, and the two refusal strings are exported constants so the test reads the strings the caller hears rather than a copy. Current-state docs (`DECISIONS.md`, `docs/STATE.md`, `docs/reviews/2026-09-23-channel-parity.md`) say `/queue`; the dated signed entries in this log are left as the record of what those heads said.
+- **Test:** `apps/cloud-gateway/test/voice/voice-command-references.test.ts`, `names only commands the Telegram bot recognises in the voice prompt and its spoken refusals` — collects every `/command` from the channel prompt and both refusals, puts each through the real `parseCommand`, then pins the collected set to `{"/queue"}` so it cannot pass vacuously.
+- **Mutation:** the inferred-memory refusal changed back to `/decisions` → that test fails with `kind: "unknown_command"`; restored → passes. Voice-agent tests updated: two assertions now expect `Open /queue in Telegram`, and the guest-prompt exclusion asserts the guest sees no `/queue`.
+
+**Merge of `origin/main` (`a7cd355`, #181/#182/#189) — a merge commit, no rebase, no force.** Two content conflicts, both resolved:
+
+- `apps/cloud-gateway/src/providers/deepseek-provider.ts` — main raised `AGENT_MAX_TOOLS` to an exported 64; the branch had 32 and a different comment. Kept main's `export const AGENT_MAX_TOOLS = 64`, with the comment corrected to the one shared catalogue (main's comment still described 18 Telegram and 15 voice). Kept the branch's two owner-turn wire-policy changes.
+- `apps/cloud-gateway/src/voice/voice-agent.ts` — kept the branch's file entire (shared `OWNER_TOOL_DEFINITIONS`); dropped main's `OWNER_VOICE_TOOL_DEFINITIONS` voice-only list and its `PreviousVoiceAssistantRow`, which the branch had moved. `deepseek-provider.test.ts`'s cap test moved from 32/33 to 64/65 to match.
+- `apps/cloud-gateway/test/providers/deepseek-agent-catalogue.test.ts` (added by #189, auto-merged but broken: it imported the two removed catalogue names) — pointed it at `OWNER_TOOL_DEFINITIONS`. The branch's rule is one catalogue for both channels, and re-exporting per-channel aliases would have kept the file green while implying a voice-only list still exists.
+- `docs/AGENT_LOG.md` auto-merged; every `## ` heading from both sides is present (branch 511, main 507, result 512).
+
+**Verification.** Focused vitest (6 files): 160/160 passed. `tsc --noEmit -p apps/cloud-gateway` exit 0. `check-state` passed with its one existing FACTS warning; `git diff --check` clean. The full workspace suite is left to GitHub Actions.
+
+**Not verified:** live Telegram, voice-relay or provider behaviour; the Windows CI leg; the test-tsconfig diagnostic count, which was not re-measured here.
+
+## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
+
+Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
+
+- **Bug (runtime-proven at `68675ba`):** `AGENT_MAX_TOOLS` in `apps/cloud-gateway/src/providers/deepseek-provider.ts` was 16, and `requestBody` throws `agent_request_invalid` above it. `OWNER_TELEGRAM_TOOL_DEFINITIONS` has 18 tools (voice has 15), so every owner Telegram turn failed before any model call and no message was sent. CI stayed green because the Telegram tests use `FakeAgentProvider`.
+- **Fix:** `AGENT_MAX_TOOLS` is 64 and exported; it stays a sanity bound. Voice's catalogue is now the exported `OWNER_VOICE_TOOL_DEFINITIONS` (same four lists, same order), so the test reads the real one.
+- **Test:** `apps/cloud-gateway/test/providers/deepseek-agent-catalogue.test.ts`, 4 tests: the real Telegram catalogue through `completeAgent`; the real voice catalogue through `completeAgent` and `streamAgent`; both lengths within the exported cap; 65 tools still rejected with no fetch.
+- **Mutation:** cap set back to 16 made the Telegram test fail with `agent_request_invalid` and the cap test fail (2 of 4 failed); restored, 4 of 4 pass.
+- **Verification:** focused runs 4/4 (new file), 99/99 (`deepseek-provider` + `deepseek-agent-stream`), 36/36 (`voice-agent`). `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its one existing FACTS warning. The test tsconfig still reports 143 diagnostics, the count the Codex entry below recorded on main; none are in touched files.
+- **Scope:** no merge, deploy, migration or production access. A DeepSeek audit follows; this is meant to merge before tonight's deploy.
+
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.

@@ -50,19 +50,19 @@ function agentResponse(choice: unknown): Response {
 }
 
 describe("DeepSeekAgentProvider", () => {
-  it("accepts a bounded catalogue of thirty-two tools and refuses thirty-three before fetching", async () => {
+  it("accepts a catalogue at the provider's sixty-four-tool sanity bound and refuses one above it before fetching", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
       finish_reason: "stop", message: { content: JSON.stringify({ reply: "Hello.", claimedActions: [] }) },
     }));
     const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
-    const tools = Array.from({ length: 33 }, (_, index) => ({
+    const tools = Array.from({ length: 65 }, (_, index) => ({
       name: `owner_tool_${index}`, description: "One owner capability.",
       parameters: { type: "object", additionalProperties: false, properties: {} },
     }));
-    await expect(provider.completeAgent(agentInput({ tools: tools.slice(0, 32) })))
+    await expect(provider.completeAgent(agentInput({ tools: tools.slice(0, 64) })))
       .resolves.toMatchObject({ finishReason: "stop" });
     const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as { tools: unknown[] };
-    expect(request.tools).toHaveLength(32);
+    expect(request.tools).toHaveLength(64);
     await expect(provider.completeAgent(agentInput({ tools }))).rejects.toThrow("agent_request_invalid");
     expect(fetcher).toHaveBeenCalledOnce();
   });
