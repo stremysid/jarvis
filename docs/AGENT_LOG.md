@@ -3,6 +3,65 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: code stores deadlines, the AI decides when to warn (`codex/effort-by-ai` round 3)
+
+Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `8c98bcd8`, round 3 on PR
+#201. Sid, 2026-09-25, 6:00 PM, verbatim: **"or hear me out, you let ai
+DECIDE"**. Touches Sid's rules 1, 2, 3, 4 and 8. No merge, deploy, database
+query or production read. The round-2 direction was cancelled mid-edit and the
+half-done changes were discarded before this started.
+
+- **Removed the whole decision surface.** `DeadlineEffort`, `requireEffort`,
+  the `effort` column, `effortJudged`, the `deadline_judge` tool,
+  `DEFAULT_LEAD_MINUTES`, `leadMinutesForWrite`, `lead_minutes`,
+  `listReminderDue`, `markReminded`, `QuietWindowService.deriveExamWindows`,
+  `EXAM_WINDOW_*`, the digest's effort text, the ICS `VALARM`, and effort in
+  the study signals. Code stores what a source states and delivers what the
+  model schedules. Nothing chooses a warning time or a category.
+- **The AI decides.** `deadline_list` is a read-only view of stored rows.
+  A scheduled review pass (`deadline-review-job.ts`) runs from the daily digest,
+  shows the model the stored deadlines plus the owner reminder tools
+  (`reminder_schedule`, `reminder_list`, `reminder_cancel`), lets it schedule
+  its own warnings, and delivers the model's own text to Sid -- which is how it
+  asks about a missing due date. Code composes no message.
+- **Missing due dates.** `due_date` is nullable and code never fills it in. A
+  Classroom assignment with no due date, a D2L topic with no date and a quiz
+  with no date are all stored with `null`, shown as "no due date", and left for
+  the model to ask Sid about. `deadline_record` keeps a stored date when the
+  model omits it on an update and stores null on a new row.
+- **Migrations.** `0053_deadlines_store_facts.sql` adds `due_date` and backfills
+  it. A rebuild was attempted and is impossible: triggers created in `0027`
+  reference `deadlines`, so `DROP TABLE deadlines` fails in the full migration
+  order (measured in `collector-migration`, D1 error
+  `no such table: main.deadlines`). The legacy `due_at`, `effort` and
+  `lead_minutes` columns are written with placeholders and never read; a QUEUE
+  item and a register row record that. `0054_owner_reminders_scheduled.sql`
+  makes `owner_reminders.created_turn_id` nullable so a scheduled review can
+  schedule a reminder without inventing a conversation turn; the owner-turn
+  guard still checks every reminder that has one. This needed a second
+  migration number; the brief said 0053 for the deadline change, and 0054 is
+  disclosed here and in the PR.
+- **Merge.** `origin/main` (`#200`, `#203`, `#205`) merged normally, keeping
+  both `AGENT_LOG.md` sides; the voice catalogue count is 28.
+- **Left outside this PR, named not changed:** `deriveMissingWorkPage` still
+  derives missing work from deadline status and dates; the `0027` triggers still
+  compare the now-placeholder `deadlines.due_at`; the Brightspace ICS client
+  cannot surface an item with no `DUE`/`DTSTART` at all; the collector's
+  `staleAfterMs` default remains.
+- **Evidence.** `test/deadlines`: **184 passed / 0 failed**. The neighbour set
+  (persistence, jobs, digest, calendar, http, reminders, autonomy, school,
+  channels, voice, agent, memory, providers, backup): **4,123 passed / 0
+  failed**. Source `tsc --noEmit` clean; `typecheck:tests` 140 baseline errors,
+  none new in a touched file. `reviewer-tools/mutate.ps1` at `8c98bcd8`:
+  **12/12 KILLED, each confirmed on a second run**, 0 survived / not-applied /
+  invalid, restore byte-identical across 6 files. The first sweep had D5
+  survive because the list notice also contained "no due date"; the test now
+  pins the row line itself.
+- **Not verified:** no deploy, no live D1, no production read. The review pass
+  runs daily from the digest, not on each collector upload, so a new deadline is
+  seen at least once a day. Live model compliance with the reminder-tool prompt
+  is untested.
+
 ## 2026-09-25 — DeepSeek builder: a collected deadline gets a judged effort, and a lead override survives (`codex/effort-by-ai` round 2)
 
 Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `5933c49f`, round 2 on PR
