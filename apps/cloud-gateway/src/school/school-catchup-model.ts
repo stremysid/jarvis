@@ -63,6 +63,14 @@ const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
   new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
   /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
   /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
+  // Jarvis has no hand that reaches outside him. A first-person statement that
+  // one happened is false however the model labels the sentence, so this
+  // pattern is never exempted by a `workedExplanations` declaration. It names
+  // only completions that cannot be a worked explanation: a code call ("I
+  // called helper()"), a summary to Sid ("I sent you..."), a negation ("I
+  // booked nothing") and a rule application all stay with the omission
+  // backstop below, which is where a declaration may apply.
+  new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:submitted|uploaded|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid(?:\s+for)?|emailed|messaged|contacted|notified|texted|mailed|reached\s+out\s+to|signed\s+up|reserved|cancelled|canceled|handed\s+in|bought)\b`, "iu"),
 ]);
 const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request|lab\s+report)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
 const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
@@ -414,22 +422,11 @@ function blankRange(value: string, start: number, end: number): string {
 }
 
 /**
- * Blanks the model's declared worked-explanation sentences in a scan copy.
- *
- * The declaration must gate the external-completion backstop too: a sentence
- * such as "I applied the chain rule for you." is a worked explanation when the
- * model says so, and an unproven action claim when it does not. Code previously
- * decided that with the `WORKED_APPLIED_FOR_YOU` regex; now it is membership.
+ * Blanks draft and quoted-report spans before a scan, so a drafted sentence is
+ * not read as one Jarvis said about himself. It never blanks an action claim the
+ * model merely labelled a worked explanation: the external-completion and
+ * passive guards must see those.
  */
-function blankDeclaredWorked(reply: string, scan: string, worked: ReadonlySet<string>): string {
-  let result = scan;
-  for (const sentence of worked) {
-    const index = reply.indexOf(sentence);
-    if (index >= 0) result = blankRange(result, index, index + sentence.length);
-  }
-  return result;
-}
-
 function exemptDraftAndReportSpans(reply: string): string {
   let scan = reply;
   const markers = /\b(?:draft(?:\s+(?:reply|message))?|sample(?:\s+message)?|opening\s+line|practice\s+question)\b[^:\n]{0,96}:/giu;
@@ -510,16 +507,16 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   let scan = exemptDraftAndReportSpans(reply);
   scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   // The model declares which of its sentences are worked explanations, and
-  // which action sentences a receipt proves. Code keeps the omission backstop
-  // for an undeclared first-person action claim, plus the guards for what
-  // reaches outside Jarvis; it does not decide what an explanation means.
-  const workedScan = blankDeclaredWorked(reply, scan, worked);
+  // which action sentences a receipt proves. That declaration exempts only the
+  // omission backstop for an undeclared first-person claim. The guards for a
+  // fact code owns -- Jarvis has no hand that reaches outside him -- read the
+  // reply unchanged, so a mislabelled sentence cannot skip them.
   const externalRanges = [
-    ...offendingSentenceRanges(reply, workedScan, FALSE_EXTERNAL_COMPLETIONS),
+    ...offendingSentenceRanges(reply, scan, FALSE_EXTERNAL_COMPLETIONS),
     ...unsafeFirstPersonRanges(reply, scan, receipted, worked),
   ];
-  if (hasPassiveExternalCompletion(workedScan)) {
-    externalRanges.push(...offendingSentenceRanges(reply, workedScan, PASSIVE_COMPLETION_PATTERNS));
+  if (hasPassiveExternalCompletion(scan)) {
+    externalRanges.push(...offendingSentenceRanges(reply, scan, PASSIVE_COMPLETION_PATTERNS));
   }
   // Receipt proof belongs to one declared sentence, including when a caller
   // checks it before streaming. A neighbouring claim gets no borrowed proof.
@@ -570,13 +567,12 @@ export function guardVoiceReplySentence(
   const sentDraft = proofs.some((claim) => claim.toolNames.includes("guided_assignment_draft"));
   const worked = new Set((options.workedExplanations ?? []).map((value) => value.replace(/\s+/gu, " ").trim()));
   const scan = exemptDraftAndReportSpans(text);
-  const workedScan = blankDeclaredWorked(text, scan, worked);
-  const external = offendingSentenceRanges(text, workedScan, FALSE_EXTERNAL_COMPLETIONS).length > 0
+  const external = offendingSentenceRanges(text, scan, FALSE_EXTERNAL_COMPLETIONS).length > 0
     || unsafeFirstPersonRanges(text, scan, new Set(proofs.map((claim) => claim.sentence)), worked).length > 0;
   if (external && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
   // Both helpers receive exactly one complete sentence, including its own
   // attribution/denial, rather than borrowing one from elsewhere in the reply.
-  if (hasPassiveExternalCompletion(workedScan) && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
+  if (hasPassiveExternalCompletion(scan) && !sentDraft) return UNRECEIPTED_VOICE_ACTION;
   if (isFalseBrightspaceCheckCompletion(scan)) return UNRECEIPTED_VOICE_ACTION;
   if (proofs.length === 0 && (VOICE_MEMORY_COMPLETION.test(scan) || VOICE_COMPLETION_BACKSTOP.test(scan))) return UNRECEIPTED_VOICE_ACTION;
   return text;

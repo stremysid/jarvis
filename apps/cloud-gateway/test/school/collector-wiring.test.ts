@@ -156,7 +156,7 @@ it("hands the model D2L evidence through the real tool dispatcher without an act
 
 it("hands the model raw Classroom work evidence without an action receipt", async () => {
   const f = await collectorFixture();
-  const requests = await runSchoolTool(f, "school_work_evidence", { seenSinceDays: 14, limit: 10 });
+  const requests = await runSchoolTool(f, "school_work_evidence", { cursor: "", seenSinceDays: 14, limit: 10 });
   expect(requests.length).toBe(2);
   expect(requests[0]!.tools.find((tool) => tool.name === "school_work_evidence")?.description)
     .toContain("You decide whether work is missed; code does not");
@@ -165,8 +165,17 @@ it("hands the model raw Classroom work evidence without an action receipt", asyn
   const toolResult = JSON.stringify(requests[1]);
   expect(toolResult).toContain("school_work_evidence");
   expect(toolResult).toContain("observations");
+  expect(toolResult).toContain("nextAfterDeadlineId");
   expect(toolResult).toContain("completed");
   expect(toolResult).toContain("receiptId");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
+});
+
+it("refuses an out-of-range evidence window before reading any evidence", async () => {
+  const f = await collectorFixture();
+  const requests = await runSchoolTool(f, "school_work_evidence", { cursor: "", seenSinceDays: 91, limit: 10 });
+  expect(requests.length).toBe(2);
+  expect(JSON.stringify(requests[1])).toContain("I couldn't read that school evidence request");
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
 });
 

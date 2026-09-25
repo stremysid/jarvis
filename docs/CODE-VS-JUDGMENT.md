@@ -16,6 +16,24 @@ A decision written in code is not a style problem. It is a piece of Jarvis's bra
 in the wrong language, and it is invisible to Jarvis, so Jarvis cannot reason about it,
 report it, or be corrected about it.
 
+**This page is a removal list, not a list of accepted exceptions** (Sid, 2026-09-25: "any
+judgment and decisions and thought should be the ai brain"). Code never decides meaning,
+relevance, how many, which, how long, or whether to act; the model does, through tool
+arguments and its prompt, and asks Sid when unsure. Code may keep only permissions (guest
+isolation, Sid's five confirmed actions), validation that an id exists and is Sid's, and
+system-protection limits (sizes, timeouts, runaway caps), each named as such.
+
+- **A pull request that adds a code-side judgment does not merge.** It is a blocking review
+  finding. Adding a row here is not a substitute for removing it.
+- **A judgment found in existing code** is removed in that pull request if it is small;
+  otherwise it gets a row here **and** a removal item in [QUEUE](QUEUE.md), in the same PR.
+
+**Every current row is queued for removal** in [QUEUE](QUEUE.md#work-with-no-pull-request-yet),
+in three batches: voice (rows 1, 3, 4, 5), memory (rows 6–9 and 13) and school (rows 10–12,
+plus the two school collector rows at the end of this file). Two DeepSeek builders started
+the memory and school batches on 2026-09-25. **Row 2 is a permission, not a judgment**: the
+tier gate on placing a call stays; what is missing is a `call_place` hand.
+
 ---
 
 ## Read this before treating the list as the population
@@ -142,6 +160,18 @@ and rewrite are unchanged by #171.
 | 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
 | 13 | `OwnerAgentCore.forget` (`src/agent/owner-agent-core.ts`), found in [#199](https://github.com/stremysid/jarvis/pull/199) | Whether to act at all when Sid asks to forget several memories. `itemIds.length !== 1` raises a `telegram-memory-forget` decision ("Nothing changes unless Sid taps Confirm forget") instead of forgetting them. Forgetting is not one of the five actions Sid wants asked about (2026-09-24), so this is a confirmation his rule removes. It exists because `commandKey` in `memory-owner-controls.ts` allows one ledger mutation per owner turn, not because anyone decided multi-forget is risky. | Delete the tap. Give `forget` a per-item idempotency key (`<turn event>:forget:<itemId>`, the shape `forgetConfirmedDecision` already uses), so one turn can forget several memories in one tool call. Each memory still gets its own receipt. Also listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25). |
 
+### Reply-reference selection: removed
+
+Row 14, `MAX_REPLY_REFERENCES` / `replyReferences` in `owner-agent-core.ts`, is
+deleted by [#200](https://github.com/stremysid/jarvis/pull/200). It kept the 8
+most recent memory items a turn had touched, so code chose which memories the
+reply was about and which a later "forget that" could reach. The model now
+declares them: `declare_memory_references` takes the item ids the reply relied
+on, and every tool result names the item ids it touched so the model can name
+them. Code checks only that each declared id was shown this turn and that the
+list fits the store's bound of 8, refusing rather than trimming; a turn that
+declares nothing records nothing, with no recency fallback.
+
 ---
 
 ### School and university
@@ -149,6 +179,8 @@ and rewrite are unchanged by #171.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
+| 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
+| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -235,8 +267,9 @@ visible eviction counts. This remains a partial register, not a completed audit.
 2. **Do not fix these by adding a guard.** A guard that suppresses the symptom is a second
    copy of the same decision, which is how several of the duplicate thresholds above came to
    exist. Items 6 and 7 each already have three or four copies of one number.
-3. **A new decision in code is a new row here, in the same pull request that adds it.**
-   That is what makes "a tenth is not progress" checkable.
+3. **A new decision in code does not merge.** A reviewer who finds one blocks the pull
+   request; recording it here does not clear it. A row here is only for a judgment already
+   on main, and it comes with a removal item in [QUEUE](QUEUE.md).
 4. **When a row is fixed, move it to a "fixed" section with the commit** rather than deleting
    it. The value of this page is the count of things still deciding.
 

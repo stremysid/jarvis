@@ -1,5 +1,27 @@
 # Known issues
 
+## Several tools per turn: what still allows only one write per turn (2026-09-25)
+
+The owner tool loop now lets Jarvis take several steps in one turn (search, read,
+record). Two limits below it were hidden by the old one-call cap and are now reachable:
+
+- **One memory change per turn.** `commandKey` in
+  [`memory-owner-controls.ts`](apps/cloud-gateway/src/memory/memory-owner-controls.ts)
+  keys every memory mutation's idempotency record as `<owner turn event id>:mutation`.
+  A second, different `memory_remember` (or forget, correct, confirm, pin) in the same
+  turn meets that key with a different request hash and is refused, so the model is told
+  "I could not safely apply that tool call". Proven by a test run on this branch (a
+  second remember in one voice turn was refused with `memory_refused` from
+  `hasCommand`). The fix is a per-turn ordinal in the key that keeps the first key
+  unchanged for replays; it touches replay idempotency, so it is its own change.
+- **One school plan save per turn, unverified.** `applyOwnerPlan` records its receipt
+  by `turn_id` (`school-catchup-repository.ts`), which looks like the same shape. Not
+  tested here.
+- **Request size.** Every step's results are sent back to the model, and the provider
+  refuses a request over `MAX_MODEL_REQUEST_BYTES` (128 KiB). A long chain of large
+  reads can reach it; the turn then ends with its receipts and a fallback line rather
+  than an answer. Not observed; unverified in practice.
+
 ## Confirmations outside Sid's five that migration 0051 does not remove (2026-09-25)
 
 [#199](https://github.com/stremysid/jarvis/pull/199) makes tier 3 exactly
@@ -183,12 +205,15 @@ The following low-severity follow-ups from the independent review remain open:
 - **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
   order.
 
-- **L5:** `guardVoiceReplySentence` in
-  [school-catchup-model.ts](apps/cloud-gateway/src/school/school-catchup-model.ts)
-  does not apply #162's `WORKED_APPLIED_FOR_YOU` mask before
-  `FALSE_EXTERNAL_COMPLETIONS`, and its `VOICE_MEMORY_COMPLETION` backstop matches
-  "saved" without a worked-object check. The review found six worked explanations
-  that Telegram keeps but voice replaces. This fails closed.
+- **L5:** `guardVoiceReplySentence` now exempts only the omission backstop from a
+  `[[worked]]` declaration; `FALSE_EXTERNAL_COMPLETIONS`, the passive patterns and
+  `VOICE_MEMORY_COMPLETION` always run. #162's `WORKED_APPLIED_FOR_YOU` mask is deleted
+  by [#204](https://github.com/stremysid/jarvis/pull/204) (register row 11), so a voice
+  sentence phrased as "I applied the X rule for you" is conservatively replaced even when
+  the model declares it worked. That is deliberate fail-closed behaviour, not a bug:
+  "applied ... for you" is the external-application grammar, and narrowing it would
+  reintroduce the deleted worked-object list. `VOICE_MEMORY_COMPLETION` still matches
+  "saved" without a worked-object check.
 - **L6:** No test pins #162's worked-explanation sentence in
   `OWNER_VOICE_STREAM_PROMPT`. The matching assertion in
   [tutoring-reply-review.test.ts](apps/cloud-gateway/test/school/tutoring-reply-review.test.ts)

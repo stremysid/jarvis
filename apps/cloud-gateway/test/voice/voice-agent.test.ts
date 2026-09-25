@@ -28,7 +28,7 @@ import { readPreviousVoiceAssistant, readVoiceReplyPayload } from "../../src/mem
 
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, sha256Hex, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
@@ -47,7 +47,7 @@ import {
   D1MemoryControlTargetFinder,
   type MemoryTargetFinder,
 } from "../../src/memory/memory-control-targets.js";
-import type { MeaningSearchReader } from "../../src/memory/meaning-search.js";
+import type { MeaningSearchHit, MeaningSearchReader } from "../../src/memory/meaning-search.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import { CORE_PROFILE_PREFIX } from "../../src/memory/core-profile.js";
 import { recordPendingTelegramMemoryReferences } from "../../src/memory/telegram-memory-reference.js";
@@ -64,9 +64,9 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } from "../persistence/migration.js";
-import { DeepSeekAgentProvider } from "../../src/providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { agentFrame, agentResponse, textResponse, toolFrames } from "../fixtures/deepseek-agent-stream.js";
-import { UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
+import { guardVoiceReplySentence, UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
 import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
 
 const NOW = new Date("2026-09-17T14:00:00.000Z");
@@ -91,18 +91,25 @@ function tool(id: string, name: string, args: unknown): ModelFunctionCall {
 
 class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly requests: ModelAgentCompletionInput[] = [];
-  private readonly completions: Array<ModelAgentCompletion | Error>;
+  private readonly completions: Array<ModelAgentCompletion | Error | ((input: ModelAgentStreamInput) => ModelAgentCompletion)>;
 
-  constructor(completions: readonly (ModelAgentCompletion | Error)[]) {
+  constructor(completions: readonly (ModelAgentCompletion | Error | ((input: ModelAgentStreamInput) => ModelAgentCompletion))[]) {
     this.completions = [...completions];
   }
 
   async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_must_stream"); }
 
   async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
+    // Refuse a history the real provider refuses, before it is recorded: a fake
+    // that accepts one certifies a path production cannot reach.
+    assertAgentToolHistory(input);
     this.requests.push(input);
-    const completion = this.completions.shift();
-    if (completion === undefined) throw new Error("unexpected_agent_call");
+    const next = this.completions.shift();
+    if (next === undefined) throw new Error("unexpected_agent_call");
+    // A function completion reads the previous round's results, which a
+    // declaration of a just-written item's id needs: that id does not exist
+    // until the write ran.
+    const completion = typeof next === "function" ? next(input) : next;
     if (completion instanceof Error) throw completion;
     if (completion.content !== null) yield { type: "text", text: completion.content };
     yield { type: "completed", completion };
@@ -218,6 +225,30 @@ function memoryContext(text: string, itemId: Ulid): RetrievedContext {
     text: `Memory evidence [topic Inbox; item ${itemId}; active; stated]: ${text}`,
     sensitivity: "personal" as const,
   });
+}
+
+/** The index, answering with the hits a test chose. It never decides relevance. */
+class FakeMeaningIndex implements MeaningSearchReader {
+  hits: readonly MeaningSearchHit[] = Object.freeze([]);
+  async search(): Promise<readonly MeaningSearchHit[]> { return this.hits; }
+}
+
+/**
+ * The item ids the newest settled voice reply carries.
+ *
+ * The voice path records references through the same pending map Telegram uses,
+ * so the `conversation.assistant_sent` payload is the durable copy of what
+ * `recordReferences` was handed across the whole turn.
+ */
+async function voiceSentMemoryItemIds(principalId: string): Promise<readonly string[]> {
+  const row = await env.DB.prepare(`SELECT envelope_json FROM events
+    WHERE subject_id = ?1 AND event_type = 'conversation.assistant_sent'
+    ORDER BY sequence DESC LIMIT 1`).bind(principalId).first<{ envelope_json: string }>();
+  if (row === null) throw new Error("voice_sent_event_missing");
+  const payload = (JSON.parse(row.envelope_json) as { payload?: { memoryItemIds?: unknown } }).payload;
+  return Object.freeze(Array.isArray(payload?.memoryItemIds)
+    ? payload.memoryItemIds.map((value) => String(value))
+    : []);
 }
 
 interface RunVoiceTurnInput {
@@ -364,6 +395,11 @@ describe("the voice agent adapter", () => {
         fact: "I like art", supportingExcerpt: "I draw sometimes", evidenceClass: "stated",
         previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
       })),
+      // The write's item id does not exist until it ran, so the model reads it
+      // from the result and declares it, exactly as a real model would.
+      (input) => called(tool("declare-proposal", "declare_memory_references", {
+        itemIds: (JSON.parse(input.toolResults?.[0]?.content ?? "{}") as { itemIds?: readonly string[] }).itemIds,
+      })),
       stopped('Should I remember exactly "I like art"?'),
     ]);
     await runVoiceTurn({ text: "I draw sometimes", provider, ownerPrincipalId: principalId, sessionId });
@@ -478,7 +514,8 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[1]?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(provider.requests[1]?.systemPrompt).toContain("I take my coffee black.");
     expect(provider.requests[1]?.tools).toEqual(provider.requests[0]?.tools);
-    expect(provider.requests[1]?.toolChoice).toBe("none");
+    // Tools stay on after a result: the model may take another step.
+    expect(provider.requests[1]?.toolChoice).toBe("auto");
     expect(spoken).toContain(UNRECEIPTED_VOICE_ACTION);
     expect(spoken).not.toContain("I sent the email.");
   });
@@ -839,7 +876,7 @@ describe("the voice agent adapter", () => {
     expect(spoken).toContain(fact);
     expect(spoken).toContain("You can ask me about it later.");
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ stream: true, tool_choice: "none" });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ stream: true, tool_choice: "auto" });
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
@@ -857,17 +894,62 @@ describe("the voice agent adapter", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
   });
 
-  it("refuses a second tool round even when an injected provider ignores the no-tools request", async () => {
+  it("runs a second tool round the model asks for after seeing the first result", async () => {
     const principalId = `principal:voice-stream-repeat:${serial + 1}`;
-    const first = "I take my coffee black.";
-    const second = "I play piano.";
-    const remember = (id: string, fact: string) => tool(id, "memory_remember", {
-      fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
-    });
-    const provider = new FakeAgentProvider([called(remember("first-action", first)), called(remember("extra-action", second))]);
-    const spoken = await runVoiceTurn({ text: `${first} ${second}`, ownerPrincipalId: principalId, provider });
-    expect(spoken).toContain("I couldn't finish that reply.");
+    const fact = "I take my coffee black.";
+    const provider = new FakeAgentProvider([
+      called(tool("first-action", "memory_remember", {
+        fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+      })),
+      called(tool("second-action", "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 60_000 })),
+      stopped("Okay."),
+    ]);
+    const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider });
+    expect(provider.requests).toHaveLength(3);
+    // The last step sees both earlier steps, oldest first.
+    expect(provider.requests[2]?.earlierToolRounds?.[0]?.calls[0]?.id).toBe("first-action");
+    expect(provider.requests[2]?.previousToolCalls?.[0]?.id).toBe("second-action");
+    expect(JSON.parse(provider.requests[2]!.toolResults![0]!.content)).toMatchObject({ status: "completed" });
+    expect(spoken).toContain(fact);
+    expect(spoken).toContain("Okay.");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE principal_id = ?1").bind(principalId).first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("keeps the memory the model declares when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, and the declaration is
+    // the whole set: a later step (an inbox read here) must not erase the item
+    // the model declared, and a later "forget that" must still reach it.
+    const principalId = `principal:voice-reference-chain:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const itemId = await activeMemory(principalId, "I take my coffee black.");
+    const version = await env.DB.prepare(`SELECT version_id, text_hash FROM memory_item_versions
+      WHERE principal_id = ?1 AND item_id = ?2`).bind(principalId, itemId)
+      .first<{ version_id: string; text_hash: string }>();
+    if (version === null) throw new Error("voice_reference_fixture_missing");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([{
+      vectorId: "a".repeat(64) as Sha256Hex,
+      score: 0.9,
+      itemKind: "item",
+      itemId: version.version_id as Ulid,
+      contentHash: version.text_hash as Sha256Hex,
+    }]);
+    const provider = new FakeAgentProvider([
+      called(tool("search-voice", "memory_search", { query: "coffee" })),
+      called(tool("inbox-voice", "email_inbox_list", {})),
+      called(tool("declare-voice", "declare_memory_references", { itemIds: [itemId] })),
+      stopped("On a sticky note."),
+    ]);
+
+    await runVoiceTurn({
+      text: "where is my locker code, and anything in my inbox?",
+      provider,
+      ownerPrincipalId: principalId,
+      memorySearch: index,
+      context: Object.freeze([]),
+    });
+
+    expect(await voiceSentMemoryItemIds(principalId)).toEqual([itemId]);
   });
 
   it("holds an unfinished save claim until a clean stop and checks it before speech", async () => {
@@ -980,6 +1062,19 @@ describe("the voice agent adapter", () => {
     const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
     await expect(runVoiceTurn({ text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
     expect(provider.requests).toHaveLength(1);
+  });
+
+  // Reviewer round 2, finding 2: the same rule holds a sentence at a time on
+  // voice. A [[worked]] declaration never exempts the guard for the fact that
+  // Jarvis has no hand reaching outside him.
+  it.each([
+    "I submitted your essay to OUAC.",
+    "I emailed Ms. Patel about the extension.",
+    "I paid the Waterloo application fee.",
+    "Your application has been submitted.",
+  ])("a worked declaration never exempts an external completion on voice: %s", (sentence) => {
+    expect(guardVoiceReplySentence(sentence, new Set(), { workedExplanations: [sentence] }))
+      .toBe(UNRECEIPTED_VOICE_ACTION);
   });
 
   it("runs a memory tool call over a call and speaks the receipt", async () => {
@@ -1169,12 +1264,13 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(27);
+    expect(request?.tools).toHaveLength(28);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
       "memory_confirm", "memory_explain", "memory_search", "history_search", "memory_pin", "memory_unpin",
+      "declare_memory_references",
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",

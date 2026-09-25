@@ -103,11 +103,14 @@ describe("tutoring review regressions", () => {
     expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
   });
 
+  // Reviewer round 2, finding 2: a worked declaration never exempts the
+  // external-completion guard. "applied ... for you" is external-application
+  // grammar, so these are conservatively replaced. This fails closed.
   it.each(["rule", "law", "formula", "method", "theorem"])(
-    "keeps a worked application of the %s for the owner when the model declares it",
+    "conservatively replaces an applied-for-you %s sentence even when declared worked",
     (topic) => {
       const reply = `I applied the ${topic} for you.`;
-      expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
+      expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
     },
   );
 
@@ -140,15 +143,16 @@ describe("tutoring review regressions", () => {
       .toBe(`${explanation}\n\n${ACTION_REPLACEMENT}`);
   });
 
-  it("limits the applied-for-you exemption to its own sentence", () => {
+  it("replaces every applied-for-you sentence, declared or not", () => {
     const explanation = "Applied the theorem for you.";
     expect(guardReplyClaims(`${explanation} I applied for you.`, { workedExplanations: [explanation] }))
-      .toBe(`${explanation}\n\n${ACTION_REPLACEMENT}`);
+      .toBe(ACTION_REPLACEMENT);
   });
 
-  it("keeps a worked applied-for-you sentence when only the next sentence names a person", () => {
+  it("replaces a declared applied-for-you sentence and keeps the following sentence", () => {
     const reply = "Applied the theorem for you. Your teacher can check the example.";
-    expect(guardReplyClaims(reply, { workedExplanations: ["Applied the theorem for you."] })).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: ["Applied the theorem for you."] }))
+      .toBe(`Your teacher can check the example.\n\n${ACTION_REPLACEMENT}`);
   });
 
   it("does not excuse a scholarship application that also mentions an example", () => {
@@ -175,7 +179,7 @@ describe("tutoring review regressions", () => {
 
   it("tells the owner model to declare worked explanations instead of action claims", () => {
     expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("workedExplanations must list the exact complete sentences in reply that are worked explanations");
-    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("That distinction is your judgment, not code's.");
+    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("it never excuses an action");
   });
 
   it("tells the owner model no tool can execute externally and not to refuse on wording", () => {

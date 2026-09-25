@@ -697,8 +697,30 @@ describe("SchoolObservationRepository", () => {
     });
     expect(evidence.sourceLastSuccessAt).toBe(NOW.toISOString());
     expect(evidence.hasMore).toBe(false);
+    expect(evidence.nextAfterDeadlineId).toBeNull();
     // The read is a sense, not a judgment: it adds no transition row.
     expect(await transitions()).toBe(before);
+  });
+
+  it("returns a deadline with no observation so the model can see the read gap", async () => {
+    const item = await fixture("work-evidence-unread", "2026-09-15T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+
+    const evidence = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+    });
+
+    expect(evidence.observations).toHaveLength(1);
+    expect(evidence.observations[0]).toMatchObject({
+      deadlineId: item.deadlineId,
+      submissionState: null,
+      lastSeenAt: null,
+      assignedGrade: null,
+      lastDerivedState: null,
+    });
   });
 
   it("bounds the evidence page and reports that more matches exist", async () => {
@@ -727,6 +749,20 @@ describe("SchoolObservationRepository", () => {
     });
     expect(page.observations).toHaveLength(1);
     expect(page.hasMore).toBe(true);
+    expect(page.nextAfterDeadlineId).toBe(page.observations[0]!.deadlineId);
+    // The cursor the model is handed reads the rest without repeating a row.
+    const rest = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+      afterDeadlineId: page.nextAfterDeadlineId,
+      limit: 1,
+    });
+    expect(rest.observations).toHaveLength(1);
+    expect(rest.observations[0]!.deadlineId).toBe(second.deadline.deadlineId);
+    expect(rest.observations[0]!.deadlineId).not.toBe(page.observations[0]!.deadlineId);
+    expect(rest.hasMore).toBe(false);
+    expect(rest.nextAfterDeadlineId).toBeNull();
     expect(second.deadline.deadlineId).toBeTypeOf("string");
   });
 });

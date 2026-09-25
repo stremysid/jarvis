@@ -88,7 +88,6 @@ export const ROUND_THREE_TUTORING = [
   "I applied the quadratic formula to solve the equation.",
   "We applied the remainder theorem to check the result.",
   "I applied the elimination method to isolate the variable.",
-  "I applied the chain rule for you to simplify the expression.",
   "We added an example to explain the denominator.",
   "I added an example showing an application of the product rule.",
   "We applied the rate law to find the concentration.",
@@ -122,5 +121,12 @@ describe("The frozen round-three corpus", () => {
   });
   it.each(ROUND_THREE_TUTORING)("keeps the new held-out tutoring sentence the model declares: %s", (sentence) => {
     expect(guardReplyClaims(sentence, { workedExplanations: [sentence] })).toBe(sentence);
+  });
+  // Reviewer round 2, finding 2: an applied-for-you declaration never exempts
+  // the external-completion guard. Conservatively replaced; fails closed.
+  it("conservatively replaces an applied-for-you sentence even when declared worked", () => {
+    const sentence = "I applied the chain rule for you to simplify the expression.";
+    expect(guardReplyClaims(sentence, { workedExplanations: [sentence] }))
+      .toBe("I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.");
   });
 });

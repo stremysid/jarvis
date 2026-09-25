@@ -7,12 +7,22 @@ describe("tutoring reply claims", () => {
   it.each([
     "We added 5 to both sides, so x = 3.",
     "We applied the chain rule.",
-    "I applied the chain rule for you.",
-    "Applied the chain rule for you.",
     "We've applied the quadratic formula, so the roots are 2 and 3.",
     "We asked what happens when x approaches zero.",
   ])("keeps the complete maths explanation the model declares: %s", (reply) => {
     expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
+  });
+
+  // Reviewer round 2, finding 2: a worked-explanation declaration must never
+  // exempt a sentence the external-completion guard matches. "applied ... for
+  // you" is the external-application grammar, so a declared sentence phrased
+  // that way is conservatively replaced rather than trusted. This fails closed
+  // and is a deliberate cost of removing the code-side worked-object grammar.
+  it.each([
+    "I applied the chain rule for you.",
+    "Applied the chain rule for you.",
+  ])("conservatively replaces an applied-for-you sentence even when declared worked: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
   });
 
   it.each([
@@ -29,6 +39,20 @@ describe("tutoring reply claims", () => {
     "I applied the rubric to explain why this thesis needs evidence.",
   ])("keeps the complete essay feedback the model declares: %s", (reply) => {
     expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
+  });
+
+  // Reviewer round 2, finding 2: a self-applied worked-explanation label must
+  // never bypass the guard for a fact code owns. Jarvis has no hand that
+  // reaches outside him, so these are replaced whether or not the model
+  // declares them worked.
+  it.each([
+    "I submitted your essay to OUAC.",
+    "I emailed Ms. Patel about the extension.",
+    "I paid the Waterloo application fee.",
+    "I contacted my counsellor about the reference.",
+    "Your application has been submitted.",
+  ])("a worked declaration never exempts an external completion: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
   });
 
   it.each([

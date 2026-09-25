@@ -113,13 +113,14 @@ export interface SchoolWorkEvidence {
   readonly title: string;
   readonly dueAt: string;
   readonly deadlineStatus: string;
-  readonly submissionState: SchoolSubmissionState;
+  /** Null when Classroom has no observation for this deadline yet. */
+  readonly submissionState: SchoolSubmissionState | null;
   readonly late: boolean | null;
   readonly assignedGrade: number | null;
   readonly maxPoints: number | null;
   readonly sourceUpdatedAt: string | null;
-  /** When Classroom was actually read as showing this state. */
-  readonly lastSeenAt: string;
+  /** When Classroom was actually read as showing this state; null if unread. */
+  readonly lastSeenAt: string | null;
   readonly lastDerivedState: DerivedMissingWorkState | null;
   readonly lastDerivedAt: string | null;
 }
@@ -130,4 +131,6 @@ export interface SchoolWorkEvidenceSnapshot {
   readonly observations: readonly SchoolWorkEvidence[];
   /** True when the bounded page did not hold every matching observation. */
   readonly hasMore: boolean;
+  /** Pass as `afterDeadlineId` to read the next page; null on the last page. */
+  readonly nextAfterDeadlineId: string | null;
 }

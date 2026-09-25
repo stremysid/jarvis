@@ -161,12 +161,12 @@ interface WorkEvidenceRow {
   title: string;
   due_at: string;
   status: string;
-  submission_state: string;
+  submission_state: string | null;
   late: number | null;
   assigned_grade: number | null;
   max_points: number | null;
   source_updated_at: string | null;
-  last_seen_at: string;
+  last_seen_at: string | null;
   last_derived_state: string | null;
   last_derived_at: string | null;
   source_last_success_at: string | null;
@@ -1065,16 +1065,25 @@ export class SchoolObservationRepository {
    * reported, when it was last read, and the coverage of that read. Code writes
    * no missing-work judgment here. Jarvis reads this and decides, and asks Sid
    * when the evidence is incomplete, stale or absent for a deadline.
+   *
+   * A deadline with no observation is returned with a null `submissionState`,
+   * so "Classroom has never told us about this course" is visible rather than
+   * dropped. The page is keyed by `deadline_id`; pass `nextAfterDeadlineId`
+   * back as `afterDeadlineId` to read on.
    */
   async readWorkEvidence(input: {
     readonly principalId: string;
     readonly sourceId: string;
     readonly seenSince: Date;
+    readonly afterDeadlineId?: string | null;
     readonly limit?: number;
   }): Promise<SchoolWorkEvidenceSnapshot> {
     const principalId = principal(input.principalId);
     const sourceId = identifier(input.sourceId, "school_observation_source_invalid");
     const seenSince = at(input.seenSince);
+    const after = input.afterDeadlineId === undefined || input.afterDeadlineId === null
+      ? ""
+      : identifier(input.afterDeadlineId, "school_observation_evidence_cursor_invalid");
     const limit = input.limit ?? SCHOOL_WORK_EVIDENCE_PAGE_SIZE;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > SCHOOL_WORK_EVIDENCE_PAGE_SIZE) {
       throw new TypeError("school_observation_evidence_limit_invalid");
@@ -1094,14 +1103,15 @@ export class SchoolObservationRepository {
               sync.last_failure AS source_last_failure
        FROM deadlines AS d
        JOIN deadline_sources AS s ON s.source_id = d.source_id AND s.kind = 'classroom'
-       JOIN school_assignment_observations AS o
+       LEFT JOIN school_assignment_observations AS o
          ON o.principal_id = ?1 AND o.deadline_id = d.deadline_id
        LEFT JOIN school_observation_sync AS sync
          ON sync.principal_id = ?1 AND sync.source_id = d.source_id
-       WHERE d.source_id = ?2 AND o.last_seen_at >= ?3
-       ORDER BY d.due_at DESC, d.deadline_id
-       LIMIT ?4`,
-    ).bind(principalId, sourceId, seenSince, limit + 1).all<WorkEvidenceRow>();
+       WHERE d.source_id = ?2 AND d.deadline_id > ?3
+         AND (o.last_seen_at IS NULL OR o.last_seen_at >= ?4)
+       ORDER BY d.deadline_id
+       LIMIT ?5`,
+    ).bind(principalId, sourceId, after, seenSince, limit + 1).all<WorkEvidenceRow>();
     const found = rows(result);
     const page = found.slice(0, limit);
     const observations = page.map((row): SchoolWorkEvidence => {
@@ -1117,17 +1127,23 @@ export class SchoolObservationRepository {
         title: text(row.title, "school_observation_evidence_row_invalid", 2_048),
         dueAt: instant(row.due_at, "school_observation_evidence_row_invalid"),
         deadlineStatus: text(row.status, "school_observation_evidence_row_invalid", 160),
-        submissionState: state(row.submission_state),
+        submissionState: row.submission_state === null
+          ? null
+          : state(row.submission_state),
         late: row.late === null ? null : row.late === 1,
         assignedGrade: grade(row.assigned_grade),
         maxPoints: scale(row.max_points),
         sourceUpdatedAt: optionalInstant(row.source_updated_at, "school_observation_evidence_row_invalid"),
-        lastSeenAt: instant(row.last_seen_at, "school_observation_evidence_row_invalid"),
+        lastSeenAt: row.last_seen_at === null
+          ? null
+          : instant(row.last_seen_at, "school_observation_evidence_row_invalid"),
         lastDerivedState,
         lastDerivedAt: optionalInstant(row.last_derived_at, "school_observation_evidence_row_invalid"),
       });
     });
     const first = page[0];
+    const last = page.at(-1);
+    const hasMore = found.length > limit;
     return Object.freeze({
       sourceLastSuccessAt: first === undefined
         ? null
@@ -1136,7 +1152,10 @@ export class SchoolObservationRepository {
         ? null
         : text(first.source_last_failure, "school_observation_evidence_row_invalid", 160),
       observations: Object.freeze(observations),
-      hasMore: found.length > limit,
+      hasMore,
+      nextAfterDeadlineId: hasMore && last !== undefined
+        ? identifier(last.deadline_id, "school_observation_evidence_row_invalid")
+        : null,
     });
   }
 
