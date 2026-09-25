@@ -3,6 +3,17 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: confirm only Sid's five actions (#PRNUM, migration 0051)
+
+Signed: Claude (builder agent), `codex/five-action-gates` from main `9ea215b`. Touches Sid's rules 1, 3, 4, 8, 9.
+
+- **What:** `0051_confirm_only_five_actions.sql` makes tier 3 exactly `spend.money`, `send.email` (new), `place.call` (new), `submit.school_work` (new), `contact.third_party` (reworded). `school.collector.revoke` 3 to 1; `delete.data`, `write.production`, `vehicle.unlock` 3 to 2. Reserved `send_email` now maps to `send.email`. The revoke tool description no longer tells the model to ask for a tap.
+- **Premise found wrong:** the brief said tier 2 is "just do it". It is only while `/shadow` is off; in shadow mode tier 2 is withheld. So the one dispatchable dropped tool (collector revoke) went to tier 1, not 2.
+- **Principles conflict, flagged not resolved:** `sid-principles.md` rule 4 (Sep 17, exact words not recorded) lists deleting, unlocking and booking as outward actions that ask. Sid's Sep 24 verbatim rule is newer and says only the five; this PR follows Sep 24. That principles file lives in a scratchpad, not the repo.
+- **Not changed, in KNOWN_ISSUES:** the multi-memory forget tap, the guest-access "Say confirm" on calls, `/call --confirm` and `jarvis call-me` (kept as "making a call"), and the `/shadow` switch.
+- **Verified here:** focused autonomy, persistence-list, rollout and collector-wiring files 13 files / 201 tests passed; backup-restore 12/12; gateway `tsc` exit 0; test typecheck 140 errors, none in changed files. `mutate.ps1`: 9/9 killed and confirmed (first sweep 8 killed, 1 survived because the wiring test's `afterEach` hard-coded tier 1; fixed to restore the migrated tier, then killed). Full suites on CI.
+- Claude-authored: needs a non-Claude review. Not merged, deployed or applied.
+
 ## 2026-09-25 — Claude builder: #196 round 3 (0047 behavioural test, doc fixes)
 
 Signed: Claude (builder agent), `codex/call-pin` from audited head `4047e9d`. Touches Sid's rules 3, 4, 8, 9. Main then moved to `eb4c8e3` (#184), so it was merged normally in `68b52bc`.

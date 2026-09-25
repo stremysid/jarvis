@@ -1,5 +1,57 @@
 # Known issues
 
+## Confirmations outside Sid's five that migration 0051 does not remove (2026-09-25)
+
+[#PRNUM](https://github.com/stremysid/jarvis/pull/PRNUM) makes tier 3 exactly
+Sid's five actions (spending money, sending an email, making a call,
+submitting school work, texting or calling someone on his behalf). Sid,
+2026-09-24: "the only things I'd might want a human to double check with me
+is the stuff I mentioned and that's literaly it". Four other asks exist
+outside the tier registry and are not changed by it:
+
+- **Forgetting two or more memories at once asks for a Telegram tap.**
+  `OwnerAgentCore.forget` in
+  [`owner-agent-core.ts`](apps/cloud-gateway/src/agent/owner-agent-core.ts)
+  raises a `telegram-memory-forget` decision when `itemIds.length !== 1`.
+  It is not one of the five. It stays because the memory ledger records one
+  mutation per owner turn (`commandKey` in
+  [`memory-owner-controls.ts`](apps/cloud-gateway/src/memory/memory-owner-controls.ts)),
+  so forgetting several without the tap needs a per-item idempotency key, a
+  ledger change of its own. Forgetting one memory never asks.
+- **Changing guest access on a call ends with "Say confirm".**
+  `#confirmOwnerAccess` in
+  [`call-session-do.ts`](apps/cloud-gateway/src/voice/call-session-do.ts).
+  Granting a guest access is Sid's own action, so by his rule it should not
+  ask. It stays because the flow starts from a phrase grammar
+  (`parseOwnerAccessIntent`), itself on the removal list of Sid's rules
+  (code deciding what he meant). Removing only the confirm would let a
+  misheard phone number grant a stranger guest access with nothing read back.
+  The fix is to replace the grammar with a tool the AI calls. Guest PINs and
+  guest isolation are not affected either way.
+- **`/call <reason> --confirm` in Telegram, and `jarvis call-me` on the
+  PC.** Both place a call to Sid's own verified phone and both need an
+  explicit confirm. They are kept as action 3, "making a call". If Sid means
+  only calls to other people, both are small removals.
+  (`call-me` has no handler registered today.)
+- **Tier 2 is withheld while shadow mode is on.** It is not a confirmation:
+  `/shadow off` is Sid's own switch and makes every tier-2 action run
+  without asking. Whether production is in shadow mode was not queried.
+  `delete.data`, `write.production` and `vehicle.unlock` moved to tier 2
+  and have no tool yet.
+
+Not action confirmations, and kept: the tap that confirms a *model-inferred*
+memory is true (it records whether the fact holds, not whether to act), the
+D2L collector pairing tap (it binds a new device to Sid), and a guest's own
+PIN (guest isolation).
+
+After `0051` no tool the agent dispatches today is tier 3, so the tap and the
+call PIN cannot be exercised in production until one of the five has a tool.
+Read from the restore code, not tested: a memory backup taken before `0051`
+would restore the old tiers with it, because `capability_tiers` is a
+backed-up table and the restore's `reset_seeded_rows` phase replaces the
+seeded rows with the backup's. Such a set has no rows for the three new
+capabilities, which would then be refused as unregistered rather than run.
+
 ## Literal-history rows that cannot be decoded are skipped, not surfaced to search (2026-09-25)
 
 Since #194 round 2, `indexSequences` in

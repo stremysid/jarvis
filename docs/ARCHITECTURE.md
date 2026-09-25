@@ -51,11 +51,14 @@ not.
 
 ### 4. Tier 3 is the backstop that holds after everything else fails
 
-Money, communicating with anyone who is not the owner, deleting data,
-touching production: never automatic, in either autonomy mode, whatever the
-model's confidence. This is the control that still works when a prompt
-injection has successfully steered the model, which is why it is a property
-of the capability rather than of the caller.
+Sid's five actions -- spending money, sending an email, making a phone call,
+submitting school work, and texting or calling someone on his behalf -- are
+never automatic, in either autonomy mode, whatever the model's confidence
+(Sid, 2026-09-24: "that's literaly it"). Nothing else asks. This is the
+control that still works when a prompt injection has successfully steered the
+model, which is why it is a property of the capability rather than of the
+caller. Migration `0051` sets that list, and
+`five-confirmed-actions.test.ts` pins it.
 
 ### 5. Claim before you act, report after
 
