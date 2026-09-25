@@ -1,12 +1,18 @@
 import { DEADLINE_TOOL_DEFINITION, recordDeadline } from "../deadlines/deadline-tool.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
+import { WEB_TOOL_DEFINITIONS } from "../web/web-tools.js";
 import type { ExecutedTool } from "./owner-agent-core.js";
 
 // Both channel catalogues import this list so a new hand cannot quietly exist
 // on only one channel while the broader channel-parity work is in flight.
+// The web tools are dispatched by the core itself (`runWebTool`), not by
+// `ownerArgumentTool`, because they need the gateway's fetch and AI binding
+// rather than the database alone; listing them here is what puts them on
+// every channel.
 export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   DEADLINE_TOOL_DEFINITION,
+  ...WEB_TOOL_DEFINITIONS,
 ]);
 
 export function ownerArgumentTool(database: D1Database, input: Readonly<ModelAdapterStreamInput>,

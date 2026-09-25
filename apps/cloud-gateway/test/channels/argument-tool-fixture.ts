@@ -11,13 +11,14 @@ import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
 import type { ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageInput } from "../../src/providers/provider-types.js";
+import type { WebToolsDependencies } from "../../src/web/web-tools.js";
 
 export const NOW = new Date("2026-09-23T14:00:00.000Z");
 let serial = 8_000_000;
 
 export async function argumentTurn(text: string, call: ModelFunctionCall, options: {
   direct?: boolean; durableDirect?: boolean; pipeline?: boolean; gate?: ToolAutonomyGateContract;
-  timeZone?: string; messageAt?: Date; processingAt?: Date;
+  timeZone?: string; messageAt?: Date; processingAt?: Date; web?: WebToolsDependencies;
 } = {}) {
   await applyMemoryIngressMigration();
   const principalId = `principal:argument:${newUlid()}`;
@@ -43,6 +44,7 @@ export async function argumentTurn(text: string, call: ModelFunctionCall, option
     directOwnerText: options.direct ?? true, directPipelineText: options.pipeline ?? true,
     autonomy: options.gate ?? await testToolGate(env.DB), now: () => options.processingAt ?? NOW,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }), turnReceivedAt: (options.messageAt ?? NOW).toISOString(),
+    ...(options.web === undefined ? {} : { web: options.web }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
     schoolModel: fallback, universityModel: fallback, studyCoachModel: fallback,

@@ -81,6 +81,7 @@ import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
 import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
+import { webToolsFromEnv } from "./web/web-tools.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
@@ -318,6 +319,8 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
             new AutonomyService({ repository: new AutonomyRepository(env.DB) }),
             new D1ToolConfirmationStore(env.DB),
           ),
+          // The same web tools a call gets, from the same environment.
+          web: webToolsFromEnv(env),
           schoolModel,
           universityModel,
           studyCoachModel: studyModel,
