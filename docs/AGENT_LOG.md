@@ -56,6 +56,183 @@ Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `
 - **Verification:** focused runs 4/4 (new file), 99/99 (`deepseek-provider` + `deepseek-agent-stream`), 36/36 (`voice-agent`). `tsc --noEmit -p apps/cloud-gateway` passes. `check-state` passes with its one existing FACTS warning. The test tsconfig still reports 143 diagnostics, the count the Codex entry below recorded on main; none are in touched files.
 - **Scope:** no merge, deploy, migration or production access. A DeepSeek audit follows; this is meant to merge before tonight's deploy.
 
+## 2026-09-24 evening — PR #179 round 5: fixes for the round-4 review
+
+Signed: Claude (orchestrator agent)
+
+Docs-only round on the existing PR #179, answering the
+[round-4 review](https://github.com/stremysid/jarvis/pull/179#issuecomment-5824285103)
+of `34b4c78`. **Claude-authored, so the round-5 delta needs a non-Claude (DeepSeek) audit
+before merge.** `origin/main` (`68675ba`) was already an ancestor of `34b4c78`, so no merge.
+Worktree `C:\w\fix179`, removed after the push. Only the six carrier files changed. The
+round-4 entry below is kept byte-for-byte; its errors are corrected here. Touches rules 2 and 9.
+
+| Finding | Fix |
+|---|---|
+| H1: OWNER-ACTIONS asks for deployed work | The #167, #159, #164 and #165 rows now say deployed in `0d69556` and name only the remaining owner check. The "Apply `0039` before…" instruction is gone. The receiver row's set is `0040`, `0043`, `0045` in order (`0039` already applied). The #166 row no longer cites #159's prerequisite |
+| M1: #167 missing from the deployed set | Added to STATE Production and the FACTS deploy row; `c5310be` is an ancestor of `0d69556` (exit 0) |
+| M2: #157 and #158 missing from "not deployed" | Added to STATE and FACTS. `d4e5416` (#157) and `44a3058` (#158) fail `--is-ancestor 0d69556` and pass on `68675ba` |
+| M3: FACTS credits row | Now "cloud credits" only, sourced to Sid, 2026-09-24 evening, with no supersession claim |
+| M4: Sid's quotes spelling-normalized | OWNER-ACTIONS uses the transcript-checked wording and spelling (7:14 PM and 7:15 PM EDT). The clause "code gives jarvis unfiltered unrestricted access and words, jarvis makes decisions" has no transcript record, so it is labelled the orchestrator's paraphrase. The round-4 entry below still carries the normalized quotes; these supersede them |
+| L1: `statusOf` in the wrong file | OWNER-ACTIONS and QUEUE: `statusOf` and `STATUS_WORDS` are in `deadline-tool.ts`; `DUE_PHRASE` and the "code cannot choose" refusals are in `deadline-date-proof.ts` (`git grep` at `68675ba`) |
+| L2: STATE Phase 3 stale | #164 and #165 deployed in `0d69556`; #172, #169/#170, #175/#176/#178 and #166 pending tonight's `68675ba` deploy |
+| L3: "Sid's rule 5" undefined in the repo | KNOWN_ISSUES states the rule itself: the model cleans up spoken answers; regex-stripping filler words is ruled out |
+| L4: Deepgram default stated as fact for calls | KNOWN_ISSUES and FACTS now say ConversationRelay leaving `filler_words` unset is inferred from Deepgram's default; no live call was checked |
+| L5: St. Remy asked about while paused | State is now "paused by Sid 2026-09-24; not asked until he resumes it" |
+| L6: builder hold recorded only here | QUEUE's freeze note records the hold since 1:24 AM 2026-09-24; the #174, #184 and #185 next actions start "When builders resume" |
+| N1 | #137 is `c58463b`; `d0ec419` is #139. The ancestry result is unchanged |
+| N2 | The round-4 check-state warning was at `docs/FACTS.md:71`, not `:70` |
+| N3 | The file is `guided-assignment.ts`, not `guided_assignment.ts` |
+| N4 | Round 4's head `34b4c78` is on origin, so it was pushed. The commit carries the default identity `Codex <noreply@openai.com>`; which session pushed is not recorded. Besides `check-state`, that entry itself lists `git diff --check`, `git rev-list`, `git log`, `gh pr list`, `gh pr view`, `gh issue view 186`, `Get-ChildItem`, `git grep`, a read of `origin/codex/channel-parity` and the Deepgram fetch |
+| N5 | STATE and QUEUE: #181 merged at 21:32 UTC and #182 at 21:14 UTC (`gh` `mergedAt` 21:32:00Z and 21:13:43Z) |
+| N6 | QUEUE #185: the review was at `78c98ff`; `8822708` is a later main merge (21:35:49Z) and the fix is not yet pushed |
+| N7 | KNOWN_ISSUES: `0d69556` was "deployed at 03:47 UTC" |
+
+STATE's and QUEUE's #179 rows now say round 5 and name the DeepSeek audit.
+
+**Commands run:** `git fetch`, `git worktree add`, `gh api` for the review comment,
+`gh pr view` for merge commits and times, `git merge-base --is-ancestor` against `0d69556`
+(14 PRs, exit 0) and `68675ba` (16 PRs, exit 0), `git grep` at `68675ba`, `git log`,
+`node scripts/check-state.mjs`, `git diff --check`, `git commit`, `git push`,
+`gh pr comment` and `git worktree remove`. No production query, merge, deploy or test suite.
+
+**Gate output.**
+```
+$ node scripts/check-state.mjs
+::warning file=docs/FACTS.md,line=71::1 item(s) need re-verification; first affected line 71.
+  docs/FACTS.md:71: re-verify before relying on it (2026-09-23): Background access in Opera GX and direct Durham course URLs restoring
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 1 warning(s).
+exit 0
+$ git diff --check
+exit 0, no output
+```
+STATE.md is 149 lines against the 150-line budget.
+
+## 2026-09-24 evening — PR #179 round 4: carriers refreshed to the second production deploy
+
+Signed: DeepSeek Flash, headless docs builder, claude/friendly-hawking-qjcyia
+
+Docs-only round appended to the **existing** PR #179; no new PR. Branch
+`claude/friendly-hawking-qjcyia`, worktree `C:\w\carriers-evening`, starting head
+`70f5a29a` (which already contains main `68675ba6` — `git rev-list --left-right --count
+origin/main...origin/claude/friendly-hawking-qjcyia` returned `0 6`, so no merge was needed).
+Files touched: `docs/STATE.md`, `docs/QUEUE.md`, `docs/OWNER-ACTIONS.md`, `docs/FACTS.md`,
+`KNOWN_ISSUES.md` and this log. No test suite ran. No push, merge, deploy, migration
+application, secret access or production query; the one local command besides edits was
+`node scripts/check-state.mjs`.
+
+**Every fact below, with the source it was checked against.**
+
+1. **Production is a second deploy, at source `0d69556` with D1 at `0039`.**
+   - Source: the orchestrator's read-only checks at 18:44–19:07 EDT (22:44–23:07 UTC)
+     2026-09-24, quoted in the brief: production D1 `d1_migrations` shows
+     `0039_tool_confirmation_consumptions.sql` applied at `2026-09-24 03:46:58 UTC`, and
+     Cloudflare shows Worker `jarvis-cloud-gateway` `modified_on`
+     `2026-09-24T03:47:07Z`. Sid's `C:\javis` is at `0d69556` (read here; that checkout is
+     on `main` with HEAD `0d695563`).
+   - **The Worker version id is unverified.** The brief says an earlier note gives
+     `cdc45f1d-fb42-47f9-b979-a081cc4bc272`; nothing in this tree corroborates it, and this
+     builder did not query Cloudflare. It is labelled unverified in STATE and FACTS.
+   - This builder **did not query production**. It re-verified only the repository side:
+     `git merge-base --is-ancestor <commit> 0d695563` exits 0 for #133 (`0611803`),
+     #137 (`d0ec419`), #144 (`af5a618`), #146 (`3a482c4`), #147 (`bde0a9b`), #149
+     (`2855105`), #154 (`a6a0efd`), #155 (`c92078b`), #156 (`248c3de`), #159 (`6e3f1ef`),
+     #163 (`6249ab1`), #164 (`0b63b91`) and #165 (`0d69556`). Every merge after `0d69556`
+     (#161, #162, #169, #170, #171, #172, #173, #175, #176, #178, #166, #177, #182, #181)
+     fails that test and is therefore not deployed.
+   - Corrected everywhere the six files said `a6a0efd`, `7e027a1f` or D1 `0038`: STATE's
+     Production section and Control phase row, FACTS's deploy row, OWNER-ACTIONS's two
+     deploy rows, QUEUE's production paragraph and KNOWN_ISSUES's four "deployed as of"
+     rows plus its deployment-evidence paragraph.
+   - **Not changed, deliberately:** the older `a6a0efd`/`0038` statements inside dated
+     AGENT_LOG entries below this one. They were true when written and the instruction is
+     to keep every existing entry byte-for-byte; this entry is the correction.
+
+2. **Merges since the last carrier refresh, computed from `git log` on main (`68675ba`).**
+   - `git log --oneline --first-parent -8 origin/main` gives `68675ba` (#181), `a20f055`
+     (#182), `5548c38` (#177), `f5ba9a8` (#166), `4f5758b` (#178), `b16e9be` (#176),
+     `c66c387` (#175) and `3fe04c2` (#171). #181, #182 and #177 have left the open set;
+     the rest are already recorded.
+   - `gh pr list --state open` at this round returns exactly eight PRs: #122, #168, #174,
+     #179, #180, #183, #184 and #185. Their states were read
+     individually with `gh pr view`: #174 `ac5c89e` merge delta cleared with F1 outstanding;
+     #168 `d214216` CONFLICTING; #179 `70f5a29`; #180 `ac8d75b` cleared; #183 `a27a688`
+     ready to merge with follow-ups; #184 `a035630` changes requested; #185 `8822708` one
+     small fix requested; #122 `4f570fa` reviewer-parked.
+   - QUEUE and STATE now carry those observed heads; the harness-PR-being-built row was
+     replaced by the real #185, and the merged PRs left both tables.
+
+3. **Tonight's planned deploy.** Release `68675ba`; pending migrations exactly `0040`,
+   `0043` and `0045`. Source: `Get-ChildItem apps/cloud-gateway/src/persistence/migrations`
+   on main lists `0039`, `0040`, `0043`, `0045` as the top four, and the brief says `0039`
+   is already applied. #174's `0044` was checked out of `origin/codex/channel-parity` and is
+   **not** in the set. A clearly marked "Deploy results: pending Sid's report" exists in
+   STATE (`#deploy-results-pending-sids-report`) and OWNER-ACTIONS; no result was invented.
+   Merge freeze recorded in STATE, QUEUE and the OWNER-ACTIONS section.
+
+4. **Owner decisions and statements, quoted as "Sid, orchestrator chat, 2026-09-24".**
+   The brief supplies them; this builder could not open Sid's chat, so each is recorded as
+   the orchestrator's quotation rather than as a transcript check.
+   - St. Remy paused: "lets put it on pause for now".
+   - Email inbox first among school date sources: "agreeded".
+   - Deadline refusals removed: "why would jarvis refuse? … why doesnt he just ask for
+     clarity? … the AI IS THE BRAIN IT CAN THINK AND DECIDE" and "code gives jarvis
+     unfiltered unrestricted access and words, jarvis makes decisions, code should never
+     make a decision or restrict jarvis". The removal targets were confirmed to exist at
+     `68675ba`: `DUE_PHRASE` at `deadline-date-proof.ts:20`, the "code cannot choose"
+     strings at `:91`, `:172`, `:177` and `:180`, and `statusOf` at `deadline-tool.ts:47`.
+     The two former owner questions (`OWNER_SMALL_HOURS_END_HOUR`, #166 round-7 Z) were
+     removed from OWNER-ACTIONS and QUEUE as superseded.
+   - #176 L2 is reviewer-decided, not Sid's: STATE and QUEUE now say so, and the
+     OWNER-ACTIONS row was removed. The brief reports every myItems date as null in the
+     owner-run probe; that probe was not re-read here, so the row records it as his report.
+   - #122 is reviewer-decided and reviewer-parked until #174 merges:
+     [PR comment](https://github.com/stremysid/jarvis/pull/122#issuecomment-5805918111),
+     read with `gh pr view 122 --json comments`. The "awaiting-owner" state was wrong.
+   - Sid is out of cloud credits, 2026-09-24 evening (brief; not otherwise corroborated).
+   - Builders/reviews were on hold from 01:24 on 2026-09-24 by Sid's instruction; this
+     docs round and the #186 sweep were explicitly approved (brief).
+
+5. **The code-vs-judgment sweep is issue #186**, read with `gh issue view 186`: open,
+   read-only, seven area reviewers, each posting one REMOVE/KEEP/UNSURE comment, pinned at
+   main `68675ba`, created 2026-09-24T23:18:33Z. A QUEUE row points to it. **This round did
+   not edit `docs/CODE-VS-JUDGMENT.md`** — its rewrite into a removal list is a separate PR
+   after the sweep, as the brief requires.
+
+6. **KNOWN_ISSUES additions.**
+   - Deepgram strips "um" and "uh" by default: Deepgram's "Filler Words" page says
+     `filler_words` defaults to `false` and that when it is false or unset "the two most
+     common fillers, 'uh' and 'um', are stripped out of the transcript"
+     ([docs](https://developers.deepgram.com/docs/filler-words), fetched this round).
+     Jarvis sets no filler option: `git grep -n -i filler origin/main --
+     apps/cloud-gateway/src/voice` exits 1 (no match), and `voice/twiml.ts` passes only
+     `transcriptionProvider="Deepgram"`. `guided_assignment.ts:165` stores `input.userText`
+     as `raw`, so the saved "raw" spoken answer is that stripped transcript. Recorded in
+     KNOWN_ISSUES and FACTS.
+   - **The guest-call privacy leak stays live until #174 merges and deploys.** The existing
+     row was kept and its production reference corrected to `0d69556`; it was not
+     duplicated. Source: `owner-agent-core.ts` / `voice-agent.ts` on main, plus the
+     production revision above.
+
+7. **The queued round-3 nits.** FACTS's concurrency row now reads "provided quality is
+   unchanged". The row on the 2026-09-24 test practice was reworded so the practice is
+   labelled **adopted** and the quote is attributed as context, not as Sid stating the
+   practice (FACTS line 50 before the edit).
+
+**Gates actually run, and their exact output.** `node scripts/check-state.mjs`: exit 0,
+`state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown
+links resolve, BLOCKS present; 1 warning(s)`, the warning being the pre-existing
+`docs/FACTS.md:70` D2L background-access re-verification. `git diff --check`: exit 0, no
+output. STATE.md is 149 lines against the 150-line budget. No test suite was run, per the
+no-full-suite-on-Sid's-PC rule and the docs-only scope.
+
+**What could not be verified.** The D1 `0039` application, the Worker `modified_on` and the
+Worker version id were not queried by this builder; they are recorded as
+orchestrator-observed. Sid's chat statements are the orchestrator's quotations. The #122
+comment URL and the #186 issue body were read directly. The `#176` myItems-null probe was
+not re-read. `git diff --check` and `check-state` are the only commands run besides
+read-only `git`/`gh` queries.
+
 ## 2026-09-24 — Codex builder: T3/B1 outcome binding and B2 tool binding
 
 Signed: Codex GPT-6 Astra, headless cloud builder, codex/tool-gate-binding.
@@ -185,6 +362,191 @@ and no Git write command ran.
 Next: when the harness collects this round, use the supplied artifacts and
 handle the main update; when the revised head is ready, return it for independent
 review of these six dispositions.
+
+## 2026-09-24 — State carriers refreshed from repository and rehearsal evidence
+
+Signed: Codex GPT-6 Astra, headless cloud docs builder, claude/friendly-hawking-qjcyia
+
+Docs-only builder round from `b16e9be`, using the harness's approximately 19:40 UTC
+snapshot and read-only repository history. Git history confirms today's merges:
+#157 (`d4e5416`), #162 (`1cad885`), #161 (`20db336`), #171 (`3fe04c2`),
+#175 (`c66c387`) and #176 (`b16e9be`). No Git write, push, merge, deployment,
+migration application or production query was performed by this builder.
+
+Files changed, and why:
+
+- `docs/QUEUE.md`: six open PRs with observed heads/verdicts and merge dependencies;
+  removed merged work, rechecked surviving non-PR work, retained T1/T2, T3 and B2,
+  and tracked #174 L2, #176 L2 and #171's four open lows.
+- `docs/STATE.md`: replaced stale in-flight and phase verdicts, retained the exact
+  Production section, recorded pending migrations and orchestrator-reported scratch PASS, and traced the
+  guest-call profile/catalogue leak on main and the recorded deployed source.
+- `docs/OWNER-ACTIONS.md`: removed duplicate #167, corrected merged statuses,
+  marked orchestrator-reported scratch work done while production remains not started, recorded
+  renumbering as decided, and added the D2L-date and St. Remy scope questions.
+- `docs/FACTS.md`: recorded the supplied exact owner quotes and model-use direction,
+  the previously recorded PC test-load rule, corrected voice/Windows launcher facts,
+  and removed the incorrect certainty-forbidden-key claim while retaining the decision.
+- `KNOWN_ISSUES.md`: added the guest-call and fail-closed keyboard-payload findings,
+  distinguished working calls from streaming acceptance, and kept missing #171 L5/L6
+  descriptions explicitly unresolved rather than inventing them.
+- `TESTING.md` and `AGENTS.md`: aligned the test-typecheck count to 143, measured
+  2026-09-24 by the builders. `AGENTS.md` additionally distinguishes Windows
+  `jarvis serve` from the still-Linux-only `jarvis node`; no other guidance changed.
+- `docs/reviews/2026-09-24-scratch-d1-rehearsal.md`: transcribed the orchestrator-reported PASS,
+  all 41 table rows, synthetic seed roles, pre-check, whole-call duplicate rollback,
+  #174-after-0045 result and limits, without database/account identifiers.
+- `docs/AGENT_LOG.md`: moved only nine misplaced September 24 blocks above
+  September 23, preserving all existing entry bytes and within-date order, then
+  added this entry.
+
+Supplied to the harness, not committed: `.codex-commit-msg.txt` and
+`.codex-pr-body.md`. These handoff artifacts do not replace independent review.
+
+Verification: `node scripts/check-state.mjs` passed (STATE 133 lines, limit 150),
+with the existing unconfirmed Opera GX background/federation fact warning. No
+application tests or mutation probes were run for this docs-only change. Neither
+root nor gateway `node_modules/.bin/tsc` exists, so the 143 count is explicitly the
+builders' measurement, not this builder's. The rehearsal migration copies match
+the checkout byte-for-byte. The Claude orchestrator ran it; results are transcribed
+from its harness-supplied summary and table; not independently re-run.
+
+The log verification script compares the complete heading/body multiset against
+the original: **486 existing entries identical**, all **16 September 24 entries**
+before September 23, relative order within every date unchanged. Global dates are
+**not** non-increasing: four pre-existing older inversions remain (September
+20→21, 18→19, 16→17 and 11→16). Moving those would violate this round's explicit
+"move only" September 24 scope. This is a disclosed check limitation, not a global
+order pass. The temporary verifier lives outside the repository.
+
+In round 1, #171's L5/L6 descriptions were absent from main's KNOWN_ISSUES section
+and the searched #171 records; the GitHub discussion connector returned 404.
+The round-2 brief supplied the review text and citation, now recorded below.
+`AGENTS.md` contained no voice-tools claim to edit. Its node claim needed the
+precise command/config distinction: the Windows configuration gate changed, but
+the `node` command still refuses Windows.
+
+Harness disclosures, verbatim:
+
+> The orchestrator merged #161, #162, #171 and #175 at harness merge heads rather than the exact reviewed heads. The deltas were reviewed after the fact (#162 by the Claude reviewer; #161/#171/#175's Claude-written resolutions by a read-only Codex audit, verdicts posted on each PR).
+
+> Commits 468f682, 7e14872, 1b0b0e9 and 04349dd were built by Codex GPT-5.6 Sol but carry the author name 'Codex GPT-6 Astra (headless builder)' because the harness set a shared git identity; their messages state Sol correctly; fixed with per-worktree identities from 19:35 UTC.
+
+Next actions:
+
+- Before this docs change merges: independent review of the resulting head,
+  particularly owner attributions, rollout status and the log preservation evidence.
+- During #171 L5/L6 builder work: use the review findings cited in the round-2 note.
+- At the authorized production rollout: Sid uses the reviewed runbook; orchestrator-reported scratch PASS
+  has not changed production's Worker or D1 version.
+
+### Round 2 — PR #179, after the independent review of `6df941f`
+
+[Review: 0 high, 4 medium, 5 low](https://github.com/stremysid/jarvis/pull/179#issuecomment-5821260841).
+Resolved the harness-started main merge from `f5ba9a8` without staging. Both
+conflicted files keep both sides' contributions: #166's small-hours choice and
+live deadline acceptance remain in OWNER-ACTIONS, updated for its merge. Main's
+#166 commit added no QUEUE row; the merged PR leaves this branch's open table.
+
+- **M1:** removed the unsupported coding-model assignment from FACTS; retained
+  the exact quotes and non-coding GPT-6 Astra at xhigh/high direction.
+- **M2:** framed '2: yes' as Sid's 2026-09-24 orchestrator-chat quote supplied by
+  the harness, in the rehearsal record and all three rollout rows; no FACTS row added.
+- **M3:** corrected the executor to the Claude orchestrator, through its session's
+  subagent using the Cloudflare connector. Every rehearsal PASS in these carriers
+  and this entry is orchestrator-reported, transcribed rather than independently re-run.
+- **M4:** removed the unattributed recommendation from the #176 L2 choices.
+- **L1:** replaced missing #171 L5/L6 descriptions with the [review's findings](https://github.com/stremysid/jarvis/pull/171#issuecomment-5817201176),
+  owned by the builder. Read `guardVoiceReplySentence` and both prompt/test paths:
+  voice lacks the worked-application mask and saved-object check; the worked-
+  explanation prompt assertion covers `OWNER_AGENT_SYSTEM_PROMPT`, not the voice
+  stream prompt. Six replaced explanations and surviving N27 remain review evidence.
+- **L2:** moved the two handoff artifacts out of the committed-file list.
+- **L3:** restored STATE's governing revision rule and rationale verbatim from main.
+- **L4:** added the historical DECISIONS section's "unconfirmed and superseded in
+  part" label and BUILDING's out-of-scope statement; kept the St. Remy question open.
+- **L5:** explicitly named both certainty and `uncertain` as absent from
+  `FORBIDDEN_PROPOSAL_KEYS`; the forced assignment remains a separate issue.
+- **Merge refresh:** #178 (`4f5758b`) and #166 (`f5ba9a8`, 20:14 UTC) leave the open
+  queue; #177 is cleared at `e0631a8` or later pending its log-only main merge;
+  #174's round-4 review at `1b0b0e9` must now integrate main's `deadline_record` /
+  `OWNER_ARGUMENT_TOOL_DEFINITIONS` into shared `OWNER_TOOL_DEFINITIONS`. #168 still
+  needs its builder/renumbering round after #174. #166 [round-7 lows X/Y](https://github.com/stremysid/jarvis/pull/166#issuecomment-5821024515)
+  are builder coverage work; Z is a neutral owner question about filler-only gaps
+  across the hard sentence-separator arm. The source and existing tests were read.
+
+Both-parent verification: HEAD has 487 entries and MERGE_HEAD 500; the combined
+log has 501. All parent headings and all 500 other entry bodies are preserved
+byte-for-byte; only this entry has the authorized corrections and note. Both
+parents' within-date order is preserved, with all 31 September 24 entries above
+September 23. The same four older inversions remain; no global order pass is claimed.
+`node scripts/check-state.mjs` and `git diff --check` pass; STATE is 141/150 lines
+and the existing unconfirmed FACTS warning remains. No application code or tests
+were edited in this round; main's automatic code/test merge is untouched.
+
+Next: before PR #179 merges, the independent reviewer checks the resulting
+merge-plus-fix head. The harness owns staging/commit; production remains unchanged.
+
+### Round 3 — PR #179, after round-2 clearance at `f7fa19a`
+
+Signed: Codex GPT-6 Astra, headless cloud docs builder, claude/friendly-hawking-qjcyia
+
+Resolved the harness-started merge of main `a20f055` (#182), on top of `5548c38`
+(#177), in QUEUE and STATE. Kept this branch's round-2 structure and all unrelated
+rows. T3/B1 and B2 leave open work because #182 merged on 2026-09-24 at about
+21:20 UTC; it is not deployed. STATE now records main's tool-name, capability and
+argument-hash binding and changed-second-outcome denial, retains #159/0039, and
+links main's unchanged compatibility-note anchor.
+
+- **#182 evidence:** changed only the branch-name attribution and stale final
+  sentence in KNOWN_ISSUES's tier-3 compatibility section. The [review](https://github.com/stremysid/jarvis/pull/182#issuecomment-5822209807),
+  supplied by the harness, records focused 472/472, independent full-suite
+  6683/6683 and 5/5 mutants killed. #182 merged at `a20f055`; deployment and a
+  fresh tap for any tier-3 confirmation pending at deploy remain.
+- **N1:** in the scratch rehearsal record, item 1 now appears to be the
+  renumbering question recorded on #168, explicitly the builder's reading,
+  as requested after the [round-2 review](https://github.com/stremysid/jarvis/pull/179#issuecomment-5821720680).
+- **FACTS:** extended the single existing Codex row with the supplied exact
+  coding-model quote: routine coding on GPT-6 Sol; difficult, attention-heavy
+  or costly-mistake work on GPT-6 Astra; retained the existing quotes and
+  non-coding Astra xhigh/high direction. Added the separate cloud-container
+  focused-tests/CI-full-suites practice with its supplied reply context, leaving
+  the PC rule unchanged. Added concurrent builders without a fixed count while
+  retaining review quality and existing merge/deploy authority. All three new
+  quotes use the requested Sid/orchestrator-chat/harness attribution verbatim.
+- **Carrier snapshot, 2026-09-24 about 21:30 UTC:** #177 and #182 are merged,
+  neither deployed; #174 is in round-5 integration review at `0e458a6` and must
+  integrate #182's three-argument `confirmationReference` when next merging main.
+  #180 (`620a754`) is unreviewed with CI re-running after an unrelated local-agent
+  flake; #181 (`e069e11`) is review-approved, its log/KNOWN_ISSUES-only merge head
+  harness-cleared, CI pending. #183 (`5f67c27`) needs changes for ordinary-speech
+  over-redaction and has a red workspace suite; #184 (`e786602`) is in round-1
+  review. #168 still awaits its builder/renumbering round after #174. The harness
+  is building `codex/local-agent-retry-wait-flake` for `test_node.py`'s real-socket
+  race against `QUARANTINE_RETRY_WAIT_SECONDS = 0.1`. #179 remains this open round.
+  Production is unchanged: Worker `7e027a1f…` at `a6a0efd`, D1 `0038`. Sid's plan
+  to apply pending migrations and deploy tonight from the home PC is planned,
+  not done.
+
+The harness corrected its #180 snapshot, superseding the unreviewed claim above: round 1 at `f70b30d` was ready to merge with 0 High/Medium/Low and 7/7 mutants killed, the harness cleared the log-only main-merge head `620a754`, and merge awaits a green one-time re-run of two unrelated CI failures that pass on main; `codex/local-agent-retry-wait-flake` covers both the local-agent real-socket 0.1 s retry-wait race and the hermes-runtime per-test 5 s timeout.
+
+Verification: `node scripts/check-state.mjs` passes, STATE is 147/150 lines,
+and the requested conflict-marker grep is empty for QUEUE and STATE. The existing
+unconfirmed Opera GX background/federation fact remains the sole warning. Saved
+the auto-merged AGENT_LOG to `/tmp/jarvis-pr179-round3-agent-log.before.md` before
+editing; every other entry is byte-unchanged and in the same order. This entry's
+earlier text is also unchanged; only this Round 3 section was appended. Exact
+quote checks preserve the double space in "half  the" and the U+2026 ellipsis.
+The rehearsal record has only N1's replacement; the tier-3 compatibility section
+has only the two requested replacements. No code, tests or migrations were
+edited, no runtime or mutation tests were run, and no Git writes or network
+requests were made. `.codex-commit-msg.txt` and `.codex-pr-body-addendum.md` are
+handoff artifacts for the harness.
+
+Next: before PR #179 merges, the harness stages and commits this docs round and
+obtains review of the resulting head. At tonight's planned rollout, Sid applies
+the reviewed pending migrations and deploys from the home PC; no completion is
+claimed here.
 
 ## 2026-09-24 — Codex builder: #166 round 7 closes punctuation and noon-tonight gaps
 
@@ -1044,58 +1406,45 @@ Signed: Codex GPT-6 Sol, headless cloud builder, codex/telegram-body-timeout.
 - **Harness tests to run:** focused `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/telegram-provider.test.ts apps/cloud-gateway/test/providers/telegram-body-timeout.test.ts`, then full `pnpm test` in GitHub Actions. The harness must report either failure back before review.
 - **Verified here:** `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` passed; `git diff --check` passed. Test typecheck still reports 143 existing diagnostics, none in the new Telegram test file. **Could not verify:** vitest, pnpm, the full suite, or live Telegram/DeepSeek behavior in this sandbox. No migration, call or production action.
 
-## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
+## 2026-09-24 — Codex builder: #166 and #178 review lows
 
-Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+Signed: Codex GPT-6 Sol, headless cloud builder, codex/deadline-d2l-test-lows
 
-Owner voice now streams plain text through the existing redactor, checks each
-sentence against receipts known at that moment, and speaks code-owned tool
-receipts before the follow-up. Telegram keeps its JSON reply, claimedActions
-and rewrite call. Voice replaces those with exact receipt wording plus bounded
-sentence-local recognizers; an unsupported recognized action becomes
-"I can't confirm that action." These are lexical checks, not proof of every
-English paraphrase. See [the design and complete evidence](voice-streaming.md)
-and the new KNOWN_ISSUES entry.
+This branch began clean at `origin/main` `f5ba9a8`. Git remained read-only.
 
-Verified #147 at bde0a9b14a531b628dcb579a46c914b7df2f0f3b. Two timing
-clarifications: the 20-second loop timer starts after the profile read, and the
-output redactor releases lines, requiring a newline after each checked sentence.
-The restored eight-second provider deadline counts meaningful text/tool deltas,
-not necessarily a complete spoken sentence. Live phone latency is unmeasured.
+- #166 X: added refusal cases for `\v`, `\f`, U+2029 and bare `\r` between
+  `Math quiz` and `English essay due Friday at 3pm`. Each checks
+  `deadline_ambiguous_date` and no stored deadline.
+- #166 Y: added acceptance of `Math Mr O’Brien’s quiz due Friday at 3pm`
+  with Math as course and quiz as title, checking the completed receipt and
+  stored due date.
+- #166 Z: left the `[.!?;]` hard-separator arm unchanged for Sid's decision.
+- #178 L-a: added the exact older-row, route-only clause to the
+  `school_d2l_status` instructions and pinned it in the existing folder-label test.
+- #178 L-c: renamed the route-level projection test and made it assert the
+  exact one-label route shape instead of only the label count.
 
-Normally merged origin/main c5310bee after the interrupted builder process.
-#159's claim-before-body gate placement is unchanged. Updated its voice mock
-and pinned pending taps, claim before a refused memory body, replay rejection,
-and preservation of an unsupported pipeline tap for Telegram. No assignment
-tools were added; codex/guided-assignment owns those. No sync-recovery or
-store-permissions source was edited by this PR, and it adds no migration.
+New and renamed test names:
 
-Offline fixtures follow DeepSeek's documented indexed tool-call fragments,
-terminal reason and [DONE]. They are not live captures. No live API, phone call,
-secret, paid action, production operation, remote migration, merge into main or
-deployment was performed. The first live check is in OWNER-ACTIONS.md. The
-supplied Downloads incident report was absent; no local-agent or PC-setting
-code ran.
+- `refuses a vertical tab from tying Math quiz to the essay's due phrase`
+- `refuses a form feed from tying Math quiz to the essay's due phrase`
+- `refuses a Unicode paragraph separator from tying Math quiz to the essay's due phrase`
+- `refuses a bare carriage return from tying Math quiz to the essay's due phrase`
+- `accepts an apostrophe-only gap containing a content word between the course and title`
+- `records one route-level projection label when several items cannot be projected`
 
-Evidence on implementation 54aa73a:
-- Full workspace: 214 files, 5,580 passed / 0 failed / 0 skipped (186.07 s).
-  Gateway: 195 files, 5,227/0/0; contracts: 5 files, 77/0/0;
-  acceptance: 14 files, 276/0/0. No flaky-file rerun needed.
-- Restored focused: 4 files, 102/0/0. The production composition pin remains
-  present and passes in the full suite.
-- 54 mutations killed twice on named tests: 51 in the merged sweep plus 3
-  supplemental parser checks. Zero survivors, wrong-test kills, unconfirmed,
-  not-applied or invalid cases. Byte restoration verified (5 files, then 1).
-  The earlier killed process stopped after 11 kills and is not a complete gate.
-- Gateway source types pass. Non-gating test types report 143 diagnostics;
-  none in the new streaming files or updated tap fixture. State check passes
-  three carriers plus FACTS with zero warnings.
+Harness must run the focused tests first:
+`pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/deadline-review-r7.test.ts apps/cloud-gateway/test/school/collector-compatibility.test.ts`.
+Then run `pnpm test:cloud`, `pnpm --filter @jarvis/cloud-gateway typecheck`,
+and `pnpm --filter @jarvis/cloud-gateway typecheck:tests`; compare test-typecheck
+diagnostics with its existing baseline.
 
-The two intermediate 3-failure fixture runs and all other observed counts are
-in voice-streaming.md. Mutation cases are committed in
-reviewer-tools/voice-streaming.mutations.json; named assertion logs and the full
-JSON report are beside C:\Users\Sid\codex-ledgers\voice-streaming.md.
-Independent automated and adversarial review follow; this builder does not merge.
+Verified here: `node_modules/.bin/tsc --noEmit -p apps/cloud-gateway` and
+`git diff --check` passed. The test TypeScript check still reports 143
+diagnostics, with none naming either changed test file. Vitest, pnpm,
+behavioral results, full-suite results and mutation kills could not be
+verified in this sandbox. No migration, deployment, secret, credential,
+call or live school operation was performed.
 
 ## 2026-09-24 — DeepSeek builder: #161 last round — four over-claims in §2.3/§2.8/§2.1 brought back to what the owner run says
 
@@ -1283,43 +1632,6 @@ Signed: **the model and the reasoning effort are not exposed to this session** (
 `DSH_*` variable names either, and the harness reports only a session id), so no
 signature is claimed. Builder: DeepSeek, in the DeepSeek Harness.
 
-## 2026-09-23 — DeepSeek builder: #161 review correction round
-
-Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. The model version
-and reasoning-effort setting are **not exposed to this session** — no `DSH_*`
-variable carries them — so this entry names neither rather than guessing.
-Corrections only; no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
-
-**Corrections applied** (all 12):
-1. §"Why this exists": the claim that **#160** assumes HTML parsing is deleted. #160's design is API-first (`9092950:docs/plan/2026-09-23-d2l-access-design.md`, Recommendation and "What changes for P2": "prefer … APIs to DOM"); only the P2 brief assumed HTML, and it is PARKED.
-2/6. §3.1 retitled "It supports #160's API-first design" and rewritten so the observations **support** #160 instead of overturning it. §3.2 verdict is now "**Survives, as designed (API first)**", and the deadlines row reads "assignment `DueDate` when present; module or availability dates as fallback".
-3. §2.6 rewritten around the **student** route `…/submissions/mysubmissions/`. The all-users route `…/submissions/` is named and rejected ("never call the all-users submissions route", #160's "Own submissions" row). §5's reproduction list and §4 row 1 now use `mysubmissions/`. The "empty `{}` means unsubmitted" reading is **deleted** — it was drawn from the wrong route.
-4. Every `200 {}` is gone. §2.5's table row is now "`200 []` = permitted, empty list". §5's grades shape is `[]`.
-5. §2.3 retitled "assignment `DueDate` is often null"; "every assignment's `DueDate` was `null`" replaced by the 13-of-42 figure with module `EndDateTime` and folder `Availability` named as fallbacks, and the silent-empty warning kept.
-7/8/9/10. §4 row 2 is now "Why do most folders lack a `DueDate`?"; §1 and §2.5 cross-references point at §2.8 (the 403 control); the P2 `1.30`/`1.51` sentence is deleted and the `1.74-`/`1.82+` cutover is marked UNVERIFIED; §4's last row and §3.1 point at merged **#163** and the probe run, not "#160's own unrun experiments".
-11. `docs/FACTS.md`: "Five URLs" → **nine** (the six routes in §5 plus three §2.9 discovery endpoints), and the `myGradeValues` claim is corrected to `200 []`, permitted-but-empty, with the student `mysubmissions/` route added.
-12. `docs/OWNER-ACTIONS.md`: the Pulse `client_id` row is **deleted**. It sat outside any table (broken rendering) and asked Sid to intercept iPhone TLS for a route §3.3 drops. §3.3 now carries one line saying no owner action is requested.
-
-**What I could not do, and why — this is the important part.** Items 4 and 5 told me to cite `docs/research/2026-09-23-d2l-probe-test-evidence.md` on `main` for the live shapes. **That file contains no live results.** It records mocked local tests only: line 34 "No Opera GX or real D2L test was run", line 108 live access "await[s] the owner action", and `OWNER-ACTIONS.md` on main still lists the probe run as **awaiting-owner**. `git grep` over `main` finds no `13 of 42` and no `200 []`; `git log --all -S"13 of 42"` proves the string has never existed in any ref in this repository. I also searched `origin/codex/d2l-collector`, `origin/codex/d2l-ingest-run`, `origin/codex/d2l-probe-run` and `origin/goal/brief-p2-d2l`. **So every live figure in this document is now marked UNVERIFIED against any repository file**, in a new §6 bullet that says exactly where it came from (Sid's report of the run) and what would settle it (committing the probe summary). The figures are stated, attributed to Sid's report, and labelled — never presented as reads this document can evidence. **The durable fix is to commit the probe summary; #161 cannot do that for #170's owner.**
-
-**One committed copy does exist, and it is not on main.** `docs/research/2026-09-23-d2l-collector-contract-gaps.md` on `origin/codex/d2l-collector` (open PR **#170**) records the probe run's shapes: "The real probe observed `200 []`" for the student submissions route (line 26), the myItems `{Objects:[...],Next:null}` envelope (line 25), and "Sparse folder DueDate … Null means no date known, not not-due; refusal means refused, not unsubmitted" (lines 74–77). §6 of the research doc cites it by PR URL and says it is not on `main` yet.
-
-**Gates.** Merge was normal — `git merge origin/main`, no rebase, no force-push. `origin/main` `29fbfcd` merged into `63ae51d` cleanly with **no conflicts** (`git merge-tree` gave tree `ec53ab3`, exit 0). `node scripts/check-state.mjs` on the corrected tree:
-
-```
-state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 0 warning(s).
-```
-exit 0.
-
-**Mutations: none, and that is not an omission.** This diff adds no product guard and no code, so there is nothing to neuter. The only executable thing it touches is the FACTS register, and `check-state.mjs` re-passed on the edited row. The reviewer's own M1/M2 mutations (blank Observed cell, blank source cell) both killed that row and are unchanged by my edit; M3/M4 (link resolution inside a FACTS row, future dates) still survive — **gaps in the checker, not in this PR** — and I did not fix them here.
-
-**Out of scope, named rather than fixed** (all on `main`, none touched):
-- `apps/cloud-gateway/src/school/collector-mapping.ts` **line 111** still comments "An unfamiliar successful container cannot stand in for the observed empty object", and **line 110** falls back to the all-users `dropbox/folders/<folderId>/submissions/` route. Both trace to this document's withdrawn `{}`-on-the-wrong-route reading. Line 107 already reads `DueDate` first with availability as fallback, which matches correction 6.
-- `docs/OWNER-ACTIONS.md` on `main` (line 36) still lists the probe run as **awaiting-owner**, while the collector work records the run as done and shape-only results supplied. One of the two carriers is stale; I did not have authority to decide which, so §6 says both.
-- The probe evidence document on `main` is titled as evidence and is cited as ground truth elsewhere, but records no live result. It is the reason four of the corrections above had to be marked UNVERIFIED rather than cited.
-
-No merge, deploy, migration, secret, credential, browser, live D2L or production operation occurred. Worktree `C:\w\d2l` removed after push.
-
 ## 2026-09-24 — Codex builder: #162 round 4 merges main as an interim backstop
 
 **Signed: Codex GPT-5.6 Sol, headless cloud builder, codex/tutoring-guard-run.**
@@ -1443,138 +1755,6 @@ mutation specs are identical to the tested checkpoint. Rechecked state carriers:
 exit 0, three carriers plus FACTS, zero warnings. No full suite was repeated.
 
 
-## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
-
-**Supersedes both earlier tutoring exemption designs.** Read review
-5805905082 in full first. A marker plus an external-target denylist failed open;
-the new exemption requires a positive worked object of the claim verb. Unknown
-objects, destinations/recipients, real-world values and second actions stay
-guarded. Saves still reach receipts. Inclusive booking/scheduling/requesting/
-sharing gets no exception. Rule-for-you masking requires no second action.
-The owner-agent diff remains one prompt line; CODE-VS-JUDGMENT is row **10**.
-
-- **Frozen before source edits:** commit `abaf3a1`, 72 new false claims plus
-  32 tutoring sentences, unchanged bytes. Main `6249ab1`: **63/72 caught,
-  0/32 tutoring retained**. Rejected `5475cb2`: **16/72 caught, 29/32 retained**.
-  Fixed: **72/72 caught, 32/32 retained**. Exact reviewer blockers: main **35/35**,
-  rejected head **0/35**, fixed **35/35**. Baseline source restored byte-identically.
-- **Provided tutoring:** all 11 code/essay examples plus numeric put-in retained
-  (**12/12**); earlier reconstructed false corpus **70/70 caught**. The complete
-  reviewer 95/34 artifact is unavailable; do not confuse those sets or claim its
-  full result. Eighteen prior PR metaphors outside the required object grammar
-  remain explicit refusal tests and are documented in KNOWN_ISSUES.
-- **Optional gaps:** all eight supplied active/passive gaps were missed at both
-  baselines and are caught now. Three historical corpus rows deliberately
-  required false signup/payment claims to pass; their original main metadata is
-  retained with stronger expected outcomes. No must-catch assertion was weakened.
-  Historical-payment advice still survives.
-- **Mutations:** **59/59 killed**, each expected named failure confirmed twice;
-  **0** wrong-test, unconfirmed, survived, not-applied or invalid. Two source files
-  restored byte-identically. Committed `reviewer-tools/mutation-specs-tutoring.json`
-  includes M10 sentence scope and M13's literal prompt assertion. The named tests
-  all pass in the restored focused run: **1,374/0/0 in 8 files**.
-- **Full gateway, once:** **5,333 pass / 81 fail / 143 skip in 197 files**, exit 1 at `9bf38c2`. Thirty individual file reruns: **950/4/0**; four residual timeout cases selected alone: **4/0/41 on both main and head**. No clean full-suite result is claimed; the underlying timeout cause remains unproven. Source typecheck passes. Test typecheck:
-  **143 diagnostics in 31 unchanged files**, none in changed tests; messages match
-  prior observed debt after line-number shifts. State check: **3 carriers plus
-  FACTS pass, 0 warnings**. Diff check passes.
-- Final fresh main `c5310bee` (#167) merged normally as `cb0b398d`; its three changed job files pass **62/0/0**. Source and state gates pass after that merge. The single full-suite measurement predates that merge.
-- Earlier normal merges `18a2c1c` (6249ab1), `7022955` (6e3f1ef), `41a9cb7` (c92078b).
-  AGENT_LOG retained both histories; additions-only diffs verify preservation.
-  Source/prompt are unchanged between the mutation sweep and full-suite checkpoint
-  `9bf38c2`. No force push, migration, production, secret or PC-setting operation;
-  no local-agent tests. The incident runbook remains absent at the supplied path.
-  No new owner-only action. Live model/channel acceptance and independent review
-  are not claimed; existing advice/draft exceptions remain a language limitation.
-
-[Named mutation tests and all observed counts](research/2026-09-23-tutoring-guard-evidence.md).
-Raw logs/JSON and the retained ledger are outside the repository at
-`C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` and its `tutoring-r2-*` siblings.
-
-**Next, on the new remote head:** automated and independent adversarial review.
-— Codex (builder)
-
-
-## 2026-09-23 — Codex builder: #162 restores claim-by-default after review
-
-**Supersedes the earlier tutoring guard's design and evidence claim.** The
-reviewed `8dcf96b` failed open when its external-target vocabulary missed a person
-or object. The revised source/test checkpoint is `c9d8ca3`; claims now remain
-guarded unless a positive worked marker in the same sentence has no person,
-person pronoun, or storage/reservation object. Saves still reach receipt checks.
-`applied ... for you` is unconditional again except the narrow worked-rule span.
-
-- **Probe provenance matters:** the reviewer's original 70-sentence file was not
-  supplied or found in the PR. The added file labels its 70 probes as reconstructed
-  from Sid's examples/categories. On this exact reconstructed set, observed source
-  baselines caught **70/70 at `a666097`**, **11/70 at `8dcf96b`**, and **70/70 now**.
-  Its 59 reproduced regressions are not the reviewer's different 52-count corpus.
-  Each baseline source was restored byte-identically. Final code/essay cases:
-  **11/11 retained**, including milliseconds, Flask/email/parent-constructor code,
-  application essays and the teacher's rubric.
-- **Stricter tutoring policy:** seven formerly allowed sentences without any
-  required marker are retained as must-block tests, paired with marked teaching
-  variants. No pre-PR guard assertions were weakened. The prompt remains one line.
-- **Focused:** 1,162 passed / 0 failed / 0 skipped in 6 files, before one last
-  singular-subject test. **Restored corpus:** 206 / 0 / 0 in 2 files. **Full gateway
-  suite, once:** **5,321 passed / 0 failed / 0 skipped in 192 files**, no flake rerun.
-- **Mutations:** 31 expected named kills, each confirmed twice; 0 wrong-test,
-  unconfirmed, survived, not-applied or invalid. Both source files restored
-  byte-identically. Includes M10 sentence scope on both paths, M13's direct prompt
-  assertion, positive-marker/person/storage vetoes, receipt support and refusal,
-  all contextual verbs, applied-for-you bounds, code exceptions and secret requests.
-  All named tests passed afterward in the restored corpus. Exact specs and outputs
-  are alongside `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` (`tutoring-r1-*`).
-- **Other gates:** source typecheck passed; non-gating test typecheck has 143
-  errors in 31 unchanged files, none in this PR's changed tests. State check passed
-  all 3 carriers; diff check passed. CODE-VS-JUDGMENT row renumbered to 11.
-- **Normal merge:** `5df4927` has parents `8dcf96b` and `a6a0efd`. Only AGENT_LOG
-  conflicted; both histories are retained. No force push, migration, production,
-  live model/channel acceptance or PC setting change. No new owner-only action.
-- **Known gaps retained and probed:** all five optional passive statements still
-  escape (fee is paid / has been paid, email has gone out, form is in, teacher has
-  been told). The existing asked-about exemption also remains. These are disclosed
-  in the PR; the heuristic is not a comprehensive language guarantee.
-
-**Next, on the updated remote head:** automated and independent adversarial review.
-— Codex (builder)
-
-## 2026-09-23 — Codex builder: tutoring replies keep their sentences
-
-**Branch:** `codex/tutoring-guard-run`, based on freshly fetched `a666097`.
-All three reported examples reproduced at that base. Both ordinary and post-tool
-`OwnerAgentCore.streamCaptured` paths call `guardReplyClaims`.
-
-- Neutral verbs and contextual inclusive "we" require an external target in the
-  same sentence; explicit sending, submission, payment and contact verbs still
-  catch pronoun-only objects. The `applied ... for you` fallback uses that target
-  rule too. Secret, draft, receipt and existing advice guards remain.
-- `owner-agent-core.ts` changes one prompt line: worked explanations are not
-  actions and need no receipt. No migration or parallel sync/store-permissions edits.
-- New `test/school/tutoring-reply-guard.test.ts`: 67 passed, 0 failed, 0 skipped
-  after restoration. The owner Telegram delivery test preserves the three reported
-  sentences and observes one model request. Existing guard assertions are unchanged.
-- Focused: 1,020 passed / 0 failed / 0 skipped in 5 files; after adding final tests,
-  the 2 changed test files passed 168 / 0 / 0. Full cloud-gateway suite, run once:
-  **5,176 passed / 0 failed / 0 skipped in 191 files**. No flaky-file rerun needed.
-- `reviewer-tools/mutate.ps1`: **17 named kills, each confirmed twice**, covering
-  all six neutral verbs, five inclusive-we verbs, the subject/target boundaries,
-  explicit sending, both applied-for-you branches and secret requests. Zero
-  wrong-test kills, unconfirmed, survived, not-applied or invalid. Source restored
-  byte-identical; every named test passed in the restored 67-test corpus.
-- Source typecheck passed. Test typecheck reports **144 errors in 32 unchanged
-  files**, matching documented debt; neither changed test file has a diagnostic.
-  `node scripts/check-state.mjs` passed (3 carriers); `git diff --check` passed.
-- Existing gap observed before this fix: "We asked about it, and your teacher
-  agreed." passes the asked-about exemption. This PR does not claim to fix that
-  gap or comprehensively classify natural language. The new caught case uses
-  "We asked for it, and your teacher agreed." Live model/Telegram/voice behavior
-  was not exercised. The partial heuristic is recorded in CODE-VS-JUDGMENT.
-- Evidence and mutation spec: `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md`
-  and its sibling logs/JSON. Incident runbook was missing at the supplied path;
-  no local-agent or PC permission/settings tests ran. No new owner-only action.
-
-**Next, when the PR opens:** automated and independent adversarial review; this
-builder has not merged or deployed. — Codex (builder)
 ## 2026-09-24 — DeepSeek builder: PR #157 round 3 — nine Ubuntu failures, the Windows one, and three design changes behind them
 
 Branch `goal/sync-recovery` (PR #157). Code head `64b90f87`, on top of a normal
@@ -2075,6 +2255,317 @@ numbers above are the gateway package alone. I do not merge.
 Signed: DeepSeek, at the harness's default reasoning effort — the model and
 effort are not shown to me, so I will not name one.
 
+## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
+
+Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
+Read the complete [independent review](https://github.com/stremysid/jarvis/issues/comments/5807404294).
+Normal merge `520afacb` brings main `29fbfcd698f4ac7de947f076e43d0098e6bcc296`
+(#169). Both log histories and the receiver rollout action are retained; the
+duplicate collector pairing action is reconciled into our existing owner row.
+
+The queue now retains the newest two batches per host/course, at most 1 MiB of
+serialized UTF-8 entries, with `queue-evicted-N` in the popup. Enqueue accumulates
+in memory; one queue commit ends the run, including a caught interruption. Flush
+attempts at most eight uploads. This bounds the reviewed week-long outage to
+32 retained batches and reports 2,656 evictions for 2,688 simulated reads. A worker
+killed before commit still requires a fresh read; Opera lifecycle behavior is
+unverified. Failed commits retain pending data for retry in the current worker.
+
+Complete LDSB tool 403s no longer open fallback tabs. A course-level quiz-refusal
+test counts zero tab creations. GET assertions inject a POST argument, and a
+directly stored bad hop is revalidated at use. The mixed-queue test preserves
+held Durham evidence after successful LDSB delivery and kills the reviewer's
+exact deletion mutant. The orientation-name exclusion is removed: Jarvis receives
+every structurally eligible offering and judges relevance. Runbook additions cover
+removal, the verified Jarvis revocation tool, literal PowerShell cleanup, Node
+version and Sid's setup-only Durham example. Nothing was loaded or removed on
+Sid's actual browser, and no real revocation/deletion command was run.
+
+Final local gates: extension **50 pass / 0 fail / 0 skip**, 0 cancelled/todo;
+mutations **135 killed / 0 unconfirmed / 0 NOT APPLIED**; runtime syntax
+**10 pass / 0 fail**; runbook **3 PowerShell blocks / 0 parse errors / 0 executed**;
+state **3 carriers plus FACTS pass / 0 failures / 1 advisory** for unverified
+background/federation behavior. Focused tests were 10/0/0. Two initial multiline
+mutations were NOT APPLIED because of mixed line endings; after normalization
+both were applied and killed, before the complete 135-case sweep. See
+[round 2 evidence](research/2026-09-24-d2l-collector-round2.md).
+
+At the post-items-1–6 and final-gate checks, `codex/d2l-receiver-fix` had no open
+PR. Sid explicitly directed shipping these fixes in that case. The current
+receiver compatibility holds remain; inspect the receiver-fix PR when it opens,
+then update the wire contract/tests and remove holds it makes obsolete. No
+receiver changes, migration, production/secret or PC settings operation occurred.
+
+## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
+
+Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
+review at comment `5807157980`; reproduced the contradictory send claim on both
+Telegram and voice (**31/2/0**, both failures named for the channel draft claim).
+Current-turn executed receipts now carry proving tool names into the sentence
+guard. No linguistic send exemption, whole-reply workaround, or streaming code
+change. Focused tests **101/0/0**, then **153/0/0** after the main merge; source
+typecheck passes. Full gateway once: **5286/2/0**, 201 files (199 passed, 2
+failed), 759.03 seconds. Unchanged meaning-search bge-m3 cap and Hermes bytewise
+exact-cap frame tests timed out at 30 and 15 seconds respectively, both cases
+recorded earlier in this log. Isolated reruns passed **70/0/0** and **71/0/0**;
+no cause is inferred and no second full-suite run is claimed. All new guided,
+receipt-proof and syntax tests passed in the full run after mutation restoration.
+Final state check passed for **3 carriers and FACTS**, **0 warnings**; whitespace
+check passed and the merge-tree check against fresh main had no conflicts.
+
+All **18 new mutation faults** killed twice. Initial sweep: **17 killed, 1
+killed-wrong-test** because Vitest truncated the long mixed-receipt test name.
+Shortened the name, reran that exact fault: **1 killed, 0 other outcomes**.
+Post-merge offering/receipt rechecks: **3 killed, 0 other outcomes**. Every sweep
+verified byte-identical restoration. Test typecheck remains **143 diagnostics**,
+none in the new receipt, guided assignment or syntax tests.
+
+Added exact stored scribed-byte fidelity with fillers and whitespace, Telegram
+tool offering parity, and the three 0043 trigger names/shapes. Fresh main
+`0d695563` was already an ancestor. A later fetch found #169 merged at
+`29fbfcd6`; normal merge `f4dd9f24` preserves both catalogues, ordered migration
+inventories and both parents' log entries. Every open PR's migration paths were
+audited: main owns 0040, #168 owns 0041, only #172 owns 0043; 0042 stays reserved.
+#171 remains open; channel-parity has not merged. The named collector-reader
+follow-up is now ready; richer raw collector evidence is not yet wired into
+guided_assignment_read, though the collector's projected deadlines are readable.
+
+For #171: its plain-text stream removes `claimedActions`, so its exact-receipt
+policy does not support this reviewed paraphrase contract. The exported
+`receiptedToolClaims` proof seam and backward-compatible guard options work
+sentence by sentence, but streaming must retain a declaration binding to use it.
+[Coordination handoff](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216).
+[Round 1 design and evidence](reviews/2026-09-23-guided-assignment.md).
+
+Coordination correction: `gh pr comment --edit-last` selected a newer review
+posted by another builder under the shared GitHub account. Restored that
+comment from GitHub edit history and verified its exact original body by API;
+then updated this builder's handoff by explicit comment id. Use explicit ids
+for comment edits so concurrent builders cannot overwrite one another.
+
+## 2026-09-23 — Codex builder: owner voice streams checked sentences and tool receipts
+
+Signed: Codex (GPT-6), builder on `codex/voice-streaming`.
+
+Owner voice now streams plain text through the existing redactor, checks each
+sentence against receipts known at that moment, and speaks code-owned tool
+receipts before the follow-up. Telegram keeps its JSON reply, claimedActions
+and rewrite call. Voice replaces those with exact receipt wording plus bounded
+sentence-local recognizers; an unsupported recognized action becomes
+"I can't confirm that action." These are lexical checks, not proof of every
+English paraphrase. See [the design and complete evidence](voice-streaming.md)
+and the new KNOWN_ISSUES entry.
+
+Verified #147 at bde0a9b14a531b628dcb579a46c914b7df2f0f3b. Two timing
+clarifications: the 20-second loop timer starts after the profile read, and the
+output redactor releases lines, requiring a newline after each checked sentence.
+The restored eight-second provider deadline counts meaningful text/tool deltas,
+not necessarily a complete spoken sentence. Live phone latency is unmeasured.
+
+Normally merged origin/main c5310bee after the interrupted builder process.
+#159's claim-before-body gate placement is unchanged. Updated its voice mock
+and pinned pending taps, claim before a refused memory body, replay rejection,
+and preservation of an unsupported pipeline tap for Telegram. No assignment
+tools were added; codex/guided-assignment owns those. No sync-recovery or
+store-permissions source was edited by this PR, and it adds no migration.
+
+Offline fixtures follow DeepSeek's documented indexed tool-call fragments,
+terminal reason and [DONE]. They are not live captures. No live API, phone call,
+secret, paid action, production operation, remote migration, merge into main or
+deployment was performed. The first live check is in OWNER-ACTIONS.md. The
+supplied Downloads incident report was absent; no local-agent or PC-setting
+code ran.
+
+Evidence on implementation 54aa73a:
+- Full workspace: 214 files, 5,580 passed / 0 failed / 0 skipped (186.07 s).
+  Gateway: 195 files, 5,227/0/0; contracts: 5 files, 77/0/0;
+  acceptance: 14 files, 276/0/0. No flaky-file rerun needed.
+- Restored focused: 4 files, 102/0/0. The production composition pin remains
+  present and passes in the full suite.
+- 54 mutations killed twice on named tests: 51 in the merged sweep plus 3
+  supplemental parser checks. Zero survivors, wrong-test kills, unconfirmed,
+  not-applied or invalid cases. Byte restoration verified (5 files, then 1).
+  The earlier killed process stopped after 11 kills and is not a complete gate.
+- Gateway source types pass. Non-gating test types report 143 diagnostics;
+  none in the new streaming files or updated tap fixture. State check passes
+  three carriers plus FACTS with zero warnings.
+
+The two intermediate 3-failure fixture runs and all other observed counts are
+in voice-streaming.md. Mutation cases are committed in
+reviewer-tools/voice-streaming.mutations.json; named assertion logs and the full
+JSON report are beside C:\Users\Sid\codex-ledgers\voice-streaming.md.
+Independent automated and adversarial review follow; this builder does not merge.
+
+## 2026-09-23 — DeepSeek builder: #161 review correction round
+
+Signed: DeepSeek, builder, `docs/d2l-api-findings` in `C:\w\d2l`. The model version
+and reasoning-effort setting are **not exposed to this session** — no `DSH_*`
+variable carries them — so this entry names neither rather than guessing.
+Corrections only; no code changed. Full review at [#161 comment 5807343035](https://github.com/stremysid/jarvis/pull/161#issuecomment-5807343035), whose paste-ready list I worked through item by item.
+
+**Corrections applied** (all 12):
+1. §"Why this exists": the claim that **#160** assumes HTML parsing is deleted. #160's design is API-first (`9092950:docs/plan/2026-09-23-d2l-access-design.md`, Recommendation and "What changes for P2": "prefer … APIs to DOM"); only the P2 brief assumed HTML, and it is PARKED.
+2/6. §3.1 retitled "It supports #160's API-first design" and rewritten so the observations **support** #160 instead of overturning it. §3.2 verdict is now "**Survives, as designed (API first)**", and the deadlines row reads "assignment `DueDate` when present; module or availability dates as fallback".
+3. §2.6 rewritten around the **student** route `…/submissions/mysubmissions/`. The all-users route `…/submissions/` is named and rejected ("never call the all-users submissions route", #160's "Own submissions" row). §5's reproduction list and §4 row 1 now use `mysubmissions/`. The "empty `{}` means unsubmitted" reading is **deleted** — it was drawn from the wrong route.
+4. Every `200 {}` is gone. §2.5's table row is now "`200 []` = permitted, empty list". §5's grades shape is `[]`.
+5. §2.3 retitled "assignment `DueDate` is often null"; "every assignment's `DueDate` was `null`" replaced by the 13-of-42 figure with module `EndDateTime` and folder `Availability` named as fallbacks, and the silent-empty warning kept.
+7/8/9/10. §4 row 2 is now "Why do most folders lack a `DueDate`?"; §1 and §2.5 cross-references point at §2.8 (the 403 control); the P2 `1.30`/`1.51` sentence is deleted and the `1.74-`/`1.82+` cutover is marked UNVERIFIED; §4's last row and §3.1 point at merged **#163** and the probe run, not "#160's own unrun experiments".
+11. `docs/FACTS.md`: "Five URLs" → **nine** (the six routes in §5 plus three §2.9 discovery endpoints), and the `myGradeValues` claim is corrected to `200 []`, permitted-but-empty, with the student `mysubmissions/` route added.
+12. `docs/OWNER-ACTIONS.md`: the Pulse `client_id` row is **deleted**. It sat outside any table (broken rendering) and asked Sid to intercept iPhone TLS for a route §3.3 drops. §3.3 now carries one line saying no owner action is requested.
+
+**What I could not do, and why — this is the important part.** Items 4 and 5 told me to cite `docs/research/2026-09-23-d2l-probe-test-evidence.md` on `main` for the live shapes. **That file contains no live results.** It records mocked local tests only: line 34 "No Opera GX or real D2L test was run", line 108 live access "await[s] the owner action", and `OWNER-ACTIONS.md` on main still lists the probe run as **awaiting-owner**. `git grep` over `main` finds no `13 of 42` and no `200 []`; `git log --all -S"13 of 42"` proves the string has never existed in any ref in this repository. I also searched `origin/codex/d2l-collector`, `origin/codex/d2l-ingest-run`, `origin/codex/d2l-probe-run` and `origin/goal/brief-p2-d2l`. **So every live figure in this document is now marked UNVERIFIED against any repository file**, in a new §6 bullet that says exactly where it came from (Sid's report of the run) and what would settle it (committing the probe summary). The figures are stated, attributed to Sid's report, and labelled — never presented as reads this document can evidence. **The durable fix is to commit the probe summary; #161 cannot do that for #170's owner.**
+
+**One committed copy does exist, and it is not on main.** `docs/research/2026-09-23-d2l-collector-contract-gaps.md` on `origin/codex/d2l-collector` (open PR **#170**) records the probe run's shapes: "The real probe observed `200 []`" for the student submissions route (line 26), the myItems `{Objects:[...],Next:null}` envelope (line 25), and "Sparse folder DueDate … Null means no date known, not not-due; refusal means refused, not unsubmitted" (lines 74–77). §6 of the research doc cites it by PR URL and says it is not on `main` yet.
+
+**Gates.** Merge was normal — `git merge origin/main`, no rebase, no force-push. `origin/main` `29fbfcd` merged into `63ae51d` cleanly with **no conflicts** (`git merge-tree` gave tree `ec53ab3`, exit 0). `node scripts/check-state.mjs` on the corrected tree:
+
+```
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 0 warning(s).
+```
+exit 0.
+
+**Mutations: none, and that is not an omission.** This diff adds no product guard and no code, so there is nothing to neuter. The only executable thing it touches is the FACTS register, and `check-state.mjs` re-passed on the edited row. The reviewer's own M1/M2 mutations (blank Observed cell, blank source cell) both killed that row and are unchanged by my edit; M3/M4 (link resolution inside a FACTS row, future dates) still survive — **gaps in the checker, not in this PR** — and I did not fix them here.
+
+**Out of scope, named rather than fixed** (all on `main`, none touched):
+- `apps/cloud-gateway/src/school/collector-mapping.ts` **line 111** still comments "An unfamiliar successful container cannot stand in for the observed empty object", and **line 110** falls back to the all-users `dropbox/folders/<folderId>/submissions/` route. Both trace to this document's withdrawn `{}`-on-the-wrong-route reading. Line 107 already reads `DueDate` first with availability as fallback, which matches correction 6.
+- `docs/OWNER-ACTIONS.md` on `main` (line 36) still lists the probe run as **awaiting-owner**, while the collector work records the run as done and shape-only results supplied. One of the two carriers is stale; I did not have authority to decide which, so §6 says both.
+- The probe evidence document on `main` is titled as evidence and is cited as ground truth elsewhere, but records no live result. It is the reason four of the corrections above had to be marked UNVERIFIED rather than cited.
+
+No merge, deploy, migration, secret, credential, browser, live D2L or production operation occurred. Worktree `C:\w\d2l` removed after push.
+
+## 2026-09-23 — Codex builder: #162 round 2 requires a worked verb object
+
+**Supersedes both earlier tutoring exemption designs.** Read review
+5805905082 in full first. A marker plus an external-target denylist failed open;
+the new exemption requires a positive worked object of the claim verb. Unknown
+objects, destinations/recipients, real-world values and second actions stay
+guarded. Saves still reach receipts. Inclusive booking/scheduling/requesting/
+sharing gets no exception. Rule-for-you masking requires no second action.
+The owner-agent diff remains one prompt line; CODE-VS-JUDGMENT is row **10**.
+
+- **Frozen before source edits:** commit `abaf3a1`, 72 new false claims plus
+  32 tutoring sentences, unchanged bytes. Main `6249ab1`: **63/72 caught,
+  0/32 tutoring retained**. Rejected `5475cb2`: **16/72 caught, 29/32 retained**.
+  Fixed: **72/72 caught, 32/32 retained**. Exact reviewer blockers: main **35/35**,
+  rejected head **0/35**, fixed **35/35**. Baseline source restored byte-identically.
+- **Provided tutoring:** all 11 code/essay examples plus numeric put-in retained
+  (**12/12**); earlier reconstructed false corpus **70/70 caught**. The complete
+  reviewer 95/34 artifact is unavailable; do not confuse those sets or claim its
+  full result. Eighteen prior PR metaphors outside the required object grammar
+  remain explicit refusal tests and are documented in KNOWN_ISSUES.
+- **Optional gaps:** all eight supplied active/passive gaps were missed at both
+  baselines and are caught now. Three historical corpus rows deliberately
+  required false signup/payment claims to pass; their original main metadata is
+  retained with stronger expected outcomes. No must-catch assertion was weakened.
+  Historical-payment advice still survives.
+- **Mutations:** **59/59 killed**, each expected named failure confirmed twice;
+  **0** wrong-test, unconfirmed, survived, not-applied or invalid. Two source files
+  restored byte-identically. Committed `reviewer-tools/mutation-specs-tutoring.json`
+  includes M10 sentence scope and M13's literal prompt assertion. The named tests
+  all pass in the restored focused run: **1,374/0/0 in 8 files**.
+- **Full gateway, once:** **5,333 pass / 81 fail / 143 skip in 197 files**, exit 1 at `9bf38c2`. Thirty individual file reruns: **950/4/0**; four residual timeout cases selected alone: **4/0/41 on both main and head**. No clean full-suite result is claimed; the underlying timeout cause remains unproven. Source typecheck passes. Test typecheck:
+  **143 diagnostics in 31 unchanged files**, none in changed tests; messages match
+  prior observed debt after line-number shifts. State check: **3 carriers plus
+  FACTS pass, 0 warnings**. Diff check passes.
+- Final fresh main `c5310bee` (#167) merged normally as `cb0b398d`; its three changed job files pass **62/0/0**. Source and state gates pass after that merge. The single full-suite measurement predates that merge.
+- Earlier normal merges `18a2c1c` (6249ab1), `7022955` (6e3f1ef), `41a9cb7` (c92078b).
+  AGENT_LOG retained both histories; additions-only diffs verify preservation.
+  Source/prompt are unchanged between the mutation sweep and full-suite checkpoint
+  `9bf38c2`. No force push, migration, production, secret or PC-setting operation;
+  no local-agent tests. The incident runbook remains absent at the supplied path.
+  No new owner-only action. Live model/channel acceptance and independent review
+  are not claimed; existing advice/draft exceptions remain a language limitation.
+
+[Named mutation tests and all observed counts](research/2026-09-23-tutoring-guard-evidence.md).
+Raw logs/JSON and the retained ledger are outside the repository at
+`C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` and its `tutoring-r2-*` siblings.
+
+**Next, on the new remote head:** automated and independent adversarial review.
+— Codex (builder)
+
+
+## 2026-09-23 — Codex builder: #162 restores claim-by-default after review
+
+**Supersedes the earlier tutoring guard's design and evidence claim.** The
+reviewed `8dcf96b` failed open when its external-target vocabulary missed a person
+or object. The revised source/test checkpoint is `c9d8ca3`; claims now remain
+guarded unless a positive worked marker in the same sentence has no person,
+person pronoun, or storage/reservation object. Saves still reach receipt checks.
+`applied ... for you` is unconditional again except the narrow worked-rule span.
+
+- **Probe provenance matters:** the reviewer's original 70-sentence file was not
+  supplied or found in the PR. The added file labels its 70 probes as reconstructed
+  from Sid's examples/categories. On this exact reconstructed set, observed source
+  baselines caught **70/70 at `a666097`**, **11/70 at `8dcf96b`**, and **70/70 now**.
+  Its 59 reproduced regressions are not the reviewer's different 52-count corpus.
+  Each baseline source was restored byte-identically. Final code/essay cases:
+  **11/11 retained**, including milliseconds, Flask/email/parent-constructor code,
+  application essays and the teacher's rubric.
+- **Stricter tutoring policy:** seven formerly allowed sentences without any
+  required marker are retained as must-block tests, paired with marked teaching
+  variants. No pre-PR guard assertions were weakened. The prompt remains one line.
+- **Focused:** 1,162 passed / 0 failed / 0 skipped in 6 files, before one last
+  singular-subject test. **Restored corpus:** 206 / 0 / 0 in 2 files. **Full gateway
+  suite, once:** **5,321 passed / 0 failed / 0 skipped in 192 files**, no flake rerun.
+- **Mutations:** 31 expected named kills, each confirmed twice; 0 wrong-test,
+  unconfirmed, survived, not-applied or invalid. Both source files restored
+  byte-identically. Includes M10 sentence scope on both paths, M13's direct prompt
+  assertion, positive-marker/person/storage vetoes, receipt support and refusal,
+  all contextual verbs, applied-for-you bounds, code exceptions and secret requests.
+  All named tests passed afterward in the restored corpus. Exact specs and outputs
+  are alongside `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md` (`tutoring-r1-*`).
+- **Other gates:** source typecheck passed; non-gating test typecheck has 143
+  errors in 31 unchanged files, none in this PR's changed tests. State check passed
+  all 3 carriers; diff check passed. CODE-VS-JUDGMENT row renumbered to 11.
+- **Normal merge:** `5df4927` has parents `8dcf96b` and `a6a0efd`. Only AGENT_LOG
+  conflicted; both histories are retained. No force push, migration, production,
+  live model/channel acceptance or PC setting change. No new owner-only action.
+- **Known gaps retained and probed:** all five optional passive statements still
+  escape (fee is paid / has been paid, email has gone out, form is in, teacher has
+  been told). The existing asked-about exemption also remains. These are disclosed
+  in the PR; the heuristic is not a comprehensive language guarantee.
+
+**Next, on the updated remote head:** automated and independent adversarial review.
+— Codex (builder)
+
+## 2026-09-23 — Codex builder: tutoring replies keep their sentences
+
+**Branch:** `codex/tutoring-guard-run`, based on freshly fetched `a666097`.
+All three reported examples reproduced at that base. Both ordinary and post-tool
+`OwnerAgentCore.streamCaptured` paths call `guardReplyClaims`.
+
+- Neutral verbs and contextual inclusive "we" require an external target in the
+  same sentence; explicit sending, submission, payment and contact verbs still
+  catch pronoun-only objects. The `applied ... for you` fallback uses that target
+  rule too. Secret, draft, receipt and existing advice guards remain.
+- `owner-agent-core.ts` changes one prompt line: worked explanations are not
+  actions and need no receipt. No migration or parallel sync/store-permissions edits.
+- New `test/school/tutoring-reply-guard.test.ts`: 67 passed, 0 failed, 0 skipped
+  after restoration. The owner Telegram delivery test preserves the three reported
+  sentences and observes one model request. Existing guard assertions are unchanged.
+- Focused: 1,020 passed / 0 failed / 0 skipped in 5 files; after adding final tests,
+  the 2 changed test files passed 168 / 0 / 0. Full cloud-gateway suite, run once:
+  **5,176 passed / 0 failed / 0 skipped in 191 files**. No flaky-file rerun needed.
+- `reviewer-tools/mutate.ps1`: **17 named kills, each confirmed twice**, covering
+  all six neutral verbs, five inclusive-we verbs, the subject/target boundaries,
+  explicit sending, both applied-for-you branches and secret requests. Zero
+  wrong-test kills, unconfirmed, survived, not-applied or invalid. Source restored
+  byte-identical; every named test passed in the restored 67-test corpus.
+- Source typecheck passed. Test typecheck reports **144 errors in 32 unchanged
+  files**, matching documented debt; neither changed test file has a diagnostic.
+  `node scripts/check-state.mjs` passed (3 carriers); `git diff --check` passed.
+- Existing gap observed before this fix: "We asked about it, and your teacher
+  agreed." passes the asked-about exemption. This PR does not claim to fix that
+  gap or comprehensively classify natural language. The new caught case uses
+  "We asked for it, and your teacher agreed." Live model/Telegram/voice behavior
+  was not exercised. The partial heuristic is recorded in CODE-VS-JUDGMENT.
+- Evidence and mutation spec: `C:\Users\Sid\codex-ledgers\tutoring-guard-run.md`
+  and its sibling logs/JSON. Incident runbook was missing at the supplied path;
+  no local-agent or PC permission/settings tests ran. No new owner-only action.
+
+**Next, when the PR opens:** automated and independent adversarial review; this
+builder has not merged or deployed. — Codex (builder)
+
 ## 2026-09-23 — DeepSeek builder: sync recovery, and the store-permission defect that destroyed Sid's profile twice
 
 Branch `goal/sync-recovery`, pushed. Two independent defects from
@@ -2270,46 +2761,6 @@ branch fails now.
   at access-check time". The first half is factually wrong (`OW` is OWNER RIGHTS;
   `CO` is CREATOR OWNER) and is corrected. The second half was never measured on
   this machine, and the comment now says so rather than repeating the claim.
-## 2026-09-24 — Codex builder: #170 round 2 bounds the queue and preserves normal refusals
-
-Signed: Codex, builder, `codex/d2l-collector`, `C:\w\d2l-collector`.
-Read the complete [independent review](https://github.com/stremysid/jarvis/issues/comments/5807404294).
-Normal merge `520afacb` brings main `29fbfcd698f4ac7de947f076e43d0098e6bcc296`
-(#169). Both log histories and the receiver rollout action are retained; the
-duplicate collector pairing action is reconciled into our existing owner row.
-
-The queue now retains the newest two batches per host/course, at most 1 MiB of
-serialized UTF-8 entries, with `queue-evicted-N` in the popup. Enqueue accumulates
-in memory; one queue commit ends the run, including a caught interruption. Flush
-attempts at most eight uploads. This bounds the reviewed week-long outage to
-32 retained batches and reports 2,656 evictions for 2,688 simulated reads. A worker
-killed before commit still requires a fresh read; Opera lifecycle behavior is
-unverified. Failed commits retain pending data for retry in the current worker.
-
-Complete LDSB tool 403s no longer open fallback tabs. A course-level quiz-refusal
-test counts zero tab creations. GET assertions inject a POST argument, and a
-directly stored bad hop is revalidated at use. The mixed-queue test preserves
-held Durham evidence after successful LDSB delivery and kills the reviewer's
-exact deletion mutant. The orientation-name exclusion is removed: Jarvis receives
-every structurally eligible offering and judges relevance. Runbook additions cover
-removal, the verified Jarvis revocation tool, literal PowerShell cleanup, Node
-version and Sid's setup-only Durham example. Nothing was loaded or removed on
-Sid's actual browser, and no real revocation/deletion command was run.
-
-Final local gates: extension **50 pass / 0 fail / 0 skip**, 0 cancelled/todo;
-mutations **135 killed / 0 unconfirmed / 0 NOT APPLIED**; runtime syntax
-**10 pass / 0 fail**; runbook **3 PowerShell blocks / 0 parse errors / 0 executed**;
-state **3 carriers plus FACTS pass / 0 failures / 1 advisory** for unverified
-background/federation behavior. Focused tests were 10/0/0. Two initial multiline
-mutations were NOT APPLIED because of mixed line endings; after normalization
-both were applied and killed, before the complete 135-case sweep. See
-[round 2 evidence](research/2026-09-24-d2l-collector-round2.md).
-
-At the post-items-1–6 and final-gate checks, `codex/d2l-receiver-fix` had no open
-PR. Sid explicitly directed shipping these fixes in that case. The current
-receiver compatibility holds remain; inspect the receiver-fix PR when it opens,
-then update the wire contract/tests and remove holds it makes obsolete. No
-receiver changes, migration, production/secret or PC settings operation occurred.
 
 ## 2026-09-23 — Codex builder: #170 gateway pinned, receiver compatibility verified
 
@@ -2394,53 +2845,6 @@ The old owner probe request is replaced with one collector-load/pair row,
 gated on independent review and the receiver blockers; no duplicate probe request.
 Continuity ledger: `C:\Users\Sid\codex-ledgers\d2l-probe-run.md`.
 
-## 2026-09-24 — Codex builder: PR #172 round 1 receipt proof and missing pins
-
-Signed: Codex, builder on `codex/guided-assignment`. Read the full independent
-review at comment `5807157980`; reproduced the contradictory send claim on both
-Telegram and voice (**31/2/0**, both failures named for the channel draft claim).
-Current-turn executed receipts now carry proving tool names into the sentence
-guard. No linguistic send exemption, whole-reply workaround, or streaming code
-change. Focused tests **101/0/0**, then **153/0/0** after the main merge; source
-typecheck passes. Full gateway once: **5286/2/0**, 201 files (199 passed, 2
-failed), 759.03 seconds. Unchanged meaning-search bge-m3 cap and Hermes bytewise
-exact-cap frame tests timed out at 30 and 15 seconds respectively, both cases
-recorded earlier in this log. Isolated reruns passed **70/0/0** and **71/0/0**;
-no cause is inferred and no second full-suite run is claimed. All new guided,
-receipt-proof and syntax tests passed in the full run after mutation restoration.
-Final state check passed for **3 carriers and FACTS**, **0 warnings**; whitespace
-check passed and the merge-tree check against fresh main had no conflicts.
-
-All **18 new mutation faults** killed twice. Initial sweep: **17 killed, 1
-killed-wrong-test** because Vitest truncated the long mixed-receipt test name.
-Shortened the name, reran that exact fault: **1 killed, 0 other outcomes**.
-Post-merge offering/receipt rechecks: **3 killed, 0 other outcomes**. Every sweep
-verified byte-identical restoration. Test typecheck remains **143 diagnostics**,
-none in the new receipt, guided assignment or syntax tests.
-
-Added exact stored scribed-byte fidelity with fillers and whitespace, Telegram
-tool offering parity, and the three 0043 trigger names/shapes. Fresh main
-`0d695563` was already an ancestor. A later fetch found #169 merged at
-`29fbfcd6`; normal merge `f4dd9f24` preserves both catalogues, ordered migration
-inventories and both parents' log entries. Every open PR's migration paths were
-audited: main owns 0040, #168 owns 0041, only #172 owns 0043; 0042 stays reserved.
-#171 remains open; channel-parity has not merged. The named collector-reader
-follow-up is now ready; richer raw collector evidence is not yet wired into
-guided_assignment_read, though the collector's projected deadlines are readable.
-
-For #171: its plain-text stream removes `claimedActions`, so its exact-receipt
-policy does not support this reviewed paraphrase contract. The exported
-`receiptedToolClaims` proof seam and backward-compatible guard options work
-sentence by sentence, but streaming must retain a declaration binding to use it.
-[Coordination handoff](https://github.com/stremysid/jarvis/pull/171#issuecomment-5807272216).
-[Round 1 design and evidence](reviews/2026-09-23-guided-assignment.md).
-
-Coordination correction: `gh pr comment --edit-last` selected a newer review
-posted by another builder under the shared GitHub account. Restored that
-comment from GitHub edit history and verified its exact original body by API;
-then updated this builder's handoff by explicit comment id. Use explicit ids
-for comment edits so concurrent builders cannot overwrite one another.
-
 ## 2026-09-23 — Codex builder: PR #172 guided assignment tools and voice scribe
 
 Signed: Codex, builder on `codex/guided-assignment`. Sid's approved accommodation:
@@ -2515,6 +2919,7 @@ Observed final gates: full cloud package once **5192 passed / 0 failed / 0 skipp
 Remaining gaps are explicit in [KNOWN_ISSUES](../KNOWN_ISSUES.md#school-collector-retention-and-public-pairing-remain-bounded-only-in-part): unpruned pending keys/nonces, public exhaustion of Sid's own pairing budget, course retirement and duplicate-tap wording. No production, real DB, live provider, secret, permissions, services, tasks, registry or local-agent operation occurred; the incident file was absent. The ledger and gate logs remain outside the repository at `C:\Users\Sid\codex-ledgers\d2l-ingest-run.md`.
 
 Next, **when this fix head is pushed**: automated and independent adversarial re-review. **After independent clearance and authorized rollout**: owner acceptance on both devices, as already listed in OWNER-ACTIONS. Remove only this clean worktree after publication, retaining the ledger.
+
 ## 2026-09-23 — Codex builder: PR #158 round 3 includes newly merged #159
 
 **Signed: Codex, documentation builder for Sid.** A second fresh fetch found
@@ -2674,6 +3079,7 @@ configuration and iPhone acceptance only after separately authorized deployment.
 The builder will remove its worktree after publication and retain the ledger.
 
 — Codex, builder
+
 ## 2026-09-23 — Codex builder: PR #164 round 1, truthful bounded school receipts
 
 Normal merges retain the original PR history: `0c0d0fa` integrated main at
@@ -2786,6 +3192,7 @@ production/database migration, PC permission change or local-agent test occurred
 The real-paste acceptance step after reviewed deployment is in `OWNER-ACTIONS.md`.
 
 Signed: **Codex, builder**, 2026-09-23.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#167](https://github.com/stremysid/jarvis/pull/167) round 1 keeps shared school-store errors visible
 
 Signed: Codex GPT-6, builder. Read the full independent review [5805656319](https://github.com/stremysid/jarvis/pull/167#issuecomment-5805656319). Its blocking finding is confirmed: `ingestD2lEmailGrade` writes to `SchoolObservationRepository`, while the read catch used the retired Classroom scan-health name. The original mixed-source test asserted that incorrect omission; the prior entry's blanket shared-repository claim is corrected below.
@@ -2901,6 +3308,7 @@ No owner-only action arose. No merge of this PR into main or deployment is
 authorized. Ledger remains at `C:\Users\Sid\codex-ledgers\check-state-harden.md`;
 the worktree is removed after the updated PR is published. Next: assigned automated
 and independent reviewers assess #155 when its new head is pushed.
+
 ## 2026-09-23 — Codex builder: PR #159 round 1, claim only at dispatch
 
 Signed: Codex (GPT-6), builder on `codex/tier3-tap`.
@@ -2945,6 +3353,7 @@ retained. After merging, expanded focused suites pass 326/0/0 across 12 files;
 the final merge commit runs the full gateway suite. No force
 push, merge into main, deployment, real database operation, real provider call
 or local-agent test. Owner rollout remains in OWNER-ACTIONS.
+
 ## 2026-09-23 — Codex GPT-6 builder: [#169](https://github.com/stremysid/jarvis/pull/169) D2L school collector receiver
 
 Branch `codex/d2l-ingest-run`, refreshed from `a6a0efdf3bfe5c0b23e058b30afb5a9f70d70e8f`. School remains the priority. Built the separately scoped Ed25519 collector registry in assigned **0040**, owner Telegram pairing, terminal tier-3 revocation, signed bounded per-course observation ingestion, immutable raw evidence, labelled deadline projection and owner `school_d2l_status` tools. Failed/incomplete/stale reads become digest gaps. Undated work remains evidence; no code decides missed work. The P2 login-and-scrape reader is parked. See the [final design](plan/2026-09-23-d2l-collector-design.md) and [named verification evidence](reviews/2026-09-23-d2l-collector.md).
@@ -3179,6 +3588,7 @@ owner action is required for this local fix. Independent review follows the PR.
 - **Boundary:** no live Telegram/D1, production concurrency or latency acceptance. No migration, sync-recovery-owned file, merge, deploy, secret, production mutation or spend. Untouched Hermes/watchdog/local-agent suites were not run. OWNER-ACTIONS records deploy after independent review/merge and re-tapping an affected confirmation for a fresh receipt. The ledger, exact mutation spec and per-run JSON/raw logs remain outside repositories at `C:\Users\Sid\codex-ledgers\flake-telegram.md` and adjacent `flake-*` files.
 
 — Codex GPT-6, builder; independent review follows the PR.
+
 ## 2026-09-23 — Codex builder: single-use tier-3 taps, expiry and cross-channel claims
 
 Branch `codex/tier3-tap`, from freshly fetched main `a666097`. Migration `0040`
@@ -3807,6 +4217,7 @@ this entry does not present one.
 Signed: **DeepSeek, reasoning effort not determinable from inside this session.** I am the model
 this session ran as and the brief names DeepSeek, but I cannot read my own effort setting with
 certainty, so I am saying so rather than naming a number.
+
 ## 2026-09-21 — DeepSeek builder: PR #141 rebased onto a moved main, its carrier conflicts resolved, and the Windows pipe-server brief written
 
 Branch `b/141-rebase` (rebases `codex/pc-controls-p1`, PR #141) on `d0ec419`. Cherry-picked
@@ -4440,6 +4851,7 @@ caught behaviourally, so the behaviour pinning is real and partial rather than a
 remains unpinned is one comparison — an item whose `creation_event_sequence` falls inside a
 suppression's sequence window. Worth a fixture; not worth overstating, which is what an earlier
 draft of this note did.
+
 ## 2026-09-21 — DeepSeek builder: forgotten facts could still be control targets, and the two clauses that stop it are now each pinned by a mutation
 
 Branch `goal/item3-candidates` on `d0ec419`. One source file, one new test file, three
@@ -9498,6 +9910,7 @@ wrangler vectorize create-metadata-index jarvis-memory-bge-m3 --property-name=pr
 — Codex
 
 ---
+
 ## 2026-09-17 05:13 UTC — Codex, PR #80 round 5 ready for Claude max re-review
 
 Draft PR: https://github.com/ksid1229-ops/jarvis/pull/80
