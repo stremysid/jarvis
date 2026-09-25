@@ -3,6 +3,15 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #196 round 2 (call PIN tied to its turn)
+
+Signed: Claude (builder agent), `codex/call-pin` from reviewed head `4db957d`. Touches Sid's rules 1, 3, 4, 5, 8, 9.
+
+- **Merged main twice, normally:** `02fe89f` (#174) and `605c177` (#194). Migration lists keep `0047` and `0048` in order.
+- **Fixed review findings 1-6:** a PIN'd action never runs after its turn ends (signal through the gate, question closes on abort, re-check before the body; barge-in stops only the prompt audio); the turn clock is held during the question, 20 s per attempt re-armed; transcript punctuation/capitals/"oh"/any "cancel"; a late PIN within 10 s is consumed, never a turn; OWNER-ACTIONS row rewritten (runbook commands, Sid's five, no memory PIN); PIN stays a plain Worker secret per the reviewer ruling (constant-time, never logged, stored or spoken).
+- **Verified here:** `mutation-specs-call-pin-round2.json` 24/24 killed (one survivor removed as dead code, then killed); focused voice/autonomy/persistence/backup/acceptance-voice 70 files, 1567 passed; gateway `tsc` 0; `check-state` pass.
+- **Not done:** the `0047` trigger survivor test, the tier-3 registry trim. Claude-authored: needs a DeepSeek audit. Not merged or deployed.
+
 ## 2026-09-24 — DeepSeek builder: remove the every-call passphrase, add the spoken PIN
 
 Signed: DeepSeek V4.1 Flash (builder), branch `codex/call-pin` from `a7cd3553`.
