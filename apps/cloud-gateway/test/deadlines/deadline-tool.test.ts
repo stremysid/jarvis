@@ -1,20 +1,27 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
-import { recordDeadline as executeDeadline } from "../../src/deadlines/deadline-tool.js";
-import { proveDeadlineDue } from "../../src/deadlines/deadline-date-proof.js";
+import { DEADLINE_TOOL_DEFINITION, recordDeadline as executeDeadline } from "../../src/deadlines/deadline-tool.js";
+import { DEFAULT_LEAD_MINUTES } from "../../src/deadlines/effort-classifier.js";
 import type { ModelAdapterStreamInput } from "../../src/model/model-adapter.js";
 import { resetDeadlineTables } from "./deadline-fixture.js";
 import { argumentTurn, NOW } from "../channels/argument-tool-fixture.js";
 
 const message = "Chemistry Lab report is due September 25, 2026 at 3:30 pm.";
-const args = { course: "Chemistry", title: "Lab report", dueAt: "2026-09-25T15:30:00-04:00",
-  timeZone: "America/Toronto", effort: "project", evidenceExcerpt: message, dueExcerpt: "September 25, 2026 at 3:30 pm" };
+const args = { course: "Chemistry", title: "Lab report", dueAt: "2026-09-25T15:30:00-04:00", effort: "project" };
 const recordDeadline = (...values: Parameters<typeof executeDeadline> extends [...infer P, unknown] ? P : never) =>
-  executeDeadline(...values, { ownerZone: "America/Toronto", messageAt: NOW.toISOString() });
-const call = (changes = {}) => ({ id: "deadline-call", name: "deadline_record", arguments: JSON.stringify({ ...args, ...changes }) });
-const input = (userText = message) => ({ userText, principalId: "principal:test" }) as ModelAdapterStreamInput;
-const rows = () => env.DB.prepare("SELECT * FROM deadlines").all<Record<string, unknown>>();
+  executeDeadline(...values, { ownerZone: "America/Toronto" });
+const call = (changes: Record<string, unknown> = {}) => ({ id: "deadline-call", name: "deadline_record", arguments: JSON.stringify({ ...args, ...changes }) });
+const input = (principalId = "principal:test") => ({ userText: message, principalId }) as ModelAdapterStreamInput;
+const rows = () => env.DB.prepare("SELECT * FROM deadlines ORDER BY first_seen_at, deadline_id").all<Record<string, unknown>>();
+const content = (result: { providerResult: { content: string } }) => JSON.parse(result.providerResult.content) as { status: string; receipt: string };
+const ownerRow = async (course: string, title: string, principalId = "principal:test") => {
+  const repo = new DeadlineRepository(env.DB);
+  await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now: NOW });
+  await repo.upsert({ sourceId: "owner-reported", externalId: await sha256Hex(canonicalJson({ principal: principalId, course, title })),
+    course, title, dueAt: "2026-09-25T19:30:00.000Z", effort: "project", leadMinutes: 0, now: NOW });
+};
 
 describe("owner reported deadlines", () => {
   beforeEach(resetDeadlineTables);
@@ -32,43 +39,221 @@ describe("owner reported deadlines", () => {
     expect(await repo.listStudyCandidates(NOW)).toHaveLength(1);
   });
 
-  it.each(["submitted", "missed", "cancelled"])("records the explicitly stated %s status", async (status) => {
-    const text = `${message} ${status}`;
-    await recordDeadline(env.DB, input(text), call({ status, evidenceExcerpt: text }), NOW);
+  it("tells the model to decide the fields itself and to ask Sid when it is unsure", () => {
+    expect(DEADLINE_TOOL_DEFINITION.description).toContain("You decide the course, title, due date and time, effort and status");
+    expect(DEADLINE_TOOL_DEFINITION.description).toContain("ask him instead of calling this tool");
+    expect(DEADLINE_TOOL_DEFINITION.parameters.required).toEqual(["course", "title", "dueAt", "effort"]);
+    expect(Object.keys(DEADLINE_TOOL_DEFINITION.parameters.properties as object)).not.toContain("dueExcerpt");
+    expect(Object.keys(DEADLINE_TOOL_DEFINITION.parameters.properties as object)).not.toContain("evidenceExcerpt");
+  });
+
+  it.each([
+    ["a period between the title and a lowercase due phrase", "Chem lab report. due 3pm friday",
+      { course: "Chem", title: "lab report", dueAt: "2026-09-25T15:00:00-04:00" }, "2026-09-25T19:00:00.000Z"],
+    ["a due phrase in the sentence after the title", "English essay. It is due next Friday, I think at 11:59pm.",
+      { course: "English", title: "essay", dueAt: "2026-10-02T23:59:00-04:00", effort: "essay" }, "2026-10-03T03:59:00.000Z"],
+    ["a course the model expands from Sid's abbreviation", "chem lab due friday at 3",
+      { course: "Chemistry", title: "Lab", dueAt: "2026-09-25T15:00:00-04:00" }, "2026-09-25T19:00:00.000Z"],
+    ["a bare weekday naming the message day", "Math quiz due Wednesday at 5pm",
+      { course: "Math", title: "quiz", dueAt: "2026-09-23T17:00:00-04:00", effort: "quiz" }, "2026-09-23T21:00:00.000Z"],
+    ["a title Sid never said beside another assignment's clock", "Chem due September 25, 2026. Physics quiz October 2, 2026 at 9:00 am",
+      { course: "Chem", title: "assignment", dueAt: "2026-09-25" }, "2026-09-26T03:59:59.999Z"],
+    ["a clock that has already passed today", "Bio worksheet was due at 8am today, I missed it",
+      { course: "Bio", title: "worksheet", dueAt: "2026-09-23T08:00:00-04:00", status: "missed", effort: "other" }, "2026-09-23T12:00:00.000Z"],
+  ])("accepts %s when the model supplies a valid date", async (_label, text, changes, stored) => {
+    const turn = await argumentTurn(text, call(changes));
+    expect(JSON.parse(turn.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "completed" });
+    expect((await rows()).results).toMatchObject([{ course: changes.course, title: changes.title, due_at: stored }]);
+  });
+
+  it("records a status the model infers from wording the old keyword list refused", async () => {
+    const turn = await argumentTurn("finally finished the chem lab and put it in the dropbox", call({ status: "submitted" }));
+    expect(JSON.parse(turn.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "completed" });
+    expect((await rows()).results).toMatchObject([{ status: "submitted" }]);
+  });
+
+  it.each(["submitted", "missed", "cancelled"])("records the %s status the model chose", async (status) => {
+    await recordDeadline(env.DB, input(), call({ status }), NOW);
     expect((await rows()).results[0]?.status).toBe(status);
+  });
+
+  it("reopens a submitted deadline when the model sets it open", async () => {
+    await recordDeadline(env.DB, input(), call({ status: "submitted" }), NOW);
+    const result = await recordDeadline(env.DB, input(), call({ status: "open" }), NOW);
+    expect(result.receipt).toMatch(/^Updated /u);
+    expect((await rows()).results[0]?.status).toBe("open");
+  });
+
+  it("preserves a submitted status when a later call leaves status out", async () => {
+    await recordDeadline(env.DB, input(), call({ status: "submitted" }), NOW);
+    await recordDeadline(env.DB, input(), call(), NOW);
+    expect((await rows()).results[0]?.status).toBe("submitted");
   });
 
   it("updates the same course and title without creating another row", async () => {
     await recordDeadline(env.DB, input(), call(), NOW);
-    const text = `${message} submitted`;
-    await recordDeadline(env.DB, input(text), call({ status: "submitted", effort: "essay", evidenceExcerpt: text }), NOW);
+    await recordDeadline(env.DB, input(), call({ status: "submitted", effort: "essay" }), NOW);
     expect((await rows()).results).toMatchObject([{ status: "submitted", effort: "essay" }]);
-    expect((await rows()).results).toHaveLength(1);
-    const moved = "Chemistry Lab report is due September 26, 2026 at 3:30 pm. cancelled";
-    await recordDeadline(env.DB, input(moved), call({ dueAt: "2026-09-26T15:30:00-04:00", dueExcerpt: "September 26, 2026 at 3:30 pm", status: "cancelled", evidenceExcerpt: moved }), NOW);
+    await recordDeadline(env.DB, input(), call({ dueAt: "2026-09-26T15:30:00-04:00", status: "cancelled" }), NOW);
     expect((await rows()).results).toMatchObject([{ status: "cancelled", due_at: "2026-09-26T19:30:00.000Z" }]);
+    expect((await rows()).results).toHaveLength(1);
+  });
+
+  it("distinguishes creation, unchanged mentions, status updates and a moved due time", async () => {
+    expect((await recordDeadline(env.DB, input(), call(), NOW)).receipt).toMatch(/^Created /u);
+    expect((await recordDeadline(env.DB, input(), call(), NOW)).receipt).toMatch(/^Unchanged /u);
+    expect((await recordDeadline(env.DB, input(), call({ status: "submitted" }), NOW)).receipt).toMatch(/^Updated /u);
+    const result = await recordDeadline(env.DB, input(), call({ dueAt: "2026-09-26T15:30:00-04:00" }), NOW);
+    expect(result.receipt).toMatch(/^Updated /u);
+    expect(result.receipt).toContain("Previous due time: Friday, September 25, 2026");
+    expect(result.receipt).toContain("submitted");
+    expect((await rows()).results).toHaveLength(1);
+  });
+
+  it("exposes an owner-reported project inside its standard reminder lead window", async () => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    expect((await rows()).results[0]?.lead_minutes).toBe(DEFAULT_LEAD_MINUTES.project);
+    expect(await new DeadlineRepository(env.DB).listReminderDue(new Date("2026-09-24T19:30:00.000Z"))).toHaveLength(1);
+  });
+
+  it("updates effort and its lead window without calling the change unchanged", async () => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    const result = await recordDeadline(env.DB, input(), call({ effort: "quiz" }), NOW);
+    expect(result.receipt).toMatch(/^Updated /u);
+    expect((await rows()).results[0]).toMatchObject({ effort: "quiz", lead_minutes: DEFAULT_LEAD_MINUTES.quiz });
+  });
+
+  it("matches a course and title across case and whitespace without a duplicate", async () => {
+    await recordDeadline(env.DB, input(), call({ course: "chemistry", title: "lab   report" }), NOW);
+    const result = await recordDeadline(env.DB, input(), call(), NOW);
+    expect(result.receipt).toMatch(/^Unchanged /u);
+    expect((await rows()).results).toHaveLength(1);
+  });
+
+  it("finds a legacy literal identity before normalising the title", async () => {
+    await ownerRow("Chemistry", "lab report");
+    const result = await recordDeadline(env.DB, input(), call(), NOW);
+    expect(result.receipt).toMatch(/^Updated /u);
+    expect((await rows()).results).toHaveLength(1);
+    expect((await rows()).results[0]?.lead_minutes).toBe(DEFAULT_LEAD_MINUTES.project);
+  });
+
+  it("refuses when two stored legacy rows already share one normalised identity", async () => {
+    for (const course of ["chemistry", "Chemistry"]) await ownerRow(course, "Lab report");
+    const result = await recordDeadline(env.DB, input(), call(), NOW);
+    expect(result.providerResult.content).toContain("deadline_ambiguous_match");
+    expect((await rows()).results).toHaveLength(2);
   });
 
   it.each([
-    ["invented evidence", { evidenceExcerpt: "Chemistry Lab report is due September 26, 2026 at 3:30 pm." }],
-    ["an invented course", { course: "Biology" }],
-    ["an invented title", { title: "Exam" }],
-    ["an unstated status", { status: "submitted" }],
-    ["a date absent from the evidence", { dueAt: "2026-09-26T15:30:00-04:00" }],
-    ["a time absent from the evidence", { dueAt: "2026-09-25T16:30:00-04:00" }],
-    ["a mismatched zone offset", { dueAt: "2026-09-25T15:30:00-05:00" }],
-    ["a missing offset", { dueAt: "2026-09-25T15:30:00" }],
-    ["a numeric timezone instead of an IANA zone", { timeZone: "-04:00" }],
+    ["an abbreviated course", { course: "Chem" }, '"Chemistry" / "Lab report"'],
+    ["a longer title", { title: "Lab report draft" }, '"Chemistry" / "Lab report"'],
+  ])("saves %s beside a similar stored row and names that row for the model", async (_label, changes, named) => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    const result = await recordDeadline(env.DB, input(), call(changes), NOW);
+    expect(result.receipt).toMatch(/^Created /u);
+    expect(result.receipt).toContain(`Similar stored deadlines: ${named}`);
+    expect((await rows()).results).toHaveLength(2);
+  });
+
+  it("names no similar rows when nothing stored looks alike", async () => {
+    await recordDeadline(env.DB, input(), call({ course: "Physics", title: "Quiz" }), NOW);
+    expect((await recordDeadline(env.DB, input(), call(), NOW)).receipt).not.toContain("Similar stored deadlines");
+  });
+
+  it("does not match another principal's otherwise identical assignment", async () => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    const result = await recordDeadline(env.DB, input("principal:other"), call(), NOW);
+    expect(result.receipt).toMatch(/^Created /u);
+    expect(result.receipt).not.toContain("Similar stored deadlines");
+    expect((await rows()).results).toHaveLength(2);
+  });
+
+  it("stores a date-only due at the end of that day in the owner zone and says no clock was stated", async () => {
+    const result = await recordDeadline(env.DB, input(), call({ dueAt: "2026-09-25" }), NOW);
+    expect((await rows()).results[0]?.due_at).toBe("2026-09-26T03:59:59.999Z");
+    expect(result.receipt).toContain("Date-only: stored at end of day in America/Toronto, not a stated clock time.");
+  });
+
+  it("stores a date-only due at the end of that day in a zone the model names", async () => {
+    const result = await recordDeadline(env.DB, input(), call({ dueAt: "2026-09-25", timeZone: "America/Vancouver" }), NOW);
+    expect((await rows()).results[0]?.due_at).toBe("2026-09-26T06:59:59.999Z");
+    expect(result.receipt).toContain("in America/Vancouver");
+  });
+
+  it.each([["2026-11-01", "2026-11-02T04:59:59.999Z"], ["2026-03-08", "2026-03-09T03:59:59.999Z"]])(
+    "ends the daylight-saving change day %s at its local midnight", async (dueAt, stored) => {
+      await recordDeadline(env.DB, input(), call({ dueAt }), NOW);
+      expect((await rows()).results[0]?.due_at).toBe(stored);
+    });
+
+  it("uses the later 23:59 when a zone repeats the last hour of the day", async () => {
+    // Santiago falls back from 24:00 to 23:00 on 2026-04-04, so 23:59 happens twice.
+    await recordDeadline(env.DB, input(), call({ dueAt: "2026-04-04", timeZone: "America/Santiago" }), NOW);
+    expect((await rows()).results[0]?.due_at).toBe("2026-04-05T03:59:59.999Z");
+  });
+
+  it.each([
+    ["UTC", "2026-09-25T15:30:00Z", "2026-09-25T15:30:00.000Z"],
+    ["a Vancouver offset", "2026-09-25T15:30:00-07:00", "2026-09-25T22:30:00.000Z"],
+    ["a winter offset", "2026-12-01T15:30:00-05:00", "2026-12-01T20:30:00.000Z"],
+    ["milliseconds", "2026-09-25T15:30:00.250-04:00", "2026-09-25T19:30:00.250Z"],
+    ["no seconds", "2026-09-25T15:30-04:00", "2026-09-25T19:30:00.000Z"],
+  ])("stores an instant given with %s exactly", async (_label, dueAt, stored) => {
+    const result = await recordDeadline(env.DB, input(), call({ dueAt }), NOW);
+    expect((await rows()).results[0]?.due_at).toBe(stored);
+    expect(result.receipt).toContain("America/Toronto");
+    expect(result.receipt).not.toContain("Date-only");
+  });
+
+  it.each([
+    ["a weekday word instead of a date", { dueAt: "Friday" }],
+    ["an instant without an offset", { dueAt: "2026-09-25T15:30:00" }],
+    ["a nonexistent calendar date", { dueAt: "2026-02-30" }],
+    ["a nonexistent date inside an instant", { dueAt: "2026-02-30T10:00:00Z" }],
+    ["hour 24", { dueAt: "2026-09-25T24:00:00Z" }],
+    ["minute 60", { dueAt: "2026-09-25T15:60:00Z" }],
+    ["second 60", { dueAt: "2026-09-25T15:30:60Z" }],
+    ["an offset beyond fourteen hours", { dueAt: "2026-09-25T15:30:00+15:00" }],
+    ["an offset with minute 60", { dueAt: "2026-09-25T15:30:00+05:60" }],
+    ["an empty due value", { dueAt: "" }],
+    ["a numeric offset instead of an IANA zone", { dueAt: "2026-09-25", timeZone: "-04:00" }],
+    ["an unknown IANA zone", { dueAt: "2026-09-25", timeZone: "Mars/Olympus" }],
     ["an invalid effort", { effort: "huge" }],
+    ["a status outside the stored set", { status: "handed in" }],
+    ["a blank course", { course: "   " }],
+    ["a blank title", { title: "   " }],
     ["an unknown argument", { other: true }],
+    ["an old excerpt argument", { dueExcerpt: "Friday" }],
   ])("refuses %s before creating a source or a deadline", async (_label, changes) => {
-    expect(JSON.parse((await recordDeadline(env.DB, input(), call(changes), NOW)).providerResult.content).status).toBe("refused");
+    const result = await recordDeadline(env.DB, input(), call(changes), NOW);
+    expect(content(result).status).toBe("refused");
+    expect(content(result).receipt).toContain("Nothing changed.");
     expect((await rows()).results).toHaveLength(0);
     expect(await new DeadlineRepository(env.DB).readSource("owner-reported")).toBeNull();
   });
 
-  it("refuses evidence cut out of the middle of a word", async () => {
-    expect(JSON.parse((await recordDeadline(env.DB, input(`Bio${message}`), call(), NOW)).providerResult.content).status).toBe("refused");
+  it("refuses a misconfigured owner zone rather than storing in a guessed zone", async () => {
+    const result = await executeDeadline(env.DB, input(), call({ dueAt: "2026-09-25" }), NOW, { ownerZone: "Not/AZone" });
+    expect(content(result).status).toBe("refused");
+    expect((await rows()).results).toHaveLength(0);
+  });
+
+  it("receipts in the configured owner zone from the owner turn", async () => {
+    const result = await argumentTurn(message, call({ dueAt: "2026-09-24T15:00:00-07:00" }), { timeZone: "America/Vancouver" });
+    expect((await rows()).results[0]?.due_at).toBe("2026-09-24T22:00:00.000Z");
+    expect(result.replies.join(" ")).toContain("America/Vancouver");
+    expect(result.replies.join(" ")).toContain("3:00");
+  });
+
+  it.each([
+    ["a forwarded turn", { direct: false, durableDirect: true }],
+    ["a nonprivate turn", { pipeline: false }],
+    ["a forged direct marker", { durableDirect: false }],
+    ["a tier gate failure", { gate: { async evaluateToolCall() { throw new Error("denied"); } } }],
+  ])("refuses %s before the argument tool writes", async (_label, options) => {
+    const result = await argumentTurn(message, call(), options);
+    expect(result.result.outcome).toBe("telegram_delivered");
     expect((await rows()).results).toHaveLength(0);
   });
 
@@ -103,32 +288,41 @@ describe("owner reported deadlines", () => {
     expect((await repository.readByExternalId("owner-reported", "raced"))?.status).toBe("submitted");
   });
 
-  it("refuses an explicit open status even when the evidence contains that word", async () => {
-    const text = `${message} open`;
-    expect(JSON.parse((await recordDeadline(env.DB, input(text), call({ status: "open", evidenceExcerpt: text }), NOW)).providerResult.content).status).toBe("refused");
-    expect((await rows()).results).toHaveLength(0);
+  it("retries metadata when another writer changes the due time after the row is read", async () => {
+    const repo = new DeadlineRepository(env.DB);
+    await repo.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now: NOW });
+    const entry = { sourceId: "owner-reported", externalId: "metadata-race", course: "Chemistry", title: "Lab report",
+      dueAt: "2026-09-25T19:30:00.000Z", effort: "project" as const, leadMinutes: 0, now: NOW };
+    await repo.upsert(entry);
+    let inject = true;
+    const database = new Proxy(env.DB, { get(target, key) {
+      if (key === "prepare") return (sql: string) => {
+        const statement = target.prepare(sql);
+        if (!sql.includes("SET status = coalesce")) return statement;
+        return { bind(...values: unknown[]) { const bound = statement.bind(...values); return {
+          async first() {
+            if (inject) { inject = false; await repo.upsert({ ...entry, dueAt: "2026-09-26T19:30:00.000Z" }); }
+            return bound.first();
+          },
+        }; } };
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const result = await new DeadlineRepository(database).upsert({ ...entry, status: "submitted" });
+    expect(result.outcome).toBe("revised");
+    expect(result.previous?.dueAt).toBe("2026-09-26T19:30:00.000Z");
+    expect(result.deadline).toMatchObject({ dueAt: entry.dueAt, status: "submitted" });
   });
 
-  it("refuses an offset mismatch even when both clock times occur in the evidence", async () => {
-    const text = `${message} The office closes at 4:30 pm.`;
-    expect((await recordDeadline(env.DB, input(text), call({ dueAt: "2026-09-25T15:30:00-05:00", evidenceExcerpt: text }), NOW)).providerResult.content)
-      .toContain("deadline_resolved_date_mismatch");
-    expect((await rows()).results).toHaveLength(0);
-  });
-
-  it.each([
-    ["a forwarded turn", { direct: false, durableDirect: true }],
-    ["a nonprivate turn", { pipeline: false }],
-    ["a forged direct marker", { durableDirect: false }],
-    ["a tier gate failure", { gate: { async evaluateToolCall() { throw new Error("denied"); } } }],
-  ])("refuses %s before the argument tool writes", async (_label, options) => {
-    const result = await argumentTurn(message, call(), options);
-    expect(result.result.outcome).toBe("telegram_delivered");
-    expect((await rows()).results).toHaveLength(0);
-  });
-
-  it("uses the winter offset for an unambiguous clock", () => {
-    expect(proveDeadlineDue({ dueAt: "2026-12-01T15:30:00-05:00", ownerZone: "America/Toronto",
-      dueExcerpt: "2026-12-01 15:30", messageAt: NOW.toISOString() }).dueAt).toBe("2026-12-01T20:30:00.000Z");
+  it("reports an effort-only owner retag as updated when its lead minutes are unchanged", async () => {
+    await recordDeadline(env.DB, input(), call(), NOW);
+    const row = (await rows()).results[0]!;
+    const result = await new DeadlineRepository(env.DB).upsert({ sourceId: "owner-reported", externalId: String(row.external_id),
+      course: "Chemistry", title: "Lab report", dueAt: String(row.due_at), effort: "quiz",
+      leadMinutes: DEFAULT_LEAD_MINUTES.project, replaceEffortAndLead: true, now: NOW });
+    expect(result.outcome).toBe("updated");
+    expect(result.deadline.effort).toBe("quiz");
+    expect(result.deadline.leadMinutes).toBe(DEFAULT_LEAD_MINUTES.project);
   });
 });

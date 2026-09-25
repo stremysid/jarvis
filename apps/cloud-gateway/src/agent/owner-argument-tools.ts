@@ -13,8 +13,11 @@ export function ownerArgumentTool(database: D1Database, input: Readonly<ModelAda
   call: ModelFunctionCall, now: () => Date, ownerZone: string,
   readTurn: () => Promise<{ occurredAt: string }>): (() => Promise<ExecutedTool>) | null {
   if (call.name === "deadline_record") return async () => {
-    const turn = await readTurn();
-    return recordDeadline(database, input, call, now(), { ownerZone, messageAt: turn.occurredAt });
+    // The durable-turn read is the authority check: it throws unless this is
+    // Sid's own committed turn on this channel, whose stored text is exactly
+    // the message the model read. That stored event is the row's evidence.
+    await readTurn();
+    return recordDeadline(database, input, call, now(), { ownerZone });
   };
   return null;
 }
