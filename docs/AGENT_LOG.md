@@ -3,6 +3,48 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek dsh headless builder: the D2L extension's receiver hold is gone
+
+Signed: DeepSeek (dsh headless builder, effort low), `codex/d2l-ext-unblock`.
+
+Read the brief, AGENTS.md, CODE-VS-JUDGMENT.md and the #170 review note, then verified
+every premise at `a7cd3553166e10293e27656c4b800f26b0dec7cb`, this branch's fork point
+of `origin/main`. No migration.
+
+- **Premises confirmed.** `protocol.js:uploadBlock` held every non-LDSB host and every
+  route outside its narrow regex; `collector.js:ROUTES` reads `news` and `quizzes`, so
+  every full Durham course batch was held. `delivery.js` used it in `enqueue` and
+  `flush`. The receiver at #175 (`c66c38709a9774e32546bfd7cbd7766995278a71`) has
+  `SCHOOL_HOSTS = [SCHOOL_HOST, "durham.elearningontario.ca"]` and a route regex with
+  `news\/` and `quizzes\/`; `collector-mapping.ts:199` maps quizzes; migration
+  `0045_school_collector_hosts.sql` exists.
+- **Path premise, reported not papered over.** The old hold allowed
+  `dropbox/folders/<id>/submissions/` without `mysubmissions/`, which the receiver
+  rejects. The extension never builds it: its only submissions route is
+  `dropbox/folders/<folder>/submissions/mysubmissions/` (`probe.js` `LABELS.submissions`).
+  No client-side filter was re-added; the receiver's schema is the only gate.
+- **Deleted:** `uploadBlock` and its comment, the `delivery.js` import, the `enqueue`
+  assignment, the `flush` hold check, the `blocked` flag and the
+  `receiver-contract-incompatible` result. `grep` finds no `uploadBlock` and no
+  production `receiver-contract-` reference left in the extension.
+- **N1 from the #170 review is closed by deletion.** The reviewer's M8 survived because
+  `continue` for a held entry ran before `attempts += 1`; with no held-entry path there
+  is nothing to count, and the 8-attempt bound now covers every batch the loop submits.
+  The runbook sentence "Held entries do not consume upload attempts" stays true.
+- **Tests:** `protocol.test.js` gains "It sends every board and tool the receiver now
+  accepts, including Durham, news and quizzes."; `queue.test.js` replaces the held-Durham
+  test with "It sends a Durham board batch and a news and quizzes batch instead of
+  holding them."; `receiver-contract.test.js` flips the Durham/news/quizzes and
+  myItems/empty-submission assertions to acceptance and keeps the wrong-host,
+  unknown-route, non-`mysubmissions` and empty-manifest refusals. Snapshots in
+  `test/receiver/` are refreshed verbatim (LF) from #175 and the README cites it.
+- **Observed gates:** extension suite 50 pass / 0 fail / 0 skip before and after;
+  mutations 133 selected / 133 killed / 0 NOT APPLIED / 0 unconfirmed; `check-state.mjs`
+  passed with its one existing FACTS advisory. Planting a host check and a news-route
+  check made the named queue test fail 0/1 and both restores passed 1/0 byte-exactly.
+- **Scope:** extension and documentation only. No merge, push of main, deploy,
+  migration, secret or production access, and no browser or live D2L session.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.

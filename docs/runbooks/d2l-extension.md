@@ -6,8 +6,9 @@
 envelope and empty submission arrays, complete optional-tool 404s, and host-only
 failures. It preserves the board hostname in evidence and deadline sources and
 makes pairing proof/notification retryable. See [the receiver review](../reviews/2026-09-24-d2l-receiver-fix.md).
-The extension still holds full batches under its #169 compatibility check;
-it needs the hold updated, host-only failures emitted and complete 404s recognized.
+The extension's #169 compatibility hold is deleted, so a Durham batch and a batch
+carrying news or quizzes are sent rather than withheld. Emitting host-only failures
+and recognizing complete 404s still remain to be built.
 Migration `0045`, the matching gateway rollout and two-board owner acceptance
 remain separate gates. The [contract findings](../research/2026-09-23-d2l-collector-contract-gaps.md)
 distinguish merged receiver fixes from that unfinished integration.
@@ -60,8 +61,10 @@ if ((git rev-parse HEAD) -ne $reviewedSha) { throw 'Checkout does not match the 
    counts and queued batches. The popup shows course names and fixed status only;
    it never shows grades, assignment text or announcement text. A refused tool does
    not stop the remaining tools. Failure and zero assignments are different states.
-   `receiver-contract-incompatible` means queued evidence was withheld because the
-   receiver cannot accept it yet; it does not mean the school read was empty.
+   `push-refused-or-unavailable` means a queued batch did not reach the receiver this
+   run; it does not mean the school read was empty. The receiver accepts both
+   boards and every tool the collector reads, including news and quizzes; the
+   extension no longer withholds any batch by inspecting its host or routes.
 6. Close every D2L tab without signing out, then select **Test background read**.
    This tests enrollments on both hosts with fallback disabled, so it cannot hide
    a failed background read behind a tab. Report its statuses to the reviewer.
