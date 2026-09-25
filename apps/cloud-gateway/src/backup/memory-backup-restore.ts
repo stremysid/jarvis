@@ -135,10 +135,14 @@ function requireManifestShape(manifest: MemoryBackupRestoreManifest): void {
     || !Array.isArray(manifest.tableCuts) || !Array.isArray(manifest.objects)) {
     throw new Error("memory_backup_restore_manifest_invalid");
   }
-  const expectedTables = new Set<string>(MEMORY_BACKUP_TABLES);
+  // A set holds the tables its own run captured. A run captured before a
+  // migration added a table holds fewer than the current list, and it restores
+  // each table it holds by name; a table it never captured stays empty. So the
+  // cuts must be known tables, each once, but need not be every current table.
+  const knownTables = new Set<string>(MEMORY_BACKUP_TABLES);
   const seenCuts = new Set<string>();
   for (const cut of manifest.tableCuts) {
-    if (!isRecord(cut) || typeof cut.table !== "string" || !expectedTables.has(cut.table)
+    if (!isRecord(cut) || typeof cut.table !== "string" || !knownTables.has(cut.table)
       || seenCuts.has(cut.table) || !isNonnegativeSafeInteger(cut.expectedRowCount)
       || !isNonnegativeSafeInteger(cut.exportedRowCount)
       || !isNonnegativeSafeInteger(cut.shortfallRowCount)
@@ -148,13 +152,10 @@ function requireManifestShape(manifest: MemoryBackupRestoreManifest): void {
     }
     seenCuts.add(cut.table);
   }
-  if (seenCuts.size !== expectedTables.size
-    || [...expectedTables].some((table) => !seenCuts.has(table))) {
-    throw new Error("memory_backup_restore_manifest_invalid");
-  }
+  if (seenCuts.size === 0) throw new Error("memory_backup_restore_manifest_invalid");
   const objectKeys = new Set<string>();
   for (const object of manifest.objects) {
-    if (!isRecord(object) || typeof object.table !== "string" || !expectedTables.has(object.table)
+    if (!isRecord(object) || typeof object.table !== "string" || !seenCuts.has(object.table)
       || typeof object.objectKey !== "string" || object.objectKey.length === 0
       || objectKeys.has(object.objectKey)
       || !isNonnegativeSafeInteger(object.rowCount) || object.rowCount < 1
@@ -277,11 +278,38 @@ async function migrationSqlThrough(
   return prefix.map(({ sql }) => sql);
 }
 
-async function assertFreshRestoreTarget(database: D1Database): Promise<void> {
-  const counts = await database.batch(MEMORY_BACKUP_TABLES.map((table) =>
+/**
+ * The backup tables the target schema has. A target migrated to an older set's
+ * schema version lacks tables a later migration added; those are not restored
+ * and not counted. Every table the set holds must exist.
+ */
+async function targetBackupTables(
+  database: D1Database,
+  requiredTables: Iterable<string>,
+): Promise<readonly string[]> {
+  const listed = await database.prepare(
+    "SELECT name FROM sqlite_schema WHERE type = 'table'",
+  ).all<{ name: string }>();
+  const present = new Set(listed.results.map(({ name }) => name));
+  for (const table of requiredTables) {
+    if (!present.has(table)) throw new Error(`memory_backup_restore_table_missing:${table}`);
+  }
+  return MEMORY_BACKUP_TABLES.filter((table) => present.has(table));
+}
+
+function tablesWithRows(rowsByTable: RestoreRows): readonly string[] {
+  return [...rowsByTable.entries()].flatMap(([table, rows]) => rows.length > 0 ? [table] : []);
+}
+
+async function assertFreshRestoreTarget(
+  database: D1Database,
+  requiredTables: Iterable<string>,
+): Promise<void> {
+  const tables = await targetBackupTables(database, requiredTables);
+  const counts = await database.batch(tables.map((table) =>
     database.prepare(`SELECT count(*) AS row_count FROM ${quoteIdentifier(table)}`)));
-  for (let index = 0; index < MEMORY_BACKUP_TABLES.length; index += 1) {
-    const table = MEMORY_BACKUP_TABLES[index]!;
+  for (let index = 0; index < tables.length; index += 1) {
+    const table = tables[index]!;
     const count = (counts[index]?.results[0] as { row_count?: number } | undefined)?.row_count;
     const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRATION_SEEDED_ROWS]?.length ?? 0;
     if (count !== allowed) throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
@@ -300,8 +328,9 @@ async function assertFreshRestoreTarget(database: D1Database): Promise<void> {
 async function assertRestoreTargetPreflight(
   database: D1Database,
   triggers: ReadonlyMap<string, string>,
+  requiredTables: Iterable<string>,
 ): Promise<void> {
-  await assertFreshRestoreTarget(database);
+  await assertFreshRestoreTarget(database, requiredTables);
   const live = await database.prepare(
     "SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
   ).all<{ name: string }>();
@@ -506,7 +535,7 @@ async function rebuildCursors(database: D1Database): Promise<number> {
 }
 
 async function assertAuthoritativeCounts(database: D1Database, rowsByTable: RestoreRows): Promise<void> {
-  for (const table of MEMORY_BACKUP_TABLES) {
+  for (const table of await targetBackupTables(database, tablesWithRows(rowsByTable))) {
     const count = await database.prepare(`SELECT count(*) AS count FROM ${quoteIdentifier(table)}`)
       .first<{ count: number }>();
     const expected = table === "archive_state" ? 1 : (rowsByTable.get(table)?.length ?? 0);
@@ -667,7 +696,11 @@ export async function cacheVerifiedMemoryBackupSet(
     const selectedMigrations = await migrationSqlThrough(
       options.database, manifest.databaseSchemaVersion, options.migrationSql,
     );
-    await assertRestoreTargetPreflight(options.database, finalTriggerSql(selectedMigrations));
+    await assertRestoreTargetPreflight(
+      options.database,
+      finalTriggerSql(selectedMigrations),
+      manifest.tableCuts.map((cut) => cut.table),
+    );
     await options.database.batch([
       options.database.prepare(`CREATE TABLE ${RESTORE_CACHE_PROGRESS_TABLE} (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -852,7 +885,7 @@ async function initializeRestoreProgress(
   setHash: string,
   triggers: ReadonlyMap<string, string>,
 ): Promise<RestoreProgressRow> {
-  await assertRestoreTargetPreflight(options.database, triggers);
+  await assertRestoreTargetPreflight(options.database, triggers, tablesWithRows(options.rowsByTable));
   await options.database.batch([
     options.database.prepare(`CREATE TABLE ${RESTORE_PROGRESS_TABLE} (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

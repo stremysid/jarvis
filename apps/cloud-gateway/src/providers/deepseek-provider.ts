@@ -65,7 +65,7 @@ export interface DeepSeekAdapterOptions {
   readonly fetchImplementation?: typeof fetch;
   readonly baseUrl?: string;
   readonly model?: string;
-  /** Limits the Telegram-only wire policy to adapters composed for live chat turns. */
+  /** Selects the owner-turn wire policy on either channel. The option name predates channel parity. */
   readonly telegramTurn?: boolean;
   readonly telegramThinking?: string;
 }
@@ -181,7 +181,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     const messages = buildMessages(input);
-    const body = JSON.stringify(this.#telegramThinking !== null && input.channel === "telegram"
+    const body = JSON.stringify(this.#telegramThinking !== null
       ? {
         model: this.#model, messages, stream: true,
         thinking: { type: this.#telegramThinking }, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
@@ -289,7 +289,9 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 const AGENT_RESPONSE_BYTES = 262_144;
 const AGENT_MAX_OUTPUT_TOKENS = 8_192;
-// A sanity bound, not a budget: the owner catalogues were 18 (Telegram) and 15 (voice) at 68675ba and must always fit; a cap below a catalogue silently fails every turn.
+// A sanity bound, not a budget: the shared owner catalogue must always fit,
+// because a cap below a catalogue silently fails every owner turn before fetch.
+// The serialized request byte limit still bounds the body.
 export const AGENT_MAX_TOOLS = 64;
 const AGENT_MAX_TOOL_CALLS = 16;
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
