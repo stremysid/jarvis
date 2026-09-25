@@ -11,16 +11,19 @@ Last regenerated: 2026-09-24, evening, from repository
 evidence and the orchestrator's read-only production checks. For the repository revision,
 run `git log --oneline origin/main -1`.
 
-## Deploy results: pending Sid's report
+## Deploy results (2026-09-24 evening)
 
-**No deploy result is recorded yet.** Sid had not reported the outcome of the planned
-2026-09-24 evening deploy at the time of writing; do not fill these rows from expectation.
+**Deployed** by Sid at about 9:41 PM EDT on 2026-09-24, from his `wrangler` output as he
+reported it (not queried by this session). The release is `a7cd355`, not the planned `68675ba`,
+because #189 merged first; this supersedes the `0d69556` observation in [Production](#production).
 
-| Item | Planned | Result |
-|---|---|---|
-| Source | `68675ba` (#181), the release revision | **pending Sid's report** |
-| Migrations | `0040`, `0043`, `0045` (exactly; `0039` is already applied) | **pending Sid's report** |
-| Worker version | Whatever `wrangler versions view` then prints | **pending Sid's report** |
+| Item | Result |
+|---|---|
+| Source | `a7cd3553166e10293e27656c4b800f26b0dec7cb` (#189) |
+| Migrations | `0040`, `0043`, `0045` applied 2026-09-25 01:40:48–49 UTC; D1 now at `0045` |
+| Gateway version | `d69bd158-3d1b-4a67-a359-f561ebbd0908`; rollback target `bda73930-8240-47d1-95ba-b206b67a5362` |
+| Watchdog version | `3018f5fd-7f5f-4192-9c23-496718aedbef`; rollback target `c940f9b7-99cf-4194-8f41-489038a34139` |
+| Acceptance | Both `/health` endpoints returned 200; Telegram `/status`, `/queue`, `/digest` and a normal message answered |
 
 ## In flight, and what each one would change here
 
@@ -40,8 +43,8 @@ heads, verdicts and next owners; merged PRs have left it.
 
 #178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
 #177 merged as `5548c38`; #182 merged as `a20f055` at 21:14 UTC on 2026-09-24.
-#181 merged as `68675ba` at 21:32 UTC on 2026-09-24 and is the release revision for tonight's deploy.
-None of the three is deployed.
+#181 merged as `68675ba` at 21:32 UTC on 2026-09-24. #189 merged as `a7cd355` at 00:34 UTC on
+2026-09-25: tool cap 16 → 64 (Telegram had 18 tools, so every owner turn failed). All are deployed.
 
 ## Where the project actually stands
 
@@ -92,17 +95,15 @@ Neither the deploy nor the health check refreshes these older database observati
 
 ## Pending rollout
 
-Production's applied migration is `0039`. On main, the unapplied migrations are
-**exactly `0040`, `0043` and `0045`**; `0036`, `0037`, `0041` and `0042` are absent, and
-`0044` belongs to open #174 and is **not** part of tonight's set. Renumbering older
+Production D1 is at `0045` (Sid's report); `0040`, `0043` and `0045` were applied at the
+deploy. `0036`, `0037`, `0041` and `0042` are absent, and `0044` belongs to open #174. Renumbering older
 `0041`/`0042` above main's maximum is approved; it does not authorize production application.
 
 The 2026-09-24 scratch rehearsal is **orchestrator-reported PASS**, including `0044` after
 `0045`; the Claude orchestrator ran it, and the results are transcribed from its harness
 summary rather than independently re-run. [Record and limits](reviews/2026-09-24-scratch-d1-rehearsal.md).
-Sid plans to apply `0040`, `0043` and `0045` and deploy `68675ba` tonight from the home PC —
-**planned, not done**. **Merge freeze:** no merges until [OWNER-ACTIONS](OWNER-ACTIONS.md)
-carries his deploy report; see [Deploy results](#deploy-results-pending-sids-report).
+Sid applied `0040`, `0043` and `0045` and deployed `a7cd355` on 2026-09-24 at about 9:41 PM EDT;
+the merge freeze is lifted. See [Deploy results](#deploy-results-2026-09-24-evening).
 
 ## The gates, and whether they can be trusted
 

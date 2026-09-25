@@ -8,9 +8,9 @@ history, and the orchestrator's read-only production checks. Heads below are tha
 observation, not a claim about a later head. Query `git log --oneline origin/main -1`
 before starting work.
 
-**Deploy freeze:** no merges until Sid reports tonight's deploy (release `68675ba`,
-migrations `0040`, `0043` and `0045`). Results stay blank in
-[STATE](STATE.md#deploy-results-pending-sids-report) until he reports them.
+**Deploy freeze lifted:** Sid deployed release `a7cd355` (#189) with migrations `0040`,
+`0043` and `0045` on 2026-09-24 at about 9:41 PM EDT; results are in
+[STATE](STATE.md#deploy-results-2026-09-24-evening).
 Builders and reviews are on hold since 1:24 AM 2026-09-24 by Sid's instruction
 (orchestrator-reported), except explicitly approved work (this docs round, the #186 sweep).
 Every "builder round" below starts only when builders resume.

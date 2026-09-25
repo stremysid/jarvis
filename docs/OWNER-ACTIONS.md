@@ -15,15 +15,14 @@ Production was not queried by this builder. Order within a section is the order 
 
 ## Deploy results (2026-09-24 evening)
 
-Sid plans to apply `0040`, `0043` and `0045` and deploy release `68675ba` tonight from the
-home PC. **Nothing here is filled in yet; these results are for Sid to report, and no
-merge should happen until he does.** Do not infer them from a plan.
+**Done**, from Sid's report of his `wrangler` output. The release became `a7cd355` (#189)
+rather than the planned `68675ba`, because #189 merged first. The merge freeze is lifted.
 
-| Item | Planned | Result |
-|---|---|---|
-| Migrations applied | `0040`, `0043`, `0045` in order; `0039` is already applied | **pending Sid's report** |
-| Worker deployed | `68675ba`, reported version id | **pending Sid's report** |
-| Health and acceptance | `/health`, digest, and the migration-linked acceptance rows below | **pending Sid's report** |
+| Item | Result |
+|---|---|
+| Migrations applied | `0040`, `0043`, `0045`, applied 2026-09-25 01:40:48–49 UTC; D1 now at `0045` |
+| Worker deployed | `a7cd3553166e10293e27656c4b800f26b0dec7cb` at about 9:41 PM EDT 2026-09-24. Gateway `d69bd158-3d1b-4a67-a359-f561ebbd0908` (rollback `bda73930-8240-47d1-95ba-b206b67a5362`); watchdog `3018f5fd-7f5f-4192-9c23-496718aedbef` (rollback `c940f9b7-99cf-4194-8f41-489038a34139`) |
+| Health and acceptance | Both `/health` returned 200; Telegram `/status`, `/queue`, `/digest` and a normal message answered. The migration-linked acceptance rows below are not covered by this |
 
 ## Done — kept so they are not asked for again
 
