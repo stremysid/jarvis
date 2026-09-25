@@ -36,16 +36,19 @@ Calls use Deepgram through Twilio ConversationRelay with no `filler_words` optio
 which case "uh" and "um" are stripped from the transcript — "When `filler_words=false` or
 the parameter is not set, the two most common fillers, 'uh' and 'um', are stripped out of
 the transcript" ([Deepgram docs](https://developers.deepgram.com/docs/filler-words)).
+That ConversationRelay leaves `filler_words` unset is inferred from Deepgram's default; no
+live call was checked.
 
 `guided_assignment_save` stores `input.userText` as `raw`
 ([guided-assignment.ts](apps/cloud-gateway/src/school/guided-assignment.ts)), and on a call
-`input.userText` is that stripped transcript. So the saved "raw" answer is the transcript
+`input.userText` is, by that inference, the stripped transcript. So the saved "raw" answer is the transcript
 Jarvis received, **not a verbatim record of what Sid said**. Telegram text is unaffected:
 it reaches the turn as typed. Nothing in the repository claims a filler-word option;
 `git grep -n -i filler origin/main -- apps/cloud-gateway/src/voice` finds no match. This
 is recorded as a limit of the "raw" guarantee, not as a defect to fix silently — changing
-it means either enabling filler words (Sid's rule 5 forbids regex-stripping, not this) or
-narrowing the claim.
+it means either enabling filler words or narrowing the claim. The standing rule is that the
+model cleans up spoken answers and regex-stripping filler words is ruled out; that rule
+forbids regex-stripping, not enabling filler words.
 
 ## Owner voice streaming acceptance (PR #171, 2026-09-24)
 
@@ -162,8 +165,8 @@ production. Fixes removed from the old inventory, with fixing commits, are in
 the [audit record](docs/DOCS-VERIFY.md).
 
 Deployment evidence is [STATE](docs/STATE.md#production): **as of the 2026-09-24
-orchestrator-observed checks**, production runs source `0d69556` (#165) at 03:47 UTC on
-2026-09-24, with D1 at `0039`. The Worker version id is unverified. Everything merged after
+orchestrator-observed checks**, production runs source `0d69556` (#165), deployed at 03:47 UTC
+on 2026-09-24, with D1 at `0039`. The Worker version id is unverified. Everything merged after
 `0d69556` — including #171's streaming and #182's confirmation binding — is not deployed.
 Database contents below retain their older observation dates.
 Production was not queried for this audit. Owner-dependent acceptance belongs

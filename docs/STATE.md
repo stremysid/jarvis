@@ -31,7 +31,7 @@ heads, verdicts and next owners; merged PRs have left it.
 |---|---|
 | [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; `codex/channel-parity` at `ac5c89e`, migration `0044`; round-5 integration review approved at `0e458a6` and the `ac5c89e` merge delta cleared, with one pre-existing finding (F1: the voice refusal names `/decisions`, which is not a command) for its owner to fix before merge |
 | [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders, head `d214216`, conflicting against main; needs its builder/renumbering round after #174; #166 has merged |
-| [#179](https://github.com/stremysid/jarvis/pull/179) | This docs refresh, now round 4; round 3 cleared the merge at `70f5a29`; awaiting review of the resulting head |
+| [#179](https://github.com/stremysid/jarvis/pull/179) | This docs refresh, now round 5: Claude-authored fixes for the round-4 review at `34b4c78`; needs a non-Claude (DeepSeek) audit of the round-5 delta before merge |
 | [#180](https://github.com/stremysid/jarvis/pull/180) | Test lows, reviewed and cleared: ready to merge at `ac8d75b` after a main merge at `68675ba`, 0 High/Medium/Low on round 1, 7/7 mutants killed. Earlier CI failed the local-agent (ubuntu-latest) real-socket 0.1 s retry-wait race and the hermes-runtime (windows) `canonical-closure-review3.test.mjs:51` default 5 s timeout; both unrelated to #180 and now addressed by #185 |
 | [#183](https://github.com/stremysid/jarvis/pull/183) | Redaction gaps at `a27a688`; round 2 is **ready to merge** — 0 blocking, 3 follow-ups, 3 nits, 26/28 mutants killed, CI 9/9 green |
 | [#184](https://github.com/stremysid/jarvis/pull/184) | Call-session fixes at `a035630`; round-1 review requested changes |
@@ -39,8 +39,8 @@ heads, verdicts and next owners; merged PRs have left it.
 | [#122](https://github.com/stremysid/jarvis/pull/122) | Memory redesign spec; reviewer-parked until #174 merges, then refreshed, reviewed and merged. Not awaiting Sid |
 
 #178 merged as `4f5758b`; #166 merged as `f5ba9a8` at 20:14 UTC on 2026-09-24.
-#177 merged as `5548c38`; #182 merged as `a20f055` at about 21:20 UTC on 2026-09-24.
-#181 merged as `68675ba` at 21:31 UTC on 2026-09-24 and is the release revision for tonight's deploy.
+#177 merged as `5548c38`; #182 merged as `a20f055` at 21:14 UTC on 2026-09-24.
+#181 merged as `68675ba` at 21:32 UTC on 2026-09-24 and is the release revision for tonight's deploy.
 None of the three is deployed.
 
 ## Where the project actually stands
@@ -49,7 +49,7 @@ None of the three is deployed.
 |---|---|---|
 | 1 The nervous system | **partial; shared agent core** | `OwnerAgentCore` shares the loop, caps, tier gate and receipt guard. Telegram and voice still compose separate conversations; #174 addresses channel parity. No shared conversation DO, SMS path or Queues |
 | 2 Memory | **shared write store; different recall** | #147 lets calls act on `memory_items` through `D1MemoryControlTargetFinder`. Telegram recalls the memory store; voice still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. #174 addresses recall and confirmation parity. Hidden-text receipts remain a defect |
-| 3 School | **paste, calendar, guided assignment and D2L collector/receiver merged; rollout pending** | #164 saves Telegram assignment pastes, #165 provides the private calendar feed, #172 guided assignments, #169/#170 the receiver/extension, and #175/#176/#178 two-board evidence and date labels. #166 adds owner-reported deadlines without a migration. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance, production migrations and deployment remain pending; the old D2L email route yields no deadlines |
+| 3 School | **paste and calendar deployed; guided assignment and D2L collector/receiver merged, rollout pending** | #164 (Telegram assignment pastes) and #165 (private calendar feed) are deployed in `0d69556`; owner acceptance of both is in OWNER-ACTIONS. #172 guided assignments, #169/#170 the receiver/extension, #175/#176/#178 two-board evidence and date labels, and #166 owner-reported deadlines (no migration) are on main, pending tonight's deploy of `68675ba` with migrations `0040`, `0043` and `0045`. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance remains pending; the old D2L email route yields no deadlines |
 | 4 Control | **built and deployed for taps; policy remains table-driven** | #159's single-use ten-minute taps and migration `0039` are applied in production (orchestrator-observed). On main, #182 is not deployed: confirmations bind tool name, capability and argument hash, and a changed second autonomy outcome is denied. T1/T2 guards remain in QUEUE. Pending pre-deploy confirmations need a fresh tap; see [the compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24) |
 | 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate |
 | 6 Daily rhythm | **cron only** | Four cron triggers; owner reminders await #168. Jarvis cannot schedule its own wake-ups or choose the digest time |
@@ -74,8 +74,8 @@ history can show, and did not query production; see [FACTS](FACTS.md) for proven
 - **Source `0d69556` (#165).** Sid's own `C:\javis` checkout sits at that revision.
 - **D1 `0039_tool_confirmation_consumptions.sql` applied at `2026-09-24 03:46:58 UTC`**, so the old "no migrations applied; D1 stays at `0038`" is wrong.
 - **Worker `modified_on` `2026-09-24T03:47:07Z`.** Its **version id is unverified**; an earlier note says `cdc45f1d-fb42-47f9-b979-a081cc4bc272`, unchecked against the account.
-- **In `0d69556`:** #133, #137, #144, #146, #147, #149, #154, #155, #156, #159, #163, #164, #165 — each confirmed with `git merge-base --is-ancestor <commit> 0d69556` (exit 0).
-- **Not deployed:** every merge after it — #161, #162, #169, #170, #171, #172, #173, #175, #176, #178, #166, #177, #182, #181.
+- **In `0d69556`:** #133, #137, #144, #146, #147, #149, #154, #155, #156, #159, #163, #164, #165, #167 — each confirmed with `git merge-base --is-ancestor <commit> 0d69556` (exit 0).
+- **Not deployed:** every merge after it — #157, #158, #161, #162, #169, #170, #171, #172, #173, #175, #176, #178, #166, #177, #182, #181 (each fails that test; all are in `68675ba`).
 - **The 2026-09-23 pre-deploy restore bookmark is not confirmed for this deploy**; do not present it as current.
 
 **Older observations from #143's production query at 23:20 UTC on 2026-09-21, not refreshed:**

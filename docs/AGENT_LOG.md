@@ -3,6 +3,58 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 evening — PR #179 round 5: fixes for the round-4 review
+
+Signed: Claude (orchestrator agent)
+
+Docs-only round on the existing PR #179, answering the
+[round-4 review](https://github.com/stremysid/jarvis/pull/179#issuecomment-5824285103)
+of `34b4c78`. **Claude-authored, so the round-5 delta needs a non-Claude (DeepSeek) audit
+before merge.** `origin/main` (`68675ba`) was already an ancestor of `34b4c78`, so no merge.
+Worktree `C:\w\fix179`, removed after the push. Only the six carrier files changed. The
+round-4 entry below is kept byte-for-byte; its errors are corrected here. Touches rules 2 and 9.
+
+| Finding | Fix |
+|---|---|
+| H1: OWNER-ACTIONS asks for deployed work | The #167, #159, #164 and #165 rows now say deployed in `0d69556` and name only the remaining owner check. The "Apply `0039` before…" instruction is gone. The receiver row's set is `0040`, `0043`, `0045` in order (`0039` already applied). The #166 row no longer cites #159's prerequisite |
+| M1: #167 missing from the deployed set | Added to STATE Production and the FACTS deploy row; `c5310be` is an ancestor of `0d69556` (exit 0) |
+| M2: #157 and #158 missing from "not deployed" | Added to STATE and FACTS. `d4e5416` (#157) and `44a3058` (#158) fail `--is-ancestor 0d69556` and pass on `68675ba` |
+| M3: FACTS credits row | Now "cloud credits" only, sourced to Sid, 2026-09-24 evening, with no supersession claim |
+| M4: Sid's quotes spelling-normalized | OWNER-ACTIONS uses the transcript-checked wording and spelling (7:14 PM and 7:15 PM EDT). The clause "code gives jarvis unfiltered unrestricted access and words, jarvis makes decisions" has no transcript record, so it is labelled the orchestrator's paraphrase. The round-4 entry below still carries the normalized quotes; these supersede them |
+| L1: `statusOf` in the wrong file | OWNER-ACTIONS and QUEUE: `statusOf` and `STATUS_WORDS` are in `deadline-tool.ts`; `DUE_PHRASE` and the "code cannot choose" refusals are in `deadline-date-proof.ts` (`git grep` at `68675ba`) |
+| L2: STATE Phase 3 stale | #164 and #165 deployed in `0d69556`; #172, #169/#170, #175/#176/#178 and #166 pending tonight's `68675ba` deploy |
+| L3: "Sid's rule 5" undefined in the repo | KNOWN_ISSUES states the rule itself: the model cleans up spoken answers; regex-stripping filler words is ruled out |
+| L4: Deepgram default stated as fact for calls | KNOWN_ISSUES and FACTS now say ConversationRelay leaving `filler_words` unset is inferred from Deepgram's default; no live call was checked |
+| L5: St. Remy asked about while paused | State is now "paused by Sid 2026-09-24; not asked until he resumes it" |
+| L6: builder hold recorded only here | QUEUE's freeze note records the hold since 1:24 AM 2026-09-24; the #174, #184 and #185 next actions start "When builders resume" |
+| N1 | #137 is `c58463b`; `d0ec419` is #139. The ancestry result is unchanged |
+| N2 | The round-4 check-state warning was at `docs/FACTS.md:71`, not `:70` |
+| N3 | The file is `guided-assignment.ts`, not `guided_assignment.ts` |
+| N4 | Round 4's head `34b4c78` is on origin, so it was pushed. The commit carries the default identity `Codex <noreply@openai.com>`; which session pushed is not recorded. Besides `check-state`, that entry itself lists `git diff --check`, `git rev-list`, `git log`, `gh pr list`, `gh pr view`, `gh issue view 186`, `Get-ChildItem`, `git grep`, a read of `origin/codex/channel-parity` and the Deepgram fetch |
+| N5 | STATE and QUEUE: #181 merged at 21:32 UTC and #182 at 21:14 UTC (`gh` `mergedAt` 21:32:00Z and 21:13:43Z) |
+| N6 | QUEUE #185: the review was at `78c98ff`; `8822708` is a later main merge (21:35:49Z) and the fix is not yet pushed |
+| N7 | KNOWN_ISSUES: `0d69556` was "deployed at 03:47 UTC" |
+
+STATE's and QUEUE's #179 rows now say round 5 and name the DeepSeek audit.
+
+**Commands run:** `git fetch`, `git worktree add`, `gh api` for the review comment,
+`gh pr view` for merge commits and times, `git merge-base --is-ancestor` against `0d69556`
+(14 PRs, exit 0) and `68675ba` (16 PRs, exit 0), `git grep` at `68675ba`, `git log`,
+`node scripts/check-state.mjs`, `git diff --check`, `git commit`, `git push`,
+`gh pr comment` and `git worktree remove`. No production query, merge, deploy or test suite.
+
+**Gate output.**
+```
+$ node scripts/check-state.mjs
+::warning file=docs/FACTS.md,line=71::1 item(s) need re-verification; first affected line 71.
+  docs/FACTS.md:71: re-verify before relying on it (2026-09-23): Background access in Opera GX and direct Durham course URLs restoring
+state check passed: 3 carriers and FACTS register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 1 warning(s).
+exit 0
+$ git diff --check
+exit 0, no output
+```
+STATE.md is 149 lines against the 150-line budget.
+
 ## 2026-09-24 evening — PR #179 round 4: carriers refreshed to the second production deploy
 
 Signed: DeepSeek Flash, headless docs builder, claude/friendly-hawking-qjcyia
