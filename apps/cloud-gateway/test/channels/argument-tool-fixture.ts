@@ -10,7 +10,7 @@ import { Redactor } from "../../src/security/redaction.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
-import type { ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageInput } from "../../src/providers/provider-types.js";
+import type { ModelAgentCompletion, ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageInput } from "../../src/providers/provider-types.js";
 import type { WebToolsDependencies } from "../../src/web/web-tools.js";
 
 export const NOW = new Date("2026-09-23T14:00:00.000Z");
@@ -20,6 +20,8 @@ export async function argumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
   direct?: boolean; durableDirect?: boolean; pipeline?: boolean; wrongOwner?: boolean; gate?: ToolAutonomyGateContract;
   timeZone?: string; messageAt?: Date; processingAt?: Date; web?: WebToolsDependencies;
+  /** Replaces the default one-tool-then-answer model with a scripted multi-step one. */
+  script?: (input: ModelAgentCompletionInput, index: number) => ModelAgentCompletion | Promise<ModelAgentCompletion>;
 } = {}) {
   await applyMemoryIngressMigration();
   const principalId = `principal:argument:${newUlid()}`;
@@ -52,6 +54,7 @@ export async function argumentTurn(text: string,
     schoolModel: fallback, universityModel: fallback, studyCoachModel: fallback,
     provider: { async completeAgent(input) {
       requests.push(input);
+      if (options.script !== undefined) return options.script(input, requests.length - 1);
       return requests.length === 1
         ? { content: null, toolCalls: [typeof call === "function" ? await call(input) : call], finishReason: "tool_calls" }
         : { content: JSON.stringify({ reply: "Understood.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };

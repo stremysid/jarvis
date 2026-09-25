@@ -163,6 +163,18 @@ and rewrite are unchanged by #171.
 | 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
 | 13 | `OwnerAgentCore.forget` (`src/agent/owner-agent-core.ts`), found in [#199](https://github.com/stremysid/jarvis/pull/199) | Whether to act at all when Sid asks to forget several memories. `itemIds.length !== 1` raises a `telegram-memory-forget` decision ("Nothing changes unless Sid taps Confirm forget") instead of forgetting them. Forgetting is not one of the five actions Sid wants asked about (2026-09-24), so this is a confirmation his rule removes. It exists because `commandKey` in `memory-owner-controls.ts` allows one ledger mutation per owner turn, not because anyone decided multi-forget is risky. | Delete the tap. Give `forget` a per-item idempotency key (`<turn event>:forget:<itemId>`, the shape `forgetConfirmedDecision` already uses), so one turn can forget several memories in one tool call. Each memory still gets its own receipt. Also listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25). |
 
+### Reply-reference selection: removed
+
+Row 14, `MAX_REPLY_REFERENCES` / `replyReferences` in `owner-agent-core.ts`, is
+deleted by [#200](https://github.com/stremysid/jarvis/pull/200). It kept the 8
+most recent memory items a turn had touched, so code chose which memories the
+reply was about and which a later "forget that" could reach. The model now
+declares them: `declare_memory_references` takes the item ids the reply relied
+on, and every tool result names the item ids it touched so the model can name
+them. Code checks only that each declared id was shown this turn and that the
+list fits the store's bound of 8, refusing rather than trimming; a turn that
+declares nothing records nothing, with no recency fallback.
+
 ---
 
 ### School and university

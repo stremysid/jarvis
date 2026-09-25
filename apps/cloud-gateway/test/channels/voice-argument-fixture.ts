@@ -36,6 +36,8 @@ export async function voiceArgumentTurn(text: string,
   call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
     timeZone?: string; messageAt?: Date; processingAt?: Date; direct?: boolean; wrongOwner?: boolean;
     gate?: ToolAutonomyGateContract; web?: WebToolsDependencies;
+    /** Replaces the default one-tool-then-answer model with a scripted multi-step one. */
+    script?: (input: ModelAgentStreamInput, index: number) => ModelAgentCompletion | Promise<ModelAgentCompletion>;
   } = {}) {
   await applyNewestRuntimeMigration();
   const principalId = `principal:voice-argument:${newUlid()}`;
@@ -58,6 +60,12 @@ export async function voiceArgumentTurn(text: string,
       async completeAgent(): Promise<ModelAgentCompletion> { throw new Error("voice_argument_must_stream"); },
       async *streamAgent(input: ModelAgentStreamInput): AsyncIterable<ModelAgentStreamChunk> {
         requests.push(input);
+        if (options.script !== undefined) {
+          const completion = await options.script(input, requests.length - 1);
+          if (completion.content !== null) yield { type: "text", text: completion.content };
+          yield { type: "completed", completion };
+          return;
+        }
         if (requests.length === 1) {
           yield { type: "completed", completion: {
             content: null,

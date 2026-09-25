@@ -1,5 +1,27 @@
 # Known issues
 
+## Several tools per turn: what still allows only one write per turn (2026-09-25)
+
+The owner tool loop now lets Jarvis take several steps in one turn (search, read,
+record). Two limits below it were hidden by the old one-call cap and are now reachable:
+
+- **One memory change per turn.** `commandKey` in
+  [`memory-owner-controls.ts`](apps/cloud-gateway/src/memory/memory-owner-controls.ts)
+  keys every memory mutation's idempotency record as `<owner turn event id>:mutation`.
+  A second, different `memory_remember` (or forget, correct, confirm, pin) in the same
+  turn meets that key with a different request hash and is refused, so the model is told
+  "I could not safely apply that tool call". Proven by a test run on this branch (a
+  second remember in one voice turn was refused with `memory_refused` from
+  `hasCommand`). The fix is a per-turn ordinal in the key that keeps the first key
+  unchanged for replays; it touches replay idempotency, so it is its own change.
+- **One school plan save per turn, unverified.** `applyOwnerPlan` records its receipt
+  by `turn_id` (`school-catchup-repository.ts`), which looks like the same shape. Not
+  tested here.
+- **Request size.** Every step's results are sent back to the model, and the provider
+  refuses a request over `MAX_MODEL_REQUEST_BYTES` (128 KiB). A long chain of large
+  reads can reach it; the turn then ends with its receipts and a fallback line rather
+  than an answer. Not observed; unverified in practice.
+
 ## Confirmations outside Sid's five that migration 0051 does not remove (2026-09-25)
 
 [#199](https://github.com/stremysid/jarvis/pull/199) makes tier 3 exactly

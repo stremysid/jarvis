@@ -78,6 +78,10 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // conversation and changes nothing, so it shares `memory.read`'s tier-1 row
   // and needs no migration.
   history_search: "memory.read",
+  // The model's own declaration of which memories its reply relied on. It
+  // selects nothing and changes no memory; it records the turn's reference set,
+  // so it shares `memory.read`'s tier-1 row and needs no migration.
+  declare_memory_references: "memory.read",
   // Owner-only guest access management. `access.manage` is the capability the
   // voice access authority already checks; `0054` registers it at tier 1 so the
   // classification guard can read a real row. It is not one of the five actions
