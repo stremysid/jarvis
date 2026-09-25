@@ -1,4 +1,5 @@
 import {
+  hasStreamingRedactionContext,
   isIssuedRedaction,
   type Redactor as RedactorContract,
   type SuccessfulRedaction,
@@ -277,6 +278,7 @@ export class StreamingOutputRedactor {
       }
       if (boundary < 0) return;
       const line = this.pending.slice(0, boundary);
+      if (hasStreamingRedactionContext(line)) return;
       this.pending = this.pending.slice(boundary);
       this.sanitizeSegment(line, emitted);
     }

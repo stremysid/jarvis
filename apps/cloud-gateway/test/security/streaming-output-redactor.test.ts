@@ -3,6 +3,7 @@ import { isIssuedRedaction, type Redactor as RedactorContract } from "../../../.
 import type { ModelToken } from "../../src/model/model-adapter.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { StreamingOutputRedactor } from "../../src/security/streaming-output-redactor.js";
+import gaps from "../../../../tests/fixtures/redaction-gaps.json";
 
 function token(index: number, text: string): ModelToken {
   return { index, text };
@@ -89,7 +90,34 @@ describe("voice sentence release after unsplit redaction", () => {
   });
 });
 
+describe.each([false, true])("redaction gaps with sentence release %s", (sentences) => {
+  it.each(gaps)("$name at every split and character by character", ({ text, expected }) => {
+    const partitions = [Array.from(text), ...Array.from({ length: text.length + 1 }, (_, split) =>
+      [text.slice(0, split), text.slice(split)].filter(Boolean))];
+    for (const chunks of partitions) {
+      const redactor = new StreamingOutputRedactor(new Redactor(), undefined, sentences);
+      let emitted = "";
+      for (const [index, part] of chunks.entries()) {
+        emitted += redactor.push(token(index, part)).map((item) => item.text).join("");
+        expect(expected.startsWith(emitted), `chunk ${index}`).toBe(true);
+      }
+      expect(redactor.complete().text).toBe(expected);
+      emitted += redactor.drain().map((item) => item.text).join("");
+      expect(emitted).toBe(expected);
+    }
+  });
+});
+
 describe("StreamingOutputRedactor cross-token safety", () => {
+  it("holds a bearer label and its following value line until they can be redacted together", () => {
+    const redactor = new StreamingOutputRedactor(new Redactor());
+    expect(redactor.push(token(0, "Safe line.\n"))).toEqual([{ index: 0, text: "Safe line.\n" }]);
+    expect(redactor.push(token(1, "Authorization: Bearer\n"))).toEqual([]);
+    expect(redactor.push(token(2, "synthetic-bearer-fixture\nNext."))).toEqual([]);
+    expect(redactor.complete().text).toBe("Safe line.\n[REDACTED_AUTHORIZATION]\nNext.");
+    expect(redactor.drain()).toEqual([{ index: 1, text: "[REDACTED_AUTHORIZATION]\nNext." }]);
+  });
+
   const fixtures = [
     {
       name: "six-digit authentication value",
