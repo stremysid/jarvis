@@ -195,6 +195,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0047_call_pin_and_owner_authority.sql",
       "0048_note_sources_without_markdown_citation.sql",
       "0049_web_tools.sql",
+      "0050_owner_reminders.sql",
       "0052_email_inbox.sql",
     ]);
   });

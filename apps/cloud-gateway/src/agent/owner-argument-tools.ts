@@ -1,5 +1,6 @@
 import { DEADLINE_TOOL_DEFINITION, recordDeadline } from "../deadlines/deadline-tool.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
+import { executeReminderTool, isReminderTool, REMINDER_TOOL_DEFINITIONS } from "../reminders/reminder-tools.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import { WEB_TOOL_DEFINITIONS } from "../web/web-tools.js";
 import type { ExecutedTool } from "./owner-agent-core.js";
@@ -12,6 +13,7 @@ import type { ExecutedTool } from "./owner-agent-core.js";
 // every channel.
 export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   DEADLINE_TOOL_DEFINITION,
+  ...REMINDER_TOOL_DEFINITIONS,
   ...WEB_TOOL_DEFINITIONS,
 ]);
 
@@ -22,5 +24,6 @@ export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
 export function ownerArgumentTool(database: D1Database, input: Readonly<ModelAdapterStreamInput>,
   call: ModelFunctionCall, now: () => Date, ownerZone: string): (() => Promise<ExecutedTool>) | null {
   if (call.name === "deadline_record") return async () => recordDeadline(database, input, call, now(), { ownerZone });
+  if (isReminderTool(call.name)) return async () => executeReminderTool(database, input, call, now(), ownerZone);
   return null;
 }

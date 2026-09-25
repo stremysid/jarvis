@@ -606,7 +606,9 @@ describe("owner Telegram agent", () => {
       beforeModel: () => { now = new Date("2026-09-17T14:00:03.300Z"); },
     });
 
-    expect(clock).toHaveBeenCalledOnce();
+    // The prompt also needs the current instant. Assert its value and budget,
+    // rather than forbidding the additional clock read used by reminder tools.
+    expect(JSON.stringify(provider.requests[0])).toContain("Current instant: 2026-09-17T14:00:03.300Z");
     expect(provider.requests[0]?.timeoutMs).toBe(16_700);
   });
 

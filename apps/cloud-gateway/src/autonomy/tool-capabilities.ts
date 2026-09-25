@@ -80,6 +80,9 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // authority still applies, and collector revocation stays gated. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
   school_collector_revoke: "school.collector.revoke",
+  reminder_schedule: "notify.owner",
+  reminder_list: "notify.owner",
+  reminder_cancel: "notify.owner",
   university_update: "university.track",
   study_coach: "study.coach",
   // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
