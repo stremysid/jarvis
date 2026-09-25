@@ -189,6 +189,41 @@ Measured 2026-09-20: a reviewer read a tip-versus-tip diff as a pending revert
 of another PR and sent a builder to fix a problem that did not exist. The
 collision set from the merge base was one file.
 
+## Commands
+
+PowerShell, from the repository root unless a line says otherwise. **Focused tests
+locally, full suites on CI** — the PC also runs builders, and GitHub Actions has
+the minutes. Checked against `package.json` and `.github/workflows/ci.yml` on
+2026-09-25; [TESTING.md](TESTING.md) says what each one covers.
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm lint; pnpm typecheck; pnpm test          # the CI "workspace suite" job
+
+# One gateway test file, or one directory. Use exec with the root config:
+pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/workspace.test.ts
+pnpm --filter @jarvis/cloud-gateway typecheck:tests   # red; not a CI gate
+
+pnpm test:watchdog                             # its own config, not in pnpm test
+pnpm test:runtime                              # hermes-runtime, every file; CI skips two
+node --test apps/d2l-extension/test/*.test.js
+pnpm run check:state                           # state carriers and docs/FACTS.md
+
+Push-Location apps/local-agent                 # local agent, always through uv
+uv sync --locked; uv run ruff check .; uv run mypy --platform win32 jarvis_local; uv run pytest -q
+Pop-Location
+
+pwsh -NoProfile -File reviewer-tools/mutate.ps1 -Spec <spec.json> -GateDir <worktree>
+```
+
+**`pnpm --filter @jarvis/cloud-gateway test -- <file>` does not run one file.**
+pnpm passes the `--` through, Vitest ignores everything after it, and the whole
+gateway suite runs (239 files, 7,402 tests, about three minutes, measured
+2026-09-25). Use the `pnpm exec vitest` line above.
+
+`mutate.ps1` defaults `-GateDir` to an old PR's checkout, so always pass it; the
+spec format and the verdicts are in the script's header.
+
 ## Conventions
 
 - **pnpm**, Node 24.19.0 or later in the Node 24 line.
