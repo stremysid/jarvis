@@ -494,6 +494,23 @@ const OBJECT_COLUMNS = `run_id, object_number, table_name, object_key, schema_ve
   row_count, byte_count, first_key, last_key, sha256, verified_at`;
 const MAX_ORDINAL_KEY_COLUMNS = 4;
 
+/**
+ * Matches a cut to the descriptor for the same table, by name.
+ *
+ * Exported because the failure it prevents needs a descriptor list that already
+ * grew a table, which no test can build from the current constant. Position is
+ * not identity here: a migration that inserts a table in the middle of
+ * `MEMORY_BACKUP_TABLES` shifts every later index, and a positional lookup then
+ * hands this cut another table's descriptor and exports one table's rows under
+ * another table's name.
+ */
+export function descriptorForCut<T extends Readonly<{ table: string; keyKind: CutKeyKind }>>(
+  cut: Readonly<{ table: string }>,
+  descriptors: readonly T[],
+): T | null {
+  return descriptors.find((candidate) => candidate.table === cut.table) ?? null;
+}
+
 class MemoryBackupRepository {
   private descriptorsPromise: Promise<readonly TableDescriptor[]> | undefined;
 
@@ -1163,12 +1180,8 @@ export class MemoryBackupService {
     const bucket = this.options.bucket;
     if (bucket === undefined) throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.bindingMissing);
     const descriptors = await this.repository.descriptors();
-    // By name, not by position. `git blame` shows commit 7b805fa2 inserted
-    // `guided_assignment_answers` in the middle of MEMORY_BACKUP_TABLES, so a
-    // positional lookup against the current list would hand this cut the wrong
-    // descriptor and export one table's rows under another table's name.
-    const descriptor = descriptors.find((candidate) => candidate.table === cut.table);
-    if (descriptor === undefined || descriptor.keyKind !== cut.keyKind) {
+    const descriptor = descriptorForCut(cut, descriptors);
+    if (descriptor === null || descriptor.keyKind !== cut.keyKind) {
       throw new Error("memory_backup_cut_descriptor_mismatch");
     }
     if (cut.throughKey === null) {

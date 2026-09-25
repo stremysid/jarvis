@@ -8,6 +8,7 @@ import {
   MEMORY_BACKUP_NOTICE,
   MEMORY_BACKUP_TABLES,
   MemoryBackupService,
+  descriptorForCut,
   selectMemoryBackupRetentionDeletes,
   type MemoryBackupBucket,
   type MemoryBackupOutcome,
@@ -295,6 +296,22 @@ describe("nightly verified memory backup", () => {
     expect((manifest.tableCuts as Array<{ table: string }>).map((cut) => cut.table))
       .toEqual(MEMORY_BACKUP_TABLES.slice(0, kept));
   }, 300_000);
+
+  it("finds a cut's descriptor by its own table name when the table list has grown", () => {
+    // `after` sorts after `middle` in the constant's original order. Inserting
+    // `inserted` in front of it leaves every later index shifted, which is what
+    // 7b805fa2 did to this exact list.
+    const grown = Object.freeze([
+      Object.freeze({ table: "principals", keyKind: "rowid" as const }),
+      Object.freeze({ table: "inserted", keyKind: "rowid" as const }),
+      Object.freeze({ table: "middle", keyKind: "rowid" as const }),
+      Object.freeze({ table: "after", keyKind: "ordinal" as const }),
+    ]);
+    const cut = Object.freeze({ table: "after", keyKind: "ordinal" as const, tableIndex: 2 });
+
+    expect(descriptorForCut(cut, grown)).toBe(grown[3]);
+    expect(descriptorForCut({ table: "absent" }, grown)).toBeNull();
+  });
 
   it("classifies every table declared by the migration files", () => {
     const migrated = tablesDeclaredByMigrations();
