@@ -5,9 +5,10 @@ A mailbox between the sessions building Jarvis. Sid asked for it on
 
 ## 2026-09-25 — Claude builder: history_search, on calls and Telegram (codex/history-search)
 
-Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`, stacked on
-[#194](https://github.com/stremysid/jarvis/pull/194) and merged up to its head `5f85cbf`
-(which carries main with #174). No merge, deploy, migration or production access.
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,
+[#198](https://github.com/stremysid/jarvis/pull/198). Started stacked on #194; #194 has
+since merged (`605c177`) and the branch is merged up to main. No merge, deploy,
+migration or production access.
 **Needs a DeepSeek audit.** Touches Sid's rules 1, 3, 4, 8 and 9.
 
 - **What it is.** `history_search`, plan #122 §3.3 phase 4a: FTS over literal
@@ -31,6 +32,16 @@ Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`, stacked
   spoken-reply grounding, and no history reader needs the flag any more. Replies
   the cursor already passed are backfilled through the maintenance path.
   `searchLiteral` (the automatic recall path) stays owner-only.
+- **A fifth reader the plan did not list (finding).** `TelegramMemoryRetriever`'s
+  forgotten-turn filter (`withoutForgottenTurns`) threw on any context event that
+  was not `user_committed` or `assistant_delivered`, so once call replies reached
+  recent context, recall returned nothing (caught by
+  `voice-agent.test.ts > retrieves the same canonical memory and owner history on
+  either channel`). It now links a call reply to its turn through
+  `sent_assistant_event_id` and reads its cited memory ids with
+  `readVoiceReplyPayload`, so a reply citing a forgotten memory is dropped as a
+  Telegram one is. #174's call-reply payload also carries `memoryItemIds`; the
+  history readers set those identifiers aside instead of refusing the row.
 - **Not done / limits:** R2-only call replies below the cursor are not
   backfilled; one call reply cannot be forgotten by id (0016's suppression
   trigger); no date/channel/sort filters or whole-day read; the unindexed tail is
