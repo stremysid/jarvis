@@ -48,9 +48,11 @@ Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `5933c49f`, round 2 on PR
   schema version and a partial-schema fixture that stopped before `0053` — and
   both were fixed before this green run. Source `tsc --noEmit` clean;
   `typecheck:tests` has no diagnostic in any touched file (140 baseline errors
-  elsewhere). `reviewer-tools/mutate.ps1` at `5933c49f`: **13/13 KILLED, each
-  confirmed on a second run**, 0 survived / not-applied / invalid, restore
-  verified byte-identical.
+  elsewhere). The full CI `workspace suite` caught one hard-coded catalogue
+  length, `test/voice/voice-agent.test.ts` expecting 26 tools; updated to 28,
+  re-run locally **58 passed / 0 failed**. `reviewer-tools/mutate.ps1` at
+  `5933c49f`: **13/13 KILLED, each confirmed on a second run**, 0 survived /
+  not-applied / invalid, restore verified byte-identical.
 - **Not verified:** no deploy, no live D1, no production read. No scheduled AI
   pass judges new collected deadlines automatically; adding one is a separate
   design decision, because the digest is deliberately model-free.
