@@ -3,6 +3,42 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: deadlines get effort from Jarvis, not a keyword list (`codex/effort-by-ai`)
+
+Signed: **DeepSeek**, reasoning effort not exposed to the session, so it is stated
+rather than guessed. Branch `codex/effort-by-ai` from `f43fcf42`. Touches Sid's
+rules 1 and 8. No merge, deploy, database query or migration.
+
+- **Removed.** `EFFORT_KEYWORDS` and `classifyEffort` in
+  `apps/cloud-gateway/src/deadlines/effort-classifier.ts` read a deadline's title
+  and chose quiz/test/exam/essay/project from a fixed word table, with a
+  precedence order and a matched-keyword report. That is the red flag in
+  `sid-principles.md`: a keyword list deciding what Sid meant. The file is
+  replaced by `effort-lead-times.ts`, which keeps only `DEFAULT_LEAD_MINUTES`
+  (a stored default, overridable per row).
+- **Ingestion** (`deadline-ingestion.ts`) now stores the caller's explicit
+  override — a per-course rule or a source tag — or `other`. It never reads the
+  title. A bare "Final Exam" arriving from a collector is `other` with the
+  one-day unknown lead, not `exam`.
+- **Jarvis decides.** `deadline_record` already required `effort` and already
+  rewrote effort and lead on an existing row (`replaceEffortAndLead`); it now
+  also takes an optional `leadMinutes` override, and its description says effort
+  is the model's judgment from the title, the course and Sid's words, and to
+  ask Sid when unsure.
+- **Register.** `docs/CODE-VS-JUDGMENT.md` carries the removal (symbol, what it
+  decided, where it moved); `docs/ARCHITECTURE.md` no longer says "effort
+  classifier".
+- **Evidence.** Focused vitest on the three changed files: 91 passed. Whole
+  `test/deadlines` folder: 183 passed. `test/school` + `test/jobs` +
+  `test/digest`: 1,086 passed. `tsc --noEmit` clean; `typecheck:tests` reports no
+  diagnostic in the touched files. `reviewer-tools/mutate.ps1` at the PR head
+  `5bc1907b`: **7/7 KILLED, each confirmed on a second run**, 0 survived,
+  not-applied or invalid, restore verified byte-identical (spec
+  `reviewer-tools/mutation-specs-effort-by-ai.json`).
+- **Not verified:** no deploy, no live D1, no production read. The `courseEffort`
+  option has no production caller (tests only); it is kept as an explicit
+  caller-supplied override, not a title guess. The register stays partial.
+
 ## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`
