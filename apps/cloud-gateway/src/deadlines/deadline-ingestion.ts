@@ -13,12 +13,12 @@
  * that returns zero items is exactly what a half-broken scraper returns.
  * Making the caller say which it was is the only way the difference survives.
  *
- * Titles arriving here are untrusted. They are normalized, bounded, matched
- * against a fixed keyword table, and bound into SQL as parameters. Nothing in
- * this file composes one into a prompt, a path, or a pattern.
+ * Titles arriving here are untrusted. They are normalized, bounded and bound
+ * into SQL as parameters; nothing here reads one to decide what the work is.
+ * Nothing in this file composes a title into a prompt, a path, or a pattern.
  */
 
-import { classifyEffort } from "./effort-classifier.js";
+import { DEFAULT_LEAD_MINUTES } from "./effort-lead-times.js";
 import type { DeadlineRepository } from "./deadline-repository.js";
 import { truncateFailure } from "./deadline-repository.js";
 import {
@@ -104,13 +104,14 @@ export interface DeadlineIngestionOptions {
   readonly repository: DeadlineRepository;
   readonly now?: () => Date;
   /**
-   * The owner's standing per-course rules, keyed by course name.
+   * The owner's standing per-course rules, keyed by course name, supplied by
+   * the caller.
    *
-   * These beat both the title and anything a source asserts, and that ordering
-   * is the point: a rule exists because the automatic answer was wrong for
-   * that course, so a rule that can be overruled by the thing it was written
-   * to correct is not a rule. "AP Calculus is always a test" survives every
-   * teacher who titles an assessment "Unit 7".
+   * These beat anything a source asserts, and that ordering is the point: a
+   * rule exists because the source's answer was wrong for that course, so a
+   * rule that can be overruled by the thing it was written to correct is not a
+   * rule. Nothing in this file derives an effort from a title; with no rule
+   * and no source tag the item is stored as `other`.
    */
   readonly courseEffort?: ReadonlyMap<string, DeadlineEffort>;
 }
@@ -303,16 +304,18 @@ export class DeadlineIngestion {
         }
         seen.add(item.externalId);
 
-        const override = this.#courseEffort.get(item.course) ?? item.effort;
-        const classification = classifyEffort(item.title, override);
+        // No course rule and no source tag means we do not know what this is,
+        // and `other` says exactly that. The title is not consulted: choosing a
+        // category from its words would be this code making Jarvis's decision.
+        const effort = this.#courseEffort.get(item.course) ?? item.effort ?? "other";
         const result = await this.#repository.upsert({
           sourceId,
           externalId: item.externalId,
           course: item.course,
           title: item.title,
           dueAt: item.dueAt,
-          effort: classification.effort,
-          leadMinutes: item.leadMinutes ?? classification.leadMinutes,
+          effort,
+          leadMinutes: item.leadMinutes ?? DEFAULT_LEAD_MINUTES[effort],
           now,
         });
 

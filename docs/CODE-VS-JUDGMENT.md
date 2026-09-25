@@ -58,6 +58,21 @@ wording, and writing them down did not make them right.
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
+## Effort keyword classification: removed
+
+Removed by the PR titled "Deadlines: the AI judges effort, not a keyword list"
+(branch `codex/effort-by-ai`). `EFFORT_KEYWORDS` and `classifyEffort` in
+`apps/cloud-gateway/src/deadlines/effort-classifier.ts` read a deadline's title
+and chose quiz, test, exam, essay or project from a fixed word table, with a
+precedence order and a matched-keyword report. That was code deciding what the
+work is, and the title is the weakest evidence available: "Unit 4" is a real
+assignment title, "Final Draft" is an essay and "Final Project" is a project.
+
+| Symbol (as of `f43fcf42`) | What it decided | Now |
+|---|---|---|
+| `classifyEffort` / `EFFORT_KEYWORDS` / `titleTokens` (`effort-classifier.ts`) | Whether a deadline was a quiz, test, exam, essay or project, from words in its title | File replaced by `effort-lead-times.ts`, which keeps only `DEFAULT_LEAD_MINUTES`. Ingestion stores the caller's explicit override (a per-course rule or a source tag) or `other`; it never reads the title. Jarvis sets effort through `deadline_record`, from the title, the course and Sid's words, and asks Sid when unsure |
+| `EffortBasis` / `matchedKeyword` | A receipt-shaped claim about which word decided the category, so a caller could show the classifier's working | Deleted with the classifier. There is no automatic category to explain; `lead_minutes` is stored on the row and the model-supplied `effort` is the only source |
+
 ## Owner-requested redaction grammar, 2026-09-24
 
 `sanitizeRedaction` and Python's `redaction_would_change` classify credential
@@ -257,5 +272,4 @@ This register remains partial.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|
-| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
 | `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |

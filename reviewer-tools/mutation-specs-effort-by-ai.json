@@ -1,0 +1,58 @@
+[
+  {
+    "name": "E1 ingestion falls back to a guessed effort instead of other",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
+    "find": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"other\";",
+    "replace": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"exam\";",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
+    "expect": "does not infer an effort from a title, so Final Exam is stored as other"
+  },
+  {
+    "name": "E2 ingestion ignores the per-course rule",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
+    "find": "const effort = this.#courseEffort.get(item.course) ?? item.effort ?? \"other\";",
+    "replace": "const effort = item.effort ?? \"other\";",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
+    "expect": "lets a per-course rule beat a source's own tag, and stores other when neither is supplied"
+  },
+  {
+    "name": "E3 ingestion ignores a source's own lead time",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
+    "find": "leadMinutes: item.leadMinutes ?? DEFAULT_LEAD_MINUTES[effort],",
+    "replace": "leadMinutes: DEFAULT_LEAD_MINUTES[effort],",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
+    "expect": "stores a source's own lead time over the effort's default"
+  },
+  {
+    "name": "E4 deadline_record ignores the model's lead time and never validates it",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "    const leadMinutes = args.leadMinutes === undefined\n      ? DEFAULT_LEAD_MINUTES[effort]\n      : requireLeadMinutes(args.leadMinutes);",
+    "replace": "    const leadMinutes = DEFAULT_LEAD_MINUTES[effort];",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "stores a model-supplied lead time instead of the effort's default"
+  },
+  {
+    "name": "E5 deadline_record stops replacing effort and lead on an existing row",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes, now });",
+    "replace": "effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: false, leadMinutes, now });",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "updates effort and its lead window without calling the change unchanged"
+  },
+  {
+    "name": "E6 the tool description stops telling the model to judge effort and ask",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "effort: your judgment of what this is -- quiz, test, exam, essay, project or other -- from the title, the course and Sid's own words. A title can be weak evidence, so if you are unsure what kind of work it is, ask Sid rather than guessing.",
+    "replace": "effort: one of quiz, test, exam, essay, project or other.",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "tells the model to decide the fields itself and to ask Sid when it is unsure"
+  },
+  {
+    "name": "E7 the leadMinutes argument disappears from the tool schema",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "      leadMinutes: { type: \"integer\", description: \"Optional minutes of warning before dueAt; defaults to the effort's stored lead time.\" },\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "tells the model to decide the fields itself and to ask Sid when it is unsure"
+  }
+]

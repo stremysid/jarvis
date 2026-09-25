@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
 import { DEADLINE_TOOL_DEFINITION, recordDeadline as executeDeadline } from "../../src/deadlines/deadline-tool.js";
-import { DEFAULT_LEAD_MINUTES } from "../../src/deadlines/effort-classifier.js";
+import { DEFAULT_LEAD_MINUTES } from "../../src/deadlines/effort-lead-times.js";
 import type { ModelAdapterStreamInput } from "../../src/model/model-adapter.js";
 import { resetDeadlineTables } from "./deadline-fixture.js";
 import { argumentTurn, NOW } from "../channels/argument-tool-fixture.js";
@@ -42,7 +42,13 @@ describe("owner reported deadlines", () => {
   it("tells the model to decide the fields itself and to ask Sid when it is unsure", () => {
     expect(DEADLINE_TOOL_DEFINITION.description).toContain("You decide the course, title, due date and time, effort and status");
     expect(DEADLINE_TOOL_DEFINITION.description).toContain("ask him instead of calling this tool");
+    // The effort is the model's judgment, including its uncertainty; the tool
+    // offers no word list for it to fall back on.
+    expect(DEADLINE_TOOL_DEFINITION.description).toContain("your judgment of what this is");
+    expect(DEADLINE_TOOL_DEFINITION.description).toContain("ask Sid rather than guessing");
     expect(DEADLINE_TOOL_DEFINITION.parameters.required).toEqual(["course", "title", "dueAt", "effort"]);
+    expect(Object.keys(DEADLINE_TOOL_DEFINITION.parameters.properties as object)).toContain("leadMinutes");
+    expect(DEADLINE_TOOL_DEFINITION.parameters.required).not.toContain("leadMinutes");
     expect(Object.keys(DEADLINE_TOOL_DEFINITION.parameters.properties as object)).not.toContain("dueExcerpt");
     expect(Object.keys(DEADLINE_TOOL_DEFINITION.parameters.properties as object)).not.toContain("evidenceExcerpt");
   });
@@ -142,6 +148,19 @@ describe("owner reported deadlines", () => {
     expect((await rows()).results[0]).toMatchObject({ effort: "quiz", lead_minutes: DEFAULT_LEAD_MINUTES.quiz });
   });
 
+  it("stores a model-supplied lead time instead of the effort's default", async () => {
+    await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 45 }), NOW);
+    expect((await rows()).results[0]).toMatchObject({ effort: "exam", lead_minutes: 45 });
+  });
+
+  it("lets the model change both effort and lead time on an existing deadline", async () => {
+    await recordDeadline(env.DB, input(), call({ effort: "project" }), NOW);
+    const result = await recordDeadline(env.DB, input(), call({ effort: "exam", leadMinutes: 100 }), NOW);
+    expect(result.receipt).toMatch(/^Updated /u);
+    expect((await rows()).results).toMatchObject([{ effort: "exam", lead_minutes: 100 }]);
+    expect((await rows()).results).toHaveLength(1);
+  });
+
   it("matches a course and title across case and whitespace without a duplicate", async () => {
     await recordDeadline(env.DB, input(), call({ course: "chemistry", title: "lab   report" }), NOW);
     const result = await recordDeadline(env.DB, input(), call(), NOW);
@@ -239,6 +258,9 @@ describe("owner reported deadlines", () => {
     ["a numeric offset instead of an IANA zone", { dueAt: "2026-09-25", timeZone: "-04:00" }],
     ["an unknown IANA zone", { dueAt: "2026-09-25", timeZone: "Mars/Olympus" }],
     ["an invalid effort", { effort: "huge" }],
+    ["a negative lead time", { leadMinutes: -1 }],
+    ["a fractional lead time", { leadMinutes: 1.5 }],
+    ["a non-numeric lead time", { leadMinutes: "45" }],
     ["a status outside the stored set", { status: "handed in" }],
     ["a blank course", { course: "   " }],
     ["a blank title", { title: "   " }],

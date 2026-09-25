@@ -3,8 +3,15 @@ import { parseArguments, refusedTool, successfulTool, type ExecutedTool } from "
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import { DeadlineRepository } from "./deadline-repository.js";
-import { DEFAULT_LEAD_MINUTES } from "./effort-classifier.js";
-import { DEADLINE_STATUSES, requireEffort, requireStatus, requireText, type DeadlineStatus } from "./deadline-types.js";
+import { DEFAULT_LEAD_MINUTES } from "./effort-lead-times.js";
+import {
+  DEADLINE_STATUSES,
+  requireEffort,
+  requireLeadMinutes,
+  requireStatus,
+  requireText,
+  type DeadlineStatus,
+} from "./deadline-types.js";
 
 // Jarvis reads Sid's words and decides the course, title, due time, effort and
 // status. This tool only checks facts code owns: the arguments are well typed,
@@ -13,7 +20,7 @@ import { DEADLINE_STATUSES, requireEffort, requireStatus, requireText, type Dead
 // (Sid, 2026-09-24: "code should never make a decision or restrict jarvis").
 export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
   name: "deadline_record",
-  description: "Record or update one of Sid's school deadlines from his current message, typed or spoken. You decide the course, title, due date and time, effort and status from what he said; the owner time zone and the message time are in your context for resolving words like Friday, tomorrow or 3pm. If you are truly unsure which date, time, assignment or status he means, ask him instead of calling this tool. dueAt: an ISO 8601 instant with an explicit offset or Z (2026-09-25T15:00:00-04:00) when you know the time, or a calendar date YYYY-MM-DD when you only know the day; a date is stored at the end of that day in timeZone and the receipt says no clock time was given. timeZone: optional IANA zone for a date-only dueAt, defaulting to the owner zone. effort is your classification. status: optional, one of open, submitted, missed or cancelled, as you judge from what Sid said; leave it out to keep the stored status. Calling again with the same course and title (case and spacing ignored) updates that row instead of adding one. The receipt names other stored deadlines with a similar name; if one of them is the same assignment, tell Sid and use its exact course and title. Platform sources may also list the same assignment.",
+  description: "Record or update one of Sid's school deadlines from his current message, typed or spoken. You decide the course, title, due date and time, effort and status from what he said; the owner time zone and the message time are in your context for resolving words like Friday, tomorrow or 3pm. If you are truly unsure which date, time, assignment or status he means, ask him instead of calling this tool. dueAt: an ISO 8601 instant with an explicit offset or Z (2026-09-25T15:00:00-04:00) when you know the time, or a calendar date YYYY-MM-DD when you only know the day; a date is stored at the end of that day in timeZone and the receipt says no clock time was given. timeZone: optional IANA zone for a date-only dueAt, defaulting to the owner zone. effort: your judgment of what this is -- quiz, test, exam, essay, project or other -- from the title, the course and Sid's own words. A title can be weak evidence, so if you are unsure what kind of work it is, ask Sid rather than guessing. leadMinutes: optional minutes of warning before the due time, overriding the stored default for that effort. status: optional, one of open, submitted, missed or cancelled, as you judge from what Sid said; leave it out to keep the stored status. Calling again with the same course and title (case and spacing ignored) updates that row instead of adding one. The receipt names other stored deadlines with a similar name; if one of them is the same assignment, tell Sid and use its exact course and title. Platform sources may also list the same assignment.",
   parameters: {
     type: "object", additionalProperties: false,
     required: ["course", "title", "dueAt", "effort"],
@@ -22,6 +29,7 @@ export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
       dueAt: { type: "string", description: "ISO 8601 instant with offset or Z, or a YYYY-MM-DD date." },
       timeZone: { type: "string", description: "IANA zone for a date-only dueAt; defaults to the owner zone." },
       effort: { type: "string", enum: ["quiz", "test", "exam", "essay", "project", "other"] },
+      leadMinutes: { type: "integer", description: "Optional minutes of warning before dueAt; defaults to the effort's stored lead time." },
       status: { type: "string", enum: [...DEADLINE_STATUSES] },
     },
   },
@@ -142,11 +150,14 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
   try {
     const decoded = JSON.parse(call.arguments) as Record<string, unknown>;
     const args = parseArguments(call, ["course", "title", "dueAt", "effort",
-      ...["timeZone", "status"].filter((key) => Object.hasOwn(decoded, key))]);
+      ...["timeZone", "status", "leadMinutes"].filter((key) => Object.hasOwn(decoded, key))]);
     const course = requireText(args.course, "deadline_course", 512);
     const title = requireText(args.title, "deadline_title", 512);
     if (normalize(course).length === 0 || normalize(title).length === 0) invalid("course and title must not be blank.");
     const effort = requireEffort(args.effort);
+    const leadMinutes = args.leadMinutes === undefined
+      ? DEFAULT_LEAD_MINUTES[effort]
+      : requireLeadMinutes(args.leadMinutes);
     const status: DeadlineStatus | undefined = args.status === undefined ? undefined : requireStatus(args.status);
     const ownerZone = requireZone(context.ownerZone, "deadline_owner_zone");
     const timeZone = args.timeZone === undefined ? ownerZone : requireZone(args.timeZone, "deadline_zone");
@@ -157,7 +168,7 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
     const externalId = match?.external_id ?? await identity(input.principalId, courseKey(course), normalize(title));
     const result = await repository.upsert({ sourceId: "owner-reported", externalId,
       course: match?.course ?? course, title: match?.title ?? title, dueAt: due.dueAt,
-      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes: DEFAULT_LEAD_MINUTES[effort], now });
+      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes, now });
     const local = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: ownerZone, dateStyle: "full", timeStyle: "short" }).format(new Date(at));
     const action = result.outcome === "created" ? "Created" : result.outcome === "unchanged" ? "Unchanged" : "Updated";
     const previous = result.previous !== null && result.previous.dueAt !== result.deadline.dueAt
