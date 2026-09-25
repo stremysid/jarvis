@@ -3,6 +3,36 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Claude builder: web_read and web_search on calls and Telegram ([#195](https://github.com/stremysid/jarvis/pull/195))
+
+Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid approved the build on 2026-09-24. Touches rules 1, 2, 3, 4, 8, 9. **Claude-built: needs a DeepSeek audit before merge.**
+
+- **What:** two read-only owner tools in `OWNER_ARGUMENT_TOOL_DEFINITIONS`, so both channel catalogues carry the same definitions.
+  - `web_read(url, offset?, renderJavaScript?)` fetches the page in the gateway, converts HTML or PDF with Workers AI `toMarkdown`, and returns the text, final URL and title.
+  - `web_search(query, numResults?)` sends a plain JSON-RPC `tools/call` to Exa's hosted MCP endpoint.
+  - The code is in `apps/cloud-gateway/src/web/web-tools.ts`. `OwnerAgentCore.executeCall` dispatches both tools after the tier gate.
+- **The AI decides.** No topic, keyword or site rules. The only limits:
+  - http/https only;
+  - never `PUBLIC_ORIGIN`'s host, with every redirect re-checked;
+  - timeouts;
+  - a 5 MB download cap and a 20,000-character reply cap.
+
+  When text is cut, the result says `truncated: true` and gives the offset for the next part.
+- **Web content is data.** Every result carries `untrustedWebContent: true` and a notice. Neither tool can act.
+- **Receipts.** Migration `0047_web_tools.sql` seeds `read.web` at tier 1 and adds the append-only `web_tool_receipts` table. Every call writes one row, refused and failed calls included. The row holds the URL or query, final URL, method, outcome, HTTP status, bytes and truncation. The backup inventory and the restore list include the new migration and table.
+- **Exa, verified from docs and source only.**
+  - The docs give `https://mcp.exa.ai/mcp`, a keyless free tier, and the `x-api-key` header.
+  - The source at `exa-labs/exa-mcp-server@f3d71fb` (`api/mcp.ts`) builds a fresh MCP handler per request. The free tier is IP rate-limited on `tools/call` and answers 429.
+  - **Unverified:** a live keyless call from a Worker (no service was contacted), and whether `tools/call` without `initialize` succeeds live.
+- **Limit found, not changed.** The core allows one tool call per turn (`MAX_TOOL_CALLS = 1`, one round), so "search, then read a result" takes two turns.
+- **Evidence.**
+  - `test/web/web-tools.test.ts` passes 18/18.
+  - Neighbour files pass 415/415 (18 files).
+  - `mutate.ps1` at `8e9a0c0`: 16 mutations, all 16 KILLED by the named test and confirmed on a second run.
+  - `tsc` is clean. `check-state` passes with its one existing FACTS warning.
+- **Owner actions:** apply `0047` with the deploy. Optionally set a Browser Rendering token and an Exa key.
+- **Scope:** no merge, deploy, migration application, secret change or production access.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
