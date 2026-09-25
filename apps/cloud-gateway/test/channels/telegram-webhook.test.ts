@@ -274,10 +274,16 @@ describe("what the reply path receives, by authenticated principal", () => {
   }
 
   it("hands the configured owner his own words exactly as he typed them", async () => {
+    // Sid's reader still removes a known machine-key shape from what is stored,
+    // so this is the one input that tells his raw words apart from the stored
+    // token. The model is given what he actually typed, PIN and key included.
+    const typed = `my pin is 4821 and my key is sk-${"a1".repeat(12)}`;
     const accepted = capture(deps);
-    await handleTelegramWebhook(requestFor(textUpdate("my pin is 4821")), deps);
+    await handleTelegramWebhook(requestFor(textUpdate(typed)), deps);
 
-    expect(accepted.map((update) => update.text)).toEqual(["my pin is 4821"]);
+    expect((events.events[0]!.envelope.payload as Record<string, unknown>).text)
+      .toBe("my pin is 4821 and my key is [REDACTED_CREDENTIAL]");
+    expect(accepted.map((update) => update.text)).toEqual([typed]);
   });
 
   it("hands a verified Telegram identity that is not the owner only the external reader's text, never the raw message", async () => {
