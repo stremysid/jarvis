@@ -3,6 +3,30 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: #200 round 3 (main `3f3748c6` merged, test fix)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `9289cd19`.
+Touches Sid's rules 2, 3 and 8.
+
+- **Merge.** `origin/main` at `3f3748c6` (#199) merged normally, no rebase. Three doc conflicts
+  kept both sides: `KNOWN_ISSUES.md` (this branch's "several tools per turn" section and #199's
+  "confirmations outside Sid's five"), `docs/AGENT_LOG.md`, and `docs/CODE-VS-JUDGMENT.md`, where
+  #199's `OwnerAgentCore.forget` holds row 13, so this branch's `MAX_REPLY_REFERENCES` row is now
+  **row 14**.
+- **Tier-3-in-a-chain test.** #199's `0051` moved `school.collector.revoke` to tier 1, so the test
+  failed on both channels on the merged tree. Its `beforeAll` now promotes that one capability with
+  `UPDATE capability_tiers SET tier = 3 ...`, the shape #199's `tier3-pin-turn.test.ts` uses. No
+  product tier changed; `five-confirmed-actions.test.ts` still pins the shipped registry.
+- **Low finding fixed.** `ScriptedModel` in `multi-step-tools.test.ts` now calls
+  `assertAgentToolHistory` in both `completeAgent` and `streamAgent`, so every chain test checks its
+  history the way the real provider would, not only the F1 cross-round test.
+- **Verified here:** 7 focused files, 285 passed (multi-step-tools, deepseek-provider, voice-agent,
+  owner-telegram-agent, five-confirmed-actions, tier3-pin-turn, memory-search); gateway `tsc` 0;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` 14/14 KILLED, each confirmed, restore
+  byte-identical. Full suites on CI; none run locally.
+- Claude-authored at `9289cd19`; this round is DeepSeek, so the cross-vendor rule holds. Not
+  merged or deployed.
+
 ## 2026-09-25 — Claude builder: several tools in one turn (branch `codex/multi-step-tools`)
 
 Signed: Claude Opus 5.5 (builder agent), from `f43fcf42`. Touches Sid's rules 1, 2, 3, 4 and 8.
