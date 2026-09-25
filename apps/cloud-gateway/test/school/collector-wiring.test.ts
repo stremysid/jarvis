@@ -17,11 +17,22 @@ import { ToolAutonomyGate } from "../../src/autonomy/tool-gate.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 
-beforeAll(applyNewestRuntimeMigration);
 // These fixtures promote status and revoke to tier 3; leaving either row changed would gate unrelated tests.
-// Both are tier 1 in production: 0035 seeds school.track, and 0051 moves the revoke off tier 3.
+// Each row goes back to the tier the migrations gave it, not to a literal, so the revoke test below
+// reads the production tier (0051) rather than one this file chose.
+const migratedTiers = new Map<string, number>();
+beforeAll(async () => {
+  await applyNewestRuntimeMigration();
+  for (const capability of ["school.track", "school.collector.revoke"]) {
+    const row = await env.DB.prepare("SELECT tier FROM capability_tiers WHERE capability = ?").bind(capability).first<{ tier: number }>();
+    if (row === null) throw new Error(`fixture_missing_capability_row:${capability}`);
+    migratedTiers.set(capability, row.tier);
+  }
+});
 afterEach(async () => {
-  await env.DB.prepare("UPDATE capability_tiers SET tier = 1 WHERE capability IN ('school.track', 'school.collector.revoke')").run();
+  for (const [capability, tier] of migratedTiers) {
+    await env.DB.prepare("UPDATE capability_tiers SET tier = ? WHERE capability = ?").bind(tier, capability).run();
+  }
 });
 
 async function runSchoolTool(f: CollectorFixture, name: string, args: Record<string, unknown>, directPipelineText = true) {
