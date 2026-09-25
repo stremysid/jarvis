@@ -49,6 +49,7 @@ async function relayHarness(kind: "owner" | "guest", options: {
   capacity?: Pick<CapacityGuard, "assertAcceptingNewTurn">;
   callSidLimit?: number;
   holdFirstTurn?: Promise<void>;
+  holdFirstTurnAfterReply?: Promise<void>;
 } = {}) {
   const repository = new CallRepository(env.DB, new EventRepository(env.DB));
   const access = new VoiceAccessRepository(env.DB);
@@ -108,6 +109,20 @@ async function relayHarness(kind: "owner" | "guest", options: {
         await gate;
       }
       return realHandleTurn(input);
+    });
+  }
+  if (options.holdFirstTurnAfterReply !== undefined) {
+    const gate = options.holdFirstTurnAfterReply;
+    let first = true;
+    handleTurn.mockImplementation(async (input) => {
+      // The reply is fully spoken, then the turn waits (as on its durable receipt)
+      // while it still owns the slot.
+      const result = await realHandleTurn(input);
+      if (first) {
+        first = false;
+        await gate;
+      }
+      return result;
     });
   }
   const send = vi.fn<(message: string) => void>();
@@ -363,6 +378,40 @@ describe("CallSession relay fixes", () => {
       expect(harness.close).not.toHaveBeenCalled();
       expect({ turnsStarted, modelRequests: harness.provider.requests.length })
         .toEqual({ turnsStarted: 1, modelRequests: 1 });
+    });
+  });
+
+  it("a prompt past the slot check never claims over an aborted turn that still owns it", async () => {
+    let releaseReceipt!: () => void;
+    const receipt = new Promise<void>((resolve) => { releaseReceipt = resolve; });
+    const harness = await relayHarness("owner", { holdFirstTurnAfterReply: receipt });
+    harness.atOffset(4_000);
+    const gates: Array<() => void> = [];
+    const real = harness.ownerStepUp.repeatStatus.bind(harness.ownerStepUp);
+    // Holds A, then B, inside the repeat lookup, so B passes the slot check while it is free.
+    vi.spyOn(harness.ownerStepUp, "repeatStatus").mockImplementation(async (...args) => {
+      if (gates.length < 2) await new Promise<void>((resolve) => { gates.push(resolve); });
+      return real(...args);
+    });
+    await harness.run(async message => {
+      const a = message(prompt("Question A."));
+      await vi.waitFor(() => expect(gates).toHaveLength(1));
+      const b = message(prompt("Question B."));
+      await vi.waitFor(() => expect(gates).toHaveLength(2));
+      gates[0]!();
+      // A has spoken its reply and is waiting on its receipt, still owning the slot.
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(1));
+      await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
+      gates[1]!();
+      await expect(b).resolves.toBeUndefined();
+      releaseReceipt();
+      await expect(a).resolves.toBeUndefined();
+      expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.handleTurn).toHaveBeenCalledTimes(1);
+      expect(harness.provider.requests).toHaveLength(1);
+      await expect(message(prompt("Thanks."))).resolves.toBeUndefined();
+      expect(harness.close).not.toHaveBeenCalled();
+      expect(harness.provider.requests).toHaveLength(2);
     });
   });
 
