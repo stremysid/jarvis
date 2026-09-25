@@ -262,5 +262,21 @@
     "replace": "        evidence: false",
     "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
     "expect": "names the event id, not the query, when an around read is refused"
+  },
+  {
+    "name": "O1 owner Telegram turns get the external reader",
+    "file": "apps/cloud-gateway/src/index.ts",
+    "find": "principalId === ownerPrincipalId ? \"owner\" : \"external\");",
+    "replace": "principalId === ownerPrincipalId ? \"external\" : \"external\");",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "gives Sid his own code back unredacted from history_search, on a call and on Telegram"
+  },
+  {
+    "name": "O2 owner call sessions get the external reader",
+    "file": "apps/cloud-gateway/src/voice/production-runtime.ts",
+    "find": "return binding.accessKind === \"owner\" ? \"owner\" : \"external\";",
+    "replace": "return binding.accessKind === \"owner\" ? \"external\" : \"external\";",
+    "testPath": "apps/cloud-gateway/test/memory/history-search-tool.test.ts",
+    "expect": "gives Sid his own code back unredacted from history_search, on a call and on Telegram"
   }
 ]
