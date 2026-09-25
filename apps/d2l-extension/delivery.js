@@ -1,4 +1,4 @@
-import { canonical, courseBody, createKey, publicKeyBase64, sign, post, uploadBlock } from "./protocol.js";
+import { canonical, courseBody, createKey, publicKeyBase64, sign, post } from "./protocol.js";
 
 export const QUEUE_PER_COURSE = 2;
 export const QUEUE_MAX_BYTES = 1024 * 1024;
@@ -49,7 +49,6 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
   }
   async function enqueue(batch) {
     const entry = courseBody(batch);
-    entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;
     pending.push({ ...entry, readId: batch.readId, host: batch.host, courseId: batch.course.id });
     return entry;
   }
@@ -70,12 +69,10 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
     }
     const evicted = combined.length - queue.length;
     const identity = await store.get("pairing");
-    let blocked = false;
     let attempts = 0;
     if (sendPending && identity?.status === "active") {
       const keys = await store.get("keys");
       for (const entry of [...queue]) {
-        if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }
         if (attempts >= FLUSH_ATTEMPTS) break;
         attempts += 1;
         try {
@@ -91,7 +88,7 @@ export function delivery({ store, clock, send = post, cryptoImpl = crypto }) {
     await store.set("queue", queue);
     pending = [];
     return { queued: queue.length, evicted, error: !sendPending ? "read-interrupted" : identity?.status !== "active" ? "pairing-required"
-      : blocked ? "receiver-contract-incompatible" : queue.length ? "push-refused-or-unavailable" : null };
+      : queue.length ? "push-refused-or-unavailable" : null };
   }
   return { pair, prove, status, enqueue, flush };
 }

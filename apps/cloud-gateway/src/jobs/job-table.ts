@@ -667,6 +667,7 @@ async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
   let chargedD1Statements = 0;
   let eventsExamined = 0;
   let chunksWritten = 0;
+  let rowsSkipped = 0;
   let complete = false;
   let stopReason = "";
   for (let step = 0; step < MEMORY_HISTORY_STEPS_PER_POLL; step += 1) {
@@ -693,11 +694,13 @@ async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
     steps += 1;
     eventsExamined += result.eventsExamined;
     chunksWritten += result.chunksWritten;
+    rowsSkipped += result.rowsSkipped;
     complete = result.complete;
     if (complete) break;
   }
   const status = complete ? "complete" : "pending";
-  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written after ${steps} steps, `
+  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written, `
+    + `${rowsSkipped} rows skipped after ${steps} steps, `
     + `${chargedD1Statements} D1 statements charged${stopReason}`;
 }
 

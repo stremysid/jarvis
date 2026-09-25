@@ -8,9 +8,10 @@ const pendingReferences = new Map<Ulid, readonly Ulid[]>();
 
 /**
  * Carries references across the model/repository boundary for one request.
- * The durable copy is written into the staged assistant event; this map never
+ * The durable copy is written into the staged Telegram or settled voice event; this map never
  * serves a later request and is bounded in case a model finishes but staging
- * cannot start.
+ * cannot start. The legacy function names refer to the original caller, not
+ * separate per-channel reference stores.
  */
 export function recordPendingTelegramMemoryReferences(
   turnId: Ulid,

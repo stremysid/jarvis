@@ -1,3 +1,4 @@
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 /**
  * `memory_search`: what the search seam is allowed to see, and what it is not.
  *
@@ -25,7 +26,6 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
 import {
-  OWNER_TELEGRAM_TOOL_DEFINITIONS,
   OwnerTelegramAgentAdapter,
 } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
@@ -601,7 +601,7 @@ describe("the memory_search tool definition", () => {
     const definitions = MEMORY_TOOL_DEFINITIONS.filter((definition) => definition.name === "memory_search");
     expect(definitions).toHaveLength(1);
     expect(MEMORY_TOOL_NAMES).toContain("memory_search");
-    expect(OWNER_TELEGRAM_TOOL_DEFINITIONS.map((definition) => definition.name))
+    expect(OWNER_TOOL_DEFINITIONS.map((definition) => definition.name))
       .toContain("memory_search");
     expect(definitions[0]?.parameters).toEqual({
       type: "object",

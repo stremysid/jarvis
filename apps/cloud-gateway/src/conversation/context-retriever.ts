@@ -358,8 +358,19 @@ async function executeStatements(
   return Promise.all(statements.map(async (statement) => statement.all()));
 }
 
+/**
+ * A call reply's payload may carry `memoryItemIds`, the ids of memories the
+ * reply cited (#174). They are identifiers, not message text.
+ */
+function withoutMemoryReferences(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+    || !Object.hasOwn(value, "memoryItemIds")) return value;
+  const { memoryItemIds: _references, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
 function historyText(payload: unknown, eventType: string): string {
-  const value = historyPayload(payload);
+  const value = historyPayload(eventType === "conversation.assistant_sent" ? withoutMemoryReferences(payload) : payload);
   // A call reply stored before call replies were history carries
   // `historyEligible: false`; that recorded a policy, not anything about the
   // text, so `assistant_sent` admits either value. See literal-history.ts.

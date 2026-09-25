@@ -345,12 +345,10 @@ async function indexConversationAsHistory(input: Readonly<{
   text: string;
   envelopeHash: Sha256Hex;
   chunkText?: string;
-  /** The text the chunk's content_hash is taken from; the chunk text by default. */
-  contentHashText?: string;
 }>): Promise<MeaningSearchHit> {
   const chunkId = newUlid();
   const chunkText = input.chunkText ?? input.text;
-  const contentHash = await sha256Hex(input.contentHashText ?? chunkText);
+  const contentHash = await sha256Hex(chunkText);
   const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO memory_history_coverage (
@@ -547,8 +545,6 @@ async function seedArchivedMeaningHistory(input: Readonly<{
   principalId: string;
   chunkText: string;
   envelopeText?: string;
-  /** The text the chunk's content_hash is taken from; the chunk text by default. */
-  contentHashText?: string;
   eventType?: "conversation.user_committed" | "conversation.assistant_delivered";
 }>): Promise<Readonly<{
   hit: MeaningSearchHit;
@@ -589,7 +585,7 @@ async function seedArchivedMeaningHistory(input: Readonly<{
   });
   const storedEnvelope = Object.freeze({ ...envelope, eventSequence });
   const envelopeHash = await sha256Hex(canonicalJson(storedEnvelope));
-  const contentHash = await sha256Hex(input.contentHashText ?? input.chunkText);
+  const contentHash = await sha256Hex(input.chunkText);
   const manifestId = await sha256Hex(`meaning-manifest:${eventId}`);
   const segmentId = await sha256Hex(`meaning-segment:${eventId}`);
   const chunkId = newUlid();
@@ -1169,16 +1165,14 @@ describe("memory meaning indexing", () => {
     expect(await service.readCoverage(fixture.principalId)).toEqual({ eligible: 1, indexed: 1, missing: 0 });
   });
 
-  it("indexes an archived multi-line owner message whose chunk holds the search form of its text", async () => {
-    // The literal indexer writes line breaks as spaces into the chunk, because
-    // 0016's CHECK refuses them there, and keeps the hash of the original text.
+  it("indexes an archived owner message with line breaks against its search-form chunk", async () => {
     const principalId = await seedPrincipal();
-    const original = "Pack for Friday:\nthe violin\tcase";
+    // The chunk stores line breaks as spaces (the 0016 CHECK refuses them);
+    // the verified event keeps the original text.
     const archived = await seedArchivedMeaningHistory({
       principalId,
-      chunkText: "Pack for Friday: the violin case",
-      envelopeText: original,
-      contentHashText: original,
+      chunkText: "The archived cello recital moved to Monday.",
+      envelopeText: "The archived cello recital\nmoved to Monday.",
     });
     const vectors = new FakeVectors();
     const service = new MemoryMeaningService({
@@ -1193,6 +1187,7 @@ describe("memory meaning indexing", () => {
       upserted: 1,
       remaining: false,
     });
+    expect(vectors.upserts[0]?.metadata.itemId).toBe(archived.hit.itemId);
   });
 
   it("fails an archived owner candidate whose verified payload text differs from the indexed chunk", async () => {
@@ -1523,28 +1518,6 @@ describe("Telegram meaning recall", () => {
     expect(contexts[0]?.text).toContain("blue notebook");
   });
 
-  it("puts a multi-line owner message into meaning history from its search-form chunk, keeping its line breaks", async () => {
-    const principalId = await seedPrincipal();
-    const text = "The chemistry report:\ndue Thursday";
-    const event = await seedConversation(principalId, text, "conversation.user_committed");
-    const hit = await indexConversationAsHistory({
-      principalId,
-      ...event,
-      text,
-      chunkText: "The chemistry report: due Thursday",
-      contentHashText: text,
-    });
-
-    // No word in this query is in the message, so the literal path cannot
-    // find it and only the meaning-history path can.
-    const contexts = await retrieve(principalId, "science write-up deadline", { hits: [hit] });
-
-    // Through the meaning-history path itself, not any other recall path.
-    expect(contexts).toHaveLength(1);
-    expect(contexts[0]?.text).toContain(`History evidence [live D1; event ${event.eventId};`);
-    expect(contexts[0]?.text).toContain("The chemistry report:\ndue Thursday");
-  });
-
   it("labels meaning-history evidence with time, channel and owner without a segment hash", async () => {
     const principalId = await seedPrincipal();
     const text = "The chemistry report is due Thursday.";
@@ -1556,6 +1529,22 @@ describe("Telegram meaning recall", () => {
     });
     expect(contexts[0]?.text).toContain(`${event.occurredAt}; telegram; speaker owner]`);
     expect(contexts[0]?.text).not.toContain(hit.contentHash);
+  });
+
+  it("returns meaning-history evidence with the owner's original line breaks", async () => {
+    const principalId = await seedPrincipal();
+    const text = "The biology lab is due Thursday.\nBring the goggles.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    const hit = await indexConversationAsHistory({
+      principalId,
+      ...event,
+      text,
+      chunkText: "The biology lab is due Thursday. Bring the goggles.",
+    });
+
+    const contexts = await retrieve(principalId, "When is the science lab due?", { hits: [hit] });
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.text).toContain("speaker owner]: The biology lab is due Thursday.\nBring the goggles.");
   });
 
   it("does not repeat a recent turn as meaning-history evidence", async () => {

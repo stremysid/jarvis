@@ -205,9 +205,9 @@ describe("nightly verified memory backup", () => {
     await appendEvents(3);
     expect((await finishBackup(backup, first)).outcome).toBe("verified");
 
-  const manifest = await readLatestManifest();
-  expect(manifest.databaseSchemaVersion).toBe("0047_note_sources_without_markdown_citation.sql");
-  expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
+    const manifest = await readLatestManifest();
+    expect(manifest.databaseSchemaVersion).toBe("0048_note_sources_without_markdown_citation.sql");
+    expect(manifest.coverageMarks).toEqual({ eventsAfter: 0 });
     expect((manifest.tableCuts as Array<Record<string, unknown>>)
       .find((cut) => cut.table === "events")).toMatchObject({
       afterKey: 0,
@@ -295,6 +295,59 @@ describe("nightly verified memory backup", () => {
     expect(kept).toBeLessThan(MEMORY_BACKUP_TABLES.length);
     expect((manifest.tableCuts as Array<{ table: string }>).map((cut) => cut.table))
       .toEqual(MEMORY_BACKUP_TABLES.slice(0, kept));
+  }, 300_000);
+
+  it("completes a run captured before a table was inserted in the middle of the list", async () => {
+    await env.DB.prepare("DELETE FROM scheduled_runs").run();
+    await appendEvents(2);
+    const backup = service({ stepsPerInvocation: 2, pageRowLimit: 1 });
+    expect((await backup.runNightly(runDate)).outcome).toBe("pending");
+
+    // 7b805fa2 inserted guided_assignment_answers mid-list. A run captured
+    // before that deploy has no cut for it, and every later cut sits one index
+    // lower than the table's index in the current constant. Rebuild exactly
+    // that run: drop the cut and shift the later ones down by one.
+    const inserted = "guided_assignment_answers";
+    const insertedIndex = MEMORY_BACKUP_TABLES.indexOf(inserted);
+    expect(insertedIndex).toBeGreaterThan(0);
+    expect(insertedIndex).toBeLessThan(MEMORY_BACKUP_TABLES.length - 1);
+    const runId = await env.DB.prepare("SELECT run_id FROM memory_backup_runs WHERE run_date = ?")
+      .bind(runDate).first<string>("run_id");
+    if (runId === null) throw new Error("memory_backup_run_missing_for_mid_list_test");
+    expect(await env.DB.prepare(`SELECT current_table_index FROM memory_backup_runs WHERE run_id = ?`)
+      .bind(runId).first("current_table_index")).toBeLessThan(insertedIndex);
+    // The cut table is append-only by trigger. Both guards are dropped for
+    // exactly these statements and restored from the schema's own text.
+    const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name IN (
+        'memory_backup_table_cuts_delete_guard', 'memory_backup_table_cuts_update_guard'
+      )`).all<{ name: string; sql: string }>();
+    expect(guards.results).toHaveLength(2);
+    for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+    try {
+      await env.DB.prepare("DELETE FROM memory_backup_table_cuts WHERE run_id = ? AND table_name = ?")
+        .bind(runId, inserted).run();
+      // Shift one row at a time in ascending order so the primary key never collides.
+      for (let index = insertedIndex + 1; index < MEMORY_BACKUP_TABLES.length; index += 1) {
+        await env.DB.prepare(`UPDATE memory_backup_table_cuts SET table_index = ?
+          WHERE run_id = ? AND table_index = ?`).bind(index - 1, runId, index).run();
+      }
+    } finally {
+      for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+    }
+
+    let outcome: MemoryBackupOutcome = { outcome: "pending", detail: "seeded" };
+    for (let invocation = 0; invocation < 80 && outcome.outcome === "pending"; invocation += 1) {
+      outcome = await service({ stepsPerInvocation: 2 }).continueActive(runDate);
+    }
+
+    expect(outcome.outcome).toBe("verified");
+    const manifest = await readLatestManifest();
+    expect((manifest.tableCuts as Array<{ table: string }>).map((cut) => cut.table))
+      .toEqual(MEMORY_BACKUP_TABLES.filter((table) => table !== inserted));
+    const exported = (manifest.objects as Array<{ table: string }>).map((object) => object.table);
+    expect(exported).toContain("events");
+    expect(exported).not.toContain(inserted);
   }, 300_000);
 
   it("finds a cut's descriptor by its own table name when the table list has grown", () => {
@@ -832,5 +885,6 @@ describe("nightly verified memory backup", () => {
     ]);
   });
 });
+
 
 

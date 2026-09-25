@@ -18,9 +18,14 @@ import {
   LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
+  historySearchText,
   rowText,
 } from "../../src/memory/literal-history.js";
-import { EventRepository, type AppendedEvent } from "../../src/persistence/event-repository.js";
+import {
+  EventRepository,
+  type AppendedEvent,
+  type SyncEventReader,
+} from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { applyArchiveLiteralHistoryMigration } from "../persistence/migration.js";
@@ -144,7 +149,7 @@ function clock(): TestClock {
   };
 }
 
-function service(events: EventRepository | TieredEventReader, time: TestClock): LiteralHistoryService {
+function service(events: SyncEventReader, time: TestClock): LiteralHistoryService {
   return new LiteralHistoryService({
     database: env.DB,
     events,
@@ -166,6 +171,32 @@ function redactPayload(value: unknown): RedactedJsonValue {
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => [key, redactPayload(child)]),
   );
+}
+
+/**
+ * A reader that returns one stored event with different payload text (and a
+ * matching content hash), standing in for a row written under older rules.
+ */
+async function rewrittenReader(
+  live: EventRepository,
+  sequence: number,
+  text: string,
+): Promise<SyncEventReader> {
+  return {
+    latestSequence: () => live.latestSequence(),
+    readRange: async (after, limit) => Promise.all((await live.readRange(after, limit)).map(async (event) => {
+      if (event.eventSequence !== sequence) return event;
+      const payload = { ...(event.envelope.payload as Record<string, unknown>), text };
+      return {
+        ...event,
+        envelope: {
+          ...event.envelope,
+          payload,
+          contentHash: await sha256Hex(canonicalJson(payload)),
+        } as AppendedEvent["envelope"],
+      };
+    })),
+  };
 }
 
 async function appendEnvelope(
@@ -560,29 +591,42 @@ describe("LiteralHistoryService", () => {
   });
 
   /**
-   * Against the real migrated schema, so 0016's CHECK on
-   * `memory_history_chunks.text` is in force. That CHECK still refuses every
-   * code point from 1 to 31, line breaks included: with the raw text written
-   * to the chunk this test fails as `memory_history_unavailable` and the
-   * cursor does not advance. The chunk now stores `historySearchForm` (line
-   * breaks as spaces) with the hash of the original, and the excerpt below is
-   * cut from the original event, so Sid still sees his line breaks.
+   * The acceptance test for the stuck history index. The 0016 CHECK on
+   * `memory_history_chunks.text` refuses every character below U+0020, so the
+   * chunk stores the search form (line breaks as spaces) while the event keeps
+   * the original. This runs against the real migrated schema.
    */
-  it("indexes a history row containing a newline, carriage return or tab", async () => {
+  it("indexes a history row containing a newline, carriage return or tab and moves the cursor past it", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);
-    await appendConversation(events, time, "The multi-line list is\nfirst\rsecond\tthird.");
-    await appendConversation(events, time, "The single-line control.");
+    const original = "The multi-line list is\nfirst\rsecond\tthird.";
+    await appendConversation(events, time, original);
+    await appendConversation(events, time, "The single-line teal control.");
+    await appendConversation(events, time, "Another line\nwith the violet word.");
     const literal = service(events, time);
 
     await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
-      .resolves.toMatchObject({ eventsExamined: 2, complete: true });
+      .resolves.toMatchObject({ eventsExamined: 3, chunksWritten: 3, rowsSkipped: 0, complete: true });
+    expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'fts_history'`).bind(OWNER_ID)
+      .first("current_event_sequence")).toBe(3);
+    const chunk = await env.DB.prepare(`SELECT text, content_hash FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = 1`).bind(OWNER_ID)
+      .first<{ text: string; content_hash: string }>();
+    expect(chunk).toEqual({
+      text: "The multi-line list is first second third.",
+      content_hash: await sha256Hex("The multi-line list is first second third."),
+    });
 
     const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "multi-line" });
-
     expect(result.status).toBe("hits");
     if (result.status !== "hits") throw new Error("literal_history_expected_multiline_hit");
-    expect(result.hits[0]?.excerpt).toBe("The multi-line list is\nfirst\rsecond\tthird.");
+    // The excerpt is cut from the stored event, so Sid gets his line breaks back.
+    expect(result.hits[0]?.excerpt).toBe(original);
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "violet" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 3, excerpt: "Another line\nwith the violet word." }] });
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "teal" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 2 }] });
   });
 
   it("lets a history row's line breaks through the row decoder while still refusing other control characters", () => {
@@ -593,16 +637,67 @@ describe("LiteralHistoryService", () => {
     expect(() => rowText("bell\u0007here", 1_024)).toThrow(LiteralHistoryError);
     expect(() => rowText("nul\u0000here", 1_024)).toThrow(LiteralHistoryError);
     expect(() => rowText("line\u2028separator", 1_024)).toThrow(LiteralHistoryError);
+    expect(historySearchText("a\nb\rc\td e")).toBe("a b c d e");
   });
 
-  it("still refuses a history row containing another control character", async () => {
+  it("skips one row it cannot decode, records the reason, and indexes the rest", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);
     await appendConversation(events, time, "A bell\u0007is not a line break.");
+    await appendConversation(events, time, "The saffron row after the bad one.");
     const literal = service(events, time);
 
     await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
-      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+      .resolves.toMatchObject({ eventsExamined: 2, chunksWritten: 1, rowsSkipped: 1, complete: true });
+    const coverage = await env.DB.prepare(`SELECT start_event_sequence, indexing_outcome, failure_code
+      FROM memory_history_coverage WHERE principal_id = ? ORDER BY start_event_sequence`)
+      .bind(OWNER_ID).all();
+    expect(coverage.results).toEqual([
+      { start_event_sequence: 1, indexing_outcome: "failed", failure_code: "history_row_text_invalid" },
+      { start_event_sequence: 2, indexing_outcome: "indexed", failure_code: null },
+    ]);
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "saffron" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 2 }] });
+    // The next step has nothing left to do: the skipped row is settled.
+    await expect(literal.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ eventsExamined: 0, refreshed: false, complete: true });
+  });
+
+  it("indexes a stored row that today's redactor would change instead of freezing the index", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "Placeholder for the stored text.");
+    await appendConversation(live, time, "The indigo row after it.");
+    const stored = "My door PIN is 4821 and my phone is 416-555-0199.";
+    // Precondition: the current rules would rewrite this text. Before this fix
+    // that difference stopped the whole index at this row.
+    expect(redactor.redactText(stored)).not.toMatchObject({ ok: true, text: stored });
+    const literal = service(await rewrittenReader(live, target.eventSequence, stored), time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ eventsExamined: 2, chunksWritten: 2, rowsSkipped: 0, complete: true });
+    expect(await env.DB.prepare(`SELECT text FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = ?`).bind(OWNER_ID, target.eventSequence)
+      .first("text")).toBe(stored);
+  });
+
+  it("settles a row whose refresh can no longer be decoded instead of refreshing it on every step", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "The ochre row indexes cleanly first.");
+    const literal = service(live, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+    await suppressEvent(live, time, target);
+    const broken = service(await rewrittenReader(live, target.eventSequence, "Now a bell\u0007row."), time);
+
+    await expect(broken.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ refreshed: true, rowsSkipped: 1, chunksWritten: 0 });
+    await broken.indexNext({ principalId: OWNER_ID });
+    await expect(broken.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ refreshed: false, complete: true });
+    expect(await env.DB.prepare(`SELECT failure_code FROM memory_history_coverage
+      WHERE principal_id = ? AND start_event_sequence = ? AND indexing_outcome = 'failed'`)
+      .bind(OWNER_ID, target.eventSequence).first("failure_code")).toBe("history_row_text_invalid");
   });
 
   it("accepts a search query that carries a line break", async () => {
@@ -612,14 +707,44 @@ describe("LiteralHistoryService", () => {
     const literal = service(events, time);
     await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
 
-    // `searchLiteral` does not persist its query, so this proves only the
-    // input filter. `createExhaustiveSearch` writes query_text, which 0025
-    // constrains the same way as a history chunk.
     const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "cobalt\nphrase" });
 
     expect(result.status).toBe("hits");
     if (result.status !== "hits") throw new Error("literal_history_expected_multiline_query_hit");
     expect(result.hits[0]?.excerpt).toContain("cobalt phrase");
+  });
+
+  it("creates and runs an exhaustive search whose query carries a line break", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The cerulean phrase is here.");
+    const literal = service(events, time);
+    const jobId = newUlid(time.now());
+
+    // query_text has the same 0025 CHECK as a chunk. Before this fix the
+    // insert failed and the model saw memory_history_unavailable.
+    await expect(literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId,
+      jobKey: "line-break-query",
+      query: "cerulean\nphrase",
+    })).resolves.toMatchObject({ jobId, status: "pending", query: "cerulean phrase" });
+    expect(await env.DB.prepare(`SELECT query_text, query_hash FROM memory_literal_search_jobs
+      WHERE job_id = ?`).bind(jobId).first()).toEqual({
+      query_text: "cerulean phrase",
+      query_hash: await sha256Hex("cerulean phrase"),
+    });
+    // The same request again is the same job, not a refusal.
+    await expect(literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId,
+      jobKey: "line-break-query",
+      query: "cerulean\nphrase",
+    })).resolves.toMatchObject({ jobId, attempt: 1 });
+    await expect(literal.runExhaustiveSearchStep({ principalId: OWNER_ID, jobId }))
+      .resolves.toMatchObject({ job: { status: "succeeded", matchedEventCount: 1 } });
+    await expect(literal.readExhaustiveSearchResult({ principalId: OWNER_ID, jobId }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 1 }] });
   });
 
   it("keeps an active suppression out of chunks, FTS, and results, then reindexes it after a lift", async () => {
@@ -1287,7 +1412,8 @@ describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
       .bind(OWNER_ID, spoken.eventSequence).first<{ text: string; content_hash: string }>();
     expect(chunk).toEqual({
       text: "Shopping list: vermilion paint brushes",
-      content_hash: await sha256Hex("Shopping list:\nvermilion paint\nbrushes"),
+      // #194: the chunk's hash covers the search form it stores.
+      content_hash: await sha256Hex("Shopping list: vermilion paint brushes"),
     });
   });
 

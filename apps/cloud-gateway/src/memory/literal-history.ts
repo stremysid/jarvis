@@ -8,7 +8,6 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import type { ArchiveManifest, ArchiveState } from "../archive/archive-repository.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
-import { Redactor } from "../security/redaction.js";
 import type { MemorySourceChannel, MemorySourceLocation } from "./memory-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -38,7 +37,6 @@ const MAX_JOB_EVENTS = 16;
 const MAX_JOB_TEXT_BYTES = 262_144;
 const TIERED_READ_D1_STATEMENT_CEILING = 6;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
 
 export const LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS = Object.freeze({
   d1Statements: 22,
@@ -65,10 +63,31 @@ export type LiteralHistoryErrorCode =
   | "memory_history_unavailable";
 
 export class LiteralHistoryError extends Error {
-  constructor(readonly code: LiteralHistoryErrorCode) {
+  /**
+   * `reason` names why one history row could not be decoded. The index records
+   * it as that row's `failure_code` and moves on; it is never an outage.
+   */
+  constructor(readonly code: LiteralHistoryErrorCode, readonly reason?: string) {
     super(code);
     this.name = "LiteralHistoryError";
   }
+}
+
+/**
+ * The form of a history message (or a stored search query) that is written to
+ * a search table. The 0016 and 0025 CHECKs on `memory_history_chunks.text` and
+ * `memory_literal_search_jobs.query_text` refuse every character below U+0020,
+ * so a line break or tab is written as a space. FTS5 `unicode61` already splits
+ * on all four, so the same queries match. The mapping is one character for one
+ * character, so offsets and byte lengths are unchanged.
+ *
+ * Only the search copy changes. The message itself stays byte-for-byte in the
+ * event log and R2; excerpts and recalled text are cut from that original, so
+ * Sid gets his line breaks back. A chunk's `content_hash` covers this search
+ * form, which is the text the chunk actually stores.
+ */
+export function historySearchText(text: string): string {
+  return text.replace(/[\n\r\t]/gu, " ");
 }
 
 export interface HistoryArchiveCatalog {
@@ -157,6 +176,8 @@ export interface HistoryIndexStepResult {
   readonly endEventSequence: number | null;
   readonly eventsExamined: number;
   readonly chunksWritten: number;
+  /** Rows that could not be decoded. Each is recorded as a `failed` coverage row with its reason. */
+  readonly rowsSkipped: number;
   readonly refreshed: boolean;
   readonly complete: boolean;
 }
@@ -319,24 +340,6 @@ export function rowText(value: unknown, maximumBytes: number): string {
     || value.normalize("NFC") !== value || encoder.encode(value).byteLength > maximumBytes
     || FORBIDDEN_TEXT_CONTROL.test(value)) corrupt();
   return value;
-}
-
-/**
- * The text a history chunk stores for full-text search: the message with each
- * line break and tab turned into a space.
- *
- * `memory_history_chunks.text` still carries 0016's CHECK, which refuses every
- * code point from 1 to 31, so a raw multi-line message fails the chunk insert
- * with `memory_history_unavailable` and the indexer cursor cannot pass it --
- * even after `rowText` stopped calling a line break corrupt. FTS5's
- * `unicode61` tokenizer already splits on both, so the same queries match. The
- * chunk's `content_hash` stays the hash of the ORIGINAL text, and every hit and
- * context message is cut from the original event, so the line breaks Sid typed
- * are what he is shown. Rebuilding the table without the CHECK is the cleaner
- * end state and can follow as its own migration (plan #122, section 3.2).
- */
-export function historySearchForm(text: string): string {
-  return text.replace(/[\n\r\t]/gu, " ");
 }
 
 function inputText(value: unknown, maximumBytes: number): string {
@@ -520,17 +523,56 @@ const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([
   "conversation.assistant_sent",
 ]);
 
+/**
+ * A call reply's payload may carry `memoryItemIds`: the ids of memories the
+ * reply cited, which a later "yes" on the same call is grounded in (#174). They
+ * are identifiers, not message text, so history reads the reply without them.
+ */
+function withoutMemoryReferences(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+    || !Object.hasOwn(value, "memoryItemIds")) return value;
+  const { memoryItemIds: _references, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
+function badRow(reason: string): never {
+  throw new LiteralHistoryError("memory_history_corrupt", reason);
+}
+
+function rowCheck<T>(reason: string, read: () => T): T {
+  try {
+    return read();
+  } catch {
+    badRow(reason);
+  }
+}
+
+/**
+ * Decodes one stored event into a history row. Every refusal names its reason,
+ * so the index can record that one row as skipped and keep going.
+ *
+ * There is deliberately no redaction check here. The text is Sid's own message
+ * as it was stored. Re-running today's redactor over it and stopping on any
+ * difference froze indexing whenever the redaction rules changed, and nothing
+ * in his own history is hidden from him.
+ */
 async function historyEvent(event: AppendedEvent, principalId: string): Promise<HistoryEvent | null> {
   let envelope: EventEnvelope;
   try {
     envelope = await validateEnvelope(event.envelope);
   } catch {
-    corrupt();
+    badRow("history_row_envelope_invalid");
   }
-  if (envelope.eventSequence !== event.eventSequence) corrupt();
+  if (envelope.eventSequence !== event.eventSequence) badRow("history_row_sequence_mismatch");
   if (envelope.subjectId !== principalId || !HISTORY_EVENT_TYPES.has(envelope.eventType)) return null;
-  if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") corrupt();
-  const payload = historyPayload(envelope.payload);
+  if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") {
+    badRow("history_row_producer_invalid");
+  }
+  const payload = rowCheck("history_row_payload_invalid", () => historyPayload(
+    envelope.eventType === "conversation.assistant_sent"
+      ? withoutMemoryReferences(envelope.payload)
+      : envelope.payload,
+  ));
   // Call replies stored before this change carry `historyEligible: false`. That
   // flag recorded the old "a spoken reply is not recall history" policy and says
   // nothing about the text, so for `assistant_sent` either value is admitted and
@@ -538,11 +580,11 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
   const eligible = envelope.eventType === "conversation.assistant_sent"
     ? typeof payload.historyEligible === "boolean"
     : payload.historyEligible === true;
-  if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || !eligible) corrupt();
-  const channel = sourceChannel(envelope.eventType, payload.channelCode);
-  const text = rowText(payload.text, MAX_EVENT_TEXT_BYTES);
-  const checked = redactor.redactText(text);
-  if (!checked.ok || checked.text !== text) corrupt();
+  if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || !eligible) {
+    badRow("history_row_not_history_eligible");
+  }
+  const channel = rowCheck("history_row_channel_invalid", () => sourceChannel(envelope.eventType, payload.channelCode));
+  const text = rowCheck("history_row_text_invalid", () => rowText(payload.text, MAX_EVENT_TEXT_BYTES));
   return Object.freeze({
     eventId: envelope.eventId,
     eventSequence: event.eventSequence,
@@ -554,6 +596,36 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
     text,
     textBytes: encoder.encode(text).byteLength,
   });
+}
+
+interface SkippedHistoryRow {
+  readonly eventSequence: number;
+  readonly reason: string;
+  readonly envelopeHash: Sha256Hex;
+}
+
+/**
+ * The receipt for a row the index could not decode, or null when the stored
+ * envelope names another subject (such a row is not this principal's history,
+ * exactly as a readable one would be passed over).
+ */
+async function skippedHistoryRow(
+  event: AppendedEvent,
+  principalId: string,
+  reason: string,
+): Promise<SkippedHistoryRow | null> {
+  const envelope: unknown = event.envelope;
+  const subject = envelope !== null && typeof envelope === "object"
+    ? (envelope as { subjectId?: unknown }).subjectId
+    : undefined;
+  if (typeof subject === "string" && subject !== principalId) return null;
+  let envelopeHash: Sha256Hex;
+  try {
+    envelopeHash = await sha256Hex(canonicalJson(envelope));
+  } catch {
+    envelopeHash = await sha256Hex(`unreadable-history-row:${event.eventSequence}`);
+  }
+  return Object.freeze({ eventSequence: event.eventSequence, reason, envelopeHash });
 }
 
 async function storedSearchEvent(row: SearchEventRow): Promise<AppendedEvent> {
@@ -613,12 +685,15 @@ export class LiteralHistoryService {
       );
       const maintenance = await this.readMaintenance(principalId);
       if (maintenance !== null) {
-        await this.indexSequences(principalId, maintenance.eventSequence - 1, 1, maxTextBytes, true, maintenance.changedAt);
+        const refreshed = await this.indexSequences(
+          principalId, maintenance.eventSequence - 1, 1, maxTextBytes, true, maintenance.changedAt,
+        );
         return Object.freeze({
           startEventSequence: maintenance.eventSequence,
           endEventSequence: maintenance.eventSequence,
           eventsExamined: 1,
           chunksWritten: await this.chunkCount(principalId, maintenance.eventSequence),
+          rowsSkipped: refreshed.rowsSkipped,
           refreshed: true,
           complete: false,
         });
@@ -634,6 +709,7 @@ export class LiteralHistoryService {
           endEventSequence: null,
           eventsExamined: 0,
           chunksWritten: 0,
+          rowsSkipped: 0,
           refreshed: false,
           complete: true,
         });
@@ -809,7 +885,8 @@ export class LiteralHistoryService {
     for (let index = 0; index < result.results.length; index += 1) {
       const row = result.results[index]!;
       const event = await historyEvent(events[index]!, principalId);
-      if (event === null || await sha256Hex(event.text) !== rowHash(row.candidate_content_hash)) corrupt();
+      if (event === null
+        || await sha256Hex(historySearchText(event.text)) !== rowHash(row.candidate_content_hash)) corrupt();
       if (!speakers.has(event.speaker)) continue;
       const span = matchSpan(event.text, terms.folded);
       if (span === null) corrupt();
@@ -959,7 +1036,16 @@ export class LiteralHistoryService {
       }
       const decoded: HistoryEvent[] = [];
       for (const event of raw) {
-        const history = await historyEvent(event, principalId);
+        let history: HistoryEvent | null;
+        try {
+          history = await historyEvent(event, principalId);
+        } catch (error) {
+          // A neighbour the index would skip is skipped here too; only the
+          // message asked about must decode.
+          if (error instanceof LiteralHistoryError && error.reason !== undefined
+            && event.eventSequence !== sequence) continue;
+          throw error;
+        }
         if (history !== null) decoded.push(history);
       }
       const target = decoded.find((event) => event.eventSequence === sequence);
@@ -998,7 +1084,9 @@ export class LiteralHistoryService {
       await this.requirePrincipal(principalId);
       const jobId = inputUlid(input.jobId);
       const jobKey = inputText(input.jobKey, 128);
-      const query = inputText(input.query, MAX_QUERY_BYTES);
+      // query_text has the same 0025 CHECK as a history chunk, so the job
+      // stores (and hashes) the search form. Its search terms are identical.
+      const query = historySearchText(inputText(input.query, MAX_QUERY_BYTES));
       searchTerms(query);
       const queryHash = await sha256Hex(query);
       const existing = await this.readJobByKey(principalId, jobKey);
@@ -1278,11 +1366,14 @@ export class LiteralHistoryService {
     eventSequence: number;
     changedAt: string;
   } | null> {
+    // A skipped row's `failed` coverage counts as coverage here, so a row that
+    // is refreshed and still cannot be decoded is settled by its new receipt
+    // instead of being retried on every step ahead of the rest of the index.
     const row = await this.options.database.prepare(`WITH exact_coverage AS (
         SELECT start_event_sequence AS event_sequence, source_location, r2_segment_id,
-          content_hash, indexed_at
+          indexing_outcome, content_hash, indexed_at
         FROM memory_history_coverage
-        WHERE principal_id = ? AND indexing_outcome = 'indexed'
+        WHERE principal_id = ?
           AND start_event_sequence = end_event_sequence
       ), suppression_changes AS (
         SELECT coverage.event_sequence,
@@ -1316,7 +1407,8 @@ export class LiteralHistoryService {
           WHERE archived_coverage.event_sequence = coverage.event_sequence
             AND archived_coverage.source_location = 'archived'
             AND archived_coverage.r2_segment_id = archived.segment_id
-            AND archived_coverage.content_hash = archived.envelope_sha256
+            AND (archived_coverage.indexing_outcome = 'failed'
+              OR archived_coverage.content_hash = archived.envelope_sha256)
         )
       ), call_reply_backfill AS (
         -- Call replies the cursor passed before they were history: until
@@ -1337,7 +1429,8 @@ export class LiteralHistoryService {
             WHERE coverage.principal_id = cursor_row.principal_id
               AND coverage.start_event_sequence = reply.sequence
               AND coverage.end_event_sequence = reply.sequence
-              AND coverage.indexing_outcome = 'indexed'
+              -- A reply that could not be decoded gets a `failed` coverage row
+              -- and is settled, like any other skipped row, not retried forever.
           )
       )
       SELECT event_sequence, changed_at FROM (
@@ -1384,10 +1477,24 @@ export class LiteralHistoryService {
     let endSequence = afterSequence;
     let textBytes = 0;
     const decoded: HistoryEvent[] = [];
+    const skipped: SkippedHistoryRow[] = [];
     for (let index = 0; index < rawEvents.length; index += 1) {
       const raw = rawEvents[index]!;
       if (raw.eventSequence !== afterSequence + index + 1) corrupt();
-      const event = await historyEvent(raw, principalId);
+      let event: HistoryEvent | null;
+      try {
+        event = await historyEvent(raw, principalId);
+      } catch (error) {
+        // One row that cannot be decoded must not stop the index. It is
+        // recorded with its reason and the cursor moves past it. Errors with
+        // no row reason (the read, the archive, the database) still stop the
+        // step, because they are not about this row.
+        if (!(error instanceof LiteralHistoryError) || error.reason === undefined) throw error;
+        endSequence = raw.eventSequence;
+        const row = await skippedHistoryRow(raw, principalId, error.reason);
+        if (row !== null) skipped.push(row);
+        continue;
+      }
       const nextBytes = textBytes + (event?.textBytes ?? 0);
       if (endSequence > afterSequence && nextBytes > maxTextBytes) break;
       if (nextBytes > maxTextBytes) corrupt();
@@ -1400,6 +1507,36 @@ export class LiteralHistoryService {
     const timestamp = nowTimestamp(this.options.now, changedAt ?? updatedAtFloor);
     const statements: D1PreparedStatement[] = [];
     let chunksWritten = 0;
+    for (const row of skipped) {
+      const receipt = await this.sourceReceipt(row.eventSequence, before, archivedManifest);
+      statements.push(this.options.database.prepare(`DELETE FROM memory_history_chunks
+        WHERE principal_id = ? AND start_event_sequence = ? AND end_event_sequence = ?`)
+        .bind(principalId, row.eventSequence, row.eventSequence));
+      // A live row is recorded only when the stored event is this principal's;
+      // the coverage guard would refuse anything else and take the batch with it.
+      statements.push(this.options.database.prepare(`INSERT INTO memory_history_coverage (
+        coverage_id, principal_id, source_location, start_event_sequence,
+        end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
+        failure_code, indexed_at
+      ) SELECT ?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?
+        WHERE ? = 'archived' OR EXISTS (
+          SELECT 1 FROM events WHERE sequence = ? AND subject_id = ?
+        )`)
+        .bind(
+          this.options.nextId(),
+          principalId,
+          receipt.sourceLocation,
+          row.eventSequence,
+          row.eventSequence,
+          receipt.r2SegmentId,
+          row.envelopeHash,
+          row.reason,
+          timestamp,
+          receipt.sourceLocation,
+          row.eventSequence,
+          principalId,
+        ));
+    }
     for (const event of decoded) {
       if (event.eventSequence > endSequence) continue;
       const receipt = await this.sourceReceipt(event.eventSequence, before, archivedManifest);
@@ -1432,8 +1569,8 @@ export class LiteralHistoryService {
             principalId,
             event.eventSequence,
             event.eventSequence,
-            historySearchForm(event.text),
-            await sha256Hex(event.text),
+            historySearchText(event.text),
+            await sha256Hex(historySearchText(event.text)),
             receipt.sourceLocation,
             receipt.r2SegmentId,
             event.envelopeHash,
@@ -1462,6 +1599,7 @@ export class LiteralHistoryService {
       endEventSequence: endSequence,
       eventsExamined: endSequence - afterSequence,
       chunksWritten,
+      rowsSkipped: skipped.length,
     });
   }
 

@@ -17,10 +17,8 @@ import { ArchivalService } from "../../src/archive/archival-service.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
-import {
-  OWNER_TELEGRAM_TOOL_DEFINITIONS,
-  OwnerTelegramAgentAdapter,
-} from "../../src/channels/telegram/owner-telegram-agent.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import { createVoiceStreamDelivery } from "../../src/conversation/conversation-types.js";
@@ -41,7 +39,6 @@ import type {
   TelegramSendMessageInput,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { OWNER_VOICE_TOOL_DEFINITIONS } from "../../src/voice/voice-agent.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
@@ -204,16 +201,21 @@ beforeAll(async () => {
 });
 
 describe("the history_search tool definition", () => {
-  it("is offered with one identical definition to Telegram and to calls, within the provider's tool cap", () => {
+  it("is offered with one identical definition to Telegram and to calls, within the provider's tool cap", async () => {
+    // #174 made one owner catalogue for both channels; this checks what each
+    // channel actually sends the model, not only the shared list.
     const shared = MEMORY_TOOL_DEFINITIONS.filter((definition) => definition.name === "history_search");
-    const telegram = OWNER_TELEGRAM_TOOL_DEFINITIONS.filter((definition) => definition.name === "history_search");
-    const voice = OWNER_VOICE_TOOL_DEFINITIONS.filter((definition) => definition.name === "history_search");
+    const who = await owner();
+    const telegram = (await telegramTurn(who, "hello", "Hi."))[0]?.tools ?? [];
+    const call = (await callTurn(who, "hello", "Hi."))[0]?.tools ?? [];
 
     expect(shared).toHaveLength(1);
-    expect(telegram).toEqual(shared);
-    expect(voice).toEqual(shared);
-    expect(OWNER_TELEGRAM_TOOL_DEFINITIONS.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
-    expect(OWNER_VOICE_TOOL_DEFINITIONS.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
+    expect(OWNER_TOOL_DEFINITIONS.filter((definition) => definition.name === "history_search")).toEqual(shared);
+    expect(telegram.filter((definition) => definition.name === "history_search")).toEqual(shared);
+    expect(call.filter((definition) => definition.name === "history_search")).toEqual(shared);
+    expect(OWNER_TOOL_DEFINITIONS.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
+    expect(telegram.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
+    expect(call.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
     expect(AGENT_MAX_TOOLS).toBe(64);
   });
 
@@ -263,18 +265,6 @@ describe("history_search through the owner agents", () => {
     ]));
     // The search turns themselves are newer than the index, and the result says so.
     expect(fromCall.receipt).toContain("Index coverage: incomplete.");
-  });
-
-  it("stores a new call reply as history, the same as a delivered Telegram reply", async () => {
-    const who = await owner();
-    await callTurn(who, "What is on for tonight?", "Chemistry revision at seven.");
-
-    const row = await env.DB.prepare(`SELECT envelope_json FROM events
-      WHERE subject_id = ? AND event_type = 'conversation.assistant_sent'`)
-      .bind(who.principalId).first<{ envelope_json: string }>();
-
-    expect((JSON.parse(row?.envelope_json ?? "{}") as { payload?: { historyEligible?: unknown } })
-      .payload?.historyEligible).toBe(true);
   });
 
   it("refuses history_search on Telegram when the turn is not Sid's direct text", async () => {

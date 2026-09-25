@@ -1,16 +1,9 @@
-/**
- * Telegram's half of the owner agent.
- *
- * The loop, the caps, the tier gate, the receipt guard and the nine memory
- * tools live in `src/agent/owner-agent-core.ts`, because at `d0ec419` they lived
- * here and the voice path could not reach any of them. What remains in this file
- * is what is genuinely Telegram's: the swipe-reply target check, the inline
- * keyboard a tier-3 confirmation is tapped with, the referral records that reach
- * the staged assistant event, and the school/university/study pipeline adapters.
- */
+/** Telegram supplies ingress proof, swipe targets and inline consent to the shared owner agent. */
 
 import { validateEnvelope, type Ulid } from "../../../../../packages/contracts/src/index.js";
-import type { ArchiveBucket } from "../../archive/archival-service.js";import type { ToolAutonomyGateContract } from "../../autonomy/tool-gate.js";
+import { sanitizeRedaction } from "../../../../../packages/contracts/src/calls.js";
+import type { ArchiveBucket } from "../../archive/archival-service.js";
+import type { ToolAutonomyGateContract } from "../../autonomy/tool-gate.js";
 import type { DecisionItem, RaiseDecisionInput } from "../../decisions/decision-types.js";
 import { buildDecisionKeyboard } from "../../decisions/telegram-keyboard.js";
 import {
@@ -22,20 +15,22 @@ import {
   type ModelAdapter,
   type ModelAdapterStreamInput,
 } from "../../model/model-adapter.js";
-import { MEMORY_TOOL_DEFINITIONS } from "../../memory/memory-tools.js";
-import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../../agent/owner-argument-tools.js";
-import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../school/guided-assignment-tools.js";
+import { OWNER_TOOL_DEFINITIONS } from "../../agent/owner-tools.js";
+import { ownerPipelineModel } from "../../agent/owner-pipelines.js";
+import { ownerArgumentTool } from "../../agent/owner-argument-tools.js";
 import type { TelegramProvider } from "../../providers/provider-types.js";
-import { SCHOOL_COLLECTOR_TOOLS } from "../../school/collector-tools.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
 import { readTelegramMemoryOwnerTurn } from "../../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../../memory/memory-types.js";
-import type { TelegramMemoryTargetFinder } from "../../memory/memory-control-targets.js";
+import {
+  citedMemoryItemIds,
+  stagedMemoryItemIds,
+  type TelegramMemoryTargetFinder,
+} from "../../memory/memory-control-targets.js";
 import type {
   ModelAgentProvider,
   ModelFunctionCall,
-  ModelFunctionDefinition,
 } from "../../providers/provider-types.js";
 import {
   composeReceiptReply,
@@ -52,28 +47,6 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const encoder = new TextEncoder();
 
 export { OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT, ownerAgentTurnTimeoutMs };
-
-export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  ...MEMORY_TOOL_DEFINITIONS,
-  ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
-  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
-  ...SCHOOL_COLLECTOR_TOOLS,
-  Object.freeze({
-    name: "school_update",
-    description: "Save school work and replan catch-up from Sid's current message: a pasted D2L assignment list, 'I missed the Chemistry lab', 'I finished the English essay', or 'what should I do today'. Records work per course, completion reports and a proposed study schedule. Use this even when pasted assignment instructions mention emailing a teacher; it cannot contact anyone or submit work. Use deadline_record for a dated deadline, a missed deadline or an explicit submission; finished alone does not mean submitted.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-  Object.freeze({
-    name: "university_update",
-    description: "Update university planning when Sid names a shortlist, admission requirement, application date or progress, for example 'add Waterloo Computer Science' or 'I finished my application draft'. Keeps supplied dates visibly verified or unverified. Use school_update for a pasted school assignment list or missed classwork. This prepares and records plans; it cannot submit applications or contact anyone.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-  Object.freeze({
-    name: "study_coach",
-    description: "Help Sid learn or practise a topic, for example 'explain titration', 'quiz me on derivatives', or 'I missed the lesson on quadratics; teach me'. Use school_update to save a pasted assignment list, record 'I finished the lab', or plan 'what should I do today'; use study_coach for the actual explanation, practice and feedback.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
-]);
 
 export interface OwnerTelegramAgentDependencies {
   readonly guidedAssignmentTelegram?: TelegramProvider;
@@ -106,7 +79,9 @@ export interface OwnerTelegramAgentDependencies {
 
 interface PreviousAssistantRow {
   readonly turn_id: unknown;
+  readonly user_event_id: unknown;
   readonly staged_event_id: unknown;
+  readonly staged_envelope_json: unknown;
   readonly delivered_event_id: unknown;
   readonly delivered_envelope_json: unknown;
   readonly provider_message_id: unknown;
@@ -115,6 +90,8 @@ interface PreviousAssistantRow {
 interface PreviousAssistantEvidence {
   readonly text: string;
   readonly providerMessageId: string;
+  readonly eventId: Ulid;
+  readonly itemIds: readonly Ulid[];
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -138,9 +115,15 @@ export function ownerTelegramAgentSystemPrompt(
 }
 
 export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
+  private readonly authorityText: string;
+
   constructor(private readonly telegram: OwnerTelegramAgentDependencies) {
     super(telegram, snapshotTelegramModelAdapterStreamInput);
-    safeText(telegram.authorityText, 65_536);
+    // handleTurn supplies redacted text to the model and durable owner proof.
+    // Comparing it with raw ingress text falsely denies every redacted turn.
+    const authority = sanitizeRedaction(safeText(telegram.authorityText, 65_536));
+    if (!authority.ok) throw new TypeError("owner_agent_authority_invalid");
+    this.authorityText = authority.text;
     if (telegram.replyToBotMessageId !== undefined && telegram.replyToBotMessageId !== null
       && (!Number.isSafeInteger(telegram.replyToBotMessageId) || telegram.replyToBotMessageId <= 0)) {
       throw new TypeError("owner_agent_authority_invalid");
@@ -151,13 +134,13 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     const adapter = this;
     return Object.freeze({
       channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time.`,
-      toolDefinitions: OWNER_TELEGRAM_TOOL_DEFINITIONS,
+      toolDefinitions: OWNER_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
       // gate, so a steered or forwarded turn is not even audited as an action.
       canActOn: (): boolean => {
         if (input.channel !== "telegram" || input.principalId !== adapter.telegram.ownerPrincipalId
-          || adapter.telegram.authorityText !== input.userText) return false;
+          || adapter.authorityText !== input.userText) return false;
         return true;
       },
       authorityRefusal:
@@ -185,23 +168,25 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
           replyMarkup: buildDecisionKeyboard(decision),
         }));
       },
+      inferredMemoryConfirmationRefusal: "",
       confirmationSurfaceRefusal: "",
       replyTargetsLatestAssistant: (turnInput: Readonly<ModelAdapterStreamInput>) =>
         adapter.replyTargetsLatestAssistant(turnInput),
       replyTargetRefusal:
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
-      pipelineModel: (call: ModelFunctionCall): ModelAdapter | null => {
-        if (call.name === "school_update") return adapter.telegram.schoolModel;
-        if (call.name === "university_update") return adapter.telegram.universityModel;
-        if (call.name === "study_coach") return adapter.telegram.studyCoachModel;
-        return null;
-      },
+      pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
         () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto",
         () => readTelegramMemoryOwnerTurn({ database: adapter.telegram.database, modelInput: input, memoryIntent: null })),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
-      previousAssistantText: async (turnInput: Readonly<ModelAdapterStreamInput>) =>
-        (await adapter.previousAssistant(turnInput))?.text ?? null,
+      previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
+        const previous = await adapter.previousAssistant(turnInput);
+        return previous === null ? null : Object.freeze({
+          text: previous.text,
+          eventId: previous.eventId,
+          itemIds: previous.itemIds,
+        });
+      },
       composeReply: composeReceiptReply,
     });
   }
@@ -212,15 +197,16 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
    * `evidenceClass: "confirmed"`, and `memory_confirm`.
    *
    * Scoped to `channel = 'telegram'` because a swipe reply is a Telegram
-   * gesture and the provider message id it points at is Telegram's. The voice
-   * adapter answers null here, which those tools turn into a refusal rather
-   * than a guess.
+   * gesture and the provider message id it points at is Telegram's. Voice reads
+   * its corresponding settled relay event through `readPreviousVoiceAssistant`.
    */
   private async previousAssistant(
     input: Readonly<ModelAdapterStreamInput>,
   ): Promise<PreviousAssistantEvidence | null> {
     const row = await this.telegram.database.prepare(`SELECT previous.turn_id,
-        delivery.staged_event_id, previous.delivered_assistant_event_id AS delivered_event_id,
+        previous.user_event_id, delivery.staged_event_id,
+        staged.envelope_json AS staged_envelope_json,
+        previous.delivered_assistant_event_id AS delivered_event_id,
         delivered.envelope_json AS delivered_envelope_json,
         delivery.provider_message_id AS provider_message_id
       FROM conversation_turns current
@@ -230,13 +216,16 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         AND previous.channel = 'telegram'
       JOIN events previous_user ON previous_user.event_id = previous.user_event_id
       JOIN conversation_deliveries delivery ON delivery.delivery_id = previous.staged_delivery_id
+      JOIN events staged ON staged.event_id = delivery.staged_event_id
       JOIN events delivered ON delivered.event_id = previous.delivered_assistant_event_id
       WHERE current.turn_id = ? AND current.principal_id = ? AND current.channel = 'telegram'
         AND previous.state = 'delivered' AND previous_user.sequence < current_user.sequence
       ORDER BY previous_user.sequence DESC LIMIT 1`)
       .bind(input.correlationId, input.principalId).first<PreviousAssistantRow>();
-    if (row === null || typeof row.delivered_envelope_json !== "string") return null;
+    if (row === null || typeof row.staged_envelope_json !== "string"
+      || typeof row.delivered_envelope_json !== "string") return null;
     const turnId = safeUlid(row.turn_id);
+    const userEventId = safeUlid(row.user_event_id);
     const stagedEventId = safeUlid(row.staged_event_id);
     const deliveredEventId = safeUlid(row.delivered_event_id);
     let decoded: unknown;
@@ -254,9 +243,19 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
     const payload = envelope.payload as Record<string, unknown>;
     if (payload.schemaCode !== 1 || payload.channelCode !== 2 || payload.sensitivityCode !== 1
       || payload.historyEligible !== true) throw new TypeError("owner_agent_previous_reply_invalid");
+    const text = safeText(payload.text, 65_536);
+    const stagedIds = await stagedMemoryItemIds({
+      envelopeJson: row.staged_envelope_json,
+      eventId: stagedEventId,
+      turnId,
+      userEventId,
+      principalId: input.principalId,
+    });
     return Object.freeze({
-      text: safeText(payload.text, 65_536),
+      text,
       providerMessageId: safeText(row.provider_message_id, 128),
+      eventId: deliveredEventId,
+      itemIds: Object.freeze([...new Set([...stagedIds, ...citedMemoryItemIds(text)])]),
     });
   }
 

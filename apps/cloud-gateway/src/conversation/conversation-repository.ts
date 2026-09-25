@@ -694,11 +694,10 @@ export class ConversationRepository {
       principalId: binding.principalId,
       correlationId: binding.turnId,
       causationId: binding.userEventId,
-      // A call reply is history, the same as a delivered Telegram reply: calls
-      // and Telegram are one conversation (Sid's rule 3). Replies written before
-      // this carry `false`, and every history reader admits either value for
-      // `assistant_sent`, so this flag no longer decides anything for this type.
-      payload: historyPayload("voice", text, true),
+      payload: Object.freeze({
+        ...assistantStagePayload(text, takePendingTelegramMemoryReferences(binding.turnId), null),
+        channelCode: 1,
+      }),
       nowIso: observedAt.iso,
     });
     const requestHash = await sha256Hex(canonicalJson(["voice-sent-v1", binding.turnId, contentHash]));

@@ -924,7 +924,9 @@ describe("living memory notes", () => {
       topicId: topic.topicId,
       sourceIds: topic.sources.map((source) => source.id),
       reason: "Wrote the note in my own words.",
-      markdown: `${topic.name}: tea, and a calm morning.`,
+      // The id-shaped token is not a source. Prose is the model's; code does
+      // not read ids out of it.
+      markdown: `${topic.name}: tea, and a calm morning. Order 01k5nm0000000000000000000z.`,
     })));
 
     const result = await workflow(memory, provider).runNight();
@@ -939,7 +941,7 @@ describe("living memory notes", () => {
       .all<{ markdown: string }>();
     expect(notes.results).toHaveLength(2);
     for (const { markdown } of notes.results) {
-      expect(markdown).toMatch(/: tea, and a calm morning\.$/u);
+      expect(markdown).toMatch(/: tea, and a calm morning\. Order 01k5nm0000000000000000000z\.$/u);
     }
   });
 
