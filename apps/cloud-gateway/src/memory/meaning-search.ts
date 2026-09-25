@@ -7,6 +7,7 @@ import {
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
 import type { SyncEventReader } from "../persistence/event-repository.js";
+import { historySearchForm } from "./literal-history.js";
 
 export const MEMORY_EMBEDDING_MODEL = "@cf/baai/bge-m3";
 export const MEMORY_EMBEDDING_DIMENSIONS = 1_024;
@@ -725,8 +726,11 @@ export class MemoryMeaningService implements MeaningSearchReader {
     if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1"
       || envelope.payload === null || typeof envelope.payload !== "object"
       || Array.isArray(envelope.payload) || !("text" in envelope.payload)
-      || envelope.payload.text !== candidate.text
-      || await sha256Hex(candidate.text) !== candidate.contentHash) {
+      || typeof envelope.payload.text !== "string"
+      // The chunk stores the search form (line breaks as spaces) and the hash
+      // of the original text; see `historySearchForm`.
+      || historySearchForm(envelope.payload.text) !== candidate.text
+      || await sha256Hex(envelope.payload.text) !== candidate.contentHash) {
       throw new TypeError("memory_meaning_event_invalid");
     }
     return true;

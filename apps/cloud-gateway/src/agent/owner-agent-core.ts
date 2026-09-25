@@ -50,6 +50,7 @@ import {
   type MemoryExplanation,
 } from "../memory/memory-owner-controls.js";
 import { composeCoreProfile, readCoreProfile } from "../memory/core-profile.js";
+import { HISTORY_SEARCH_TOOL_NAME, HistorySearchTool } from "../memory/history-search.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import {
   composeMemorySearchResults,
@@ -1114,6 +1115,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         now: this.dependencies.now ?? (() => new Date()),
       }).execute(input, call);
     }
+    if (call.name === HISTORY_SEARCH_TOOL_NAME) {
+      // A read of the owner's own stored conversation: the same owner authority
+      // and tier gate as memory_search, on both channels. It does not take the
+      // swipe-target check, which grounds a memory *write* in the reply Sid is
+      // answering; a search grounds nothing and changes nothing.
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return this.historySearch(input, call);
+    }
     // The gate can consume a tap. Finish channel refusals first so a call that
     // cannot dispatch does not spend approval or record an authorized action.
     // Once dispatch starts, audit or tool failures do not refund that tap.
@@ -1583,6 +1594,26 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       composed ?? "Memory search returned no matching memory. Nothing matched, which is not a failure; say you do not have anything on it.",
       Object.freeze(results.map((result) => result.itemId as Ulid)),
     );
+  }
+
+  /**
+   * `history_search`: the real messages, found by their words. Like
+   * `memory_search` it mints no receipt, because looking changes nothing; a
+   * failed search is returned as `refused` with its reason, never as an empty
+   * result the model could read as "Sid never said that".
+   */
+  private async historySearch(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool> {
+    const outcome = await new HistorySearchTool({
+      database: this.dependencies.database,
+      archive: this.dependencies.archive,
+      now: this.dependencies.now,
+    }).run(input.principalId, call.arguments);
+    return outcome.status === "completed"
+      ? unactionedTool(call, outcome.evidence, Object.freeze([]))
+      : refusedTool(call, outcome.evidence);
   }
 
   private async runPipeline(

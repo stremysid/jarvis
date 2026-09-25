@@ -29,6 +29,17 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   "directOwnerText",
 ]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
+/**
+ * Sid's messages on either channel, Jarvis's delivered Telegram replies, and
+ * Jarvis's spoken call replies (`assistant_sent`). Without the third, what
+ * Jarvis said on a call was missing from the recent context of that same call
+ * and of the next Telegram turn.
+ */
+const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "conversation.user_committed",
+  "conversation.assistant_delivered",
+  "conversation.assistant_sent",
+]);
 const MAX_CANDIDATES = 128;
 const MAX_FACT_CANDIDATES = 128;
 const MAX_FACT_ITEMS = 32;
@@ -180,7 +191,7 @@ function snapshotRows(value: unknown): readonly StoredHistoryRow[] {
     );
     if (!Number.isSafeInteger(row.sequence) || (row.sequence as number) <= 0
       || typeof row.event_id !== "string" || !ULID.test(row.event_id)
-      || row.event_type !== "conversation.user_committed" && row.event_type !== "conversation.assistant_delivered"
+      || typeof row.event_type !== "string" || !HISTORY_EVENT_TYPES.has(row.event_type)
       || typeof row.subject_id !== "string" || typeof row.content_hash !== "string"
       || typeof row.envelope_json !== "string") {
       throw new TypeError("context_row_invalid");
@@ -349,8 +360,15 @@ async function executeStatements(
 
 function historyText(payload: unknown, eventType: string): string {
   const value = historyPayload(payload);
-  if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
+  // A call reply stored before call replies were history carries
+  // `historyEligible: false`; that recorded a policy, not anything about the
+  // text, so `assistant_sent` admits either value. See literal-history.ts.
+  const eligible = eventType === "conversation.assistant_sent"
+    ? typeof value.historyEligible === "boolean"
+    : value.historyEligible === true;
+  if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || !eligible
     || eventType === "conversation.assistant_delivered" && value.channelCode !== 2
+    || eventType === "conversation.assistant_sent" && value.channelCode !== 1
     || eventType === "conversation.user_committed" && value.channelCode !== 1 && value.channelCode !== 2) {
     throw new TypeError("context_payload_invalid");
   }
@@ -439,7 +457,9 @@ export class D1ContextRetriever implements ContextRetriever {
     const historyStatement = this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
       FROM events INDEXED BY events_subject_sequence_idx
       WHERE subject_id = ?1
-        AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+        AND event_type IN (
+          'conversation.user_committed', 'conversation.assistant_delivered', 'conversation.assistant_sent'
+        )
         AND NOT EXISTS (
           SELECT 1 FROM memory_active_event_suppressions suppression
           WHERE suppression.principal_id = ?1

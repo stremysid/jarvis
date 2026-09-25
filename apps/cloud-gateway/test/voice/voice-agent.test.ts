@@ -659,7 +659,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
     expect(request?.tools.map((definition) => definition.name)).toEqual([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
-      "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
+      "memory_confirm", "memory_explain", "memory_search", "history_search", "memory_pin", "memory_unpin",
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke",

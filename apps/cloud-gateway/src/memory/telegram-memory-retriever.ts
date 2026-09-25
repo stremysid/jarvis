@@ -22,6 +22,7 @@ import {
   LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
+  historySearchForm,
   type LiteralHistoryHit,
   type LiteralHistorySearchResult,
 } from "./literal-history.js";
@@ -1564,7 +1565,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       const channel = payload.channelCode === 1 ? "voice" : payload.channelCode === 2 ? "telegram" : null;
       const text = safeText(payload.text, 32_768, "telegram_memory_meaning_history_invalid");
       if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || payload.historyEligible !== true
-        || channel === null || text !== chunkText || await sha256Hex(text) !== hit.contentHash) {
+        || channel === null || historySearchForm(text) !== chunkText
+        || await sha256Hex(text) !== hit.contentHash) {
         throw new TypeError("telegram_memory_meaning_history_invalid");
       }
       const source = row.source_location === "live" ? "live D1" : "R2";
