@@ -3,6 +3,17 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: #195 audit round (web tools own-origin fail-closed)
+
+Signed: Claude (builder agent), branch `codex/web-tools`. Touches rules 1, 2, 3, 8, 9. Answers the DeepSeek audit of `d18f05f5` (posted on [#195](https://github.com/stremysid/jarvis/pull/195)).
+
+- **Merged `origin/main` at `605c1773`** (#174, #194). The migration lists keep both `0048` (main) and `0049` (this PR). Since #174 both adapters use `OWNER_TOOL_DEFINITIONS`, so the web catalogue test now asserts that one list.
+- **F1, fixed.** When `PUBLIC_ORIGIN` is missing, blank, unparseable or not http(s), `web_read` now refuses every URL with an `own_origin_unknown` receipt and fetches nothing. The receipt tells Jarvis to tell Sid the secret needs setting. `web_search` is unaffected. Tested through `webToolsFromEnv`.
+- **F2, stated rather than fixed.** Cloudflare's browser follows redirects off this Worker, so this code cannot re-check them. The module doc, the result (`redirectsChecked: false`) and the entry below now say so.
+- **F3, F5 fixed; F4 documented** in the `0049` comments; F6 needs no code change.
+- **Evidence:** `web-tools.test.ts` 23/23 locally; gateway `typecheck` clean; `typecheck:tests` 143 errors, none in touched files. `mutate.ps1`: 7 killed, 0 survived, 0 not applied.
+- **Not verified:** whether production actually has `PUBLIC_ORIGIN` set. `docs/runbooks/deploy.md` lists it under calling secrets "set in production", but that was not checked live. If it is missing, `web_read` will say so.
+
 ## 2026-09-25 — Claude builder: #194 round 2 (history line breaks, bad rows, older backup sets)
 
 Signed: Claude (builder agent), branch `codex/memory-fixes` after `e53dc852` plus a
@@ -109,7 +120,7 @@ Signed: Claude (builder agent), branch `codex/web-tools` from `e831e341`. Sid ap
   - The code is in `apps/cloud-gateway/src/web/web-tools.ts`. `OwnerAgentCore.executeCall` dispatches both tools after the tier gate.
 - **The AI decides.** No topic, keyword or site rules. The only limits:
   - http/https only;
-  - never `PUBLIC_ORIGIN`'s host, with every redirect re-checked;
+  - never `PUBLIC_ORIGIN`'s host, with every redirect re-checked on the direct path (not on the Browser Rendering path, and `web_read` refuses outright when `PUBLIC_ORIGIN` is unset: corrected in the audit round below);
   - timeouts;
   - a 5 MB download cap and a 20,000-character reply cap.
 
