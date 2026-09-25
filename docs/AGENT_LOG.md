@@ -3,6 +3,49 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — Claude builder: PR #190 round 2 (ordinary mail kept out of D2L accounting)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, round 2
+on top of `a056a09` after merging origin/main `e831e34`. Worktree `C:\w\fix190`,
+removed after the push. Never merged, never deployed, no migration touched.
+This round is Claude-authored, so it needs a DeepSeek audit (reviewer vendor ≠
+builder vendor). Touches rules 1, 3, 4 and 8.
+
+- **F1 (high).** `handleD2lNotificationEmail` now returns `outside_d2l_scope`
+  before it writes anything when the envelope recipient is not the ingest
+  address or the visible From is not a pinned D2L domain. Those are the two
+  routing facts it already measured; no sender, domain, keyword or content rule
+  was added. The scope check now runs before the size, parse and
+  authentication checks, because a large ordinary email or one whose DMARC
+  failed used to be counted as `message_too_large` or `authentication_failed`
+  first. An unparsed message's From is read from the delivered header block
+  with postal-mime's own address parser. Result: ordinary mail never records a
+  D2L source failure, never grows the refusal streak and never reaches the
+  "check Email Routing and sender pins" notice.
+- **Tradeoff.** A real D2L notification that arrives through a recomposed
+  manual forward, or from a D2L sending domain nobody pinned, no longer sets off
+  that notice. It is still in the inbox, where Jarvis can read it.
+- **F2 (medium).** No D2L row for out-of-scope mail, and `EmailInbox.list`
+  lists a legacy quarantine only if it predates the owner's first inbox row. An
+  in-scope refused D2L notification is listed once (its inbox row). It is still
+  readable by id.
+- **F3.** The Gmail test now runs the production email path with school config,
+  reads through the real Telegram read dispatch and checks the reply after the
+  production output redactor. Gmail's real code is eight digits after
+  "Confirmation code:" (public archived samples), which no existing rule
+  touches. The redactor is unchanged (#183 owns it, and a Python mirror is held
+  to the same fixture). The read tool now says which digit forms the reply
+  redactor hides, so the model quotes a code with the email's own label. A
+  six-digit code, or any code after "verification code", is still redacted from
+  replies; that is the existing rule for login codes and Sid's PIN.
+- **F5.** Read pages are sized so their JSON fits the 8,192-byte evidence cap;
+  `next_offset` is the first byte not delivered. List pages are cut at a whole
+  row, with `rows_omitted_to_fit` and `resume_offset`.
+- **Evidence.** Focused tests (both `test/email` files and
+  `d2l-email-handler.test.ts`, one worker): 101 passed, 0 failed, 0 skipped.
+  `reviewer-tools/mutate.ps1`: 7 of 7 mutants killed, each confirmed on a second
+  run, files restored byte-identical. CI results are in the PR comment.
+
 ## 2026-09-24 — DeepSeek builder: the owner email inbox
 
 Signed: DeepSeek V4.1 Flash (builder), branch `codex/email-inbox-ds` from
