@@ -1,236 +1,605 @@
-# Code versus judgment — the decisions currently written in code
+# Code versus judgment — the removal list
 
-The roadmap's core rule, the one this file exists to make workable:
+Sid, 2026-09-24, quoted in [#186](https://github.com/stremysid/jarvis/issues/186): "code gives
+jarvis unfiltered unrestricted access and words, jarvis makes decisions, code should never make
+a decision or restrict jarvis" and "the AI IS THE BRAIN IT CAN THINK AND DECIDE, we r using
+frontier ai".
 
-> **Code builds tools. Jarvis makes every decision.**
+**Every row below is a place where code decides meaning or restricts Jarvis, against that rule.**
 
-The test, in one question: **am I writing code that decides, or code that enables?**
+- **Rows are removed, never copied.** A row is not an accepted exception, and writing it down
+  does not cure it. See [Sid's rules](../AGENTS.md#sids-rules-read-these-first).
+- **New code must not add rows.** A change that adds a condition deciding what Sid meant, or
+  narrowing what Jarvis may see, say or do, is a blocker in review, not disclosed debt.
+- **Code keeps its legitimate jobs:** authority, gates on actions taken as Sid, receipts,
+  storage validation, transport and budgets. Those are listed at the end so nobody re-flags them.
 
-An `if` that makes a judgment call — how many results, what counts as relevant, whether to
-act at all — is a decision, and decisions belong in a tool description or the system prompt.
-Code has exactly four jobs and no others: **hands** (tools), **senses** (wake-ups and
-provenance), **memory** (storage), **proof** (receipts and enforced taps). Everything else is
-judgment, and judgment is Jarvis's.
+**What this file used to be.** It was a register that filed some of these decisions as accepted
+exceptions: the owner deadline proof contract, "the fallback guard stays" for
+`guardReplyClaims`, and "existing storage ceilings remain". That was wrong. They are REMOVE rows
+now. The old row numbers are mapped at the end, because other documents cite them.
 
-A decision written in code is not a style problem. It is a piece of Jarvis's brain expressed
-in the wrong language, and it is invisible to Jarvis, so Jarvis cannot reason about it,
-report it, or be corrected about it.
+**Source.** The read-only sweep in [#186](https://github.com/stremysid/jarvis/issues/186), pinned
+at main `68675ba`: seven area comments, each linked from its rows by reviewer row id. This file
+adds no finding of its own and re-verified none against the code. Line numbers are as of
+`68675ba`.
 
----
+**How the sweep's rows were merged.** One behaviour reported by several areas is one row that
+cites each area. Where an area rated a file in another area (it marked those rows xref), the
+owning area's verdict stands and the other is noted. Where two owning areas disagreed about the
+same behaviour, the row is UNSURE and names both. "Needs Sid" means a policy only he can set;
+"needs evidence" means a fact must be established first (dead code, an unknown purpose, live
+behaviour). That split is this file's reading of each reviewer's stated reason.
 
-## Read this before treating the list as the population
-
-**This is a partial set found by a real method, not the population of violations.**
-
-The list came from a full-coverage audit that was killed mid-run. It completed **two of about
-seven planned batches**:
-
-| Batch | Area | Status |
-|---|---|---|
-| W1 | `memory` + `persistence` | **complete** |
-| W2 | `voice` + `channels` + `conversation` + `autonomy` + `security` + `sync` + `http` | **complete** |
-| W3 | `school`/`university`/`jobs`/`archive`/`backup`/`model`/`providers`/`index` | **never ran** |
-| W4 | `local-agent`, `contracts`, `scripts`, watchdog, hermes | **never ran** |
-
-So: the whole Python local agent, the contracts package, `scripts/`, and the watchdog have
-**never been looked at for this class**. There are more. **Do not read "nine" as "nine
-exist", and do not treat a tenth as the first new one — it is the tenth *found*.**
-
-A source list from that audit survives at `C:\w\audit\SALVAGED\` and a backup at
-`C:\w\p5b-salvage\`, both scratch paths outside the repository. It is a candidate set, not
-authority. Every entry below was re-verified against the code by the session that wrote this
-file, and the citations were corrected where the audit's had moved.
-
----
-
-## Owner deadline proof contract (#166 review rounds 1–7)
-
-| Symbol | Decision or bounded proof rule | Model-visible surface |
-|---|---|---|
-| `proveDeadlineDue` | Validates the model's proposed instant against one grounded date/clock phrase and the durable current-message timestamp, using `DIGEST_TIMEZONE ?? "America/Toronto"`. An override zone must be named in that phrase. | `deadline_record` describes the grammar and returns a specific refusal reason for one precise clarification. Course, title, effort, whether to act, and the proposed resolution remain model arguments. Receipts always use the owner zone. |
-| `resolveDate` | Next weekday and a bare weekday naming today are ambiguous. Both supported dates are returned with `deadline_ambiguous_date`; no candidate is stored by a code convention. Explicit `this` weekday accepts only the next occurrence on or after the message's local date, and no non-explicit relative form may resolve before that date. Other supported forms remain ISO, English month/day or day/month, today/tomorrow, next week optionally with weekday, and ordinal day. | Ask Sid which candidate date he means. The model proposes the resolution; code proves it or refuses. Explicit historical calendar dates remain valid. The retained nearest-occurrence rule for omitted year/ordinal and the unconfirmed bare-next-week upper bound remain **judgment findings**, not owner-approved exceptions; disclosure alone does not cure them. |
-| `proveDeadlineDue` relative-date / bare-clock branches | A clock without a date (`3pm`, `at 3pm`, `tonight at 11:59pm`) uses the durable message's local date in the owner zone under the round-2 review contract. Already-passed bare/weekday/today clocks return `deadline_time_already_passed`, never an automatic tomorrow. `OWNER_SMALL_HOURS_END_HOUR` is `null` until Sid supplies the owner-local end hour, so `today` and `tomorrow` mean the current and next calendar dates all day; the prepared adjacent-date refusal can run only inside that future window, including for date-only phrases. Under `tonight`, an a.m. clock, a suffix-less two-digit clock from `00:00` through `12:59`, or a 12 o'clock p.m. clock remains ambiguous independently of any cut-off. | The receipt names the proven local time; refusal asks for the intended date. The tool description states the disabled window, and [OWNER-ACTIONS](OWNER-ACTIONS.md) holds the unanswered hour. Explicit historical dates remain possible for reporting past deadlines. |
-| `proveDeadlineDue` date-only branch | Clocks accepted are `3pm`, `3:30 p.m.`, and `HH:mm` in 24-hour form. Missing clocks, a single-digit hour without am/pm, and repeated/nonexistent DST hours become date-only at owner-zone end of day. Bare next week uses Sunday as an **unconfirmed upper bound**, never a claim that Sid named Sunday. | The model supplies the proven `YYYY-MM-DD`; the receipt explicitly says date-only/end-of-day, or unconfirmed end-of-week bound. Numeric ambiguous dates such as `03/04` cannot establish even a unique day and are refused with `deadline_ambiguous_date`. |
-| `statusOf` | `submitted`, `handed in`, `turned in` prove submitted; `missed` proves missed; `cancelled`, `canceled` prove cancelled. Omission preserves stored status. `finished` is not proof of submission. | Aligned with #164's school tool description: school_update handles missed classwork/finished work and catch-up planning, deadline_record handles dated deadlines and explicit deadline status. Words are named in the tool schema and description rather than silently inferred. |
-| `matchingDeadline` / `recordDeadline` | Only case/whitespace share a principal-scoped identity. Chem/Chemistry uses the existing uncertain-prefix clarification path, not a semantic alias. The literal course, title and due phrase must occur in that order. Proof scans only the course-to-title and title-to-due gaps, never course/title text: a date, clock or sentence separator breaks either tie. Every vertical break becomes a comma; any other punctuation (a character that is not a letter, digit, whitespace or apostrophe), or `and`, `then`, `or`, `plus` or `also`, breaks a tie only when the same gap contains a non-connector/filler word or any digit. Unpunctuated speech remains model judgment. | `deadline_record` asks which assignment is intended when a prefix/punctuation collision occurs and refuses borrowing another assignment's date, while names such as `Pride and Prejudice`, `Monday lab writeup`, `1st draft`, `Sun Yat-sen essay`, `Q&A worksheet` and `A/B testing lab` remain ordinary title evidence when copied whole. Platform sources still may duplicate owner-reported rows. |
-
-These proof limits and date-only conventions are recorded through the independent review rounds;
-they do not grant code permission to choose study priorities or reminder wording/timing.
-`DEFAULT_LEAD_MINUTES[effort]` supplies the existing ingestion lead-window contract, with effort
-chosen by the model, so owner-reported rows reach `listReminderDue` like collected rows.
-
-## The list
-
-Severity is a label for ordering, not a priority ruling. `violation` = code holds a decision
-the roadmap gives to Jarvis. `silent` = the same, made worse because nothing tells Jarvis or
-Sid that the decision happened.
-
-### Voice
-
-| # | Symbol | The decision code is making | Surface it should move to |
+| Area | Sweep comment | Sweep rows as posted: REMOVE / UNSURE / KEEP | Rows here after merging: REMOVE / UNSURE |
 |---|---|---|---|
-| 1 | `CallSessionCore.#guardOwnerRepeat` (`src/voice/call-session-do.ts`) | Which of the owner's spoken words Jarvis is allowed to hear. For 2 s after the passphrase match it drops **any** owner utterance outright, without consulting the text; for 1.5 s after that it swallows an utterance built from 1–2 passphrase-list words. No reply, no transcript row. | A prompt statement that a repeated passphrase will not arrive, so Jarvis's judgment is informed rather than bypassed — plus a spoken neutral line whenever anything is dropped, so silence is never unexplained. **`silent` penalty: it is invisible to the model.** |
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. |
-| 3 | `parseOwnerAccessIntent` (`src/voice/owner-access-intent.ts`) | What an access instruction **means**: a hand-written regex grammar with four fixed shapes decides whether the owner's utterance is an access command and which operation, target and permissions it names. | Jarvis calls the owner-access operations as tools, passing capability phrases as parameters. Code keeps the validation and the confirm step. If the grammar stays as a stopgap, an utterance that looks like a command and fails to parse must produce a spoken refusal — never fall through to ordinary conversation, where the model can answer as if it complied. **`silent` penalty.** |
-| 4 | `PERMISSION_CAPABILITIES` / `OwnerAccessService.#snapshot` (`src/voice/owner-access-service.ts`) | Which capability the owner's words name. A frozen table maps 17 phrases to 16 capabilities, and production installs only `conversation.basic` and `access.manage`, so **only "conversation" resolves** — the other 14 throw `capability_not_installed`, `access.manage` throws `capability_not_grantable`, and the `catch` at `#snapshot` collapses all of it into one `owner_access_permission_invalid` the owner never hears. | Give the model the capability ids as a tool parameter and let it map the owner's words; keep the table only as a validation set for what the model returns. At minimum drop `access management` (it can never succeed) and make refusal a spoken outcome. |
-| 5 | `PreparedOwnerAccessProposal.expiresAt` (`src/voice/owner-access-service.ts`) | How long the owner's pending decision lives: a hard-coded 60 s. Confirming takes three relay round trips through Deepgram transcription, so a slow confirmation loses the change **and** the call. | Either drop the wall-clock expiry — the call lifecycle is the natural bound and needs no invented timer — or tell the owner the window in the prompt. "How long a fact lasts" is named as Jarvis's call in the roadmap. |
-
-Also in this file, and **the same class**: `CallSessionCore.#handlePrompt` has a further set of
-branches that drop an owner's utterance with no reply and no transcript row, and they predate
-item 1. Enumerated while verifying item 1 rather than by the audit:
-
-- `#isFixedStepUpEcho` drops any utterance exactly equal to one of five code-authored
-  constants: `OWNER_STEP_UP_PROMPT`, `OWNER_STEP_UP_RETRY_PROMPT`,
-  `OWNER_STEP_UP_FORMAT_PROMPT`, `OWNER_STEP_UP_VERIFIED`, `OWNER_STEP_UP_REJECTED`.
-- `#ownerStepUpVerificationInFlight` drops any final utterance that arrives while a
-  passphrase KDF is running. (One existing test covers this — *"ignores a final arriving during
-  KDF work instead of replacing the window alarm"* — but it asserts the alarm, not what the
-  owner hears, which is nothing.)
-- A non-final frame, a non-`active` phase, and an empty utterance are also dropped silently.
-
-Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
-line whenever anything is dropped, so silence is never unexplained.
-
-### Additional voice finding (2026-09-23)
-
-This register remains partial. PR #171's first version made regexes the only
-judge of action claims on voice. Calling that an "accepted stopgap" was wrong:
-Sid had not accepted it. The independent review required the model to declare each
-action sentence outside the spoken prose. The voice marker names its proving
-tool and this turn's receipt ids; code strips the marker, redacts the unsplit
-prose, and verifies that exact sentence's proof before speech. Unsupported
-declarations get a fixed honest line, without a rewrite call.
-
-Regexes remain an omission backstop, as on Telegram. They cannot establish that
-an arbitrary untagged sentence is not a claim, or decide whether a declared
-paraphrase faithfully describes the receipt. Those judgments remain the model's.
-See [the protocol and evidence](voice-streaming.md). Telegram's JSON inventory
-and rewrite are unchanged by #171.
-
-### Memory
-
-| # | Symbol | The decision code is making | Surface it should move to |
-|---|---|---|---|
-| 6 | `MemoryRepository.refileAutomaticInboxItems` (`src/memory/memory-repository.ts`) | Which memories move, how many (10), in what order (a wall-clock-hour-indexed rotation over ≤100 rows), and at what confidence floor (`>= 0.6`, hard-coded **four times** across two files: three literals in the repository plus `FILING_CONFIDENCE_THRESHOLD` in `automatic-distillation.ts`). It replays a topic decision the model made when the item was created, with no chance to revise it. | A refile tool: the wake-up tells Jarvis "N inbox items have unresolved topic decisions" with the stored paths and confidences, and the model decides which, how many, and in what order. If the rule must stay, export one shared constant so the gate cannot drift from `FILING_CONFIDENCE_THRESHOLD`. |
-| 7 | `captureInput` (`src/memory/memory-repository.ts`) | How long a fact lasts. `input.lifetime === undefined ? (validTo === null ? "durable" : "temporary") : …` decides durability when the caller is silent — and the `memory_remember` tool description **invites the model to be silent**: *"Leave it out and the fact is durable."* The same default is written independently in `owner-telegram-agent.ts` and `memory-owner-controls.ts`. | Make `lifetime` and `expiresAt` **required** in the `memory_remember` schema so the omission cannot occur, and delete the three defaulting branches so an absent lifetime is refused rather than assumed. The same subsystem already states this principle: `automatic-distillation.ts` refuses to guess an expiry because *"answering it by guessing an expiry here would be code deciding what the roadmap gives to the model."* |
-| 8 | `findActiveItemByNormalizedText` / `normalizedRememberText` (`src/memory/memory-repository.ts`) | Whether two statements are the same memory. Normalises case, apostrophes, zero-width characters and punctuation, compares strings, and on a match **silently merges** the new wording into the old item as an extra source — so the stored wording never changes and the receipt implies the new words were recorded. | Expose the candidate memories to the model and let it decide whether a new statement duplicates, extends or corrects an existing memory — exactly as `memory_correct` already invites. A mechanical guard, if kept, is a **non-authoritative hint returned to the model**, never a silent merge in the write path. **`silent` penalty.** |
-| 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
-
----
-
-### School and university
-
-| # | Symbol | The decision code is making | Surface it should move to |
-|---|---|---|---|
-| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a worked verb object plus a completely parsed explanation prefix and tail. Unknown continuation words, destinations and second actions remain claims, including verbs absent from the original action list. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
-| 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
-
-Rows 10 and 11 retain the identifiers used by #160 and #162. The university
-intake finding is row 12, avoiding a second row 10 when those branches meet.
-
-### Fixed school intake decision (`SchoolCatchupModelAdapter.streamOwnerTool`, #164)
-
-`SchoolCatchupModelAdapter.streamOwnerTool` now skips `isUniversityExecutionRequest`
-only when `agentSelectedScope` is `school`. An assignment-list line such as
-"Email Ms. Patel if you need an extension." previously refused the whole paste.
-The school pipeline has storage and planning, but no external execution hands.
-The `school_update` description now tells Jarvis when to select that tool;
-forwarded-text provenance checks and `guardReplyClaims` remain in place.
-Pinned daily capacity, due-date priority and stated weight are prompt guidance,
-not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
-The core-profile reference is capped at 8,192 UTF-8 bytes and omitted with a rules
-notice if it cannot fit; omission never becomes profile content. These are
-transport bounds, not a decision about which capacity the owner should choose.
-`schoolPlanReceipt` summarizes only the repository's committed result, retaining
-per-course inserted/deduplicated counts while limiting examples to fit Telegram.
-Schedule repair notices describe the existing storage ceilings, not new planning policy.
-This is a partial register, not a completed audit of school or university code.
-
-### Fixed collector name judgment (PR #170 round 2)
-
-`apps/d2l-extension/collector.js:offering` previously excluded the exact name
-`DCE D2L BrightSpace Orientation`. That name-based relevance decision is deleted:
-every active accessible course offering is read and Jarvis judges its evidence.
-The collector's queue limits are explicitly owner-authorised storage bounds, with
-visible eviction counts. This remains a partial register, not a completed audit.
+| Voice, calls, conversation | [voice][c1] | 15 / 13 / 14 | 15 / 12 |
+| Deadlines, digest, scheduler, jobs, decisions, projects, calendar | [deadlines][c2] | 30 / 17 / 17 | 30 / 17 |
+| Memory | [memory][c3] | 19 / 15 / 15 | 19 / 15 |
+| Local agent, D2L extension, watchdog, contracts, prompt pass | [local][c4] | 13 / 14 / 19 | 6 / 10 |
+| Persistence, sync, backup, archive | [persistence][c5] | 10 / 26 / 22 | 4 / 22 |
+| Agent, autonomy, channels, policy, security, model, providers | [agent][c6] | 22 / 20 / 27 | 15 / 16 |
+| School and university | [school][c7] | 55 / 21 / 24 | 53 / 21 |
+| **Total** | | **164 / 126 / 138** | **142 / 113** |
 
 ## How to use this list
 
-1. **Every entry is a work item, not a complaint.** The third column is the deliverable: the
-   code is only done when the decision lives in a tool description or the system prompt and
-   code merely enables it.
-2. **Do not fix these by adding a guard.** A guard that suppresses the symptom is a second
-   copy of the same decision, which is how several of the duplicate thresholds above came to
-   exist. Items 6 and 7 each already have three or four copies of one number.
-3. **A new decision in code is a new row here, in the same pull request that adds it.**
-   That is what makes "a tenth is not progress" checkable.
-4. **When a row is fixed, move it to a "fixed" section with the commit** rather than deleting
-   it. The value of this page is the count of things still deciding.
+1. **A removal PR** deletes the code and the prompt or tool text that describes it, rewrites the
+   named tests so they assert the replacement (keeping their storage and receipt coverage), and
+   deletes the row in the same PR.
+2. **An UNSURE row is not touched** until Sid answers or the evidence is in. Then it becomes
+   REMOVE or moves to the legitimate list.
+3. **Existing code the sweep missed** goes here as a row, with `file:symbol`, the sha and its
+   evidence, in the PR that finds it. New code never does.
 
-## How to add a finding, so the next one is usable
+The default replacement for every row is the same: **the model decides, and asks Sid when it is
+unsure; code keeps the receipt of what ran.** The Replacement column says only what is specific.
 
-State three things and nothing else:
+Paths are relative to `apps/cloud-gateway/src/` and tests to `apps/cloud-gateway/test/`, unless a
+row names another package (`apps/local-agent/`, `apps/d2l-extension/`, `packages/contracts/`).
+`\|` inside a code span is a literal `|`.
 
-- **The symbol**, so it can be found without a line number.
-- **The decision** in one sentence a non-author would understand.
-- **The surface it moves to** — a specific tool, a specific prompt statement, or "delete it".
+## Voice, calls and conversation
 
-A finding that cannot name the third column is not yet understood. Mark it `unverified`
-rather than writing a fix; an asserted mechanism that turns out to be wrong costs more than a
-gap does.
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| VC-1 | `voice/call-session-do.ts:CallSessionCore.#handlePrompt` (L1426-1431) | Every owner utterance goes through `parseOwnerAccessIntent` first. On a match the model never sees the turn. | REMOVE | Every utterance goes to the model. Access operations become tools (`guest_access_add/replace/rotate_pin/revoke/list`). | `voice/call-session-do.test.ts` (`allow +…` cases) | [voice R1][c1]; old row 3 |
+| VC-2 | `voice/owner-access-intent.ts:parseOwnerAccessIntent` | A regex grammar (four shapes plus the exact "list allowed callers"; permissions split on " and ") decides what an access instruction means. | REMOVE | Tool arguments. Code validates E.164 and capability ids only. | `voice/owner-access-intent.test.ts`, `voice/call-session-do.test.ts` | [voice R2][c1]; old row 3 |
+| VC-3 | `voice/owner-access-service.ts:PERMISSION_CAPABILITIES` + `#snapshot` (L109-127, L579-603) | A frozen 17-phrase table and the literal "everything" decide which capability Sid named. An unknown phrase throws `owner_access_permission_invalid`. | REMOVE (`CapabilityRegistry.resolve` stays as validation) | The model passes capability ids from the schema enum. | `voice/owner-access-service.test.ts`, `security/owner-access-security.test.ts`, `voice/capability-registry.test.ts` | [voice R3][c1]; old row 4 |
+| VC-4 | `voice/call-session-do.ts:#beginOwnerAccess` / `#confirmOwnerAccess` → `CallSession.webSocketMessage` catch (L2086-2089) | Any throw from `prepare`/`execute` closes the socket with 1011. A misworded access request hangs up on Sid with nothing spoken. | REMOVE | A tool result `{status:"refused", reason}` goes to the model, which explains and asks. | `voice/call-session-do.test.ts`, `security/owner-access-security.test.ts` | [voice R4][c1] |
+| VC-5 | `voice/owner-access-service.ts:prepare` (L652) + `execute` (L730-733) | A pending access decision dies after a hard-coded 60 s, and the expiry ends the call (VC-4). | REMOVE | Bound it by the call lifecycle (`#clearOwnerAccessState`). | `voice/owner-access-service.test.ts`, `security/owner-access-security.test.ts` | [voice R5][c1]; old row 5 |
+| VC-6 | `voice/call-session-do.ts:#guardOwnerRepeat` (L1121-1180) + `voice/owner-call-step-up.ts:repeatStatus`/`verifyRepeat` (L288-336) | Which of Sid's words reach Jarvis. It drops any utterance for 2 s after verification, holds and discards 1–2-word utterances made of passphrase-list words, and once `spent` drops 3-word list-word utterances for the rest of the call without verifying. The list has 2,048 common words. Silent. | REMOVE (the drop logic) | Redact only speech that verifies as the passphrase, forwarding a marker such as `[passphrase]`. Never drop unverified speech. | `voice/call-session-do.test.ts` (repeatStatus/verifyRepeat/suppress cases) | [voice R6][c1]; old row 1; SQL half PS-15 |
+| VC-7 | `voice/call-session-do.ts:#captureOwnerAccessPin` (L1034-1041) | Only the exact text "use the default" selects the default PIN. | REMOVE (the phrase match; DTMF and four-digit validation stay) | The model passes `pin: "default" \| digits`. | `voice/call-session-do.test.ts` | [voice R7][c1] |
+| VC-8 | `voice/call-session-do.ts:#confirmOwnerAccess` (L1054-1062) + `#beginOwnerAccess` (L1023-1028) | Only the literal words "confirm" or "cancel" are accepted, and `list`, a read, also needs "confirm". | REMOVE (the literal match and the gate on `list`) | Ask-first or spoken-PIN gate for add/replace/rotate/revoke, with the model reading Sid's answer. `list` runs ungated. | `voice/call-session-do.test.ts`, `voice/owner-access-service.test.ts` | [voice R8][c1] |
+| VC-9 | `voice/voice-agent.ts:OwnerVoiceAgentAdapter.port` (L132 `toolDefinitions`, L185 `pipelineModel: () => null`) vs `channels/telegram/owner-telegram-agent.ts:OWNER_TELEGRAM_TOOL_DEFINITIONS` | Calls have no `school_update`, `university_update` or `study_coach`. Asking for one on a call gets "I refused an unknown tool call." | REMOVE | One catalogue in the shared core, with the pipeline adapters wired into voice. | `voice/voice-agent.test.ts` ("refuses a tool that no channel-neutral catalogue gives a call…"), `channels/owner-telegram-pipelines.integration.test.ts` | [voice R9][c1], [local R8][c4], [agent R11][c6]; school-side checks SU-8, SU-27 |
+| VC-10 | `voice/voice-agent.ts:confirmationSurfaceRefusal` (L175-176), called from `agent/owner-agent-core.ts:raiseTier3Confirmation`, + `OWNER_VOICE_AGENT_CHANNEL_PROMPT` (L59) | Every tier-3 action on a call is refused: "…I cannot show you a button on a call. Confirm it in Telegram". | REMOVE | A spoken PIN (or a spoken yes for ask-first) on the call, consumed by the same `consumeStandingDecision`. | `voice/voice-agent.test.ts`, `voice/call-session-do.test.ts` (prompt text) | [voice R10][c1], [local R9][c4], [agent R16][c6] |
+| VC-11 | `conversation/conversation-repository.ts:recordVoiceSent` (L691-698) + `conversation/context-retriever.ts` (L183, L352-354, L442) | Spoken replies are stored `historyEligible:false`, and the retriever admits only `channelCode 2`. The model never sees its own call replies, later in the call or on Telegram. | REMOVE | Make voice `assistant_sent` history-eligible and include `channelCode 1`. | `conversation/context-retriever.test.ts`, `persistence/conversation-repository.test.ts`, `voice/call-session-do.test.ts`, and the `literal-history`, `meaning-search` and `memory-projection` tests that assert the event-type set | [voice R11][c1]; related ME-25, PS-23 |
+| VC-12 | `voice/owner-access-service.ts` (store: `persistence/voice-access-repository.ts`) | Guest-access management (add, replace, rotate, revoke, list) exists only on calls. | REMOVE (the channel-only part) | The same tools on Telegram, gated by the Telegram tap there and the spoken PIN on calls. | `voice/owner-access-service.test.ts` | [voice R12][c1]; the repository's authority guard is PS-18 |
+| VC-13 | `voice/outbound.ts:dispatchOutboundCall`, `voice/production-routes.ts:requestProductionTelegramCall`, `packages/contracts/src/calls.ts:OutboundCallCommand.issuedBy`/`purposeCode`, `policy/policy-engine.ts:hasTrustedOrigin` | Jarvis can never place a call. Only Sid's `/call` command or the local CLI can. | REMOVE (the missing hand, not the gate) | A `call_place(reason)` tool with `issuedBy:"model"`. The policy engine, kill switch, quiet hours, limits and ask-first gate stay. | `voice/outbound.test.ts`, `calls/outbound-call-dispatcher.test.ts`, `policy/policy-engine.test.ts` | [voice R13][c1], [local R7][c4], [agent R17][c6]; old row 2 |
+| VC-14 | `voice/owner-access-service.ts:CAPABILITY_LABELS` + `list` speech (L773-775) | `list` speaks fixed code text. The model never gets the rows. | REMOVE | Return the rows as a tool result; the model speaks them. | `voice/owner-access-service.test.ts` | [voice R14][c1] |
+| VC-15 | `voice/call-session-do.ts:#handlePrompt` → `#beginOwnerAccess` speech (L1018-1028, L1049, L1056) | All access-flow speech is fixed text sent by `sendNeutralText`, and none of it enters the model's history. | REMOVE (goes with VC-1) | Falls away once access is tools. | `voice/call-session-do.test.ts` | [voice R15][c1] |
+| VC-16 | `voice/call-session-do.ts:#isFixedStepUpEcho` (L1182-1186), the KDF-in-flight drop (L1288), non-final/non-active/empty drops (L1415-1416) | Silently drops an utterance equal to one of five code prompts (Sid saying "Verified.", say) and anything said during KDF work. | UNSURE — needs Sid | Suppressing the echo of Jarvis's own speech is transport. At minimum speak a line or tell the model. | `voice/call-session-do.test.ts` ("ignores a final arriving during KDF work…") | [voice U1][c1]; old row 1 addendum |
+| VC-17 | `voice/call-session-do.ts:#handlePrompt` L1421 + `language:"en-US"` in `voice/inbound.ts`, `outbound.ts`, `twiml.ts` | A turn not in en-US throws `turn_language_unsupported`, and the call ends. | UNSURE — needs Sid | Keep the transport config; pass the text and language to the model instead of hanging up. | `voice/call-session-do.test.ts` | [voice U2][c1] |
+| VC-18 | `voice/call-session-do.ts:#handlePrompt` L1425 | A second final utterance during a turn throws `turn_in_progress`, and the call ends. | UNSURE — needs Sid | Queue the utterance or cancel the turn instead of hanging up. | `voice/call-session-do.test.ts` | [voice U3][c1] |
+| VC-19 | `conversation/context-retriever.ts:literalFtsQuery` + fact SQL (L236-248, L373-428) | An FTS `OR` of up to 16 literal words from Sid's utterance picks which facts the model sees (32 items, half the byte budget). | UNSURE — needs Sid | Keep the size budget. A `memory_search` tool the model calls, or the ranking passed as a hint. | `conversation/context-retriever.test.ts`, `sync/memory-projection.test.ts` | [voice U4][c1] |
+| VC-20 | `conversation/context-retriever.ts:factCandidate` (L316-324) | Validates fact provenance (origin, confidence) and then strips it, so the model cannot weigh it. | UNSURE — needs Sid | Pass origin and confidence through. | `conversation/context-retriever.test.ts` | [voice U5][c1] |
+| VC-21 | `conversation/conversation-service.ts:#voiceContext` (L630, L729-764) | A 750 ms retrieval timeout silently becomes `[]`. The model is not told it has no memory this turn. | UNSURE — needs Sid | Keep the timeout; tell the model "context unavailable this turn". | `conversation/conversation-service.test.ts`, `security/conversation-security.test.ts` | [voice U6][c1] |
+| VC-22 | `conversation/conversation-service.ts:handleTurn` (L910) | `reasoningEffort: "low"` is hard-coded for every turn on both channels. | UNSURE — needs Sid | Budget and latency versus capping the thinking: his call. | `conversation/conversation-service.test.ts` + about 20 model tests that assert `reasoningEffort` | [voice U7][c1]; related AG-29 |
+| VC-23 | `conversation/context-retriever.ts:historyText`/`factCandidate` (L277-278, L287-288, L358-359) | One stored row that does not round-trip through `redactor.redactText` fails the whole retrieval, and voice then gets empty context (VC-21). | UNSURE — needs Sid | Skip or redact that one row. | `conversation/context-retriever.test.ts` | [voice U8][c1] |
+| VC-24 | `voice/voice-agent.ts:OWNER_VOICE_AGENT_CHANNEL_PROMPT` (L57) | "no other message, link, keyboard or file delivery is available here" tells the model it cannot deliver anything from a call. | UNSURE — needs evidence: true only until VC-9 and VC-10 land | Delete with VC-9 and VC-10. | `voice/voice-agent.test.ts` | [voice U12][c1]; [local R9][c4] rated the line REMOVE |
+| VC-25 | `voice/owner-access-service.ts:maskNumber`, `voice/guest-grant-notice.ts:maskNumber` | Guest numbers are masked (`+1******1234`) in speech and Telegram notices, even to Sid. | UNSURE — needs Sid | Unmask for the owner; keep masking in logs. | `voice/guest-grant-notice.test.ts`, `voice/owner-access-service.test.ts`, `persistence/voice-access-repository.test.ts` | [voice U10][c1] |
+| VC-26 | `voice/capability-registry.ts:isInstalled` (L221) | `!capabilityId.startsWith("stremy.")`: a `stremy.*` capability is never installed. The file does not say why. | UNSURE — needs Sid | Sid confirms the intent. | `voice/capability-registry.test.ts` | [voice U11][c1] |
+| VC-27 | `voice/pin-capture.ts:normalizeSpokenPin` | A spoken PIN must be exactly four digits or four words from zero to nine; "oh" and "double two" fail. | UNSURE (lean KEEP) — needs Sid | Keep it deterministic; a mishearing retries. | `voice/pin-capture.test.ts` | [voice U13][c1] |
 
-## Also in the register, named so it is not dropped
+Prompt and fixed speech that go with these rows: the voice channel prompt lines (VC-10, VC-24),
+"Deadline relative dates are checked against the durable current turn timestamp" (AG-13), and the
+fixed spoken lines "Say confirm to apply this access change, or cancel." and "Use the keypad, say
+exactly four digits, or say use the default." (VC-7, VC-8, VC-15). [voice][c1]'s U9 is AG-5.
 
-The audit that produced the nine also produced **22 non-violation defects** from the same two
-batches. They belong in `KNOWN_ISSUES.md`, not on a principles page. One is confirmed here and
-is severe enough that burying it would be a second failure of the kind this project keeps
-recording — so it is named, with a pointer, not imported:
+## Deadlines, digest, scheduler, jobs, decisions, projects and calendar
 
-**`memory_pin` and `memory_unpin` threw on every call — FIXED in #135, and the reason it hid is
-not fixed.** At `ca88bf4`, `findControlTargets` (`src/memory/telegram-memory-retriever.ts`) threw
-`telegram_memory_target_invalid` for any operation outside `forget`/`lift`/`confirm`/`explain`/
-`correct`, and `"pin"`/`"unpin"` were not in that set — while the very next helper, `targetStates`,
-had an explicit pin/unpin branch that the throw made unreachable. Its only production caller
-(`telegram-memory-controls.ts`) passed the operation straight through. **Confirmed by reading.**
+The model has no read tool for deadlines, the decision queue, projects or the digest at `68675ba`,
+and no deadline reminder is ever sent (DL-32 has no production caller) ([deadlines][c2]).
 
-**#135 corrected the guard** and added `test/memory/control-targets.test.ts`, derived from the
-declared union rather than hand-listed, which fails before the fix and passes after. So the defect
-itself is closed — **do not carry it as an open item.**
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| DL-1 | `deadlines/deadline-date-proof.ts:DATE`, `CLOCK`, `DUE_PHRASE`, `DATE_OR_CLOCK` | A regex grammar of what counts as a due phrase. Anything else gets `deadline_ambiguous_date`: "Copy one short due phrase…". | REMOVE | The model reads "due 3pm friday", passes `dueAt` and a zone, and asks only when unsure. Code keeps the real-instant and explicit-offset checks and the receipt. | `deadlines/deadline-date-proof.test.ts`, `deadlines/deadline-review-r1..r5, r7`, `deadlines/deadline-tool.test.ts`, `deadlines/deadline-voice.test.ts` | [deadlines 1][c2]; old "Owner deadline proof contract" |
+| DL-2 | `deadlines/deadline-date-proof.ts:proveDeadlineDue` (L190-201) | Re-derives the instant from the phrase and refuses the model's `dueAt` if it differs (`deadline_resolved_date_mismatch`). | REMOVE | Store the model's `dueAt`. The receipt states the reading ("stored Fri 26 Sep 15:00 America/Toronto") so Sid can correct it. | as DL-1 | [deadlines 2][c2], [local R12][c4] |
+| DL-3 | `deadline-date-proof.ts:resolveDate` (L90-91) | "next Friday", or a bare weekday naming today, is refused: "Ask Sid which date; code cannot choose between them." | REMOVE | The model decides, or asks when it is truly unsure. | `deadlines/deadline-review-r1..r5` | [deadlines 3][c2] |
+| DL-4 | `deadline-date-proof.ts:resolveDate` (L97-119) | A nearest-occurrence rule for ordinals and a month/day without a year; "next week" becomes a Sunday "unconfirmed upper bound". | REMOVE | The model resolves the date. | `deadline-date-proof.test.ts`, r2, r3 | [deadlines 4][c2] |
+| DL-5 | `proveDeadlineDue` tonight branch (L163-173) | Under "tonight", an a.m. clock, a two-digit clock without a suffix up to 12:59, or 12 p.m. is refused with both dates. | REMOVE | The model decides or asks. | r2, r3, r4 | [deadlines 5][c2] |
+| DL-6 | `proveDeadlineDue` small hours + `OWNER_SMALL_HOURS_END_HOUR` (L17, L47-50, L176-181) | A prepared refusal for "today" or "tomorrow" after midnight, disabled while the hour is `null`, with an open owner action behind it. | REMOVE | Delete. The model knows the message time and asks if unsure. | `deadline-date-proof.test.ts`, r3 | [deadlines 6][c2] |
+| DL-7 | `proveDeadlineDue` already-passed branch (L182-184) | A bare, weekday or today clock that has passed is refused (`deadline_time_already_passed`). | REMOVE | The model decides whether "3pm" means today and overdue, or asks. | r2, r3 | [deadlines 7][c2] |
+| DL-8 | `proveDeadlineDue` date-only downgrade (L166-170, L185-194) | A single-digit hour without am/pm, or a DST hour, forces date-only 23:59 and refuses any timed `dueAt`. | REMOVE | The model reads "due 3 friday" in context. Schema validation keeps the real-instant check. | `deadline-date-proof.test.ts`, r4 | [deadlines 8][c2] |
+| DL-9 | `proveDeadlineDue` zone check (L135-137) | A zone other than Sid's is refused unless its IANA name appears in `dueExcerpt` (`deadline_zone_mismatch`). | REMOVE (`validZone` stays) | The model picks the zone. | `deadline-date-proof.test.ts`, r1 | [deadlines 9][c2] |
+| DL-10 | `deadlines/deadline-tool.ts:STATUS_WORDS`, `statusOf` | A status is accepted only if its word literally occurs: "submitted/handed in/turned in", "missed", "cancelled/canceled". "Finished" gets `deadline_status_not_proved`. | REMOVE | A plain enum `open\|submitted\|missed\|cancelled`; the model decides from Sid's words. | r1, `deadline-tool.test.ts` | [deadlines 10][c2]; old `statusOf` row |
+| DL-11 | `deadline-tool.ts:ASSIGNMENT_GAP_FILLERS`, `ASSIGNMENT_GAP_SOFT_WORDS`, `assignmentGapBreaksTie` + the order checks in `recordDeadline` (L298-314) | Word lists decide whether a course, a title and a due phrase belong together (`deadline_course_not_tied_to_assignment`). | REMOVE | The model links them. | r2, r3, r5 | [deadlines 11][c2]; old `matchingDeadline` / `recordDeadline` row |
+| DL-12 | `deadline-tool.ts:recordDeadline` literal-occurrence checks (L295-303) + description "Copy the stated course spelling, do not expand abbreviations" | Course and title must appear verbatim (`deadline_fields_not_in_evidence`), so "Chem" cannot be stored as "Chemistry". | REMOVE | The model names the course. Code checks that it is non-empty text. | r2 | [deadlines 12][c2] |
+| DL-13 | `deadline-tool.ts:matchingDeadline` (L271-279) | A prefix, or equality after stripping `\W`, is "uncertain" and refused (`deadline_ambiguous_match`). | REMOVE (the principal-scoped identity hash stays) | Return candidate rows; the model picks an `externalId` or creates a new row. | r1, r2 | [deadlines 13][c2] |
+| DL-14 | `deadline-tool.ts:DEADLINE_TOOL_DEFINITION` (`status` enum synonyms and the `description` grammar) | The schema carries synonyms only to feed DL-10, and the description teaches the model the whole refusal grammar. | REMOVE | A plain enum; a description without the grammar. | `deadline-tool.test.ts`, r1 | [deadlines 14][c2], [local R12][c4] |
+| DL-15 | `deadlines/effort-classifier.ts:EFFORT_KEYWORDS`, `classifyEffort` (also reached from `school/collector-repository.ts:project` and `handleD2lNotificationEmail`) | A keyword table over teacher-written titles decides the effort category, with "final" deliberately excluded. | REMOVE | The model classifies effort, or `other` is stored and the model judges on read. | `deadlines/effort-classifier.test.ts`, `school/collector-ingest.test.ts` | [deadlines 15][c2], [school G5][c7]; old `DeadlineIngestion.ingest` / `classifyEffort` row |
+| DL-16 | `effort-classifier.ts:DEFAULT_LEAD_MINUTES` (+ `deadline-tool.ts:326`) | Code picks reminder timing per category (exam 7 days … quiz 12 hours), for owner-reported rows too. | REMOVE (the `MAXIMUM_LEAD_MINUTES` storage bound stays) | The model sets `leadMinutes` or decides at wake-up. | `effort-classifier.test.ts`, `deadline-tool.test.ts`, r1 | [deadlines 16][c2]; old paragraph under the proof contract |
+| DL-17 | `deadlines/deadline-ingestion.ts:ingest` (L306-315) + `courseEffort` option | A course rule beats source effort beats keyword, and the lead defaults to the DL-16 table. | REMOVE | Store the source's facts; effort and lead come from the model. | `deadlines/deadline-ingestion.test.ts` | [deadlines 17][c2] |
+| DL-18 | `digest/digest-composer.ts:compose` | Code writes the whole morning digest and Sunday retro: sections, wording, priority order and the "Nothing due…" line. | REMOVE | A wake-up hands Jarvis the same data and Jarvis writes the message. Code keeps the reads, the gap list and a receipt of what was sent. | `digest/digest-composer.test.ts`, `jobs/digest-job.test.ts` | [deadlines 21][c2] |
+| DL-19 | `DEADLINE_HORIZON_DAYS=7` in `digest-composer.ts` and `jobs/digest-job.ts` | Filters which deadlines Sid hears about. | REMOVE | Jarvis reads all open deadlines and judges relevance. | `digest-composer.test.ts`, `digest-job.test.ts` | [deadlines 22][c2] |
+| DL-20 | `digest-composer.ts:applicationSection` | Hides some statuses, sorts by date and caps at `APPLICATION_ITEM_LIMIT = 5`. | REMOVE | Jarvis chooses. | `digest-composer.test.ts` | [deadlines 23][c2] |
+| DL-21 | `digest-composer.ts:projectSection` + `neutralise` (`MAX_EXCERPT_LINES=3`, `MAX_EXCERPT_CHARACTERS=240`) | Prefers "stalled" over "changed" and shows at most 3 lines of NEXT_STEPS. | REMOVE (the limits; control-character stripping stays) | Jarvis reads the stored excerpt. | `digest-composer.test.ts` | [deadlines 25][c2] |
+| DL-22 | `jobs/digest-job.ts:toDigestProject` (`changedDocuments: []`) | Code decided the digest never mentions changed documents. | REMOVE | Give Jarvis the change list. | `digest-job.test.ts` | [deadlines 28][c2] |
+| DL-23 | `digest-job.ts:DEADLINE_SOURCE_STALE_AFTER_MS=3h`, `PUSH_SOURCE_STALE_AFTER_MS=7d` | Code labels a source "stale" or "nothing received in 7 days". | REMOVE (the label; failure reporting stays) | Give Jarvis `lastSuccessAt` and `lastFailure` and let it judge freshness. | `digest-job.test.ts` | [deadlines 29][c2] |
+| DL-24 | `digest-job.ts:SCHOOL_OBSERVATION_STALE_AFTER_MS=12h` | A second copy of the 12-hour school staleness decision. | REMOVE | As DL-23. | `digest-job.test.ts` | [deadlines 30][c2]; old `SchoolCollectorRepository.status` row; collector default is SU-71 |
+| DL-25 | `jobs/job-table.ts:digest` → `runDigestJob` → `delivery.send(digest.text)`; `/digest` (`index.ts:runDigestNow`) | The digest is code-written Telegram text. Calls cannot get it and the model never sees it. | REMOVE | Jarvis writes the digest on any channel from the same reads. | `digest-job.test.ts` | [deadlines 32][c2] |
+| DL-26 | `projects/stalled-detector.ts:ISO_DATE`, `REFUSED_DATE_SHAPES`, `readDeadlines` | A regex over NEXT_STEPS.md: only `YYYY-MM-DD` is a deadline, and 13 shapes such as "next Friday" become "unreadable". | REMOVE | Jarvis reads the excerpt. Code supplies commit time, poll health and the excerpt. | `projects/stalled-detector.test.ts` | [deadlines 33][c2] |
+| DL-27 | `stalled-detector.ts:report`/`assessStaleness` + `DEFAULT_APPROACHING_WITHIN_DAYS=14` | Code decides `escalate` and the reason codes the digest prints as "stalled -- …". | REMOVE | Jarvis judges from `staleAfterDays`, the last commit and the excerpt. | `stalled-detector.test.ts`, `digest-job.test.ts` | [deadlines 34][c2] |
+| DL-28 | `projects/project-types.ts:ATTENTION_DOCUMENT_PATHS` + `project-poller.ts:attentionChanges` (no production caller) | Only KNOWN_ISSUES and DECISIONS changes are "worth pinging". | REMOVE | Delete, or return every change to Jarvis. | `projects/project-poller.test.ts` | [deadlines 35][c2] |
+| DL-29 | `jobs/job-table.ts:runOnDemandBrightspaceRefresh`, reached only via `school/school-catchup-model.ts:isBrightspaceRefreshRequest` / `BRIGHTSPACE_REFRESH_REQUEST` (also used by `plausiblyAnswersQuiz`) | A regex over Sid's wording picks the feature ("check D2L now"), on Telegram only, and fixed code sentences become Jarvis's whole reply. | REMOVE (router, channel gate, fixed reply; the 5-minute cooldown stays) | A `brightspace_refresh` tool on both channels. Its result is the receipt and Jarvis phrases the reply. | `jobs/brightspace-poll-job.test.ts`, `school/school-catchup-model.test.ts`, `school/study-coach-model.test.ts` | [deadlines 37][c2], [school B2][c7] |
+| DL-30 | `decisions/*` | No model tool can raise, read or answer a decision. The only surfaces are the Telegram keyboard, `/decisions` and the digest, and answering needs a Telegram-set `status='delivered'`. | REMOVE (channel-only capability) | `decision_queue_read` and `decision_answer` tools on both channels. The ownership join stays. | `decisions/decision-service.test.ts`, `decision-repository.test.ts`, `telegram-keyboard.test.ts` | [deadlines 43][c2] |
+| DL-31 | `deadlines/quiet-windows.ts:QUIET_WINDOW_PASSING_CLASSES`, `EXAM_WINDOW_STARTS_BEFORE/ENDS_AFTER`, `deriveExamWindows` (no production caller) + `migrations/0011_deadlines.sql` `quiet_windows` exam reason | Code decides which message classes are held during a derived exam window, and its span. | UNSURE — needs evidence: dead code today | Delete, or make quiet windows a tool Jarvis sets and consults. Manual windows are Sid's setting. | `deadlines/quiet-windows.test.ts` | [deadlines 18][c2], [persistence `0011` quiet_windows][c5] |
+| DL-32 | `deadlines/deadline-repository.ts:listReminderDue` / `markReminded` (no production caller) | A lead-time filter decides when a reminder is due. Nothing reminds at `68675ba`. | UNSURE — needs evidence: dead code today | A wake-up hands Jarvis open deadlines with due time and lead; Jarvis decides whether to speak. `markReminded` stays as a receipt. | `deadline-repository.test.ts`, r1 | [deadlines 19][c2] |
+| DL-33 | `deadline-repository.ts:upsert` (`reminded_at = CASE WHEN due_at = ? …`) | Code decides a title edit does not re-remind but a date move does. | UNSURE — needs Sid | Keep the stored fact; the model judges whether a moved item needs a new heads-up. | `deadline-repository.test.ts` | [deadlines 20][c2] |
+| DL-34 | `digest-composer.ts:decisionSection` + `decisions/decision-repository.ts:QUEUE_ORDER` | Urgent first, then rank, then age; urgent items get a "! " prefix. | UNSURE — needs Sid | Jarvis orders. The SQL order is harmless as a default read order. | `digest-composer.test.ts`, `decision-repository.test.ts` | [deadlines 24][c2] |
+| DL-35 | `digest-composer.ts:fit` (trim order; the 4096 guard itself is legitimate) | Trims from the end by section position; "Could not be read" is never trimmed. | UNSURE — needs Sid | Jarvis writes within the limit. | `digest-composer.test.ts` | [deadlines 26][c2] |
+| DL-36 | `digest-composer.ts:studyCheckInSection` | A code-written offer: "Want a 10-minute quiz or flashcards?…". | UNSURE — needs Sid | Jarvis decides whether and how to offer. | `digest-job.test.ts` | [deadlines 27][c2] |
+| DL-37 | `digest-job.ts:RETIRED_DIGEST_HEALTH_SOURCES` | Drops the gaps for sources Sid retired in FACTS, hiding them from the reader. | UNSURE — needs Sid | Give Jarvis the gaps plus the FACTS rows. | `digest-job.test.ts`, `jobs/classroom-poll-job.test.ts`, `jobs/brightspace-poll-job.test.ts` | [deadlines 31][c2] |
+| DL-38 | `projects/project-types.ts:TrackedProject.staleAfterDays` + `migrations/0010_projects.sql` `stale_after_days DEFAULT 7` | A per-project "stalled" threshold; the default is a judgment. | UNSURE — needs evidence: who sets it was not found | If Sid sets it, keep it as data. Otherwise Jarvis judges from commit dates. | `projects/project-repository.test.ts`, `stalled-detector.test.ts` | [deadlines 36][c2], [persistence `0010`][c5] |
+| DL-39 | `job-table.ts:selectBrightspaceWindow` (14 days back, 120 ahead, cap 180, upcoming-first ranking) | Which feed items are stored when over the cap. Truncation is reported. | UNSURE — needs Sid | Keep as a budget; no authorisation for the bound is cited. | `brightspace-poll-job.test.ts` | [deadlines 38][c2] |
+| DL-40 | `deadlines/brightspace-ical-client.ts:toDeadline` | `STATUS:COMPLETED` is treated as a cancellation; the course is the first `CATEGORIES` value or "Brightspace". | UNSURE — needs Sid | Store the raw STATUS and let Jarvis interpret it. | `brightspace-ical-client.test.ts`, `brightspace-poll-job.test.ts` | [deadlines 39][c2] |
+| DL-41 | `brightspace-ical-client.ts:calendarInstant` / `classroom-client.ts:classroomDueInstant` | A date-only due becomes 23:59:59.999 local; a DST gap shifts forward, silently. | UNSURE — needs Sid | Keep, but label date-only on read. | `brightspace-ical-client.test.ts`, `classroom-client.test.ts` | [deadlines 40][c2] |
+| DL-42 | `classroom-client.ts:listCourses` / `listCourseWork` | Only `ACTIVE` courses and `PUBLISHED` coursework; undated coursework is not a deadline. | UNSURE (lean KEEP) — needs Sid | Probably API scope rather than a text judgment. | `classroom-client.test.ts`, `classroom-poll-job.test.ts` | [deadlines 41][c2] |
+| DL-43 | `deadline-repository.ts:listStudyCandidates` (`LIMIT 24`, 72 hours) | Bounds which deadlines the study coach sees. | UNSURE — needs evidence: whether this is model input | If it is, widen it or hand it to the model. | `deadline-repository.test.ts`, `deadline-tool.test.ts`, `school/study-coach-repository.test.ts` | [deadlines 42][c2] |
+| DL-44 | `decisions/decision-service.ts:raise` (forced "Other — I'll type it" / "Explain more", `MAX_DECISION_CHOICES=8`) + `migrations/0009_decisions.sql` option kinds and `label ≤ 64` | A hard-coded question format. | UNSURE — needs Sid | Jarvis composes the question. Button-label length may be Telegram transport. | `decisions/decision-service.test.ts`, `decision-repository.test.ts`, `decisions/telegram-keyboard.test.ts`, `channels/command-handler.test.ts` | [deadlines 44][c2], [persistence `0009`][c5] |
+| DL-45 | `scheduler/cron-router.ts:DIGEST_LOCAL_HOUR=7`, `NIGHT_LOCAL_HOUR=19`, Sunday retro | Code fixes when Jarvis speaks on its own. | UNSURE — needs Sid | Keep the wake-ups; Jarvis decides whether and what to send at each. | `scheduler/cron-router.test.ts`, `scheduled-handler.test.ts` | [deadlines 45][c2] |
+| DL-46 | `calendar/ics-feed.ts:composeCalendarFeed` (VALARM `TRIGGER:-PT${leadMinutes}M`) | The calendar alarm inherits the code-chosen lead. | UNSURE — needs evidence: follows DL-16 | Follows DL-16's fix. | `calendar/ics-feed.test.ts` | [deadlines 47][c2] |
+| DL-47 | `deadline-tool.ts:recordDeadline` `groundedExcerpt(input, evidenceExcerpt)` | The evidence excerpt must occur in the current message (`deadline_evidence_not_in_message`). | UNSURE — needs Sid | If kept, only as provenance. Drop the second-level checks (DL-1, DL-11, DL-12). | r1 | [deadlines 51][c2] |
 
-The part worth keeping is *why it survived*: the suite stayed green because three test files
-injected a stub in place of `findControlTargets` — `owner-telegram-agent.test.ts` (stubbed at two
-call sites), `memory-search.test.ts`, and `owner-telegram-pipelines.integration.test.ts` — each
-returning a fixed list without looking at the operation. That is the "`memory_pin` throws on every
-call while the whole suite stays green" pattern AGENTS.md already records once, and **the stubs are
-still there.** A stub standing in for the code under test is why a dead tool read green, and it is
-a general hazard rather than a `memory_pin` one: the same shape can hide the next dead tool.
+Tool text that goes with these rows: the `deadline_record` description grammar and the refusal
+details the model receives ("Ask Sid which date; code cannot choose between them.", "Copy one short
+due phrase containing its date and clock together…", "Only a date-only value is proved…", "Copy a
+stated submission, missed-deadline or cancellation word…") go with DL-1 to DL-14. The
+`school_update` line "finished alone does not mean submitted" is AG-12, and "Say 'check D2L now'"
+is SU-3. `r1..r7` above are `deadlines/deadline-review-r*.test.ts`.
 
-`QUEUE.md` keeps one follow-up from #135 — the corrected guard is still a hand-kept list, so the
-*next* operation added to `TelegramMemoryTargetOperation` will drift the same way.
+## Memory
 
-Last verified against the code: 2026-09-21, at `0611803`. Coverage is partial — see the top
-of this file.
+Two facts from [memory][c3] frame these rows: automatic memory recall works only on Telegram
+(ME-17), and the regex router in ME-1 to ME-4 is dead in production but kept alive by tests.
 
-## School collector findings, 2026-09-23 (still a partial register)
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| ME-1 | `memory/telegram-memory-language.ts:parseTelegramMemoryControl` + `REMEMBER_PREFIXES` + `rememberWord` | A regex intent parser: any word within edit distance 2 of "remember" (minus a hand list), fixed "forget …", "use that memory again" and "why do you …" shapes. Quoted or multi-line text is rejected. | REMOVE | The model reads the turn and calls `memory_*` tools. The durable-turn authority check stays. | `memory/telegram-memory.test.ts` | [memory 1][c3] |
+| ME-2 | `memory/telegram-memory-controls.ts:TelegramMemoryControlModelAdapter.streamCaptured` (not constructed in `src/`) | A router in front of the model: on an ME-1 match it runs the memory operation itself and emits a fixed receipt. Telegram only. | REMOVE | Delete; the agent loop already dispatches `memory_*` tools. | `memory/telegram-memory.test.ts` | [memory 2][c3] |
+| ME-3 | `telegram-memory-controls.ts:memoryKind` | A keyword classifier for memory kind (decision, plan, preference, relationship, fact), plus a hard-coded `sensitivity: "normal"`. | REMOVE | The model supplies `kind` and `sensitivity`, as the `memory_remember` schema already requires. | `memory/telegram-memory.test.ts` | [memory 3][c3] |
+| ME-4 | `telegram-memory-controls.ts:applyControl` / `failureReceipt` | Hard-coded clarification text ("Which memory do you mean? Tell me a few words from it", "Please ask again in your own words."). | REMOVE | Return the candidate list; the model asks. | `memory/telegram-memory.test.ts` | [memory 4][c3] |
+| ME-5 | `telegram-memory-language.ts:parseTelegramMemoryAreaQuestion`, live in `telegram-memory-retriever.ts:readCandidates` | Sid's exact wording ("what do you remember about …") switches recall from FTS to a 3-item topic read. | REMOVE | An area or topic browse tool the model calls with a path it chooses. | `memory/telegram-memory.test.ts`, `memory/automatic-distillation.test.ts`, `memory/suppression-predicate-parity.test.ts` | [memory 5][c3] |
+| ME-6 | `memory/extraction-policy.ts:isAuthenticatedFirstPersonQuote` (`FIRST_PERSON_TOKEN`, `FIRST_PERSON_UNTRUSTED_FRAMING`, `PERIOD_ABBREVIATIONS`, `containsSecondSentence`, `wholeSentenceMatch`) | A grammar decides whether an extracted fact is Sid's own statement. Any negation, hedge, conditional or question fails it, so "I don't eat pork." can never be auto-active. | REMOVE | The extraction model declares the origin and basis. Code keeps the receipt that the cited excerpt occurs verbatim in a direct owner event. | `memory/extraction-policy.test.ts`, `memory/automatic-distillation.test.ts`, `memory/extraction-evaluation.test.ts` | [memory 6][c3]; Python copy LA-1 |
+| ME-7 | `memory/automatic-distillation.ts:commitInput` (`liveQuote` / `archivedQuote`) | Uses ME-6 to set origin, basis, uncertainty and lifecycle; an archived first-person quote is forced to `proposed`. | REMOVE | The model's declared basis plus the verbatim-excerpt receipt. | `memory/automatic-distillation.test.ts` | [memory 7][c3] |
+| ME-8 | `automatic-distillation.ts:commitInput` (hard-coded `kind: "fact"`, `lifetime: "durable"`, `validTo: null`) + prompt "Extract only durable facts about the owner." | Every extracted memory is typed "fact" and durable; the extraction contract has no field for either. | REMOVE | Add `kind`, `lifetime` and `expiresAt` to `MEMORY_EXTRACTION_JSON_CONTRACT` and store what the model says. | `memory/automatic-distillation.test.ts` | [memory 8][c3]; old row 7 |
+| ME-9 | `automatic-distillation.ts:FILING_CONFIDENCE_THRESHOLD` + `commitInput` filing chain; `memory/memory-repository.ts:refileAutomaticInboxItems`; `captureInput` automatic filing `confidence < 0.6` | Code picks the topic. `0.6` appears four times; a missing `filingConfidence` counts as 0; the hourly refile moves at most 10 of 100 candidates in a clock-hour rotation. | REMOVE | File where the model says. A refile tool, and an "N inbox items" wake-up. | `memory/automatic-distillation.test.ts`, `memory/memory-repository.test.ts` | [memory 9][c3]; old row 6 |
+| ME-10 | `memory-repository.ts:captureInput` lifetime default (L889-891); `memory/memory-owner-controls.ts:remember` (L696); `agent/owner-agent-core.ts:remember`; `memory/memory-tools.ts` `memory_remember.lifetime` ("Leave it out and the fact is durable.") | Code picks "durable" when the model is silent, and the tool description invites silence. | REMOVE | Make `lifetime` and `expiresAt` required in the schema. | `memory/memory-repository.test.ts`, `memory/memory-owner-controls.test.ts`, `channels/owner-telegram-agent.test.ts` (lifetime cases) | [memory 11][c3], [local R13][c4], [agent R10][c6]; old row 7 (its `owner-telegram-agent.ts` citation is stale) |
+| ME-11 | `memory-repository.ts:findActiveItemByNormalizedText` / `normalizedRememberText`; `memory-owner-controls.ts:remember` duplicate branch → `appendSourceToActiveItem` | Normalised string equality decides two statements are the same memory; the new wording becomes only an extra source. | REMOVE | Show the model the near-duplicates; it chooses remember, correct or nothing. | `memory/memory-search.test.ts`, `memory/telegram-memory.test.ts`, `memory/memory-owner-controls.test.ts` | [memory 12][c3]; old row 8 |
+| ME-12 | `memory-owner-controls.ts:isAuthorizedRememberText` + `normalizeRememberComparison` + `rememberRemainder` (`REMEMBER_CONTROL_PREFIXES`) | `remember` and `correct` are refused unless the fact's normalised text equals the excerpt; a paraphrase is downgraded to uncertain, or refused outright for `correct`. | REMOVE (together with AG-3) | Keep only the receipt check: the excerpt occurs verbatim in the durable owner turn. The model owns the wording and the certainty. | `memory/memory-owner-controls.test.ts`, `memory/telegram-memory.test.ts`, `memory/memory-search.test.ts`, `channels/owner-telegram-agent.test.ts` | [memory 13][c3] |
+| ME-13 | `memory-owner-controls.ts:correct` (lifetime inheritance) | A correction inherits `lifetime` and `validTo`; `memory_correct` has no parameter to change them. | REMOVE | Add `lifetime` and `expiresAt` to `memory_correct`. | `memory/memory-owner-controls.test.ts` | [memory 14][c3] |
+| ME-14 | `memory/memory-control-targets.ts:findLastReferencedTarget`, used by `agent/owner-agent-core.ts` (L1260-1275, L1493) | Code resolves "that memory" from the previous reply, and only if exactly one id is found. A call naming two ids is refused unless both are in context. | REMOVE | The model names the id. Code checks it exists, is Sid's and is in a legal state. | `memory/control-targets.test.ts`, `memory/control-target-suppression.test.ts`, `channels/owner-telegram-agent.test.ts`, `voice/voice-agent.test.ts` | [memory 16][c3] |
+| ME-15 | `memory-control-targets.ts:controlFtsQuery` + `CONTROL_STOPWORDS` + `MAX_CONTROL_TARGETS=2` + `selectControlTargets` | A stopword-filtered FTS `AND`, at most 2 candidates, in rank order. | REMOVE (with ME-2) | `memory_search` already covers lookup by meaning. | `memory/control-targets.test.ts`, `memory/telegram-memory.test.ts` | [memory 17][c3] |
+| ME-16 | `memory/telegram-memory-retriever.ts:shouldSkipMeaningSearch` (`MEANING_ACKNOWLEDGEMENT_TERMS`), `literalHistoryQuery`, `questionOnly`, `recentContextCoversQuery`, `sameText`, `MIN_RECENT_EVIDENCE_CHARACTERS=24` | Keyword and shape heuristics over Sid's message decide whether to search at all and which evidence lines to drop. | REMOVE | Always retrieve within the budget; the model ignores what is irrelevant and can call `memory_search`. | `memory/meaning-search.test.ts`, `memory/telegram-memory.test.ts`, `memory/memory-search.test.ts` | [memory 19][c3] |
+| ME-17 | `telegram-memory-retriever.ts:captureInput` (throws unless `channel === "telegram"`) + `voice/production-runtime.ts:171` (`new D1ContextRetriever`) | Automatic memory recall is Telegram-only. A call gets no item recall, living profile or notes, literal history or meaning recall. | REMOVE | One channel-agnostic retriever for both runtimes. | `memory/telegram-memory.test.ts` | [memory 21][c3] |
+| ME-18 | `memory/meaning-search.ts:MIN_QUERY_SCORE = 0.45` (`MemoryMeaningService.search`) | Silently drops vector hits under 0.45, in automatic recall and in `memory_search`. | REMOVE | Return hits with their score (already shown as `relevance`). | `memory/meaning-search.test.ts`, `memory/memory-search.test.ts` | [memory 23][c3] |
+| ME-19 | `meaning-search.ts` index, coverage and delete SQL (`substr(rtrim(chunk.text), -1, 1) <> '?'`) | Sid's messages that end in "?" are never embedded, so they can never be found by meaning. | REMOVE | Index every owner turn. | `memory/meaning-search.test.ts` | [memory 24][c3] |
+| ME-20 | `memory-repository.ts:normalizeAutomaticTopicPath` (`AUTOMATIC_TOPIC_DEPTH_LIMIT=4`, `AUTOMATIC_TOPIC_COMPONENT_BYTES=64`, `AUTOMATIC_TOPIC_CHILD_LIMIT=40`) + `automatic-distillation.ts:AUTOMATIC_TOPIC_CREATION_LIMIT=6` | An over-cap path or a name with a separator quietly goes to the inbox instead of the model's area. | UNSURE — needs Sid | Keep the character and cycle validation; return a cap refusal to the model. | `memory/automatic-distillation.test.ts`, `memory/memory-repository.test.ts` | [memory 10][c3] |
+| ME-21 | `memory-owner-controls.ts:correct` (sensitivity guard) | Refuses a correction that moves a memory from sensitive to normal. | UNSURE — needs Sid | Let it through and name the downgrade in the receipt, or ask Sid. | `memory/memory-owner-controls.test.ts` | [memory 15][c3] |
+| ME-22 | `telegram-memory-retriever.ts:RECALL_STOPWORDS` / `ftsQuery`, `reciprocalRankFusion`, recall tiers, `MAX_MEMORY_CANDIDATES=3`, `MAX_LIVING_TOPIC_NOTES=2`, `MAX_HISTORY_RESULTS=4`, `MAX_MEANING_RESULTS=4`, byte budget | Code ranks and trims the automatic context. | UNSURE — needs Sid | Keep a byte budget, raise the caps, and label instead of dropping tiers. | `memory/telegram-memory.test.ts`, `memory/meaning-search.test.ts`, `memory/living-notes.test.ts` | [memory 20][c3] |
+| ME-23 | `telegram-memory-retriever.ts:withoutForgottenTurns` → `restatesMemory` | A term-overlap heuristic drops recent replies that "restate" a forgotten memory. | UNSURE — needs Sid | Keep the id-based drop; the overlap drop becomes a label, or the model judges. | `memory/telegram-memory.test.ts`, `memory/suppression-predicate-parity.test.ts` | [memory 22][c3] |
+| ME-24 | `meaning-search.ts:isOwnerHistoryCandidate` + SQL; `memory/literal-history.ts:searchCandidateHits`, `runExhaustiveSearchStep` | Jarvis cannot search what it said itself, by meaning or literally. | UNSURE — needs Sid | Index both, labelled by speaker. | `memory/literal-history.test.ts`, `memory/meaning-search.test.ts` | [memory 25][c3] |
+| ME-25 | `literal-history.ts:sourceChannel` | `assistant_delivered` must be `channelCode 2`, so voice replies are never literal history. | UNSURE — needs Sid | Store voice replies as history too (goes with VC-11). | `memory/literal-history.test.ts` | [memory 26][c3] |
+| ME-26 | `memory/memory-search.ts:MemorySearchService.resolveItems` | Proposed or uncertain memories never come back from `memory_search`, though its description says results carry "whether they are unconfirmed". | UNSURE — needs Sid | Return proposed ones labelled unconfirmed; keep forgotten ones out. | `memory/memory-search.test.ts` | [memory 27][c3] |
+| ME-27 | `memory/living-notes.ts:noteHasRequiredSections` + `parseActions` ("every requested topic must get a note") | The whole nightly run fails unless each note has exactly four fixed headings, one per topic. | UNSURE — needs Sid | Accept the model's structure and log the deviation. | `memory/living-notes.test.ts` | [memory 28][c3] |
+| ME-28 | `living-notes.ts` (`MAX_ITEMS_PER_TOPIC=6`, `MAX_PROFILE_SOURCES=24`, UTF-8 truncation, `MAX_TOPICS_PER_STEP=4`, `MAX_STEPS_PER_NIGHT=4`) | Code picks the 6 newest facts per topic for consolidation and truncates them. | UNSURE — needs Sid | Page instead of truncating. | `memory/living-notes.test.ts` | [memory 29][c3] |
+| ME-29 | `living-notes.ts` constructor (`providerModelId !== "deepseek:deepseek-flash"` is invalid) | Hard-pins the consolidation model. | UNSURE — needs Sid | A price-table lookup, as `memory-extraction-budget.ts` does. | `memory/living-notes.test.ts` | [memory 32][c3] |
+| ME-30 | `extraction-policy.ts:decideAutomaticPromotion` (`AUTO_PROMOTABLE_ORIGINS`) | An origin allowlist decides active or proposed; its input comes from the ME-6 grammar. | UNSURE — needs evidence: settled by ME-6's fix | Revisit with ME-6. | `memory/extraction-policy.test.ts` | [memory 34][c3] |
+| ME-31 | `memory/extraction-evaluation.ts:evaluateExtractionRun` / `rankExtractionResults` | The offline model-selection harness counts an ME-6 grammar failure as a safety failure. | UNSURE — needs Sid | Count verbatim-excerpt support only. | `memory/extraction-evaluation.test.ts` | [memory 35][c3] |
+| ME-32 | `memory-repository.ts:liftItem` (`restoredBasis`) + `migrations/0016_cloud_memory.sql` transition guard (confirmed basis needs the owner actor) | A lift turns an all-archived first-person basis into "confirmed", and the lift receipt does not say so. | UNSURE — needs Sid | Name the basis change in the receipt. | `memory/memory-owner-controls.test.ts`, `persistence/cloud-memory-migration.test.ts` | [memory 36][c3], [persistence `0016` basis][c5]; old row 9 |
+| ME-33 | `memory-repository.ts:validateOwnerTurn` (`newerTurn` check) | Any later owner message makes an earlier turn's memory call fail. | UNSURE — needs Sid | Allow it and record the authorising turn in the receipt. | `memory/memory-owner-controls.test.ts` | [memory 40][c3] |
+| ME-34 | `memory-owner-controls.ts:exactSingleTarget` | Two or more ids give `memory_ambiguous` for forget, lift, confirm, explain, correct, pin and unpin. | UNSURE — needs Sid | Allow several ids where the model intends it; keep a tap only for bulk forget. | `memory/memory-owner-controls.test.ts` | [memory 41][c3]; related AG-18 |
 
-Receiver compatibility correction, 2026-09-24: `mapSchoolCourse` no longer rejects
-storable unknown JSON as a failed school read. It records projection labels and keeps
-raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
-deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decision](https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523).
-The pipeline's direct-text authority still applies because that decision removed the safety
-tier, not the authenticated-source boundary. Collector revocation still requires its
-tier-three tap. The two existing judgment findings below remain open.
+Tool text that goes with these rows or is false because of them: `memory_remember` "Leave it out
+and the fact is durable." (ME-10); "Copied, never paraphrased." (ME-12, AG-3); `memory_confirm` "A
+guess of yours is never promoted from your own words alone" (AG-4); `memory_forget`'s multi-id
+confirm path (ME-34, AG-18); "from the item ids in your context" (ME-14, AG-17). `memory_search`
+says "a search finding nothing means there is nothing to find", which ME-18, ME-19 and ME-26 make
+false. `memory_restore` says "It comes back as unconfirmed", but `prepareLiftItem` restores the
+previous state. The distillation prompt's "Extract only durable facts" and its unstated 0.6
+threshold go with ME-8 and ME-9, and the living-notes headings with ME-27.
 
-Date-disagreement follow-up, 2026-09-24: no rationale for preferring a
-`content/myItems` date to the folder `DueDate` was recorded in #175's review, its
-agent-log entries or this register. The mapper retains that compatibility projection,
-but unequal values now add `ambiguous_assignment_date` to the evidence Jarvis reads;
-equal values do not. Folder `Availability.EndDate` is a separately labelled fallback,
-and an unfamiliar `Availability` shape is likewise surfaced rather than interpreted.
-This register remains partial.
+## Local agent, D2L extension, watchdog, contracts and the prompt pass
 
-| Symbol | Decision in code | Surface it should move to |
-|---|---|---|
-| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
-| `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |
+Paths starting `memory/`, `sync/` or `vault/` in LA rows are under `apps/local-agent/jarvis_local/`,
+and their tests under `apps/local-agent/tests/`. [local][c4]'s xref rows R7 to R13 are merged
+into VC-13, VC-9, VC-10, AG-4, AG-2/AG-3, DL-14 and ME-10.
+
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| LA-1 | `memory/promotion.py`: `_FIRST_PERSON_TOKEN`, `_FIRST_PERSON_UNTRUSTED_FRAMING`, `_is_whole_trusted_sentence`, `_contains_second_sentence`, `_PERIOD_ABBREVIATIONS`, `is_authenticated_first_person_quote` | The Python copy of the ME-6 grammar. No production caller; it exists to match the gateway. | REMOVE | The model judges whether Sid stated a settled fact and asks when unsure. Code keeps the authenticated turn and source event id. | `tests/memory/test_shared_memory_policy.py`, `tests/fixtures/memory-extraction-policy.json` (`firstPersonCases`), the gateway extraction-policy tests | [local R1][c4] |
+| LA-2 | `memory/promotion.py:AUTO_PROMOTABLE_ORIGINS`, `PromotionEngine.promote`; `memory/distillation.py:validate_extraction_proposal` (always `origin=MODEL`), `promote_new_facts` | Everything distilled stays `proposed`, and `confirm()` has no production caller, so no local fact ever becomes active or reaches the cloud. | REMOVE | Store the fact with its confidence and provenance and label it uncertain where shown; the model decides whether to rely on it or ask. | `tests/memory/test_fact_promotion.py`, `test_distillation.py`, `test_shared_memory_policy.py`, `tests/test_agent.py`, `tests/test_node.py` | [local R2][c4] |
+| LA-3 | `memory/retrieval.py:LocalMemoryRetriever.search` (`fact.state = active`, `ALLOWED_PURPOSES`) | Proposed facts are hidden from the model. No production caller today. | REMOVE | Return proposed facts too, labelled with state and confidence. | `tests/memory/test_retrieval.py` | [local R3][c4] |
+| LA-4 | `sync/memory_projection.py:MemoryProjectionUploader._capture_facts` (active facts only) | Only active facts go to cloud memory; with LA-2 the cloud sees nothing from the local distiller. | REMOVE | Project every fact with its `state` and `origin`. | `tests/sync/test_memory_projection.py` | [local R4][c4] |
+| LA-5 | `vault/retrieval.py:VaultLocalRetriever` (`ALLOWED_PURPOSES = {"vault_cli"}`, `VaultRetrievalDeniedError`, `PROPOSAL_ONLY`) | Sid's own Obsidian notes cannot reach the model, calls or Telegram; only the `jarvis vault` terminal command reads them. | REMOVE | Vault search and show as a model tool on both channels. Principal and vault scoping and path-free output stay. | `tests/vault/test_retrieval_isolation.py`, `tests/vault/test_cli.py` | [local R5][c4] |
+| LA-6 | `apps/d2l-extension/protocol.js:uploadBlock` (used by `delivery.js:enqueue/flush`) | An old host and route allowlist refuses any batch with `news/` or `quizzes/`, which `collector.js` always reads, so every batch is held. Found by reading; the reviewer asks for a check against a live popup. | REMOVE | Delete it; the gateway's `school/collector-protocol.ts` validates the schema. | `apps/d2l-extension/test/protocol.test.js`, `receiver-contract.test.js`, `queue.test.js`, `mutations.js`, `test/receiver/*.ts.txt` | [local R6][c4] |
+| LA-7 | `packages/contracts/src/calls.ts:AUTHENTICATION_DIGITS` in `sanitizeRedaction` (mirrored in `memory/projection_policy.py:_REDACTED_PATTERNS[0]`), applied by gateway `security/redaction.ts:Redactor` | Every standalone 6-digit number is redacted in stored text and in Jarvis's spoken replies; locally the whole fact is refused. Student numbers, prices and D2L ids are not secrets. | UNSURE — needs Sid | Redact digits only in an OTP or PIN context, as the 4/8-digit rules already do. | `packages/contracts/test/call-redaction.test.ts`, `tests/memory/test_projection_policy.py`, `tests/fixtures/memory-projection-policy.json`, `security/redaction.test.ts` | [local U1][c4], [agent U18][c6] |
+| LA-8 | `calls.ts:CREDENTIAL_ASSIGNMENT` (bare `token\|secret`) and its Python mirror | "secret: I like her" and "token = 5" are redacted, and locally the fact is refused. | UNSURE — needs Sid | Narrow it to credential shapes. | as LA-7 | [local U2][c4] |
+| LA-9 | `memory/distillation.py:DISTILLABLE_EVENT_TYPES` | Only two event types are distilled; "a new event type is ignored until someone decides". | UNSURE — needs evidence: may be a bug | Let the model judge relevance. | `tests/memory/test_distillation.py` | [local U3][c4] |
+| LA-10 | gateway `sync/memory-distill.ts:INSTRUCTIONS`, `distil`, `validateProposal` | "Do not include any other key" (so no sensitivity comes back); hard-coded `channel: "telegram"`; `context: []`; a parse failure silently returns `[]`; every proposal is forced to `origin: "model"`, uncertain. | UNSURE — needs Sid | A receipt on parse failure; the model sets certainty. | `sync/memory-distill.test.ts` | [local U4][c4], [persistence `sync/memory-distill.ts`][c5] |
+| LA-11 | `sync/memory_projection.py:MAX_PROJECTION_FACTS = 1024` (+ SQL `CHECK total_fact_count <= 1024`) | Past 1024 facts, projection stops completely instead of paging. | UNSURE — needs Sid | Page. | `tests/sync/test_memory_projection.py` | [local U5][c4] |
+| LA-12 | `packages/contracts/src/hermes-token-bridge.ts:parseRequestMaterial` / `parseJarvisTokenBridgeReadinessV1`; gateway `model/pre-admission-model-adapter.ts`, `model/hermes-token-adapter.ts` (no production caller) | A voice-only brain path with no tools field and one "jarvis-voice-safe" profile. | UNSURE — needs evidence: no production caller | Delete, or give it the same tool loop. | `packages/contracts/test/hermes-token-bridge.test.ts`, `model/pre-admission-model-adapter.test.ts`, `model/hermes-token-adapter.test.ts` | [local U6][c4], [agent U17][c6] |
+| LA-13 | `apps/d2l-extension/collector.js:offering` | Reads only courses with `CanAccess && IsActive && OrgUnit.Type.Id === 3`; `IsActive` drops past courses. | UNSURE — needs Sid | Type 3 is structural; past courses are a relevance call. | `apps/d2l-extension/test/collector.test.js`, `test/mutations.js` | [local U7][c4] |
+| LA-14 | `vault/setup.py:VaultRootPolicy.inspect` (`SEED_VAULT_PATHS`, `INSIDE_GIT`, `CLOUD_SYNC_*`) | Sid's real vault, any vault in a git repository and any vault under OneDrive or Dropbox is refused. | UNSURE — needs Sid | Refusing writes there is data safety; refusing reads of his notes is a restriction. | `tests/vault/test_setup.py`, `tests/vault/conftest.py` | [local U8][c4] |
+| LA-15 | `vault/models.py:FAIL_CLOSED_SENSITIVITY`, `vault/reconciliation.py` | Every note is labelled `restricted`. | UNSURE — needs evidence: no consumer today | Depends on the consumers LA-5 adds. | `tests/vault/test_models.py` | [local U9][c4] |
+| LA-16 | gateway `school/guided-assignment-tools.ts:GUIDED_ASSIGNMENT_PROMPT` ("Never write assignment content for him." / "It cannot submit work, email anyone or touch D2L.") | Tells the model what it may not do. | UNSURE — needs Sid | [school][c7] (J8) reads the first line as Sid's scribe accommodation, not a code refusal. | `school/guided-assignment.test.ts` | [local U12][c4] |
+
+[local][c4] U10, U11, U13 and U14 are merged into AG-1, AG-15, SU-74 and SU-58. It also noted,
+outside this class, that `jarvis_local/node.py` and `systemd/jarvis-node.service` keep a Linux
+path.
+
+## Persistence, sync, backup and archive
+
+SQL rows are in `apps/cloud-gateway/src/persistence/migrations/`. [persistence][c5] posts rows
+without ids, so its links name the migration.
+
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| PS-1 | Owner-turn triggers with `channel = 'telegram'`: `0020_school_catchup.sql` (`school_course_cards_require_owner_turn_insert/_update`, `school_course_facts_require_owner_turn`, `school_catchup_actions_require_plan_turn`, `school_catchup_turn_receipts_require_turn`); `0022_university_tracker.sql` (`university_programs_require_owner_turn_insert/_update`, `university_program_items_require_owner_turn`, `university_tracker_turn_receipts_require_turn`); `0023_study_coach.sql` (`school_study_preferences_require_owner_turn_*`, `school_practice_items_source_guard`, `school_practice_items_status_transition`, `school_study_evidence_source_guard`, `school_study_evidence_status_transition`); `0024` (`university_application_items_require_owner_turn_insert/_update`); `0029` (`university_workflow_revisions_require_owner_turn`); `0030` (`school_study_signal_controls_insert_guard`) | The database refuses school, university and study-coach writes from a call. Sid can say the same thing on a call and it is rejected. | REMOVE | Accept any authenticated owner turn (`channel IN ('telegram','voice')`); the turn foreign key stays as the receipt. | `persistence/school-catchup-migration.test.ts` (inserts a voice turn and expects rejection), `school/school-catchup-telegram.integration.test.ts`, `persistence/university-tracker-migration.test.ts`, `persistence/study-coach-migration.test.ts`, `persistence/university-application-workflow-migration.test.ts`, `persistence/university-application-details-migration.test.ts`, `persistence/study-coach-weak-spots-migration.test.ts` | [persistence: six `channel = 'telegram'` trigger groups][c5] |
+| PS-2 | `0016_cloud_memory.sql`: `memory_item_transitions_insert_guard` (the `active` branch requiring origin `authenticated_first_person` or `deterministic_observation`), the CHECKs `origin <> 'model' OR (uncertain = 1 AND basis = 'inferred' …)` and `origin <> 'third_party' OR uncertain = 1`, and the view `memory_retrievable_item_versions` (`lifecycle_state = 'active'`) | A memory Jarvis inferred, or that came from a third party, can never become active, so it is never retrieved; its label is forced by code. | REMOVE (the activation guard and the view). The two CHECKs are UNSURE — needs Sid: [memory 38][c3] keeps the matching TypeScript invariant | Keep `origin` and `sources` as provenance. The model activates a memory and chooses `uncertain` and `basis`, with the origin shown on recall. Sid's forget and correct authority stays. | `persistence/cloud-memory-migration.test.ts`, `persistence/cloud-memory-trigger-contract.test.ts`, `memory/memory-repository.test.ts` | [persistence `0016` origin guard][c5] |
+| PS-3 | `0027_school_observations.sql:school_missing_work_transitions_insert_guard` | Fixed Classroom state lists decide `submission_seen`, `not_due`, `no_submission_seen` and `closed`: the SQL half of SU-24. | REMOVE | Store the raw observation and revision (already append-only). Jarvis reads the state, decides "missing" and records its reading with evidence references. | `persistence/school-observation-migration.test.ts`, `school/school-observation-repository.test.ts`, `school/classroom-observation-sync.test.ts`, `school/study-coach-signals.test.ts`, `jobs/digest-job.test.ts`, `digest/digest-composer.test.ts` | [persistence `0027`][c5]; old row 10 |
+| PS-4 | `0020_school_catchup.sql`: `school_catchup_actions_planned_cap_insert`; CHECK `estimated_minutes BETWEEN 5 AND 180`; CHECK `sequence_rank BETWEEN 1 AND 20` | Refuses more than 3 actions or 180 minutes in a day, or more than 21 planned actions, and fixes a task's size. This decides how much Sid studies per day. | REMOVE | Jarvis plans from Sid's stated capacity. Keep only a large abuse ceiling, labelled as storage, if one is needed. | `persistence/school-catchup-migration.test.ts`, `school/school-catchup-repository.test.ts`, `school/school-paste.test.ts` | [persistence `0020` caps][c5]; TypeScript half SU-25 |
+| PS-5 | `0030_study_coach_weak_spots.sql`: `school_study_check_in_claims` `PRIMARY KEY (principal_id, local_date)` + `school_study_check_in_claims_insert_guard`; CHECKs `outcome IN ('uncertain','wrong')`, `evidence_count BETWEEN 1 AND 4` | At most one weak-spot check-in a day, citing at most 4 signals. | UNSURE — needs Sid: [persistence][c5] rates it REMOVE, [school F18][c7] keeps the one-claim-a-day check as Sid's own preference and a rate limit | Key by `claim_id` and let Jarvis decide cadence and citations, or keep it as a limit Sid sets. | `persistence/study-coach-weak-spots-migration.test.ts` | [persistence `0030` claims][c5] |
+| PS-6 | `0008_autonomy.sql` (`autonomy_mode` seeded `'shadow'`; tier 2 = `write.project_file`, `write.calendar`, `open.application`, `vehicle.precondition`) + `autonomy/autonomy-service.ts:decideOutcome` (`withheld_shadow`) | Every tier-2 action is withheld until the mode goes live, though none acts as Sid toward anyone. | UNSURE (lean REMOVE) — needs Sid | Drop shadow withholding for actions that do not act as Sid, or have Sid switch it once. The `autonomy_evaluations` receipt stays. | `autonomy/autonomy-service.test.ts`, `autonomy/tool-gate.test.ts`, `autonomy/tier3-tap.test.ts`, `channels/command-handler.test.ts` | [persistence `0008` shadow][c5], [agent U12][c6] |
+| PS-7 | `0008_autonomy.sql` (tier 3 for `delete.data` and `write.production`) | These always need a tap, though they are not acting as Sid toward others. | UNSURE — needs Sid | Sid decides. | `autonomy/*` | [persistence `0008` tier 3][c5] |
+| PS-8 | `0040_school_collector_keys.sql` (`school.collector.revoke` seeded tier 3; `school_collector_activation_guard` requires `i.channel = 'telegram'`) + `autonomy/tool-capabilities.ts` (`school_collector_revoke`) | Revoking Sid's own collector key needs a tier-3 tap, and the pairing tap works only on Telegram. | UNSURE — needs Sid | Allow the tap from either channel; Sid decides the tier. | `school/collector-security.test.ts`, `school/collector-wiring.test.ts`, `voice/voice-agent.test.ts` | [persistence `0040`][c5], [agent U13][c6]; [school G9, G10][c7] and [local K18][c4] keep the tap itself |
+| PS-9 | `0029_university_application_details.sql` (CHECK `execution_boundary = 'owner_only'`; `university_workflow_revisions_status_guard` matrix) | Jarvis may only prepare a submission, payment, contact or signup, never execute it; only Sid's report marks one done. | UNSURE (lean REMOVE) — needs Sid: [school C24][c7] keeps the TypeScript `owner_only` literal | When execution hands exist, gate them with a tap and record the receipt. | `persistence/university-application-details-migration.test.ts`, `university/university-application-details-model.test.ts`, `university/university-application-round4-corpus.test.ts` | [persistence `0029` execution boundary][c5] |
+| PS-10 | `0023_study_coach.sql:school_study_evidence_status_transition` (`NEW.last_prompted_on >= NEW.practice_due_on`) | Jarvis cannot record prompting a topic before its code-stored practice date. | UNSURE — needs evidence: may be receipt ordering only | Store the date as a hint. | `persistence/study-coach-migration.test.ts` | [persistence `0023` last_prompted_on][c5] |
+| PS-11 | `0011_deadlines.sql` (CHECK `effort IN (…)`; `lead_minutes` "Derived from effort"; comment "Set at ingestion from title keywords…") | The schema half of DL-15 and DL-16. | UNSURE — needs evidence: follows DL-15 and DL-16 | The enum can stay as validation of the model's argument. | `deadlines/*`, `jobs/brightspace-poll-job.test.ts` | [persistence `0011` effort][c5] |
+| PS-12 | `0010_projects.sql` (`project_documents.path IN ('NEXT_STEPS.md','KNOWN_ISSUES.md','DECISIONS.md','CHANGELOG.md')`, `excerpt ≤ 4096`) | Limits which repository files Jarvis sees, and how much of each. | UNSURE — needs Sid | Store the full document in the archive and let Jarvis read what it needs. | `projects/project-poller.test.ts` | [persistence `0010` documents][c5] |
+| PS-13 | `0016_cloud_memory.sql` (`memory_item_transitions.actor IN ('owner','rules')` and the guard branches for `rules`) | The model is never an actor over its own memory; non-owner transitions cannot reject, supersede or forget. | UNSURE — needs Sid | Add a `model` actor with a receipt; Sid's last word still wins. | `persistence/cloud-memory-migration.test.ts` | [persistence `0016` actor][c5] |
+| PS-14 | `0032_memory_living_notes.sql:memory_consolidation_change_receipts_insert_guard` | Only a newer fact may supersede an older one. | UNSURE — needs evidence: integrity or judgment | Let Jarvis name the direction and keep the receipt. | `persistence/memory-living-notes-migration.test.ts`, `memory/living-notes.test.ts` | [persistence `0032`][c5] |
+| PS-15 | `0018_owner_call_step_up.sql:owner_call_step_up_repeat_checks_insert_guard` (`reserved_at > verified_at + '2 seconds'`) | The storage side of VC-6; the drop itself is in voice code. | UNSURE — needs evidence: follows VC-6 | Follow VC-6. | `persistence/owner-call-step-up-migration.test.ts` | [persistence `0018`][c5] |
+| PS-16 | `0017_owner_passphrase.sql:owner_passphrase_disable_commit_guard` | Disabling the call passphrase needs a Telegram message exactly `/disable-owner-step-up --confirm`, within 5 minutes. | UNSURE — needs Sid: [agent K14][c6] keeps the Telegram command | A tier-3 tap from any channel once Jarvis understands the request. | `persistence/owner-passphrase-migration.test.ts`, `channels/telegram-commands.test.ts`, `channels/command-handler.test.ts`, `sync/owner-passphrase.test.ts` | [persistence `0017`][c5] |
+| PS-17 | `0006_voice_access.sql` (CHECK `expires_at <= authenticated_at + '1800 seconds'`), `0007` (`call_session_authorities_provider_lifetime`), `persistence/voice-access-repository.ts:providerAuthorityDeadline` | Call authority dies 30 minutes after connecting, even on Sid's own call. | UNSURE — needs Sid | Re-step-up instead of expiring. | `persistence/voice-access-repository.test.ts`, `persistence/voice-access-incremental-migration.test.ts`, `persistence/migration-schema.test.ts` | [persistence `0006`/`0007`][c5] |
+| PS-18 | `persistence/voice-access-repository.ts:OWNER_MUTATION_AUTHORITY_GUARD`, `#requireOwnerAuthority` | Guest access can only be managed from a live, authenticated owner call. | UNSURE — needs Sid: authority is legitimate; one channel only is not (see VC-12) | Accept the equivalent Telegram owner authority, with a tap. | `persistence/voice-access-repository.test.ts`, `voice/*owner-access*` | [persistence voice-access guard][c5] |
+| PS-19 | `0020` `fact_kind`; `0024` `item_kind`; `0029` `workflow_kind` + per-kind status matrix; `0023` `mode`, `result` | Closed taxonomies the model must force-fit; a portfolio or an interview is not an allowed application item. | UNSURE — needs Sid | Add `other` plus a free label, or let Jarvis supply the kind. | `persistence/school-catchup-migration.test.ts`, `persistence/university-application-workflow-migration.test.ts`, `persistence/university-application-details-migration.test.ts`, `persistence/study-coach-migration.test.ts` | [persistence taxonomies][c5] |
+| PS-20 | `0033_d2l_notification_email.sql` (`event_kind IN (…)`; `d2l_email_grade_observations_insert_guard` requires `grade_released`) | A code classification of D2L email decides whether a grade is recorded. | UNSURE — needs evidence: follows SU-48 | Store every email; the authenticity quarantine stays. | `persistence/d2l-notification-email-migration.test.ts`, `school/d2l-email-handler.test.ts` | [persistence `0033`][c5] |
+| PS-21 | Maximum-active-row caps in `0020`, `0022`, `0023`, `0024`, `0029` | Hard ceilings on how much Sid can track. | UNSURE — needs Sid | Keep only large abuse bounds that report their eviction, set by Sid. | the four migration tests in PS-19, `persistence/university-tracker-migration.test.ts` | [persistence caps][c5]; related SU-55, SU-62, SU-67 |
+| PS-22 | `0022`/`0024`/`0029` (CHECK: `verification_state = 'verified'` needs an `https://` URL, cycle and `verified_at`) | Code defines when a university fact counts as verified. | UNSURE (lean KEEP) — needs Sid | Keep it as a receipt. | `persistence/university-tracker-migration.test.ts` | [persistence verified CHECK][c5]; related SU-59 |
+| PS-23 | `sync/memory-projection.ts:projectionSourceText` | A fact is projected to the PC only if its source is normal sensitivity and history-eligible, and an assistant source only from Telegram. | UNSURE — needs Sid | Accept voice assistant turns; Sid decides on sensitive items. | `sync/memory-projection.test.ts`, `conversation/context-retriever.test.ts` | [persistence projection][c5] |
+| PS-24 | `backup/memory-backup.ts:MEMORY_BACKUP_NOTICE` + `MemoryBackupService.alert`; `archive/capacity-alert-sink.ts:D1CapacityAlertSink.emit` | Code writes fixed messages and sends them straight to Telegram, bypassing Jarvis, so they never reach a call. | UNSURE (low) — needs Sid | Hand the event to Jarvis to phrase and deliver; the claim rows stay. | `backup/memory-backup.test.ts`, `archive/capacity-alert-sink.test.ts` | [persistence alerts][c5] |
+| PS-25 | `0038_memory_lifetime_and_pins.sql` (`memory_items.lifetime … DEFAULT 'durable'`) | Backfills old rows only; inserts pass `lifetime` explicitly. | UNSURE (low) — needs evidence: backfill only | None given. | `persistence/cloud-memory-migration.test.ts` | [persistence `0038`][c5] |
+| PS-26 | `archive/capacity-guard.ts:CapacityGuard.assertAcceptingNewTurn` | Refuses every new turn when fresh telemetry is missing, not only when a budget is spent. | UNSURE (lean KEEP) — needs Sid | Fail open with a warning when telemetry is unavailable. | `archive/capacity-guard.test.ts`, `archive/production-capacity.test.ts` | [persistence capacity guard][c5] |
+
+[persistence][c5]'s `0011` quiet windows, `0010` stale days, `0009` decisions, `0016` confirmed
+basis and memory-distill rows are merged into DL-31, DL-38, DL-44, ME-32 and LA-10. It found no
+prompt text in this area that tells the model code will refuse.
+
+## Agent, autonomy, channels, policy, security, model and providers
+
+[agent][c6] flags one probable live defect to verify first: AG-9. Its R9 is SU-2 and SU-4, R10 is
+ME-10, R11 is VC-9, R16 is VC-10 and R17 is VC-13.
+
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| AG-1 | `agent/owner-agent-core.ts:MAX_TOOL_CALLS` / `executeCalls` / second `completeAgent` with `toolChoice:"none"` / `streamVoiceReply` `round < 2` + prompt "call one tool and do not also answer" | One tool call and one tool round per turn: Jarvis cannot search then act, or read then save. | REMOVE | A loop bounded by a budget (calls, cost, time), with a receipt per tool and the tier gate per call. | `providers/deepseek-agent-stream.test.ts`; other pins unverified | [agent R1][c6], [agent R18 P1][c6]; [local U10][c4] (xref) rated it UNSURE |
+| AG-2 | `owner-agent-core.ts:NEGATION` (used in `forget`, `restore`, `confirm`) | Any negation anywhere in Sid's message throws `owner_agent_memory_grounding_invalid`: "forget that I don't like math" is refused. | REMOVE | The model reads the intent and asks when unsure. Code keeps the authority check and the receipt. | `channels/owner-telegram-agent.test.ts` | [agent R2][c6], [local R11][c4] |
+| AG-3 | `owner-agent-core.ts:rememberGrounding`, `factVocabularyMatches`, `contentWords`, `CONTENT_STOP_WORDS`, `NORMALISATION_ALLOWLIST`, `normalizedContentWord`, `sameNegation` | Re-checks the model's paraphrase against Sid's words by content-word overlap and silently downgrades it to "inferred". | REMOVE (together with ME-12) | The model states `evidenceClass`; code stores it with the verbatim excerpt as provenance. | `channels/owner-telegram-agent.test.ts`, `memory/telegram-memory.test.ts`, `voice/voice-agent.test.ts` | [agent R3][c6], [local R11][c4] |
+| AG-4 | `owner-agent-core.ts:CONFIRMATION_LANGUAGE` / `confirmationExcerpt` | `memory_confirm` is refused unless Sid's words match yes, confirm, correct, keep it or that's right; "yep" and "exactly" fail. | REMOVE | The model decides that Sid confirmed. | `channels/owner-telegram-agent.test.ts` | [agent R4][c6], [local R10][c4] |
+| AG-5 | `owner-agent-core.ts:isMemoryOfferOrGroundedQuestion` + `isQuestionSentence`, fed by `voice/voice-agent.ts:previousAssistant` and `memoryOwnerTurn` (L141-159, L191-251) | A keyword and sentence-shape grammar over Jarvis's previous sentence decides whether a fact was confirmed. | REMOVE | The model says the fact was confirmed and cites the prior turn; the receipt of that turn stays. | `channels/owner-telegram-agent.test.ts`, `voice/voice-agent.test.ts` | [agent R5][c6], [voice U9][c1] |
+| AG-6 | `owner-agent-core.ts:exactStoredFactQuestion` (in `confirm`) | Confirm is refused unless the previous message quoted the exact stored text in a question passing AG-5. | REMOVE | As AG-5. | `channels/owner-telegram-agent.test.ts` | [agent R6][c6] |
+| AG-7 | `owner-agent-core.ts:executeCall` → `port.replyTargetsLatestAssistant` (`OwnerTelegramAgentAdapter`) | A swipe-reply to any Jarvis message but the latest refuses every memory tool; voice always passes. | REMOVE | The model reads the quoted reply target (already in context) and decides. | `autonomy/tier3-agent-dispatch.test.ts`, `channels/owner-telegram-agent.test.ts` | [agent R7][c6] |
+| AG-8 | `owner-agent-core.ts:executeCall` (`directOwnerText` refusals; assignment catalogue only when direct) ← `channels/telegram/telegram-types.ts:containsQuotedOrPastedControlContent` → `isMemoryControlAuthoritative` ← `index.ts:ownerTelegramToolAuthority` and `buildTelegramConversationRepository` (`telegramDirectOwnerText`) | A newline, code span, blockquote or quote in Sid's message removes memory, deadline and guided-assignment authority and hides the assignment catalogue. "Chem lab report." and "due 3pm friday" on two lines cannot record a deadline. | REMOVE | Authority is owner, private chat, not forwarded. The shape of the text is not authority. | `channels/argument-tool-fixture.ts`, `school/guided-assignment.test.ts`, `autonomy/tier3-agent-dispatch.test.ts`, `channels/owner-telegram-agent.test.ts`, `channels/telegram-classification.test.ts`, `memory/telegram-memory.test.ts`, `school/school-catchup-telegram.integration.test.ts`, `school/school-paste.test.ts` | [agent R8, R13, R14][c6] |
+| AG-9 | `providers/deepseek-provider.ts:AGENT_MAX_TOOLS = 16` (`DeepSeekAgentProvider.requestBody`) | Caps the tool catalogue. The Telegram catalogue has 18 tools, so by reading, every owner Telegram agent turn throws `agent_request_invalid` before any HTTP call. Unverified at runtime; no test runs the real catalogue. | REMOVE | Remove the cap or size it from the catalogue, and add a test with the real catalogue. | none found | [agent R12][c6] |
+| AG-10 | `index.ts` `onAccepted` → `parseCommand` (`unknown_command` → "No such command.") | Any message starting with an unknown `/word` ("/remind me at 5") never reaches the model. | REMOVE | Send unknown slash text to the model. | `channels/telegram-commands.test.ts` | [agent R15][c6] |
+| AG-11 | Prompt text in `owner-agent-core.ts` (`OWNER_AGENT_SYSTEM_PROMPT`, `OWNER_VOICE_STREAM_PROMPT`) and the catalogue-failure line "Do not invent assignment ids." | Tells the model about code-enforced rules: "call one tool and do not also answer", "Never repeat or paraphrase a receipt in reply because code displays receipts verbatim". | REMOVE (with the code each line describes) | Delete with AG-1, AG-8 and SU-2. | see those rows | [agent R18][c6] |
+| AG-12 | `channels/telegram/owner-telegram-agent.ts` `school_update` description ("finished alone does not mean submitted"; "Use this even when pasted assignment instructions mention emailing a teacher") | Mirrors the DL-10 keyword rule and routes the model around SU-1. | REMOVE (with DL-10 and SU-1) | Delete with those rows. | `channels/owner-telegram-agent.test.ts`, `evals/owner-telegram-eval-corpus.test.ts` | [agent R19][c6], [school J6][c7] |
+| AG-13 | `owner-telegram-agent.ts:port.channelPrompt` ("Resolve deadline dates from this message, not a later processing time.") + `voice/voice-agent.ts:131` ("Deadline relative dates are checked against the durable current turn timestamp.") | Tells the model code will re-check its date reading (DL-2). | REMOVE | Keep the timestamp as context; drop "checked". | `deadlines/deadline-voice.test.ts` | [agent R20][c6]; noted by [voice][c1] |
+| AG-14 | `owner-agent-core.ts:executeCall` (Telegram `directPipelineText === false` refusal applied to `school_d2l_status`) | A read of school evidence is refused on a forwarded or group turn. | REMOVE | A read needs the owner principal only. | `school/collector-wiring.test.ts`, `voice/voice-agent.test.ts` (whether they pin it is unverified) | [agent R21][c6] |
+| AG-15 | `providers/deepseek-provider.ts:SYSTEM_PROMPT` ("Use only the provided context and the user's message.") on the plain `DeepSeekModelAdapter` path | Forbids the model's own knowledge on pipeline and non-owner paths. | REMOVE (guest isolation aside) | Drop the restriction for owner paths. | `providers/deepseek-provider.test.ts` | [agent R22][c6]; [local U11][c4] (xref) could not confirm which live path uses it |
+| AG-16 | `owner-agent-core.ts:groundedExcerpt` / `wordBoundaryOccurrence` (remember, correct, forget, restore, explain, confirm) | `supportingExcerpt` must be a verbatim, word-bounded substring of Sid's text, or the call throws; listed optional, it is effectively required. Brittle on voice transcripts. | UNSURE — needs Sid | Keep it as a stored provenance quote rather than a gate. | `channels/owner-telegram-agent.test.ts`, `voice/voice-agent.test.ts` | [agent U1][c6] |
+| AG-17 | `owner-agent-core.ts:eligibleItemIds` / `requireEligibleItem` / `MEMORY_CONTEXT_ITEM` regex | A memory id must appear in this turn's context or staged targets (`owner_agent_item_not_eligible`). | UNSURE — needs Sid | Replace with a principal-scoped ownership check. | `channels/owner-telegram-agent.test.ts`, `memory/control-targets.test.ts` | [agent U2][c6] |
+| AG-18 | `owner-agent-core.ts:forget` (`itemIds.length !== 1` → "Confirm forget N" tap) | Forgetting 2 to 8 memories needs a Telegram tap, though forgetting only hides and does not act as Sid. | UNSURE — needs Sid | The model asks when unsure; code keeps the receipt. | `channels/owner-telegram-agent.test.ts` | [agent U3][c6]; related ME-34 |
+| AG-19 | `owner-agent-core.ts:confirm` (`origin==="model" && basis==="inferred"` → Confirm/Discard tap) | A model-inferred memory can only be confirmed by a button, even when Sid says yes in words. | UNSURE — needs Sid | The model reads the confirmation; code records it. | `channels/owner-telegram-agent.test.ts` | [agent U4][c6] |
+| AG-20 | `owner-agent-core.ts:pipelineSaved` | A regex over receipt wording (`Saved`, `Updated`, `Recorded`, …) decides saved or not saved for adapters without `toolOutcome`. | UNSURE — needs evidence: no test found | Require a structured `toolOutcome` from every pipeline adapter. | none found | [agent U5][c6] |
+| AG-21 | `agent/voice-reply.ts:VoiceReplyStream.push` / `parseClaim` + prompt "Never wrap several sentences or only part of a sentence." | A malformed `[[claim]]` throws and the whole spoken reply becomes "I couldn't finish that reply…". | UNSURE — needs Sid | Degrade to an unsupported-claim line for that sentence only. | `voice/voice-reply.test.ts` | [agent U6][c6], [agent R18 P2][c6] |
+| AG-22 | `channels/telegram/telegram-types.ts:ATTACHMENT_KEYS` / `classifyTelegramUpdate` (`unsupported_content`) | Photos, documents, voice notes, captions and edited messages are refused ("Jarvis accepts text messages only."); the model never sees them. | UNSURE — needs Sid | Accept media into storage and give the model a read tool. | `channels/telegram-classification.test.ts`, `channels/telegram-webhook.test.ts`, `channels/telegram-callback.test.ts` | [agent U7][c6] |
+| AG-23 | `telegram-types.ts:BORROWED_TEXT_KEYS` → `isDirectText=false` → `directPipelineText=false` | A forwarded message, such as a teacher's announcement, disables every tool. | UNSURE — needs Sid: [school B12][c7] keeps the tracker's refusal of forwarded text | Allow read and save tools on forwarded data; keep acting-as-Sid tools gated. | `channels/telegram-classification.test.ts`, `school/school-catchup-telegram.integration.test.ts` | [agent U8][c6] |
+| AG-24 | `channels/telegram/telegram-commands.ts:parseCommand` + `command-handler.ts:runCommand` (`/status /queue /digest /exam /shadow /call /vault`) | Deterministic owner controls that run before the model and exist on Telegram only. | UNSURE — needs Sid | Expose the same controls as tools on both channels. | `channels/telegram-commands.test.ts`, `channels/command-handler.test.ts` | [agent U9][c6] |
+| AG-25 | `command-handler.ts:DEFAULT_QUIET_HOURS = 24` | `/exam on` always means 24 hours. | UNSURE — needs Sid | The window comes through a tool. | none found | [agent U10][c6] |
+| AG-26 | `channels/telegram/telegram-call-command.ts:requireConfirmation` | `/call` needs an exact trailing ` --confirm`, and the reason may not contain `--`. | UNSURE — needs Sid | Fold into VC-13's model-placed, tier-gated call. | `channels/telegram-commands.test.ts`, `channels/command-handler.test.ts` | [agent U11][c6] |
+| AG-27 | `autonomy/autonomy-service.ts:decideOutcome` (`tier === null` → `denied_unknown_capability`) | An unclassified tool is refused until a migration classifies it. | UNSURE (lean KEEP) — needs Sid | Keep, with the catalogue-derived test that exists. | `autonomy/tool-classification.test.ts` | [agent U14][c6] |
+| AG-28 | `model/model-adapter.ts:MAXIMUM_INPUT_CHARACTERS = 8_000` | Over 8,000 characters fails the turn, though Telegram accepts 32 KiB; a long D2L paste fails. | UNSURE — needs Sid | Align with the provider limit. | `model/model-adapter.test.ts` | [agent U15][c6] |
+| AG-29 | `providers/deepseek-provider.ts:DeepSeekAgentProvider.requestBody` (`thinking: {type:"disabled"}`; `agentText(systemPrompt, 32_768)`) | Reasoning is always off for the owner agent, and a system prompt over 32 KiB throws. The `DEFAULT_MODEL` comment cites a 2026-09-20 cost choice by Sid. | UNSURE — needs Sid | Sid decides; make the prompt cap an explicit limit the model is told about. | `providers/deepseek-agent-stream.test.ts`, `providers/deepseek-provider.test.ts`, `http/worker-telegram-reply.test.ts` | [agent U16][c6]; related VC-22 |
+| AG-30 | `http/calendar-feed-routes.ts` (`listDueWithin(-14d…+90d, statuses:["open"])`) | Code picks which deadlines the calendar feed shows. Not model-facing. | UNSURE (low) — needs Sid | None given. | `http/calendar-feed-routes.test.ts` | [agent U19][c6] |
+| AG-31 | `owner-agent-core.ts:raiseTier3Confirmation` ("Tap Confirm, then ask me again") + `autonomy/tool-confirmations.ts` args hash + `CONFIRMATION_TTL_MS` | After tapping, Sid must ask again and the model must re-issue an identical call. | UNSURE (lean KEEP) — needs Sid | Execute the pending call on the tap. | `autonomy/tier3-tap.test.ts`, `autonomy/tool-gate.test.ts` | [agent U20][c6] |
+
+Refusal strings the model relays to Sid and that go with these rows: "this is not Sid's direct
+current Telegram text" (fires for a newline, AG-8), "the swipe reply does not target Jarvis's latest
+delivered message" (AG-7), "exceeded the one-action limit" (AG-1) and "I cannot show you a button
+on a call. Confirm it in Telegram" (VC-10). [agent U12, U13, U17, U18][c6] are PS-6, PS-8, LA-12
+and LA-7.
+
+## School and university
+
+[school][c7]'s B2 is DL-29 and G5 is DL-15. The largest pieces are the regex constants and
+evidence grammars in `university/university-tracker-model.ts` and the whole
+`StudyCoachModelAdapter.streamOwnerTool` router; the six `school/tutoring-reply-*` test files and
+`university/university-application-round4-corpus.test.ts` exist to pin those grammars and go with
+them.
+
+| # | file:symbol @68675ba | What it decides or restricts | Status | Replacement | Tests to change | Source |
+|---|---|---|---|---|---|---|
+| SU-1 | `school/school-catchup-model.ts:isUniversityExecutionRequest`, `sentenceRequestsExternalAction`, `chainRequestsExternal`, `requestedActionTargetsExternal` (+ `SCHOOL_NAMES`, `REQUEST_PARTY`, `REQUEST_EXTERNAL_OBJECT`, `TRANSACTION_VERB`, `COMMUNICATION_VERB`, `DECISION_VERB`, `COURTESY_MARKER`, `DIRECTIVE_PREFIX`, `PREPARATION_START`), used by `streamOwnerTool` | A regex over Sid's words decides that he asked for an external action and refuses before the model runs (`EXECUTION_REQUEST_REFUSAL`). | REMOVE | Jarvis reads the message. External acts go through a real tool with the tier-3 tap as the refusal point. | `university/university-application-details-model.test.ts`, `university/university-application-round4-corpus.test.ts`, `school/school-paste.test.ts` | [school B1][c7]; old row 12 and "Fixed school intake decision (#164)" |
+| SU-2 | `school-catchup-model.ts:guardReplyClaims`, `unsafeFirstPersonRanges`, `isWorkedExplanation`, `allowedFirstPersonActionClaim`, `isReceiptedInternalClaim`, `hasPassiveExternalCompletion`, `exemptDraftAndReportSpans` (+ `FIRST_PERSON_ACTION_CLAIM`, `ACTION_CLAIM_VERBS`, `FALSE_EXTERNAL_COMPLETIONS`, `WORKED_*`, `PASSIVE_*`, `THIRD_PARTY`); called from `agent/owner-agent-core.ts:streamCaptured` | Deletes reply sentences matching a verb list ("sent", "booked", "applied"…), with a hand-written grammar for tutoring exceptions, then appends a fixed line and strips a leading "Done.". | REMOVE | The model declares `claimedActions`; code checks each against this turn's tool receipts. No vocabulary scan. | `school/tutoring-reply-guard.test.ts`, `tutoring-reply-held-out.test.ts`, `tutoring-reply-review.test.ts`, `tutoring-reply-round-two.test.ts`, `tutoring-reply-round-three.test.ts`, `tutoring-reply-round-three-held-out.test.ts`, `tutoring-reply-fixtures.ts`, `school/school-catchup-model.test.ts`, `school/guided-assignment.test.ts`, `agent/receipted-tool-claims.test.ts` | [school B3][c7], [agent R9][c6]; old row 11 |
+| SU-3 | `school-catchup-model.ts:BRIGHTSPACE_CHECK_COMPLETIONS` / `_DISCUSSION` / `_DENIALS`, `isFalseBrightspaceCheckCompletion` | A regex decides the model claimed it checked D2L and replaces the claim with "I haven't checked D2L. Say 'check D2L now'…". | REMOVE | Match against the receipt of the refresh or `school_d2l_status` tool. | `school/school-catchup-model.test.ts`, `voice/voice-sentences.test.ts` | [school B4][c7] |
+| SU-4 | `school-catchup-model.ts:guardVoiceReplySentence`, `VOICE_MEMORY_COMPLETION`, `VOICE_COMPLETION_BACKSTOP`, `UNRECEIPTED_VOICE_ACTION`; called from `agent/voice-reply.ts:check` | On calls only, a spoken sentence matching a verb list ("saved", "all set", "Noted") becomes "I can't confirm that action." Telegram has no such list, so the channels differ. | REMOVE (the vocabulary; the marker-to-receipt match stays) | The voice marker protocol plus the receipt match, with the same logic on both channels. | `voice/voice-sentences.test.ts`, `voice/voice-reply.test.ts`, `voice/voice-agent.test.ts` | [school B6][c7], [agent R9][c6]; old "Additional voice finding" |
+| SU-5 | `school-catchup-model.ts:PLAN_SAVE_COMPLETIONS`, `presentsUnsavedSchedule`, `replyWithoutUnsavedSchedule`, `fallbackWithSaveFailure` | When the schedule was not saved, any sentence with a time word and a work word is swapped for a fixed line, or the whole reply becomes `UNSAVED_FALLBACK_REPLY`. | REMOVE | Return the save receipt (`scheduleSaved:false` plus codes); the model words the reply. | `school/school-catchup-telegram.integration.test.ts`, `school/school-catchup-model.test.ts` | [school B7][c7] |
+| SU-6 | `school-catchup-model.ts:OWNER_ACKNOWLEDGEMENT`, `withoutUnsupportedAcknowledgementMutations`, `withoutUnsupportedCombinedAcknowledgementMutations` | When Sid's whole message is "ok", "thanks", "got it", "cool", "sure" or 👍, every model-proposed update is thrown away and the reply is "Got it." | REMOVE | The model decides whether "ok" confirms a pending proposal. | `school/school-catchup-model.test.ts`, `channels/owner-telegram-agent.test.ts`, `university/university-application-workflow-model.test.ts` | [school B8][c7] |
+| SU-7 | `school-catchup-model.ts:messageTouchesTracker` | On the prompt-too-large path, a keyword list and name matching decide between a reply with a notice and a bare refusal. | REMOVE | Page the tracker state through a read tool; the model decides relevance. | `school/school-catchup-model.test.ts`, `university/university-application-workflow-model.test.ts` | [school B9][c7] |
+| SU-8 | `school-catchup-model.ts:SchoolCatchupModelAdapter.streamOwnerTool` (`if (input.channel !== "telegram")`) | School and university tracking and the structured save run only on Telegram. | REMOVE | Drop the check; the tools go on calls (VC-9). | `school/school-catchup-telegram.integration.test.ts`, `channels/owner-telegram-pipelines.integration.test.ts`, `voice/call-session-do.test.ts` | [school B10][c7] |
+| SU-9 | `school-catchup-model.ts:streamOwnerTool` scope checks + `parseCombinedOwnerPlan` (throws if both trackers engaged) + prompt "Handle at most one tracker per turn." | Refuses output that touches the other tracker, or both, in one turn. | REMOVE | Allow both; the receipts say what was stored. | `channels/owner-telegram-agent.test.ts`, `channels/owner-telegram-pipelines.integration.test.ts` | [school B11][c7] |
+| SU-10 | `university/university-tracker-receipt.ts:isOfferUpdateReport`, `OFFER_WORDS`, `OFFER_REPORT_VERB`, `DECISION_WORDS` | A regex over Sid's message decides the turn reports an offer or decision; the model's reply is then suppressed on every path. | REMOVE | The model decides and saves through tool arguments; the receipt shows what was stored. | `university/university-application-details-model.test.ts`, `university/university-application-round4-corpus.test.ts` | [school C1][c7] |
+| SU-11 | `university-tracker-receipt.ts:offerNotSavedLine`, `NEGATED_OR_UNSURE`, `offerHint` | Tells Sid to reword: "I only save an offer update you state directly in one sentence on its own…". `NEGATED_OR_UNSURE` includes hope, think, maybe, said, friend, mom, teacher and "?". | REMOVE | The model asks when it is truly unsure. | as SU-10 | [school C2][c7] |
+| SU-12 | `university/university-tracker-model.ts:supportsOfferStatusEvidence`, `offerTemplates`, `offerMessageMatchesProgram`, `normalizedOwnerSentence` | An offer, condition or response is saved only if the whole message equals one template, such as "i got an offer from <uni> for <program>". | REMOVE | The model reads "Waterloo CS accepted me!!" and records it; code checks the program id is Sid's. | `university/university-application-workflow-model.test.ts`, `university-application-workflow-repository.test.ts`, `university-application-details-model.test.ts` | [school C3][c7] |
+| SU-13 | `university-tracker-model.ts:OFFER_WORKFLOW_LABELS` / `OFFER_WORKFLOW_OWNERS` + `offerWorkflowUpdate` (offer deadline must be null) | Code fixes the label and owner and refuses any offer-response deadline. | REMOVE | Model-supplied label and deadline, schema-checked. | `university/university-application-workflow-model.test.ts` | [school C4][c7] |
+| SU-14 | `university-tracker-model.ts:supportsStatus` (+ `OWNER_SUBMISSION`, `JOINT_OWNER_SUBMISSION`, `REPORTED_OWNER_SUBMISSION`, `NEGATION`, `RETRACTION`, `CONDITIONAL_OR_QUESTION`, `HEARSAY`, `SUBMISSION_CORRECTION`, `RETIREMENT`, `BARE_DONT_NEED`, `REACTIVATION`, `NOT_STARTED_REPORT`, `DRAFTING_REPORT`, `READY_REPORT`, `namesItemAsThirdPartyPossession`, `retirementNegated`, `bareDontNeedTargetsItem`); also from `UniversityTrackerRepository.applyOwnerPlan` | A grammar decides whether Sid's words prove submitted, ready, drafting, not started or not needed; "finished" is never submitted, and if/maybe/could/would or "?" refuses. | REMOVE | The model chooses the status; code stores it with the evidence text as provenance. | `university/university-application-round4-corpus.test.ts`, `university-application-details-model.test.ts`, `university-application-details-repository.test.ts`, `university-tracker-model.test.ts` | [school C5][c7] |
+| SU-15 | `university-tracker-model.ts:clauseGroups`, `clauses`, `itemEvidenceClauses`, `clauseNamesOnlyItem`, `namedApplicationItems`, `namesApplicationItem`, `KIND_WORDS`, `mentions`, `containsLabel`, `programAliases` | A clause splitter plus name matching decides which item a clause is about; evidence must name that item and no other. | REMOVE | The model resolves references and asks when two items are plausible. | `university/university-application-round4-corpus.test.ts`, `university-application-details-model.test.ts` | [school C6][c7] |
+| SU-16 | `university-tracker-model.ts:applicationDueDate`, `evidenceSupportsDate`, `evidenceSupportsCycle`, `DATE_CORRECTION`, `MONTH_WORDS` | A date grammar re-checks the model's date ("Jan 15" without a year fails); a date change is refused on hedging words; clearing a date needs a fixed word. | REMOVE | The model resolves the date and asks when unsure. Code keeps "is this a real calendar date". | `university/university-application-details-model.test.ts`, `university-application-round4-corpus.test.ts` | [school C7][c7] |
+| SU-17 | `university-tracker-model.ts:applicationUpdate` (`statusEvidence !== ownerMessage`; `LABEL_METADATA.test(label)`; `!containsLabel(ownerMessage,label)`; a new item cannot be not needed) | Status evidence must be the entire message, and a new label must appear verbatim without a date or "verified". | REMOVE | Store the model's label; keep the evidence text as provenance, not proof. | as SU-16 | [school C8][c7] |
+| SU-18 | `university-tracker-model.ts:parseOwnerUniversityPlan` (more than one `submitted_by_sid` throws) | "I submitted my AIF and my essay" is refused entirely. | REMOVE | None needed. | `university/university-application-round4-corpus.test.ts` | [school C9][c7] |
+| SU-19 | `university-tracker-model.ts:supportsStepStatus`, `stepEvidenceRefused`, `stepOwnerClaim` (+ `STEP_ACTION_VERBS`, `OWNER_HEDGE`, `WORKFLOW_HEARSAY`, `FORWARDED_OR_QUOTED_OWNER_CLAIM`, `DELEGATED_OWNER_ACTION`, `THIRD_PARTY_REPORTER`, `PREPARATION_REQUEST`, `OWNER_ACTION_NOT_DONE`, `contactRecipientMatchesLabel`) | A grammar for workflow steps: "done" needs "I (have) submitted/uploaded/paid…", a hedge refuses, a contact step needs matching recipient words. | REMOVE | The model decides. The step still never executes (`executionBoundary:"owner_only"`). | `university/university-application-workflow-model.test.ts`, `university-application-details-model.test.ts`, `university-application-workflow-repository.test.ts` | [school C11][c7] |
+| SU-20 | `university-tracker-model.ts:stepTargetClauses`, `namedWorkflowItems`, `workflowContainsLabel` + `workflowUpdate` label and `PREPARATION_REQUEST` checks | Clause and label matching decide whether an update is about that workflow row. | REMOVE | The model resolves the target; code checks the id exists and the program is Sid's. | `university/university-application-workflow-model.test.ts` | [school C12][c7] |
+| SU-21 | `university-tracker-model.ts:isWorkflowLabelSafe` (also in the repository's `applyOwnerPlan`) | Refuses labels with a date, "confirmed/official", money, an email or a phone number. | REMOVE | Store the label. | `university/university-application-details-model.test.ts` | [school C13][c7] |
+| SU-22 | `university-tracker-model.ts:workflowDeadline` (the wording part) | Evidence must equal the whole message, and the instant and IANA zone must appear literally in it. | REMOVE (`validTimeZone` and ISO validity stay) | Keep only storage validity. | `university/university-application-workflow-model.test.ts` | [school C14][c7] |
+| SU-23 | `university-tracker-model.ts:universityStateJson` | Decides what the model sees: only programs named in the message are expanded (at most 2), and submitted, not-needed or older finished rows are hidden unless named. | REMOVE | The full state, or a paged read tool. | `university/university-application-details-model.test.ts`, `university-application-workflow-model.test.ts` | [school C16][c7] |
+| SU-24 | `school/school-observation-repository.ts:deriveMissingWorkPage` (`SUBMITTED_STATES`, `DERIVED_STATES`) + the `readDigestSnapshot` / `readStudySnapshot` filter on `submission_state` | Code decides "no submission seen" (missing work) and persists it; the digest and study coach consume it as fact. | REMOVE | Expose observations through a read tool; Jarvis records its reading with references. | `school/school-observation-repository.test.ts`, `school/classroom-observation-sync.test.ts`, `school/study-coach-signals.test.ts`, `jobs/digest-job.test.ts`, `digest/digest-composer.test.ts`, `persistence/school-observation-migration.test.ts` | [school D1][c7]; old row 10; SQL half PS-3 |
+| SU-25 | `school/school-catchup-repository.ts:repairedPlan` | Drops study blocks past 3 a day or 180 minutes a day (`school_catchup_day_unrealistic`), clamps estimates to 5–180 minutes, drops dates outside a week and renumbers. | REMOVE | Store the model's plan; keep date validity only. | `school/school-catchup-repository.test.ts`, `school/school-paste.test.ts` | [school E1][c7]; SQL half PS-4 |
+| SU-26 | `school-catchup-repository.ts:applyOwnerPlan` (`school_catchup_course_missing_next_action`) + prompt "Give every active course one concrete next action." | The schedule is not saved unless every active course has an action. | REMOVE | The model decides which courses need work this week. | `school/school-catchup-repository.test.ts`, `school/school-catchup-model.test.ts`, `school/school-catchup-telegram.integration.test.ts` | [school E2][c7] |
+| SU-27 | `school/study-coach-model.ts:StudyCoachModelAdapter.streamOwnerTool` (`if (input.channel !== "telegram" …)`) | The study coach is Telegram-only. | REMOVE | The same tool on calls (VC-9). | `school/study-coach-model.test.ts`, `channels/owner-telegram-pipelines.integration.test.ts` | [school F1][c7] |
+| SU-28 | `study-coach-model.ts:parseStudyPreferenceIntent` | Check-in settings change only for fixed sentences such as "stop check-ins on weekends". | REMOVE | A `study_preferences_set` tool with typed arguments. | `school/study-coach-model.test.ts`, `channels/owner-telegram-pipelines.integration.test.ts` | [school F2][c7] |
+| SU-29 | `study-coach-model.ts:forgetSubject` + the forget branch | Only "forget (that) X is a weak spot" forgets evidence. | REMOVE | A forget tool with an id argument. | `school/study-coach-model.test.ts` | [school F3][c7] |
+| SU-30 | `study-coach-model.ts:parseStudySignalControlIntent` | Only "that signal is wrong" or "I already handled that" retires signals. | REMOVE | A tool argument. | `school/study-coach-model.test.ts` | [school F4][c7] |
+| SU-31 | `study-coach-model.ts:correctionIntent` | A regex ("that mark was entered wrong") routes to the fallback. | REMOVE | A tool. | `school/study-coach-model.test.ts` | [school F5][c7] |
+| SU-32 | `study-coach-model.ts` stop-quiz regex (`/^\s*(?:stop\|end\|cancel)\s+(?:the\s+)?quiz…/`) | A regex router to `dismissActiveQuiz`. | REMOVE | A tool. | `school/study-coach-model.test.ts` | [school F6][c7] |
+| SU-33 | `study-coach-model.ts:parsePracticeRequest`, `parseCheckInPracticeMode` | Practice happens only for "quiz me on X", "give me a quiz on X" or "make flashcards on X". | REMOVE | The model calls a practice tool. | `school/study-coach-model.test.ts` | [school F7][c7] |
+| SU-34 | `study-coach-model.ts:parseOwnerStudyObservation` | Fixed sentences become evidence, keywords set the outcome, and a topic with "not", a comma or "finished" is refused. | REMOVE | The model records observations with outcome arguments. | `school/study-coach-model.test.ts` | [school F8][c7] |
+| SU-35 | `study-coach-model.ts:resolveCourse`, `resolveObservationCourse`, `phraseMatches` + fixed "Which course should I use for that practice?" | Substring matching picks the course, with a hard-coded clarification otherwise. | REMOVE | The model picks the course id and asks when unsure. | `school/study-coach-model.test.ts` | [school F9][c7] |
+| SU-36 | `study-coach-model.ts:plausiblyAnswersQuiz` | Word-count, time and keyword tests decide whether Sid's message answers the quiz; otherwise the quiz is auto-dismissed. | REMOVE | The model judges whether it is an answer. | `school/study-coach-model.test.ts` | [school F10][c7] |
+| SU-37 | `study-coach-model.ts:courseFactSource` + `asksForCard` | Code ranks the practice source (weak area, then missed, then due, newest first); the words "course card" switch it. | REMOVE | The model chooses the source fact id. | `school/study-coach-model.test.ts` | [school F11][c7] |
+| SU-38 | `study-coach-model.ts:parseGeneratedItems` → `guardSchoolReply`; `makePractice` → `guardSchoolReply` | The SU-2 vocabulary guard applied to quiz questions and answers. | REMOVE | Goes with SU-2. | `school/study-coach-model.test.ts` | [school F12][c7] |
+| SU-39 | `school/study-coach-repository.ts:createPractice` (`supported`) | Code decides whether an answer is source-supported (length, a keyword test on the question, substring checks); owner-topic practice never is. | REMOVE | The model states support with the quote; "quote is a substring of the source" can stay as a receipt. | `school/study-coach-repository.test.ts`, `school/study-coach-model.test.ts` | [school F13][c7] |
+| SU-40 | `study-coach-repository.ts:answerActiveQuiz` | Code grades Sid's answer: "easy" only on normalised equality, otherwise "uncertain"; "idk" and similar mean unsure. | REMOVE | The model grades and records the outcome. | `school/study-coach-repository.test.ts`, `school/study-coach-model.test.ts` | [school F14][c7] |
+| SU-41 | `study-coach-repository.ts:judgeSignals` / `confidenceFor` / `summariseTopic` | Counts of weak and easy points decide strong, supported or tentative. | REMOVE | Give the model the raw evidence. | `school/study-coach-repository.test.ts` | [school F15][c7] |
+| SU-42 | `study-coach-repository.ts:recordOwnerObservation` / `answerActiveQuiz` (`practice_due_on`); `syncCourseContext` | Code sets the spaced-repetition schedule (easy means 7 days) and the default confidence. | REMOVE | The model chooses when to revisit. | `school/study-coach-repository.test.ts` | [school F16][c7] |
+| SU-43 | `study-coach-repository.ts:claimDigestCheckIn` → `deriveStudySignals` + `chooseStudyCheckIn`; reached from `jobs/digest-job.ts:assembleDigest` | Code chooses which topic Sid is nudged about in the digest. | REMOVE | The model picks from cited evidence. | `school/study-coach-repository.test.ts`, `jobs/digest-job.test.ts` | [school F19][c7], [deadlines 46][c2] |
+| SU-44 | `school/study-coach-signals.ts:deriveStudySignals` (grade thresholds, base scores, freshness windows, `MAX_SIGNALS 64`; grades without `gradeUpdatedAt` skipped) | A hand-tuned scoring model of what Sid is weak at; D2L-email grades never count. | REMOVE | Give the model the evidence. | `school/study-coach-signals.test.ts` | [school F20][c7] |
+| SU-45 | `study-coach-signals.ts:matchCourse` / `phraseContains` | Fuzzy matching decides which course a grade or deadline belongs to; unmatched items are dropped. | REMOVE | The model links them. | `school/study-coach-signals.test.ts` | [school F21][c7] |
+| SU-46 | `study-coach-signals.ts:chooseStudyCheckIn` / `ordered` | Ranks signals by score and picks one target, falling back to "<course> review". | REMOVE | As SU-43. | `school/study-coach-signals.test.ts` | [school F22][c7] |
+| SU-47 | `school/collector-mapping.ts:mapSchoolCourse` (`dueAt = personal?.at ?? assignment ?? availability`; quiz `dueAt ?? end` + synthetic `quiz-N-end`; deadline title `${title} [${dateSource}]`) | Code picks which D2L date is "the" due date, including availability end dates, and writes it into the deadline store. | REMOVE | Raw evidence stays. Jarvis records the date through `deadline_record` or a D2L tool. | `school/collector-ingest.test.ts`, `school/collector-compatibility.test.ts`, `school/collector-pages.test.ts` | [school G1][c7]; old "Date-disagreement follow-up" |
+| SU-48 | `school/d2l-email-parser.ts:parseD2lEmail` (kind classification) | A regex over D2L and teacher text decides the event kind; anything else is `template_unknown`. | REMOVE | Store the authentic email; Jarvis reads it through a tool and records deadlines or grades. | `school/d2l-email-handler.test.ts` | [school H1][c7] |
+| SU-49 | `d2l-email-parser.ts:labelled`, `visibleBody`, `itemIdentity` | Only labelled lines ("Course:", "Due:"…) carry authority; missing labels quarantine the message. | REMOVE | As SU-48. | `school/d2l-email-handler.test.ts` | [school H2][c7] |
+| SU-50 | `d2l-email-parser.ts:dueInstant` / `wallInstant` / `validWall` / `MONTHS` | A date grammar; date-only becomes 23:59:59.999 and an ambiguous DST time quarantines the message (`due_date_invalid`). | REMOVE | The model reads "due Friday 3pm"; code validates the instant. | `school/d2l-email-handler.test.ts` | [school H3][c7] |
+| SU-51 | `d2l-email-parser.ts` grade grammar (`gradeMatch`, `grade_value_invalid`, `grade_value_missing`) | A grade grammar; a grade email without a value is quarantined. | REMOVE | As SU-48; numeric validity stays at storage. | `school/d2l-email-handler.test.ts` | [school H4][c7] |
+| SU-52 | `school/d2l-email-handler.ts:handleD2lNotificationEmail` (`unrecognised` → quarantine, `recordSourceFailure`, `CONTENT_FAILURE_NOTICE` after 3) | Authentic D2L mail that fits no template is quarantined as a source failure and never reaches Jarvis. | REMOVE | Ingest every authentic message as evidence. | `school/d2l-email-handler.test.ts` | [school H5][c7] |
+| SU-53 | `d2l-email-parser.ts` verification detection (regex) + `verificationCode` | A regex decides "address verification" and code auto-sends Sid a fixed Telegram notice. | REMOVE (the detection) | Jarvis reads the mail and tells Sid. | `school/d2l-email-handler.test.ts` | [school H6][c7] |
+| SU-54 | `school-catchup-model.ts:SECRET_REQUESTS` / `SECRET_ADVISORY` / `SECRET_REPLACEMENT` | Removes any model sentence that asks Sid for a password, token or verification code. It limits what the model may say rather than redacting a secret value. | UNSURE — needs Sid | Prompt guidance plus the existing redaction of real secret values, if Sid agrees. | `school/tutoring-reply-guard.test.ts`, `school/school-catchup-model.test.ts`, `school/study-coach-model.test.ts`, `voice/voice-sentences.test.ts`, `voice/voice-reply.test.ts` | [school B5][c7] |
+| SU-55 | `school-catchup-model.ts:schoolFactCapReply`, `courseUpdate` (more than 16 facts throws), `parseOwnerCatchupPlan` caps (12 / 24 / 21) | The whole update is refused ("Nothing was saved from this update") when a cap is exceeded. | UNSURE — needs Sid | Save what fits and report the overflow in the receipt. | `school/school-paste.test.ts` | [school B13][c7] |
+| SU-56 | `school-catchup-model.ts:boundedStructuredPrompt`, `TRACKER_TOO_LARGE_REPLY`, `MODEL_RESPONSE_TOO_LARGE_REPLY`, `MAX_CORE_PROFILE_BYTES` | Transport bounds drop context, refuse the turn, or omit the core profile over 8 KiB, which hides Sid's daily capacity. | UNSURE — needs Sid | Keep the bounds; page instead of refusing or hiding. | `school/school-catchup-model.test.ts`, `university/university-application-workflow-model.test.ts` | [school B14][c7] |
+| SU-57 | `school-catchup-model.ts:streamOwnerTool` (after a save, only `universityPlanReceipt` / `schoolPlanReceipt`) + prompt "Never say in reply that anything was saved…" | After a save the model's reply is discarded; Sid sees only fixed receipt sentences. | UNSURE — needs Sid | Show the receipt alongside the model's reply. | `school/school-paste.test.ts` | [school B16][c7] |
+| SU-58 | `school_update`, `university_update`, `study_coach` with `parameters: {properties:{}}` → `pipelineModel` | The tool call carries no arguments, so a second model call re-reads Sid's message under SU-10 to SU-23's grammars. | UNSURE — needs Sid | Give the tools real argument schemas so the main model decides once. | `channels/owner-telegram-agent.test.ts`, `channels/owner-telegram-pipelines.integration.test.ts`, `school/school-paste.test.ts` | [school B17][c7], [local U14][c4] |
+| SU-59 | `university-tracker-model.ts:verification` / `sourceUrl`; `university/university-tracker-repository.ts:checkedVerification` | "Verified" needs an https URL and a cycle both copied literally from Sid's current message; a rename without verification is refused. | UNSURE — needs Sid | Keep the verified label as provenance; let the model supply a URL it fetched, recorded with its origin. | `university/university-tracker-model.test.ts`, `university-tracker-repository.test.ts` | [school C10][c7]; related PS-22 |
+| SU-60 | `university-tracker-repository.ts:applyOwnerPlan` (duplicate item key silently mapped to the existing row; `normalizedKey`) | Code decides two items are the same and silently merges them. | UNSURE — needs Sid | Return "possible duplicate" to the model as a hint. | `university/university-application-details-repository.test.ts`, `university-application-workflow-repository.test.ts` | [school C19][c7] |
+| SU-61 | `university-tracker-repository.ts:applyOwnerPlan` (same-turn status flip refused) | A submitted or not-needed item cannot change in the turn that set it. | UNSURE — needs evidence: probably replay protection | The turn-receipt hash already covers replay. | `university/university-application-details-repository.test.ts` | [school C20][c7] |
+| SU-62 | `university-tracker-repository.ts` ceilings (`MAX_PROGRAMS 16`, item, history and workflow caps, `UNIVERSITY_PLAN_D1_STATEMENT_BUDGET 96`, `readSnapshot` limits) | The whole plan is refused when a ceiling is exceeded. | UNSURE — needs Sid | Keep the D1 budget; report overflow instead of refusing. | `university/university-tracker-repository.test.ts` | [school C21][c7]; related PS-21 |
+| SU-63 | `university-tracker-repository.ts:listApplicationItemsByDueDate` / `listWorkflowItemsByDueDate` (default 5, max 10) | Code chooses which items the digest shows. | UNSURE — needs Sid | Goes with DL-18 and DL-20. | `digest/digest-composer.test.ts`, `http/calendar-feed-routes.test.ts` | [school C22][c7] |
+| SU-64 | `school-observation-repository.ts:readDigestSnapshot` (20 grades, 20 missing), `readStudySnapshot` (`SCHOOL_STUDY_OBSERVATION_ROW_LIMIT 24`) | Bounded pages; the omitted count is reported. | UNSURE — needs Sid | Fine for a digest; the model needs a paged read. | `jobs/digest-job.test.ts`, `digest/digest-composer.test.ts` | [school D2][c7] |
+| SU-65 | `school/classroom-observation-sync.ts:runClassroomObservationSync` (`undatedDeadlineExternalIds` filter) | Submissions for undated coursework are counted but never ingested, so they can never become evidence. | UNSURE — needs Sid | Ingest them and let Jarvis judge. | `school/classroom-observation-sync.test.ts`, `jobs/classroom-poll-job.test.ts` | [school D4][c7] |
+| SU-66 | `school-catchup-repository.ts:applyOwnerPlan` (fact dedupe by kind and key; `new-N` course merged by lower-cased name) | Code decides two facts or courses are the same and counts them as "already saved". | UNSURE — needs Sid | Return a candidate duplicate to the model. | `school/school-paste.test.ts`, `school/school-catchup-repository.test.ts` | [school E3][c7] |
+| SU-67 | `school-catchup-repository.ts` ceilings (`MAX_COURSES 12`, `MAX_ACTIVE_FACTS_PER_COURSE 16`, `MAX_ACTIVE_FACTS 48`, `MAX_PLANNED_ACTIONS 21`, `HISTORY_RETENTION_MILLISECONDS` 30 days, `listActionsForDate` LIMIT 3) | Storage ceilings, and retention that deletes history the model could use. | UNSURE — needs Sid | Sid decides retention and ceilings. | `school/school-catchup-repository.test.ts`, `persistence/school-catchup-migration.test.ts` | [school E4][c7]; related PS-21 |
+| SU-68 | `study-coach-repository.ts:retireStaleEvidence` (30 days), `retirementStatements` (23 per course, 95 total) | Evidence is retired by age or count, so the model loses it. | UNSURE — needs Sid | None given. | `school/study-coach-repository.test.ts` | [school F17][c7] |
+| SU-69 | `collector-mapping.ts` (`submission: ownPositive ? "positive submission status" : "unknown"`, `Status === 1`) + `collector-repository.ts:status().instructions` ("Submitted requires positive submission status") | A mechanical label that the instructions turn into a rule for the model. | UNSURE — needs Sid | The raw body is available; drop the rule wording. | `school/collector-ingest.test.ts` | [school G2][c7] |
+| SU-70 | `school/collector-repository.ts:project` | Any route failure fails the whole course, so no deadlines project; a newer good read skips projection. | UNSURE — needs evidence: goes with SU-47 | If SU-47 goes, this goes too. | `school/collector-ingest.test.ts` | [school G4][c7] |
+| SU-71 | `collector-repository.ts:schoolStatusOptions` (default `staleAfterMs = 12h`) | The default decides when a school read is stale for callers that omit it, such as the digest. The state labels themselves are legitimate. | UNSURE — needs Sid | The tool path already requires the model's `staleAfterMs`. | `school/collector-ingest.test.ts`, `school/collector-wiring.test.ts` | [school G6][c7]; old `SchoolCollectorRepository.status` row; digest copy DL-24 |
+| SU-72 | `d2l-email-parser.ts:safeVerificationUrl` / `pinnedLinkHost` / `verificationLink`; handler `verification_link_unpinned` | A link is relayed only when its host is a pinned D2L domain; otherwise the message is quarantined. | UNSURE — needs Sid | Relaying a stranger's link as "act on this" is a real phishing risk; Sid decides. | `school/d2l-email-handler.test.ts` | [school H7][c7] |
+| SU-73 | `school/d2l-email-authenticity.ts:assessAuthenticity` + handler `authenticationRecord` (`hard_fail`, `from_domain_unpinned`, `recipient_mismatch`, `authentication_unproven`) | Unproven mail is quarantined, and for recipient or From failures the raw content is not kept. | UNSURE — needs Sid | Keep the authenticity label as provenance; whether unproven mail is hidden or shown as untrusted is Sid's call. | `school/d2l-email-handler.test.ts` | [school H8][c7] |
+| SU-74 | `school/guided-assignment.ts` (save idempotent per `(assignment_id, turn_id)`) + `guided_assignment_save` description ("One answer per assignment per turn…") | The model cannot save two answers to one assignment from one message. | UNSURE — needs Sid | Key idempotency on the call id instead of the turn. | `school/guided-assignment.test.ts` | [school I4][c7], [local U13][c4] |
+
+Prompt and tool text that goes with these rows: the school prompt's "Use at most three actions and
+180 minutes per day" (SU-25) and "Give every active course one concrete next action" (SU-26);
+"Handle at most one tracker per turn" (SU-9); the university prompt lines that mirror SU-12 to
+SU-23 ("Every non-null statusEvidence is the whole current owner message…", "Use at most one
+submitted_by_sid update per turn…", "Offer… rows are saved only when the whole owner message is
+exactly one sentence…"); `selectedScopeInstruction`; the study-coach practice prompt's rules
+backed by SU-38; and the fixed code replies that tell Sid how to word things (SU-3, SU-11, SU-35,
+`EXECUTION_REQUEST_REFUSAL`, `TRACKER_TOO_LARGE_REPLY`).
+
+## Legitimate code (authority, safety, receipts, storage)
+
+The sweep rated these KEEP. They are listed so nobody re-flags them. A note in brackets names a
+related row where the same file also has a finding.
+
+**Voice, calls and conversation** ([voice][c1] K1–K14)
+
+- `voice/call-session-do.ts` binding, initialisation and termination snapshots, relay setup, the `CallSession` object and alarms: transport and lifecycle.
+- `voice/owner-call-step-up.ts` passphrase window, attempts, reprompts and alerts, outbound step-up always required, and the fixed `OWNER_STEP_UP_*` lines; SQL `0018` and `0021`: owner authentication ([local K19][c4], [persistence][c5]).
+- `voice/inbound-auth.ts` (`AuthenticationAttemptBudget`, three-strike PIN): authentication rate limits.
+- `voice/pin-capture.ts:FourDigitPinCapture`, `GuestCallAuthentication`, `GuestPinProofIssuer`: guest PIN and DTMF (spoken-word parsing is VC-27).
+- `voice/voice-access-authority.ts`: authority and guest isolation.
+- `voice/capability-registry.ts` as a validation set, and `OWNER_ONLY_CAPABILITIES` never granted to guests (VC-26).
+- `voice/voice-agent.ts:canActOn` and `agent/owner-agent-core.ts:port.canActOn`: only Sid acts as Sid ([agent K4][c6]).
+- `voice/inbound.ts`, `outbound.ts`, `outbound-recipient-lookup.ts`, `twiml.ts`, `production-routes.ts`, `production-runtime.ts`, `call-session-terminator.ts`, `call-state.ts`: Twilio verification, TwiML, admission and configuration.
+- `voice/outbound.ts:OUTBOUND_VOICEMAIL_MESSAGE` and the neutral lines before authentication: nothing private is spoken first.
+- `calls/outbound-call-dispatcher.ts` policy recheck, kill switch, Sid's quiet hours and claim before POST; `policy/policy-engine.ts` limits, `resolveVoiceAccessDestination` and `authorization_expired`; `policy/outbound-controls.ts`, `policy/policy-audit.ts`; SQL `0015` admission: controls and audit on an action that acts as Sid ([agent K20][c6], [persistence][c5]).
+- `voice/guest-grant-notice.ts` and `D1OwnerStepUpAlertSink`: receipts to Sid (masking is VC-25).
+- `conversation/conversation-types.ts` voice stream receipt, `conversation-repository.ts` turn and delivery ledger, `outbox-dispatcher.ts`; SQL `0005` state machines: receipts and transport ([persistence][c5]).
+- `conversation/conversation-service.ts` ingest redaction, `StreamingOutputRedactor`, `DEFAULT_MODEL_BUDGETS` and character caps; `security/streaming-output-redactor.ts`, `security/trusted-public-origin.ts`: secret redaction and budgets ([agent K23][c6]).
+- `conversation/context-retriever.ts` suppression anti-join, byte and item budgets, envelope validation: Sid's own forget and storage validation.
+
+**Deadlines, digest, scheduler, jobs, decisions, projects and calendar** ([deadlines][c2] rows 25, 26, 29, 37 and 48–64)
+
+- `digest/digest-composer.ts:fit` 4,096-character Telegram guard (trim order is DL-35).
+- `digest-composer.ts:neutraliseInline` control-character strip and `QUOTE_PREFIX`: display hygiene for third-party text.
+- `calendar/ics-feed.ts` iCal serialisation, escaping and folding.
+- `deadlines/deadline-tool.ts:identity`, the principal-scoped `external_id` hash: ownership.
+- `deadline-date-proof.ts:validZone` and `dateKey`; `deadline-types.ts` `requireText`, `requireEffort`, `requireInstant`, `requireLeadMinutes`: schema validation.
+- `deadlines/deadline-ingestion.ts` normalisation, failed sweep, never cancelling on disappearance, rejection reasons: storage hygiene and honest source health.
+- `deadlines/deadline-repository.ts` upsert and revisions, source-health guards, `truncateFailure`: storage and receipts.
+- `classroom-client.ts`, `google-oauth.ts`, `brightspace-ical-client.ts` timeouts, redirect refusal, bearer-URL secrecy, byte and page caps, RFC 5545 parsing: transport.
+- `projects/github-client.ts`, `project-poller.ts` polling, hashing and failure codes, `project-repository.ts`: transport and storage.
+- `scheduler/scheduled-handler.ts`, `scheduled-run-repository.ts`, `heartbeat-reporter.ts`: idempotent claims and run receipts.
+- `jobs/job-table.ts` memory distil, history and meaning loop budgets; `pollClassroom` / `refreshBrightspace` wiring and failure recording; the 5-minute refresh cooldown (`claimAfterCooldown`).
+- `jobs/digest-job.ts:readOr` gaps, `unconfiguredDeadlineSources`, `expectedPushSources`, D2L status gaps, last-success and failure reporting: honesty (the stale labels are DL-23).
+- `decisions/decision-repository.ts:recordResponse` identity-to-principal join (`not_owner`); SQL `0009` append-only `decision_responses`: authority and receipt ([persistence][c5]).
+- `decisions/telegram-keyboard.ts:CALLBACK_DATA` regex and 64-byte cap: parses transport data, not Sid's words.
+- `jobs/guest-grant-notice-drain.ts`; SQL `0028`: delivering guest-grant notices to Sid.
+- `deadlines/quiet-windows.ts:requireMessageClass` and quiet-window storage: schema validation (DL-31).
+
+**Memory** ([memory][c3] rows 18, 30, 31, 33, 37–39 and 42–49)
+
+- `memory/memory-control-targets.ts:targetStates`: the lifecycle state machine; return its reason to the model.
+- `memory/living-notes.ts:parseActions` id-scope validation, and its source-citation rules: receipts for derived notes.
+- `memory/extraction-policy.ts:validateExtractionProposal`: no tool, action or state keys; redaction.
+- `memory-repository.ts:validateReceipt`, `validateLiveEventEvidence`, `validateArchivedEventEvidence`, `payloadContainsExactExcerpt`; `automatic-distillation.ts:validateProviderProposal`: every source is a real event of Sid's containing the excerpt.
+- `memory-repository.ts:captureInput` / `validateCanonicalRow` provenance invariants (the SQL copy of the `model` and `third_party` rules is disputed in PS-2).
+- `memory-repository.ts:validateOwnerTurn` / `readAcceptedOwnerTurn`; `telegram-memory-controls.ts:readMemoryOwnerTurnEvidence`: authority and guest isolation (the later-turn check is ME-33).
+- `memory-owner-controls.ts:confirm` excerpt and state checks: a receipt of Sid's own confirmation.
+- `memory-owner-controls.ts:confirmInferredFromDecision` / `forgetConfirmedDecision`: verified taps.
+- `memory-repository.ts:appendPin` and `core-profile.ts:MAX_CORE_PROFILE_FACTS=40`: validation and budget.
+- `memory/memory-extraction-budget.ts` monthly cap and reservation: spend cap.
+- `memory/suppression-clauses.ts` and every suppression anti-join; SQL `0016` owner-command ingress and suppression triggers, the `0019`/`0038` ingress guard, `0025` rechecks: Sid's own forget ([persistence][c5]).
+- `literal-history.ts:historyEvent`, `automatic-distillation.ts:validateStoredEvent`: the secret-redaction invariant on stored text.
+- `memory/topic-tree.ts`, `memory-types.ts`, `telegram-memory-reference.ts`: storage and shape validation.
+- `telegram-memory-controls.ts:MEMORY_CONTEXT_ITEM` / `referencedItemIds`: a receipt. Two hand-synced copies of the regex should share one constant.
+
+**Local agent, D2L extension, watchdog, contracts and prompts** ([local][c4] K1–K17)
+
+- `packages/contracts/src/calls.ts:sanitizeRedaction` private-key, authorization, bearer, credential-prefix and PIN/OTP rules (the 6-digit and bare-word rules are LA-7 and LA-8).
+- `packages/contracts/src/voice-access.ts:GUEST_CAPABILITY_IDS`, `VoiceAccessBinding`: guest isolation.
+- Contracts envelope, canonical JSON, ids, sync and memory-projection limits, `hasFactTextControls`: schema validation.
+- `hermes-token-bridge.ts` size, timeout and hash bounds: transport.
+- Local `memory/distillation.py` source subset, recorded origin, `FORBIDDEN_PROPOSAL_KEYS`, `MAX_EXCERPTS_PER_RUN=32`.
+- Local `facts.py` and archive append-only triggers, `backup.py`, `vector_index.py`, `embeddings.py`, `compatibility_gate.py`: storage.
+- Local `sync/event_replicator.py`, `cloud_client.py`, `cursor_store.py`, `quarantine_retry.py`: transport and receipts.
+- Local `crypto/*`, `signed_request.py`, `owner_passphrase*.py`, `phone_enrollment.py`, `enrollment.py`: authority and PIN.
+- Local `transport/cli_protocol.py` (`call-me` needs an interactive confirm), pipe and socket ACLs, `archive/store_permissions.py`: authority for actions as Sid.
+- Local `scheduler.py`, `service.py`, `node.py`, `agent.py`: retries, cadence and transport.
+- Local `vault/repository.py`, `projection.py` (create-only), `paths.py`, reconciliation size caps, `diagnostics.py`: storage safety.
+- `apps/d2l-extension/probe.js` and `sessions.js` pacing: transport.
+- `apps/d2l-extension/delivery.js` queue, size and flush bounds with visible eviction, manifest and wire limits: owner-authorised storage bounds. The old "Fixed collector name judgment" note still holds.
+- D2L extension pairing, signing and proof: authority.
+- `apps/watchdog/**`: operations monitoring outside the model.
+- Prompt: "Do not claim … unless a tool result from this turn proves it", `claimedActions`, `[[claim]]` markers and receipts spoken verbatim: receipts and honesty.
+- Prompt: context framed as untrusted reference data, never instructions. The data is still shown.
+
+**Persistence, sync, backup and archive** ([persistence][c5] KEEP rows)
+
+- `persistence/event-repository.ts` and `0001` events, idempotency and outbox: the append-only ledger.
+- `cursor-repository.ts`, `device-repository.ts` snapshots, `0001` sync triggers, `sync/sync-service.ts`: transport.
+- `sync/signed-request.ts` and nonce caps: device signatures and replay protection.
+- `sync/device-enrollment.ts`, `identity-challenge.ts`, `owner-phone-enrollment.ts` and challenge caps: enrolment.
+- `device-repository.ts:findOwnerTelegramChat`: refuses to guess a delivery target.
+- `sync/owner-passphrase.ts`, `owner-passphrase-repository.ts` and `0017` apart from PS-16: rotation, plaintext never stored.
+- `voice-access-repository.ts` grants, capability and scope validation, `#verifyAccessDocument`, `reserveGuestPinAttempt`; `0006`/`0007` guest triggers: guest isolation (the 30-minute cap is PS-17).
+- `call-repository.ts` dispatch claims, relay binding and admission; `0003`/`0004` state machines: transport.
+- `0016` immutability, lineage and receipt guards; `0016` cost ledger, reprocess limits and `memory_runs`: storage integrity and budgets.
+- Control-character, NFC and length CHECKs on stored text; provider GLOBs; the embedding model pin: schema validation.
+- `0014` and gateway `sync/memory-projection.ts` staging, page caps, 1024-fact cap, `requireFactIdentity`: transport bound and redaction (the local agent's 1024 cap is LA-11).
+- `0026` distillation receipts, `0032` note receipts, `0025` literal-search jobs: receipts of what ran.
+- `archive/*` 90-day tiering to R2: lossless storage.
+- `backup/memory-backup*.ts` and `0031` retention and restore: backup.
+- `0033` quarantine and authentication receipts, `0040` key scope, `0045` host allowlist, `0012` liveness, `0013`/`0034` scheduled runs, `0021` guest-grant notices: authenticity and operations receipts.
+
+**Agent, autonomy, channels, policy, security, model and providers** ([agent][c6] K1–K27)
+
+- `agent/owner-agent-core.ts:gateTool` / `raiseTier3Confirmation`: the tier gate and a tap bound to tool, capability and arguments.
+- `owner-agent-core.ts:parseReply`, `unsupportedClaims`, `honestReply`, `removeUnsupportedSentences`, `receiptedToolClaims`: the model declares claims and code checks their receipts ran this turn.
+- `agent/voice-reply.ts` marker-to-receipt binding and redaction of unsplit prose ([school B6][c7] keeps it too).
+- `owner-agent-core.ts:parseArguments`, `exactRecord`, `safeText`, `safeUlid`, `safeItemIds`, the enums, the `expiresAt` check and `MAX_ARGUMENT_BYTES`: schema validation.
+- `owner-agent-core.ts` timeouts, `MAX_REPLY_CHARACTERS` (the Telegram limit) and `composeReceiptReply`: transport.
+- `agent/voice-sentences.ts:VoiceSentences`: sentence splitting for speech.
+- `agent/owner-argument-tools.ts:OWNER_ARGUMENT_TOOL_DEFINITIONS`: one list for both channels.
+- `owner-agent-core.ts:search` refusal when no index is bound, and `memory_search` minting no receipt: honest absence.
+- `channels/telegram/telegram-webhook.ts:secretsMatch`, `policy.authenticateTelegram`, and non-owner turns getting no tools: authentication and guest isolation.
+- `channels/telegram/telegram-rate-limit.ts`, `MAX_TEXT_BYTES`, `MAX_CALLBACK_DATA_BYTES`: rate limits and transport.
+- Redact-then-persist, `telegram-rejection.ts`, `telegram-principal-binding.ts`, `telegram-reply-markup.ts`, `telegram-turn-observability.ts`: redaction and audit.
+- `telegram-owner-step-up-command.ts` and `OWNER_STEP_UP_*_PATTERN`: passphrase control (the SQL gate is PS-16).
+- `telegram-call-command.ts:reconstruct`: proof of authority for a call.
+- `index.ts:answerFromTap`, `confirmedTelegramForgetRoute`, `confirmedTelegramMemoryRoute`: only the tapped decision runs, for the tapping identity.
+- `autonomy/tool-gate.ts`, audit before outcome, `autonomy-repository.ts`, `autonomy-types.ts`, `tool-confirmations.ts:consumeStandingDecision`; tier 3 for `send_email`, `tesla_unlock`, `spend.money`, `contact.third_party`, `vehicle.unlock`; SQL `0008`, `0035`, `0039`: gates on acting as Sid, single-use taps and receipts ([persistence][c5]).
+- `policy/policy-service.ts`, `operator-auth.ts`: authentication.
+- `security/owner-passphrase-verifier.ts`, `guest-pin-verifier.ts`, `chained-pbkdf2.ts`, `owner-passphrase-word-list.ts`: PIN and passphrase.
+- `providers/*` transport: DeepSeek byte and time caps, Telegram, Twilio, relay, circuit breaker, capacity readers, schemas.
+- `http/*`: authentication, bounds and callbacks.
+- `observability/safe-log.ts`: the log allowlist.
+- `model/model-adapter.ts` protocol validation, timeouts and context budget; `hermes-token-bridge-limits.ts`; `env.ts`; `types/sql-modules.d.ts`; `call-session-stub.ts`: transport and configuration.
+
+**School and university** ([school][c7] KEEP rows)
+
+- `school-catchup-model.ts`: forwarded or non-owner text never mutates the tracker (B12; AG-23 is the wider question).
+- `school-catchup-model.ts:parseOwnerCatchupPlan`, `exactRecord`, `safeModelText`, `planAction`: schema and redaction (B15).
+- `university-tracker-model.ts:workflowStatusAllowed` and the repository copy: enum consistency (C15).
+- `university-tracker-model.ts:asUnverifiedWorkflowDraft`, `UNVERIFIED_DRAFT_PREFIX`, `isWorkflowPreparedDetailsSafe`: a provenance label and bounds (C17).
+- `university-tracker-model.ts:workflowDeadline` `validTimeZone` and ISO validity (the C14 part; the wording checks are SU-22).
+- `university-tracker-receipt.ts:universityPlanReceipt`, `offerReceipt`, `stepReceipt`, `planSavesOfferUpdate`: receipts (C18).
+- `university-tracker-repository.ts` row validators, ids, principal checks and unknown-id refusals (C23).
+- `university-tracker-types.ts` `executionBoundary: "owner_only"`: the tracker records only (C24; the SQL copy is PS-9).
+- `school-observation-repository.ts:ingest`, `normalize`, `grade`, `scale`, `D1StatementBudget`, email-grade idempotency (D3).
+- `classroom-observation-sync.ts` request budget, stale-checkpoint reset, page-token guard, `safeFailure` (D5).
+- `school-catchup-repository.ts` schema, ownership and replay hash; `school-catchup-receipt.ts:schoolPlanReceipt` (E5, E6).
+- `study-coach-repository.ts:claimDigestCheckIn` enabled flag, day mask and quiet window: Sid's own check-in preference (F18). The one-a-day SQL key is disputed in PS-5, and the reviewer notes the 22:00–07:00 `DEFAULT_PREFERENCE` could be UNSURE.
+- `study-coach-repository.ts` validators, `citationsJson` shape, principal checks (F23).
+- `collector-mapping.ts` failure classification and paging completeness, and projection labels that keep unknown JSON and leave `200 []` unknown (G3, section A).
+- `collector-repository.ts` state labels (failed, incomplete, stale, current) and the SQL `disposition` (the G6 labels; the 12-hour default is SU-71).
+- `collector-protocol.ts:parseSchoolBatch` route allowlist, hosts, counts and body limit; `verifyCollectorRequest` (G7, G8).
+- `collector-pairing.ts:SchoolCollectorPairing` tier-3 tap and rate limit; `collector-tools.ts:school_collector_revoke` confirmation tap (G9, G10, [local K18][c4]; the tier and the Telegram-only tap are PS-8).
+- `d2l-email-handler.ts` size and header bounds, `RAW_WITHHELD_REASONS`; `d2l-email-repository.ts` pruning, failure claim, one-notice limit, receipt validation and idempotency (H9, H10).
+- `guided-assignment.ts:GuidedAssignmentService.execute` owner check, exact keys and id existence; the verbatim save, `RETURNING` receipt and delivery only to Sid's own Telegram; the 4,096-character draft limit without truncation (I1, I2, I3).
+- `readGuidedAssignmentReferences` / `StoredAssignmentEvidenceReader`: the full catalogue, no ranking (I5).
+
+## Old register entries, mapped
+
+Other documents cite this file's old row numbers. They now point here:
+
+| Old entry | Rows now |
+|---|---|
+| Row 1, `#guardOwnerRepeat`, and its silent-drop addendum | VC-6, VC-16, PS-15 |
+| Row 2, `dispatchOutboundCall` | VC-13 |
+| Row 3, `parseOwnerAccessIntent` | VC-1, VC-2 |
+| Row 4, `PERMISSION_CAPABILITIES` | VC-3 |
+| Row 5, `expiresAt` | VC-5 |
+| Row 6, `refileAutomaticInboxItems` | ME-9 |
+| Row 7, lifetime default | ME-10, ME-8 |
+| Row 8, normalised-text merge | ME-11 |
+| Row 9, `liftItem` basis | ME-32 |
+| Row 10, `deriveMissingWorkPage` | SU-24, PS-3 |
+| Row 11, `guardReplyClaims` | SU-2, SU-4 |
+| Row 12, `isUniversityExecutionRequest` | SU-1 |
+| Owner deadline proof contract | DL-1 to DL-14 |
+| `DEFAULT_LEAD_MINUTES` paragraph | DL-16 |
+| `DeadlineIngestion.ingest` / `classifyEffort` | DL-15, DL-17 |
+| `SchoolCollectorRepository.status` 12 hours | DL-24, SU-71 |
+| Additional voice finding (2026-09-23) | SU-4; the marker-to-receipt binding is legitimate |
+| Fixed school intake decision (#164) | SU-1, SU-25, SU-26, SU-56 |
+| Fixed collector name judgment (#170) | Still holds; in the legitimate list |
+| Receiver compatibility correction | In the legitimate list |
+| Date-disagreement follow-up | SU-47 |
+
+## Carried over, not a row
+
+The old register named one defect outside this class so it would not be buried. `memory_pin` and
+`memory_unpin` threw on every call until #135 fixed the guard. It survived because three test
+files stub `findControlTargets` with a fixed list that ignores the operation:
+`channels/owner-telegram-agent.test.ts` (two call sites), `memory/memory-search.test.ts` and
+`channels/owner-telegram-pipelines.integration.test.ts`. A stub standing in for the code under test
+can hide the next dead tool the same way. The old register last verified this at `0611803` on
+2026-09-21; it was not re-checked here. [QUEUE](QUEUE.md) tracks the hand-kept test list that remains.
+
+[c1]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823935090
+[c2]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823937266
+[c3]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823938807
+[c4]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823947074
+[c5]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823958099
+[c6]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823959403
+[c7]: https://github.com/stremysid/jarvis/issues/186#issuecomment-5823966685

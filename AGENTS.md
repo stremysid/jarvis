@@ -1,5 +1,76 @@
 # Repository guidance
 
+## Sid's rules: read these first
+
+*Read in full before building or reviewing.*
+
+Sid's rules, in his words and spelling. Times are EDT. (m) marks a quote from a memory record whose chat is gone. Unmarked quotes are transcript-checked.
+
+**Why this exists.** A 7-round review turned "no claims without receipts" into a date grammar and keyword list (`proveDeadlineDue`, `DUE_PHRASE` in apps/cloud-gateway/src/deadlines/deadline-date-proof.ts as of 68675ba). docs/CODE-VS-JUDGMENT.md then filed it as an accepted exception. Both were wrong.
+
+### The rules
+
+**1. The AI is the brain. When it is unsure, it asks Sid.**
+Sep 24, 7:14 PM: "why would jarvis refuse? … why dosnt he jsut aks for calirty? … the AI IS THE BRAIN IT CAN ThINK AND DECIED". Sep 23, 10:37 PM: "WE ARE ONLY BUILDING THE TOOLS AND CONNECTORS AND GIVIJG IR BODY PARTS NOT REAPLCIJG JUGDMENR OR CHOCIES OR DECIONS OR THOUGHT".
+- DO: give the model Sid's raw words and the tools. Tool descriptions explain each field.
+- DON'T: write code that decides what he meant or narrows how Jarvis reads him.
+
+**2. Honesty means receipts of what actually ran, not code grading the AI.**
+Sep 24, 7:15 PM: "so why is hell is code refusing? … code should never make a decions or retaruict jarvis". No quote on record has Sid saying "receipts"; it is the reviewers' word.
+- DO: record every tool call, save and send. Replies claim only what a receipt shows. Code checks only facts it owns, such as a real date or a committed row.
+- DON'T: parse Sid's wording to "prove" the model understood him.
+
+**3. Calls and Telegram are identical except for the medium.**
+Sep 23, 11:16 PM: "THE ONLY difference between call and telegram is the method of communication TAHTS IT".
+- DO: put every tool, memory path and rule in the shared core. The medium changes only reply length, spoken yes/PIN versus a tap, and audio versus text.
+- DON'T: give one channel something the other lacks.
+
+**4. Store everything and let data flow. Gate only actions taken AS Sid.**
+Sep 14 (m): "it remebrs eveyr thats remotly important or like someway for it to store everything". Sep 23, 11:46 PM: "why are we adding so much secutiry my gosh". 11:18 PM: "The brain should just be aware of the source that’s it". Sep 17 (m): "a spoken 4 digit pin will work best on only sensitive things".
+- DO: store everything, source labelled. Ask before any outward action: sending, paying, booking, deleting, unlocking, contacting anyone as Sid ("outward actions ask" is his Sep 17 decision; exact words not recorded). On calls, the spoken PIN guards those and reading sensitive memories aloud. Text not from Sid never triggers an action.
+- DON'T: discard or filter data "for safety", or gate ordinary calls.
+
+**5. Voice must be forgiving, with the keypad as a fallback.**
+Sep 17 (m): "im pretty sure i just said the words weird thats all, i struggle with speaking sometimes".
+- DO: re-prompt clearly, allow more tries, and accept keypad digits. The model cleans up spoken answers.
+- DON'T: build a voice-only gate, treat a mishearing as an attack, or regex-strip filler words.
+
+**6. No Linux.**
+No verbatim quote found. docs/FACTS.md says "Sid, repeatedly" (2026-09-18). Fleet: two Windows 11 PCs, one iPhone 16.
+- DO: use PowerShell and Windows paths.
+- DON'T: plan a Linux host or give Sid bash, systemd or chmod steps.
+
+**7. The PC is off overnight, so anything that must survive lives in the cloud.**
+Sep 14 (m): "id like to acess jarvis regardless of the staus of my pc". Sep 24, 1:28 AM: "i need to turn the pc off". Hours (08:00–23:00): docs/FACTS.md, Sid 2026-09-21; exact words not on record.
+- DO: put memory, reminders and overnight work in the cloud gateway.
+- DON'T: make a cloud feature depend on the PC.
+
+**8. Run focused tests locally and full suites on GitHub Actions.**
+Sep 24, 12:19 AM: "i have 50k github minsutes yk? we dont need to run a billion agents on my pc and literaly make my pc unsabble".
+- DO: test the files you changed, push, then read `gh pr checks`.
+- DON'T: run a full suite or a whole-repo mutation sweep on his PC.
+
+**9. Never guess. Label anything unverified.**
+Sep 17 (m): "NEVER GUESS ONLY FIND THE ROOT CAUSE". Sep 23, 11:22 PM: "NEVER SAY ANYTING IF ITS A GUESS OR A MEMORY OR A BROAD FACT".
+- DO: prove causes with logs, code at a named sha, a query or a test. Mark anything unchecked "unverified".
+- DON'T: present a hypothesis or a remembered fact as fact. Jarvis, too, says "I don't know".
+
+### Red flags: treat these as BLOCKERS in review, never as disclosed debt
+
+- Regex or keyword lists that decide what Sid meant.
+- Code that refuses a save because of how Sid worded something.
+- Grammars that "prove" the model's reading.
+- Channel-specific tools, prompt rules or memory paths.
+- A reviewer asking a builder to ADD such a parser.
+- Writing it down doesn't cure it. docs/CODE-VS-JUDGMENT.md lists places where code WRONGLY judges. Remove them; never copy them.
+
+### Before you start
+
+- **Name the rules.** In one line, say which of these rules your change touches (e.g. "Touches 1, 3, 8").
+- **Re-read before any verdict.** Re-read this block before posting a verdict or opening a PR. Check each red flag against the diff.
+
+---
+
 For anyone, human or model, changing this code. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first for the shape; this file
 is the traps.
@@ -12,12 +83,13 @@ has already had.
 
 **Before you write a condition, read
 [docs/CODE-VS-JUDGMENT.md](docs/CODE-VS-JUDGMENT.md).** The roadmap's core rule
-is *"Code builds tools. Jarvis makes every decision."* That file is the register
-of every place in this codebase where a judgment got written in code instead,
-with the surface each one should move to. An `if` that decides how many results,
-what counts as relevant, or whether to act at all is a decision, not plumbing.
-The list is **partial** — say so on the page if you find another, and add it in
-the same pull request that you find it in.
+is *"Code builds tools. Jarvis makes every decision."* That file is a **removal
+list**, not a register of accepted exceptions: every row is a place where code
+decides meaning or restricts Jarvis, found by the #186 sweep, with its
+replacement. Rows are removed, never copied, and new code must not add one. An
+`if` that decides how many results, what counts as relevant, or whether to act at
+all is a decision, not plumbing. If you find existing code the sweep missed, add
+it as a row with its evidence in the pull request that finds it.
 
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
