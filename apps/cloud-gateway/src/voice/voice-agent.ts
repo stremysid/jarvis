@@ -46,7 +46,20 @@ A receipt added to your words is read aloud verbatim by the system, so never rea
 
 There is no screen and Sid cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here. Describe links or files in spoken words when needed.
 
-When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap. For a staged model-inferred memory, ask Sid to open /decisions in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /decisions in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
+When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap. For a staged model-inferred memory, ask Sid to open /queue in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, ask him to open /queue in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 tap.`;
+
+/**
+ * The spoken refusals name `/queue`, which is the bot's real decision list.
+ *
+ * Exported so the test reads the exact strings the caller hears rather than a
+ * copy; the command name in each one has to be a command the bot actually
+ * recognises, or the one instruction a call gives Sid for confirming a tier-3
+ * action sends him to "No such command."
+ */
+export const OWNER_VOICE_INFERRED_MEMORY_CONFIRMATION_REFUSAL =
+  "Nothing changed. Open /queue in Telegram and tap Confirm or Discard. A spoken yes cannot confirm a model-inferred memory.";
+export const OWNER_VOICE_CONFIRMATION_SURFACE_REFUSAL =
+  "That action always needs your tap, and I cannot show you a button on a call. Open /queue in Telegram, tap Confirm, then ask me again on this call.";
 
 export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly guidedAssignmentTelegram?: TelegramProvider;
@@ -137,13 +150,11 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
        * authorization: `consumeStandingDecision` claims a tap by tool name,
        * capability and argument fingerprint with no channel in the query, so a
        * tap Sid gives in Telegram authorizes the same call. A call cannot display
-       * Telegram's confirmation keyboard, so the spoken refusal points to /decisions.
+       * Telegram's confirmation keyboard, so the spoken refusal points to /queue.
        */
       recordDecision: (): void => undefined,
-      inferredMemoryConfirmationRefusal:
-        "Nothing changed. Open /decisions in Telegram and tap Confirm or Discard. A spoken yes cannot confirm a model-inferred memory.",
-      confirmationSurfaceRefusal:
-        "That action always needs your tap, and I cannot show you a button on a call. Open /decisions in Telegram, tap Confirm, then ask me again on this call.",
+      inferredMemoryConfirmationRefusal: OWNER_VOICE_INFERRED_MEMORY_CONFIRMATION_REFUSAL,
+      confirmationSurfaceRefusal: OWNER_VOICE_CONFIRMATION_SURFACE_REFUSAL,
       // There is no swipe-reply gesture on a call, so this is not a check that
       // passes vacuously -- it is a check whose subject does not exist here.
       replyTargetsLatestAssistant: async (): Promise<boolean> => true,

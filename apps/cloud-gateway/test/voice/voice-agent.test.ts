@@ -389,9 +389,9 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).toContain(itemId);
     expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({
       status: "pending_confirmation",
-      receipt: expect.stringContaining("Open /decisions in Telegram"),
+      receipt: expect.stringContaining("Open /queue in Telegram"),
     });
-    expect(reply).toContain("Open /decisions in Telegram");
+    expect(reply).toContain("Open /queue in Telegram");
     await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId)).resolves.toMatchObject({
       lifecycle: { state: "proposed" }, version: { basis: "inferred", origin: "model", uncertain: true },
     });
@@ -712,7 +712,7 @@ describe("the voice agent adapter", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain("Sid's private assistant");
     expect(provider.requests[0]?.systemPrompt).not.toContain("Infer what Sid means");
     expect(provider.requests[0]?.systemPrompt).not.toContain("speaking with Sid");
-    expect(provider.requests[0]?.systemPrompt).not.toContain("/decisions");
+    expect(provider.requests[0]?.systemPrompt).not.toContain("/queue");
     expect(provider.requests[0]?.systemPrompt).not.toContain("[[claim");
     expect(provider.requests[0]?.tools).toHaveLength(0);
     expect(provider.requests[0]?.toolChoice).toBe("none");

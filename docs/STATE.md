@@ -50,7 +50,7 @@ Code in channel-parity implements the shared capabilities below. This is not a d
 | Owner tools | One `OWNER_TOOL_DEFINITIONS` catalogue: nine memory tools, school, university, study, two collector tools, three guided assignment tools and `deadline_record` | None |
 | Reasoning and receipts | `OwnerAgentCore`, one prompt core, one claim/rewrite policy and pinned profile | Spoken phrasing versus text; rewrite retains the medium section |
 | Memory recall | Same canonical items, projections, literal/archive history and optional meaning search | Voice retains its bounded retrieval deadline |
-| Confirmation | Same durable owner/source proof and exact wording; model-inferred memory requires a Telegram tap on either channel | Voice directs Sid to `/decisions`; an owner-stated fact can still be grounded in the exact preceding same-call question. Tier 3: Telegram tap only until PIN rebuild |
+| Confirmation | Same durable owner/source proof and exact wording; model-inferred memory requires a Telegram tap on either channel | Voice directs Sid to `/queue`; an owner-stated fact can still be grounded in the exact preceding same-call question. Tier 3: Telegram tap only until PIN rebuild |
 | Conversation | Owner utterances are already shared by principal; verified immediate reply is available within each session | Voice assistant transcripts remain excluded from cross-channel history; named follow-up in QUEUE |
 
 [Full audit, premise corrections and evidence](reviews/2026-09-23-channel-parity.md).
