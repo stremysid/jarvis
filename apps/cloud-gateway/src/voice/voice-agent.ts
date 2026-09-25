@@ -114,7 +114,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
     return Object.freeze({
-      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. Deadline relative dates are checked against the durable current turn timestamp.`,
+      channelPrompt: `${OWNER_VOICE_AGENT_CHANNEL_PROMPT}\n\nOwner time zone: ${adapter.voice.timeZone ?? "America/Toronto"}. Current instant: ${(adapter.voice.now?.() ?? new Date()).toISOString()}. You resolve deadline dates and times from what Sid says; if you are unsure which one he means, ask him.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       canActOn: (): boolean =>
         input.channel === "voice" && input.principalId === adapter.voice.ownerPrincipalId,
@@ -162,9 +162,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because I cannot tell which memory you meant. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
-        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto",
-        () => readMemoryOwnerTurnEvidence({ database: adapter.voice.database, modelInput: input, memoryIntent: null,
-          channelCode: 1, requireDirectOwnerText: false })),
+        () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto"),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);
