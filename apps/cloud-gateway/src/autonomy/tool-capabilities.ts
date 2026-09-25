@@ -44,6 +44,11 @@
  * credential rather than changing conversational state.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  // Tier 1: reading the inbox changes nothing and reaches nobody. The rows
+  // exist so this is a deliberate classification rather than a missing entry,
+  // which the gate would deny as an unregistered capability.
+  email_inbox_list: "email.read",
+  email_inbox_read: "email.read",
   memory_remember: "memory.write",
   // Correcting a memory supersedes one stored wording with another in the same
   // ledger, so it is a memory write and not a capability of its own. It shares
@@ -96,6 +101,8 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  * hurry at the same time as the integration.
  */
 const RESERVED_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  // `send_email` is the sending hand, not the inbox read above: sending reaches
+  // a third party and stays tier 3.
   send_email: "contact.third_party",
   tesla_precondition: "vehicle.precondition",
   tesla_unlock: "vehicle.unlock",

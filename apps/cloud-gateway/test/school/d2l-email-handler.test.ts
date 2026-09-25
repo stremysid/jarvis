@@ -759,9 +759,14 @@ describe("D2L notification email", () => {
     expect(receipt).toEqual({ supplied: 0 });
   });
 
-  it("retains no raw MIME for a message refused on its visible sender", async () => {
+  it("retains the raw MIME of a message refused on its visible sender, because every delivery is kept", async () => {
+    // This assertion used to be the opposite: `RAW_WITHHELD_REASONS` discarded
+    // the raw bytes of a message refused on its envelope recipient or visible
+    // From, which is how mail that was not a D2L notification was thrown away.
+    // Sid ordered that discard removed, so the receipt now retains the bytes and
+    // the hash both, and the inbox is not the only copy.
     const raw = `From: stranger <someone@evil.example>\r\nSubject: hello\r\n`
-      + "Message-ID: <no-raw-retention@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n";
+      + "Message-ID: <raw-retained@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n";
     const result = await handleD2lNotificationEmail(
       emailMessage(raw, { authenticationResults: null }).message,
       configuredEnv(),
@@ -770,8 +775,9 @@ describe("D2L notification email", () => {
     expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
     const receipt = await env.DB.prepare(`SELECT length(raw_mime_base64) AS retained, length(raw_sha256) AS hashed
       FROM d2l_email_messages WHERE provider_message_id = ?`)
-      .bind("<no-raw-retention@evil.example>").first<{ retained: number; hashed: number }>();
-    expect(receipt).toEqual({ retained: 0, hashed: 64 });
+      .bind("<raw-retained@evil.example>").first<{ retained: number; hashed: number }>();
+    expect(receipt?.retained).toBeGreaterThan(0);
+    expect(receipt?.hashed).toBe(64);
   });
 
   it("keeps only a bounded number of quarantined receipts for one owner", async () => {

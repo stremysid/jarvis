@@ -40,6 +40,7 @@ import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/00
 import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
 import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
+import emailInboxSql from "../../src/persistence/migrations/0046_email_inbox.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -143,6 +144,7 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -313,6 +315,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
     { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+    { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -365,6 +368,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
   { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
   { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+  { name: "0046_email_inbox.sql", queries: splitMigration(emailInboxSql) },
 ]);
 
 /**

@@ -23,11 +23,8 @@ import {
 } from "../conversation/conversation-repository.js";
 import { snapshotModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelAdapter, ModelAdapterStreamInput } from "../model/model-adapter.js";
-import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
-import { OWNER_ARGUMENT_TOOL_DEFINITIONS, ownerArgumentTool } from "../agent/owner-argument-tools.js";
-import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
+import { ownerArgumentTool, SHARED_OWNER_TOOL_DEFINITIONS } from "../agent/owner-tools.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
-import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readMemoryOwnerTurnEvidence, readHistoryPayloadEnvelope } from "../memory/telegram-memory-controls.js";
 import type { MemoryControlIntent } from "../memory/memory-types.js";
@@ -65,10 +62,7 @@ When an action needs his tap, say what you would do and that he must confirm it 
 
 /** The tools a call can use; exported so the provider's tool cap is tested against it. */
 export const OWNER_VOICE_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
-  ...MEMORY_TOOL_DEFINITIONS,
-  ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
-  ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
-  ...SCHOOL_COLLECTOR_TOOLS,
+  ...SHARED_OWNER_TOOL_DEFINITIONS,
 ]);
 
 interface PreviousVoiceAssistantRow {

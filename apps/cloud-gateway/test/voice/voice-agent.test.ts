@@ -24,7 +24,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerVoiceAgentAdapter, OWNER_VOICE_AGENT_CHANNEL_PROMPT } from "../../src/voice/voice-agent.js";
-import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "../../src/agent/owner-argument-tools.js";
+import { SHARED_OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { D1ToolConfirmationStore } from "../../src/autonomy/tool-confirmations.js";
@@ -657,13 +657,11 @@ describe("the voice agent adapter", () => {
     const request = provider.requests[0];
     expect(request?.systemPrompt).toContain("You are speaking with Sid on a phone call.");
     expect(request?.systemPrompt).toContain(OWNER_VOICE_AGENT_CHANNEL_PROMPT);
-    expect(request?.tools.map((definition) => definition.name)).toEqual([
-      "memory_remember", "memory_correct", "memory_forget", "memory_restore",
-      "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
-      ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
-      "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
-      "school_d2l_status", "school_collector_revoke",
-    ]);
+    // Derived from the shared owner catalogue rather than a second hand-kept
+    // list, so a tool that reaches both channels cannot appear here and not in
+    // the Telegram catalogue, or the reverse.
+    expect(request?.tools.map((definition) => definition.name))
+      .toEqual(SHARED_OWNER_TOOL_DEFINITIONS.map((definition) => definition.name));
   });
 
   it("resolves an item the context does not name, through the finder it was given", async () => {

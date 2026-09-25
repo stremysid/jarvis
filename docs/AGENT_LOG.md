@@ -3,6 +3,80 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: the owner email inbox
+
+Signed: DeepSeek V4.1 Flash (builder), branch `codex/email-inbox-ds` from
+`a7cd3553`. Worktree `C:\w\email-inbox-ds`. Never pushed anywhere else, never
+merged, never deployed, no migration applied to any real database.
+
+- **What it is.** The Worker's `email()` path stores every delivery in full and
+  then offers the same message to the unchanged D2L notification consumer. Before
+  this, `RAW_WITHHELD_REASONS` in `d2l-email-handler.ts` discarded the raw bytes of
+  any message refused on its envelope recipient or visible `From:` -- which is how
+  mail that was not a D2L notification was thrown away. That set and its
+  `retainsRawMime` branch are deleted, and the test that asserted the discard now
+  asserts the opposite.
+- **Storage.** Full MIME and the complete source facts go to ARCHIVE under
+  `email-inbox/<id>.eml` and `.json`. D1 holds a bounded searchable preview. The
+  facts record the envelope, the `From`/`To`/`Cc`/`Subject`/`Date` headers, the
+  `Message-ID`, `X-Forwarded-For`/`X-Forwarded-To` and the `Received` chain, the
+  reported SPF/DKIM/DMARC/ARC header values verbatim, the body with an HTML
+  alternative rendered to text, and attachment names/types/sizes. The raw stream
+  is written to ARCHIVE **before** it is parsed, so a message whose MIME tree
+  breaks the parser is still kept and still readable.
+- **No judgment in code.** There are no parsers, classifiers, keyword lists,
+  sender or domain allowlists, and no teacher/deadline/date extraction. The only
+  `if`s are a storage bound and the owner check. Authentication header values are
+  recorded as facts and nothing in the path reads them to accept, reject, rank,
+  filter or hide a message. `emailHtmlText` is a markup-to-text transform, not a
+  reading of content: unknown entities stay literal and the original HTML remains
+  in the archive.
+- **Tools.** `email_inbox_list` (sender/subject/text/date-range, newest first,
+  1-50 per page) and `email_inbox_read` (paged body/source/raw by id) on the new
+  `SHARED_OWNER_TOOL_DEFINITIONS` in `apps/cloud-gateway/src/agent/owner-tools.ts`,
+  which both `OWNER_TELEGRAM_TOOL_DEFINITIONS` and
+  `OWNER_VOICE_TOOL_DEFINITIONS` now compose. Both dispatch as `unactionedTool`:
+  a read mints no receipt id, so it can never be claimed as an action. Tier 1
+  `email.read`, seeded by the migration, plus the owner-only `directOwnerText`
+  check. Tier-3 is untouched.
+- **Migration.** `0046_email_inbox.sql`, assigned by the reviewer. Registered in
+  `memory-backup-restore-migrations.ts`, `memory-backup.ts`'s table list,
+  `memory-backup-restore.ts`'s seeded rows, `test/persistence/migration.ts` (all
+  three chains), `remote-d1-migration-syntax.test.ts`, and the backup manifest
+  schema-version expectation. One semicolon inside an SQL comment was written and
+  removed -- it is exactly the splitter trap AGENTS.md warns about, and it failed
+  as `SQL code did not contain a statement`.
+- **Observed focused results (one worker):** `test/email` 38/0/0;
+  `deepseek-agent-catalogue` + `remote-d1-migration-syntax` +
+  `migration-list-parity` + `tool-classification` + `d2l-email-handler` 128/0/0;
+  `voice/call-session-do` 130/0/0; `voice-agent` + `owner-telegram-agent` +
+  `school-paste` 170/0/0; `memory-backup` + `memory-backup-restore` 38/0/0.
+  Source `typecheck` exits 0.
+- **Mutation (10 guards, all confirmed on a second run, 6 files restored
+  byte-identical):** the owner-only dispatch guard, both `requireOwner` checks,
+  the `email_inbox_update_guard` trigger, the page bound, body truncation, the
+  HTML-alternative render, the shared-catalogue wiring, `safeUlid` on `email_id`,
+  and the `RAW_WITHHELD_REASONS` withholding. `safeUlid` SURVIVED the first sweep
+  because no test fed it a non-ULID; a test was added for it and it was killed and
+  confirmed on a re-run. Evidence: `email-inbox-ds-mutations.log` and
+  `email-inbox-ds-mutation-e09.log` in `C:\Users\Sid\codex-ledgers\`.
+- **Premise finding, recorded in the PR.** The brief says D2L mail arrives at
+  `school@onesid.ca`. `configuration()` requires
+  `SCHOOL_EMAIL_INGEST_ADDRESS` to match
+  `^school-[a-z0-9][a-z0-9-]{15,56}@onesid\.ca$` and `setReject`s plus throws
+  `school_email_configuration_invalid` for `school@onesid.ca` -- its own test at
+  `test/school/d2l-email-handler.test.ts:217` pins exactly that. General inbox
+  delivery works at any address; the D2L notification path needs the capability
+  address. The wrapper contains only that configuration error, so general mail
+  does not depend on school config, and every other legacy failure still
+  propagates so the platform retries.
+- **Reconciliation.** PR #174 (`codex/channel-parity`, head `ac5c89eb`) is still
+  open and also touches the catalogue. This change adds `agent/owner-tools.ts`
+  with `SHARED_OWNER_TOOL_DEFINITIONS`; whoever lands second moves the inbox
+  definitions into the shared list and deletes the duplicate. See the PR body.
+- **Not verified:** no live delivery, no deploy, no remote migration, and the
+  Gmail forwarding confirmation is exercised only against a synthetic fixture.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.

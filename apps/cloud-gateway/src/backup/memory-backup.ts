@@ -60,6 +60,7 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "deadlines",
   "deadline_revisions",
   "d2l_email_messages",
+  "email_inbox",
   "d2l_email_grade_observations",
   "quiet_windows",
   "liveness_alerts",

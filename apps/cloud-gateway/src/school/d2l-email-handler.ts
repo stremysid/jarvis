@@ -295,20 +295,6 @@ function failureNoticeText(receipt: D2lEmailMessageReceipt): string | null {
   return DELIVERY_REASONS.has(receipt.quarantineReason) ? null : CONTENT_FAILURE_NOTICE;
 }
 
-/**
- * Reasons whose raw bytes are not retained.
- *
- * The envelope recipient and the visible `From:` are the two checks anyone on
- * the internet can fail or pass without knowing anything about D2L, so a
- * refusal there keeps the hash, the header names and the reason, and nothing
- * else. What is left is capped and expires (see the repository).
- */
-const RAW_WITHHELD_REASONS = new Set(["recipient_mismatch", "from_missing", "from_domain_unpinned"]);
-
-function retainsRawMime(reason: string | null): boolean {
-  return reason === null || !RAW_WITHHELD_REASONS.has(reason);
-}
-
 function eventFromReceipt(receipt: D2lEmailMessageReceipt): ParsedD2lEmailEvent {
   return receipt.structured as unknown as ParsedD2lEmailEvent;
 }
@@ -450,7 +436,7 @@ export async function handleD2lNotificationEmail(
     fromDomain: parsedFromDomain,
     eventKind: parsed.kind,
     structured: structured(parsed, raw.truncated),
-    rawMimeBase64: retainsRawMime(quarantineReason) ? base64(raw.bytes) : "",
+    rawMimeBase64: base64(raw.bytes),
     now,
   });
   (dependencies.logHeaderNames ?? ((emailId, headerNamesValue) => {
@@ -477,7 +463,10 @@ export async function handleD2lNotificationEmail(
       now,
     );
     // Pruned here, in the same request as the write that grew the table, so a
-    // stranger flooding the address cannot outrun the cap.
+    // stranger flooding the address cannot outrun the cap. This only bounds the
+    // legacy D2L table: the authoritative copy of every delivery is in
+    // `email_inbox` and ARCHIVE, so a pruned receipt is a duplicate removed, not
+    // mail lost.
     await repository.pruneQuarantined(config.principalId, quarantined.emailId, now);
     await deadlines.recordSourceFailure(D2L_EMAIL_SOURCE_ID, quarantineReason, now);
     await repository.recordFailure(

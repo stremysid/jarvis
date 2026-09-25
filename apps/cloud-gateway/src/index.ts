@@ -78,7 +78,7 @@ import { SchoolCollectorRepository } from "./school/collector-repository.js";
 import { SchoolCollectorPairing } from "./school/collector-pairing.js";
 import { SCHOOL_PAIR_ORIGIN } from "./school/collector-protocol.js";
 import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
-import { handleD2lNotificationEmail } from "./school/d2l-email-handler.js";
+import { handleInboundEmail } from "./email/email-handler.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
@@ -736,7 +736,7 @@ export async function answerFromTap(
 
 export default {
   async email(message, env, ctx): Promise<void> {
-    await handleD2lNotificationEmail(message, env, {
+    await handleInboundEmail(message, env, {
       sendOwnerText: (text) => sendOwnerSchoolEmailNotice(env, text),
     });
     void ctx;

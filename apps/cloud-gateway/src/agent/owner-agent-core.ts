@@ -51,6 +51,18 @@ import {
 } from "../memory/memory-owner-controls.js";
 import { composeCoreProfile, readCoreProfile } from "../memory/core-profile.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
+import { EmailInbox, type InboxQuery } from "../email/email-inbox.js";
+import { readInboxPage } from "../email/email-reader.js";
+import { emailInboxEvidence, EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
+
+/**
+ * The inbox list tool's accepted argument names, read from its own schema so a
+ * field added to the definition cannot become a call the dispatch refuses.
+ */
+const EMAIL_INBOX_LIST_ARGUMENTS: readonly string[] = Object.freeze(
+  Object.keys(EMAIL_INBOX_TOOL_DEFINITIONS.find((tool) => tool.name === "email_inbox_list")!
+    .parameters.properties as Record<string, unknown>),
+);
 import {
   composeMemorySearchResults,
   MemorySearchService,
@@ -433,6 +445,30 @@ function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown
   } catch {
     return parseArguments(call, [...required, "lifetime", "expiresAt"]);
   }
+}
+
+/**
+ * The key set of a call whose accepted arguments are all optional.
+ *
+ * `parseArguments` demands an exact key set, which is what turns a hallucinated
+ * argument into a refusal instead of a silently dropped field. A tool with only
+ * optional arguments has one shape per subset the model sends, so its shape is
+ * read from the call and validated against the accepted names first -- an
+ * unknown key is still a refusal rather than a quietly ignored one.
+ */
+export function optionalArgumentKeys(call: ModelFunctionCall, accepted: readonly string[]): readonly string[] {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(call.arguments === "" ? "{}" : call.arguments) as unknown;
+  } catch {
+    throw new TypeError("owner_agent_tool_arguments_invalid");
+  }
+  if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
+    throw new TypeError("owner_agent_tool_arguments_invalid");
+  }
+  const keys = Reflect.ownKeys(decoded).filter((key): key is string => typeof key === "string");
+  if (keys.some((key) => !accepted.includes(key))) throw new TypeError("owner_agent_tool_arguments_invalid");
+  return keys;
 }
 
 export function safeUlid(value: unknown): Ulid {
@@ -1127,6 +1163,44 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       const gated = await this.gateTool(input, port, call);
       if (gated !== null) return gated;
       return this.memoryTool(input, port, call);
+    }
+    if (call.name === "email_inbox_list" || call.name === "email_inbox_read") {
+      // Reading the owner's mail is owner-only twice over: the capability is
+      // tier 1, which only the owner principal may hold, and the turn itself
+      // must be Sid's own authenticated words. A pipeline turn or a forwarded
+      // message is refused here rather than reaching the store.
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      const inbox = new EmailInbox(this.dependencies.database, this.dependencies.ownerPrincipalId);
+      if (call.name === "email_inbox_read") {
+        // `parseArguments` demands an exact key set, so an optional field is a
+        // second accepted shape rather than a loosened check. A hallucinated
+        // key is then a refusal instead of a silently dropped argument.
+        let args: Record<string, unknown>;
+        try {
+          args = parseArguments(call, ["email_id"]);
+        } catch {
+          args = parseArguments(call, ["email_id", "part", "offset"]);
+        }
+        const result = await readInboxPage(
+          inbox,
+          this.dependencies.archive,
+          input.principalId,
+          safeUlid(args.email_id),
+          args.part,
+          args.offset ?? 0,
+        );
+        return unactionedTool(call, emailInboxEvidence(result), []);
+      }
+      let query: Record<string, unknown>;
+      try {
+        query = parseArguments(call, []);
+      } catch {
+        query = parseArguments(call, optionalArgumentKeys(call, EMAIL_INBOX_LIST_ARGUMENTS));
+      }
+      const result = await inbox.list(input.principalId, query as InboxQuery);
+      return unactionedTool(call, emailInboxEvidence(result), []);
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
