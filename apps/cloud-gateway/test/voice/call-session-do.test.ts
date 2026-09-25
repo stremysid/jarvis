@@ -1755,7 +1755,9 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     const repo = repository();
     const stored = await createInboundSession(repo);
     const harness = conversationHarness(stored, repo, {
-      streamText: "safe PIN: 12345678 answer",
+      // An owner call hears Sid's own PINs as they are; a machine credential is
+      // what the owner reader still removes, so it proves the sanitized stream.
+      streamText: "safe Bearer abcdefgh.1234567890 answer",
       streamTokenCount: 3,
     });
     await authenticateForConversation(harness);
@@ -1778,7 +1780,7 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     const finishedText = harness.finish.mock.calls[0]?.[0];
     expect(sentText).toBe(finishedText);
     expect(sentText.length).toBeGreaterThan(0);
-    expect(JSON.stringify([sentText, finishedText])).not.toContain("12345678");
+    expect(JSON.stringify([sentText, finishedText])).not.toContain("abcdefgh.1234567890");
     expect(await conversationTurn(TURN_ID)).toMatchObject({
       state: "voice_sent",
       sent_assistant_event_id: expect.stringMatching(/^[0-7][0-9a-hjkmnp-tv-z]{25}$/u),

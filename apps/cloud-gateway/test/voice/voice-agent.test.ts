@@ -554,7 +554,7 @@ describe("the voice agent adapter", () => {
   });
 
   it.each([
-    ['The file has password = "alpha. bravo charlie" inside. Continue safely.', "bravo charlie"],
+    ["The file has Bearer alpha.bravo-charlie0123 inside. Continue safely.", "bravo-charlie0123"],
     ["The header is Authorization: Digest a1b2c3. d4e5f6g7h8 secret.", "d4e5f6g7h8"],
   ])("never delivers the secret tail from the unsplit reply %s to the caller", async (text, tail) => {
     const provider = new FakeAgentProvider([]);
