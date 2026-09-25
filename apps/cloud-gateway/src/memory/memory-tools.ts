@@ -84,11 +84,11 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     name: "memory_restore",
     description: "Bring back a memory that was forgotten, when Sid says he wants it used again. Example: \"actually, do remember that I hate mornings\". You decide what the restored evidence counts as, with basis: it comes back as unconfirmed unless you can point to Sid confirming the wording himself. Restoring never proves the memory true by itself, so when in doubt use stated or inferred, not confirmed.",
     parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "basis"],
+      type: "object", additionalProperties: false, required: ["itemId", "basis", "supportingExcerpt"],
       properties: {
         itemId: { type: "string", description: "The id of the forgotten memory, from the item ids in your context." },
         basis: { enum: ["stated", "confirmed", "observed", "inferred", "third_party"], description: "What the restored evidence now counts as. confirmed when the stored wording is one Sid himself stated and is now being restored on his instruction, which is required when the original messages are archived and gone; stated when it came from his own words; inferred or third_party only when the original wording was a guess of yours or somebody else's, which must stay uncertain." },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact words asking for it back, copied." },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact words asking for it back, copied. Required: the restore is grounded in this turn's words, as every other memory tool's is." },
       },
     }),
   }),

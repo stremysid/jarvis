@@ -85,5 +85,21 @@
     "replace": "export const MEMORY_FILING_CONFIDENCE_THRESHOLD = 0.0;",
     "testPath": "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
     "expect": "treats a missing or out-of-range filingConfidence as zero without rejecting the fact"
+  },
+  {
+    "name": "review-restore-schema-drops-the-grounding-excerpt-again",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "      type: \"object\", additionalProperties: false, required: [\"itemId\", \"basis\", \"supportingExcerpt\"],",
+    "replace": "      type: \"object\", additionalProperties: false, required: [\"itemId\", \"basis\"],",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "requires memory_restore's basis and its grounding excerpt together"
+  },
+  {
+    "name": "review-a-sibling-tool-drops-the-grounding-excerpt",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "      required: [\"itemId\", \"newFact\", \"supportingExcerpt\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "replace": "      required: [\"itemId\", \"newFact\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "requires supportingExcerpt on every tool that declares the property"
   }
 ]
