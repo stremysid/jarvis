@@ -2190,6 +2190,54 @@ describe("CallSession capacity admission", () => {
     expect(core.close).not.toHaveBeenCalled();
   });
 
+  it("admits a prompt sent after barge-in once the aborted turn releases the slot", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const enteredGate = new Promise<void>((resolve) => { entered = resolve; });
+    const handled: string[] = [];
+    const conversation: ConversationService = {
+      handleTurn: vi.fn<ConversationService["handleTurn"]>(async (input) => {
+        handled.push(input.text);
+        if (handled.length === 1) {
+          // Deliberately ignores input.signal: the abort must not settle this turn,
+          // so the slot stays owned exactly as a slow teardown leaves it.
+          entered();
+          await gate;
+        }
+        return { outcome: "cancelled", committedUserEventId: TURN_ID, sentAssistantEventId: null,
+          deliveredAssistantEventId: null, deliveryId: null };
+      }),
+      async stageSystemNotice(): Promise<never> { throw new Error("unexpected_voice_notice"); },
+    };
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const core = makeCore({ session: stored, repo, conversation, turnIds: [TURN_ID, NEXT_TURN_ID] });
+    await core.instance.handleRelayEvent(relaySetup(stored));
+    const first = core.instance.handleRelayEvent(prompt);
+    void first.catch(() => undefined);
+    await enteredGate;
+    await core.instance.handleRelayEvent({ type: "interrupt" });
+    let released = false;
+    let settledBeforeRelease = false;
+    const second = core.instance.handleRelayEvent({ ...prompt, text: "A corrected question" });
+    void second.then(
+      () => { if (!released) settledBeforeRelease = true; },
+      () => { if (!released) settledBeforeRelease = true; },
+    );
+    // The aborted turn cannot settle until the gate opens, so a bounded wait here
+    // is a real gap for the replacement to be dropped in.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(settledBeforeRelease).toBe(false);
+    released = true;
+    release();
+    await expect(second).resolves.toBeUndefined();
+    await expect(first).resolves.toBeUndefined();
+    expect(handled).toEqual(["An ordinary question", "A corrected question"]);
+    expect(core.close).not.toHaveBeenCalled();
+    expect(core.instance.phase).toBe("active");
+  });
+
   it("never starts an abort-ignoring model after interruption during durable context retrieval", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
