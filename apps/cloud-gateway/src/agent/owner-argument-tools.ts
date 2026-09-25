@@ -1,12 +1,18 @@
 import { DEADLINE_TOOL_DEFINITION, recordDeadline } from "../deadlines/deadline-tool.js";
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
+import { WEB_TOOL_DEFINITIONS } from "../web/web-tools.js";
 import type { ExecutedTool } from "./owner-agent-core.js";
 
 // The shared owner catalogue includes argument tools so a new hand cannot
 // quietly exist on only one channel.
+// The web tools are dispatched by the core itself (`runWebTool`), not by
+// `ownerArgumentTool`, because they need the gateway's fetch and AI binding
+// rather than the database alone; listing them here is what puts them on
+// every channel.
 export const OWNER_ARGUMENT_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([
   DEADLINE_TOOL_DEFINITION,
+  ...WEB_TOOL_DEFINITIONS,
 ]);
 
 // Authority is checked by the shared core before this runs: OwnerAgentCore

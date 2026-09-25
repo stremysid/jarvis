@@ -1,0 +1,194 @@
+[
+  {
+    "name": "gate-turn-ended-check-removed",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "if (request.turn?.signal.aborted === true) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin.test.ts",
+    "expect": "denies a channel authorization that arrives after the asking turn ended"
+  },
+  {
+    "name": "gate-refused-falls-back-to-tap",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "        channelRefused = true;",
+    "replace": "        channelRefused = false;",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin.test.ts",
+    "expect": "denies without raising a tap when the channel asked and was refused"
+  },
+  {
+    "name": "gate-refused-raises-telegram-card-at-agent",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "        channelRefused = true;",
+    "replace": "        channelRefused = false;",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin-turn.test.ts",
+    "expect": "does not also raise a Telegram confirmation"
+  },
+  {
+    "name": "gate-never-holds-deadline",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "const resumeDeadline = turn?.holdDeadline() ?? ((): void => undefined);",
+    "replace": "const resumeDeadline = ((): void => undefined);",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin-turn.test.ts",
+    "expect": "holds the turn deadline while the PIN question is open"
+  },
+  {
+    "name": "gate-signal-not-passed-to-channel",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "            ...(turn === undefined ? {} : { signal: turn.signal }),\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin.test.ts",
+    "expect": "hands the channel the turn's signal"
+  },
+  {
+    "name": "gate-asks-after-turn-ended",
+    "file": "apps/cloud-gateway/src/autonomy/tool-gate.ts",
+    "find": "answer = turn !== undefined && turn.signal.aborted\n          ? CHANNEL_REFUSED\n          : await",
+    "replace": "answer = false\n          ? CHANNEL_REFUSED\n          : await",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin.test.ts",
+    "expect": "does not ask at all when the turn has already ended"
+  },
+  {
+    "name": "core-post-permit-abort-check-removed",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (input.signal.aborted) return refusedTool(call, TURN_ENDED_REFUSAL);\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin-turn.test.ts",
+    "expect": "refuses at the tool body when the turn aborts after the gate has already permitted"
+  },
+  {
+    "name": "core-hold-is-noop",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "holdDeadline: () => deadline?.hold() ?? ((): void => undefined),",
+    "replace": "holdDeadline: () => ((): void => undefined),",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin-turn.test.ts",
+    "expect": "holds the turn deadline while the PIN question is open"
+  },
+  {
+    "name": "deadline-hold-does-not-pause",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (this.#holds === 1 && this.#timer !== null) {",
+    "replace": "if (false) {",
+    "testPath": "apps/cloud-gateway/test/autonomy/tier3-pin-turn.test.ts",
+    "expect": "holds the turn deadline while the PIN question is open"
+  },
+  {
+    "name": "pin-abort-listener-inert",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "const onAbort = (): void => { this.#settle(pending, null); };",
+    "replace": "const onAbort = (): void => undefined;",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "closes the question silently when the asking turn ends"
+  },
+  {
+    "name": "pin-asks-for-ended-turn",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "      if (signalAborted(signal)) this.#settle(pending, null);\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "never asks for a turn that has already ended"
+  },
+  {
+    "name": "pin-timer-not-rearmed-per-attempt",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "    this.#armAttemptTimer(pending);\n  }\n\n  #armAttemptTimer",
+    "replace": "  }\n\n  #armAttemptTimer",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "gives every attempt the full wait"
+  },
+  {
+    "name": "pin-refusal-reported-as-cannot-ask",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "return pending.authorizationId ?? CHANNEL_REFUSED;",
+    "replace": "return pending.authorizationId;",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "lets the caller abandon the question with cancel"
+  },
+  {
+    "name": "cancel-exact-word-only",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "isCancelAnswer(pinAnswerWords(text))",
+    "replace": "(text === \"cancel\" || text === \"stop\")",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "as the prompt's cancel"
+  },
+  {
+    "name": "late-grace-unbounded",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "elapsed > SENSITIVE_ACTION_PIN_LATE_GRACE_MS",
+    "replace": "elapsed > Number.MAX_SAFE_INTEGER",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "leaves ordinary speech and anything outside the grace window alone"
+  },
+  {
+    "name": "late-after-authorized-says-too-late",
+    "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
+    "find": "if (!closed.authorized) await this.#speak(SENSITIVE_ACTION_PIN_TOO_LATE);",
+    "replace": "await this.#speak(SENSITIVE_ACTION_PIN_TOO_LATE);",
+    "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
+    "expect": "consumes a repeated PIN after an authorized question"
+  },
+  {
+    "name": "normalize-keeps-punctuation",
+    "file": "apps/cloud-gateway/src/voice/pin-capture.ts",
+    "find": ".replace(/[.,!?;:\\-\\u2010-\\u2014]/gu, \" \")",
+    "replace": ".replace(/-/gu, \" \")",
+    "testPath": "apps/cloud-gateway/test/voice/pin-capture.test.ts",
+    "expect": "reads the capitals and punctuation a transcript adds"
+  },
+  {
+    "name": "normalize-digit-run-as-one-number",
+    "file": "apps/cloud-gateway/src/voice/pin-capture.ts",
+    "find": "for (const digit of token) numbers.push(digit.charCodeAt(0) - 0x30);",
+    "replace": "numbers.push(Number(token));",
+    "testPath": "apps/cloud-gateway/test/voice/pin-capture.test.ts",
+    "expect": "reads the capitals and punctuation a transcript adds"
+  },
+  {
+    "name": "oh-is-not-zero",
+    "file": "apps/cloud-gateway/src/voice/pin-capture.ts",
+    "find": "zero: 0, oh: 0, one: 1,",
+    "replace": "zero: 0, one: 1,",
+    "testPath": "apps/cloud-gateway/test/voice/pin-capture.test.ts",
+    "expect": "reads the capitals and punctuation a transcript adds"
+  },
+  {
+    "name": "late-answer-branch-removed-probe-d",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "    if (this.#sensitiveActionPin !== null && await this.#sensitiveActionPin.claimLateAnswer(event.text, this.#now())) {\n      return;\n    }\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+    "expect": "treats a PIN said just after the question expired as a late answer"
+  },
+  {
+    "name": "late-answer-branch-removed-running-turn",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "    if (this.#sensitiveActionPin !== null && await this.#sensitiveActionPin.claimLateAnswer(event.text, this.#now())) {\n      return;\n    }\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+    "expect": "consumes a late PIN while the refusing turn is still running"
+  },
+  {
+    "name": "interrupt-aborts-turn-at-question",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "        if (this.#session.phase === \"active\" && this.#sensitiveActionPin?.hasPendingPrompt() === true) {\n          await this.#relay.cancelOutput();\n          return;\n        }\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+    "expect": "keeps the question open when Sid talks over the prompt"
+  },
+  {
+    "name": "partial-transcript-counts-as-attempt",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "      if (!event.final) return;\n      await this.#sensitiveActionPin.submitSpoken",
+    "replace": "      await this.#sensitiveActionPin.submitSpoken",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+    "expect": "ignores a partial transcript at the question"
+  },
+  {
+    "name": "keypad-buffer-not-cleared-on-question",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "questionOpened: () => { this.#sensitiveActionPinKeypad.clear(); },",
+    "replace": "questionOpened: () => undefined,",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
+    "expect": "drops keypad digits left over from an earlier question"
+  }
+]

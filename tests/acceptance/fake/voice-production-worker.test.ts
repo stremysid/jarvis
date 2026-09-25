@@ -7,7 +7,6 @@ import { applyNewestRuntimeMigration, clearOutboundCallAttemptsForTest, clearCon
   clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import {
-  FAKE_OWNER_PASSPHRASE,
   clearFakeCanonicalMemory,
   seedFakeCanonicalMemory,
   seedFakeOwnerPassphrase,
@@ -138,10 +137,7 @@ describe("production Worker voice and Telegram composition", () => {
     const frames: unknown[] = []; socket.addEventListener("message", (event) => { frames.push(JSON.parse(String(event.data))); });
     socket.send(JSON.stringify({ type: "setup", sessionId: `VX${"5".repeat(32)}`, accountSid: ACCOUNT,
       callSid: CALL, direction: "inbound", customParameters: { relayNonce: session!.relay_nonce } }));
-    await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("pre_auth"));
-    socket.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
-    vi.advanceTimersByTime(2_001);
     socket.send(JSON.stringify({
       type: "prompt", voicePrompt: "What is my canonical Worker voice marker?", lang: "en-US", last: true,
     }));

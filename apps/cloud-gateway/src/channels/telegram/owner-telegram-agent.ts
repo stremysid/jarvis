@@ -42,6 +42,7 @@ import {
   type OwnerAgentChannelPort,
 } from "../../agent/owner-agent-core.js";
 import { recordPendingTelegramReplyMarkup } from "./telegram-reply-markup.js";
+import type { WebToolsDependencies } from "../../web/web-tools.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const encoder = new TextEncoder();
@@ -67,6 +68,8 @@ export interface OwnerTelegramAgentDependencies {
     raise(input: RaiseDecisionInput): Promise<DecisionItem>;
   };
   readonly autonomy: ToolAutonomyGateContract;
+  /** Shared with voice: the same web tools on both channels. */
+  readonly web?: WebToolsDependencies;
   readonly schoolModel: ModelAdapter;
   readonly universityModel: ModelAdapter;
   readonly studyCoachModel: ModelAdapter;
