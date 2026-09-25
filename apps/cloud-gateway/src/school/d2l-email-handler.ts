@@ -1,4 +1,4 @@
-import PostalMime, { type Email } from "postal-mime";
+import PostalMime, { addressParser, type Email } from "postal-mime";
 import { sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { DeadlineIngestion } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
@@ -31,12 +31,29 @@ export interface D2lEmailHandlerDependencies {
 }
 
 export interface D2lEmailHandlerResult {
-  readonly outcome: "ingested" | "quarantined" | "duplicate";
+  /**
+   * `outside_d2l_scope`: the delivery was not addressed to the D2L ingest
+   * address or its visible From is not a pinned D2L domain, so it is not a
+   * D2L notification at all. Nothing is written to the D2L tables and no D2L
+   * failure is counted; the general inbox holds the message.
+   */
+  readonly outcome: "ingested" | "quarantined" | "duplicate" | "outside_d2l_scope";
   readonly eventKind: D2lEmailMessageReceipt["eventKind"];
   readonly quarantineReason: string | null;
   readonly deadlineOutcome: "created" | "revised" | "unchanged" | null;
   readonly gradeCreated: boolean;
+  /** Which routing fact put the delivery outside the D2L consumer's scope. */
+  readonly outsideScopeReason?: OutsideD2lScopeReason;
 }
+
+/**
+ * The routing facts the D2L consumer already measured before this inbox
+ * existed: the envelope recipient against the configured ingest address, and
+ * the visible From domain against the configured D2L sender pin. They say only
+ * whether a delivery is addressed to this consumer; they say nothing about
+ * what the email means.
+ */
+export type OutsideD2lScopeReason = "recipient_mismatch" | "from_missing" | "from_domain_unpinned";
 
 interface D2lEmailConfiguration {
   readonly principalId: string;
@@ -135,6 +152,27 @@ function fromDomain(email: Email | null): string | null {
   const from = email?.from;
   if (from === undefined || !("address" in from)) return null;
   return addressDomain(from.address);
+}
+
+/**
+ * The visible From domain when the message body was not parsed.
+ *
+ * An oversized or unparseable message still has its header block in the
+ * runtime `Headers`, so its routing fact is read from there rather than being
+ * treated as unknown. Without this an ordinary large email (a PDF attachment
+ * is enough) would count as a D2L failure.
+ */
+function runtimeFromDomain(runtime: Headers): string | null {
+  const value = runtime.get("from");
+  if (value === null) return null;
+  let parsed: ReturnType<typeof addressParser>;
+  try {
+    parsed = addressParser(value);
+  } catch {
+    return null;
+  }
+  const first = parsed[0];
+  return first === undefined || !("address" in first) ? null : addressDomain(first.address);
 }
 
 async function readRaw(message: ForwardableEmailMessage): Promise<RawMessage> {
@@ -280,7 +318,14 @@ const REPEATED_FAILURE_NOTICE = "D2L notification email has repeatedly failed au
 const CONTENT_FAILURE_NOTICE = "D2L notification email has repeatedly arrived in a form Jarvis could not read, so no deadline or grade was created. Nothing in Email Routing or the sender pins needs checking; the message format may have changed.";
 const REFUSED_VERIFICATION_NOTICE = "A D2L email-address verification message was refused because it could not be proven to come from D2L. Jarvis did not open it and has no link to pass on. If you expected a verification mail, set the address in D2L itself.";
 
-/** Reasons that mean Sid's own mail configuration may be wrong. */
+/**
+ * Reasons that mean Sid's own mail configuration may be wrong.
+ *
+ * `from_missing`, `from_domain_unpinned` and `recipient_mismatch` are no longer
+ * produced for new deliveries (they return `outside_d2l_scope`), but receipts
+ * written before that change still carry them and a redelivery of one reaches
+ * `sendPendingFailureNotice` through the duplicate path.
+ */
 const AUTHENTICITY_REASONS = new Set([
   "authentication_failed", "authentication_unproven", "from_missing", "from_domain_unpinned",
 ]);
@@ -293,20 +338,6 @@ function failureNoticeText(receipt: D2lEmailMessageReceipt): string | null {
     return REPEATED_FAILURE_NOTICE;
   }
   return DELIVERY_REASONS.has(receipt.quarantineReason) ? null : CONTENT_FAILURE_NOTICE;
-}
-
-/**
- * Reasons whose raw bytes are not retained.
- *
- * The envelope recipient and the visible `From:` are the two checks anyone on
- * the internet can fail or pass without knowing anything about D2L, so a
- * refusal there keeps the hash, the header names and the reason, and nothing
- * else. What is left is capped and expires (see the repository).
- */
-const RAW_WITHHELD_REASONS = new Set(["recipient_mismatch", "from_missing", "from_domain_unpinned"]);
-
-function retainsRawMime(reason: string | null): boolean {
-  return reason === null || !RAW_WITHHELD_REASONS.has(reason);
 }
 
 function eventFromReceipt(receipt: D2lEmailMessageReceipt): ParsedD2lEmailEvent {
@@ -397,6 +428,30 @@ export async function handleD2lNotificationEmail(
       parseFailed = true;
     }
   }
+  // Scope first. A delivery that is not addressed to this consumer is not a
+  // D2L notification, so it must not be counted as a D2L failure: that would
+  // mark the D2L source as failing in the digest and, after three, send Sid a
+  // "check Email Routing and the sender pins" notice for ordinary mail. The
+  // inbox has already stored the message, so returning here loses nothing.
+  // These are the same two routing facts this handler has always measured;
+  // no new sender, domain or content rule is added.
+  const scopeFromDomain = email === null ? runtimeFromDomain(message.headers) : fromDomain(email);
+  let outsideScopeReason: OutsideD2lScopeReason | null = null;
+  if (message.to.trim().toLowerCase() !== config.ingestAddress) outsideScopeReason = "recipient_mismatch";
+  else if (scopeFromDomain === null) outsideScopeReason = "from_missing";
+  else if (!config.d2lDomains.has(scopeFromDomain)) outsideScopeReason = "from_domain_unpinned";
+  if (outsideScopeReason !== null) {
+    return Object.freeze({
+      outcome: "outside_d2l_scope" as const,
+      // The D2L template parser never ran on it, so no D2L event was recognised.
+      eventKind: "unrecognised" as const,
+      quarantineReason: null,
+      deadlineOutcome: null,
+      gradeCreated: false,
+      outsideScopeReason,
+    });
+  }
+
   const names = headerNames(email, message.headers);
   const authentication = authenticationRecord(message.headers);
   const parsed = email === null
@@ -417,12 +472,9 @@ export async function handleD2lNotificationEmail(
     arcSealerDomains: config.arcSealerDomains,
   });
   let quarantineReason: string | null = null;
-  if (message.to.trim().toLowerCase() !== config.ingestAddress) quarantineReason = "recipient_mismatch";
-  else if (raw.truncated) quarantineReason = "message_too_large";
+  if (raw.truncated) quarantineReason = "message_too_large";
   else if (parseFailed) quarantineReason = "mime_parse_failed";
   else if (authentication.state === "hard_fail") quarantineReason = "authentication_failed";
-  else if (parsedFromDomain === null) quarantineReason = "from_missing";
-  else if (!config.d2lDomains.has(parsedFromDomain)) quarantineReason = "from_domain_unpinned";
   else if (!evidence.trusted) quarantineReason = "authentication_unproven";
   // An authentic verification message is only refused when it has nothing
   // relayable: a link somewhere other than a pinned D2L host, or neither a
@@ -450,7 +502,7 @@ export async function handleD2lNotificationEmail(
     fromDomain: parsedFromDomain,
     eventKind: parsed.kind,
     structured: structured(parsed, raw.truncated),
-    rawMimeBase64: retainsRawMime(quarantineReason) ? base64(raw.bytes) : "",
+    rawMimeBase64: base64(raw.bytes),
     now,
   });
   (dependencies.logHeaderNames ?? ((emailId, headerNamesValue) => {
@@ -477,7 +529,10 @@ export async function handleD2lNotificationEmail(
       now,
     );
     // Pruned here, in the same request as the write that grew the table, so a
-    // stranger flooding the address cannot outrun the cap.
+    // stranger flooding the address cannot outrun the cap. This only bounds the
+    // legacy D2L table: the authoritative copy of every delivery is in
+    // `email_inbox` and ARCHIVE, so a pruned receipt is a duplicate removed, not
+    // mail lost.
     await repository.pruneQuarantined(config.principalId, quarantined.emailId, now);
     await deadlines.recordSourceFailure(D2L_EMAIL_SOURCE_ID, quarantineReason, now);
     await repository.recordFailure(

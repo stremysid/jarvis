@@ -90,6 +90,7 @@ const MIGRATION_SEEDED_ROWS = Object.freeze({
   capability_tiers: Object.freeze([
     "contact.third_party",
     "delete.data",
+    "email.read",
     "memory.read",
     "memory.write",
     "notify.owner",

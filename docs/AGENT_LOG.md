@@ -3,6 +3,38 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`
+(last DeepSeek-audited head `8e097f2`). Normal merges of `origin/main` at `bd2efef8`, then at
+`cc398eba` (#168 landed mid-round); no rebase, no force. Touches Sid's rules 3, 4 and 8.
+
+- **Catalogue.** #174's `OWNER_TOOL_DEFINITIONS` is the one list both adapters send. This
+  branch's `SHARED_OWNER_TOOL_DEFINITIONS` and per-channel lists are gone; the two inbox
+  tools are appended to main's list. The count is 25 (main's 23 after #168, plus two), asserted
+  in `voice-agent.test.ts`.
+- **Migration.** `0046_email_inbox.sql` is now `0052_email_inbox.sql`. Main tops out at
+  `0050` (#168, merged mid-round) and #199 holds `0051`; no other open PR or origin branch has
+  a `005x` file (checked 2026-09-25). The restore list, the test chains, the remote-D1
+  syntax list, the backup manifest expectation and OWNER-ACTIONS are updated.
+- **Redaction (#197).** `new Redactor()` now means the external reader, so the Gmail-code
+  test (which built its own) failed after the merge. It now uses the reader production
+  picks (`telegramTurnRedactor`) and the owner call's `VoiceReplyStream`, for an 8-digit
+  Gmail code and a 6-digit sign-in code. It asserts Sid gets both unredacted and that a
+  non-owner reader does not. The `email_inbox_read` description no longer says Sid's
+  replies hide six-digit codes. The redactor is unchanged.
+- **Unchanged:** `send_email` stays a reserved tier-3 capability (`contact.third_party`).
+  The inbox tools are read-only (tier 1).
+- **Evidence:** focused tests, one worker: `test/email` plus `voice-agent`: 103 passed.
+  Ten related files (`call-session-do`, backup, restore, remote-D1 syntax, catalogue,
+  tool classification, D2L handler, web tools, deadline voice, school paste): 357 passed.
+  After the `cc398eba` merge: 11 files (email, voice-agent, backup, restore, remote-D1 syntax,
+  catalogue, classification, two reminder files, D2L handler): 301 passed. `tsc --noEmit` clean. Test tsconfig: 142 diagnostics, none in `test/email`.
+  `reviewer-tools/mutate.ps1`: 5/5 KILLED, each confirmed on a second run. The PR
+  comment has the full list.
+- **Not verified:** no deploy, no live delivery, no remote migration. Reading a code aloud
+  on an owner call needs no PIN, per the #196 OWNER-ACTIONS row ("Reading or saying
+  anything Jarvis knows never needs it"). This PR adds no gate.
 ## 2026-09-25 — Claude builder: #198 merges main `cc398eba` (#195, #197, #168) after the re-audit PASS
 
 Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search` from `79d8676c`. Normal merge; no
@@ -523,6 +555,122 @@ Verification observed: `call-session-relay-fixes.test.ts` 7/7,
 source `tsc --noEmit -p apps/cloud-gateway` exit 0; test tsconfig 143 diagnostics,
 none in changed files; `check-state` and `git diff --check` pass; mutation kills
 recorded in the PR. No merge, deploy, live call, migration or credential.
+## 2026-09-24 — Claude builder: PR #190 round 2 (ordinary mail kept out of D2L accounting)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, round 2
+on top of `a056a09` after merging origin/main `e831e34`. Worktree `C:\w\fix190`,
+removed after the push. Never merged, never deployed, no migration touched.
+This round is Claude-authored, so it needs a DeepSeek audit (reviewer vendor ≠
+builder vendor). Touches rules 1, 3, 4 and 8.
+
+- **F1 (high).** `handleD2lNotificationEmail` now returns `outside_d2l_scope`
+  before it writes anything when the envelope recipient is not the ingest
+  address or the visible From is not a pinned D2L domain. Those are the two
+  routing facts it already measured; no sender, domain, keyword or content rule
+  was added. The scope check now runs before the size, parse and
+  authentication checks, because a large ordinary email or one whose DMARC
+  failed used to be counted as `message_too_large` or `authentication_failed`
+  first. An unparsed message's From is read from the delivered header block
+  with postal-mime's own address parser. Result: ordinary mail never records a
+  D2L source failure, never grows the refusal streak and never reaches the
+  "check Email Routing and sender pins" notice.
+- **Tradeoff.** A real D2L notification that arrives through a recomposed
+  manual forward, or from a D2L sending domain nobody pinned, no longer sets off
+  that notice. It is still in the inbox, where Jarvis can read it.
+- **F2 (medium).** No D2L row for out-of-scope mail, and `EmailInbox.list`
+  lists a legacy quarantine only if it predates the owner's first inbox row. An
+  in-scope refused D2L notification is listed once (its inbox row). It is still
+  readable by id.
+- **F3.** The Gmail test now runs the production email path with school config,
+  reads through the real Telegram read dispatch and checks the reply after the
+  production output redactor. Gmail's real code is eight digits after
+  "Confirmation code:" (public archived samples), which no existing rule
+  touches. The redactor is unchanged (#183 owns it, and a Python mirror is held
+  to the same fixture). The read tool now says which digit forms the reply
+  redactor hides, so the model quotes a code with the email's own label. A
+  six-digit code, or any code after "verification code", is still redacted from
+  replies; that is the existing rule for login codes and Sid's PIN.
+- **F5.** Read pages are sized so their JSON fits the 8,192-byte evidence cap;
+  `next_offset` is the first byte not delivered. List pages are cut at a whole
+  row, with `rows_omitted_to_fit` and `resume_offset`.
+- **Evidence.** Focused tests (both `test/email` files and
+  `d2l-email-handler.test.ts`, one worker): 101 passed, 0 failed, 0 skipped.
+  `reviewer-tools/mutate.ps1`: 7 of 7 mutants killed, each confirmed on a second
+  run, files restored byte-identical. CI results are in the PR comment.
+
+## 2026-09-24 — DeepSeek builder: the owner email inbox
+
+Signed: DeepSeek V4.1 Flash (builder), branch `codex/email-inbox-ds` from
+`a7cd3553`. Worktree `C:\w\email-inbox-ds`. Never pushed anywhere else, never
+merged, never deployed, no migration applied to any real database.
+
+- **What it is.** The Worker's `email()` path stores every delivery in full and
+  then offers the same message to the unchanged D2L notification consumer. Before
+  this, `RAW_WITHHELD_REASONS` in `d2l-email-handler.ts` discarded the raw bytes of
+  any message refused on its envelope recipient or visible `From:` -- which is how
+  mail that was not a D2L notification was thrown away. That set and its
+  `retainsRawMime` branch are deleted, and the test that asserted the discard now
+  asserts the opposite.
+- **Storage.** Full MIME and the complete source facts go to ARCHIVE under
+  `email-inbox/<id>.eml` and `.json`. D1 holds a bounded searchable preview. The
+  facts record the envelope, the `From`/`To`/`Cc`/`Subject`/`Date` headers, the
+  `Message-ID`, `X-Forwarded-For`/`X-Forwarded-To` and the `Received` chain, the
+  reported SPF/DKIM/DMARC/ARC header values verbatim, the body with an HTML
+  alternative rendered to text, and attachment names/types/sizes. The raw stream
+  is written to ARCHIVE **before** it is parsed, so a message whose MIME tree
+  breaks the parser is still kept and still readable.
+- **No judgment in code.** There are no parsers, classifiers, keyword lists,
+  sender or domain allowlists, and no teacher/deadline/date extraction. The only
+  `if`s are a storage bound and the owner check. Authentication header values are
+  recorded as facts and nothing in the path reads them to accept, reject, rank,
+  filter or hide a message. `emailHtmlText` is a markup-to-text transform, not a
+  reading of content: unknown entities stay literal and the original HTML remains
+  in the archive.
+- **Tools.** `email_inbox_list` (sender/subject/text/date-range, newest first,
+  1-50 per page) and `email_inbox_read` (paged body/source/raw by id) on the new
+  `SHARED_OWNER_TOOL_DEFINITIONS` in `apps/cloud-gateway/src/agent/owner-tools.ts`,
+  which both `OWNER_TELEGRAM_TOOL_DEFINITIONS` and
+  `OWNER_VOICE_TOOL_DEFINITIONS` now compose. Both dispatch as `unactionedTool`:
+  a read mints no receipt id, so it can never be claimed as an action. Tier 1
+  `email.read`, seeded by the migration, plus the owner-only `directOwnerText`
+  check. Tier-3 is untouched.
+- **Migration.** `0046_email_inbox.sql`, assigned by the reviewer. Registered in
+  `memory-backup-restore-migrations.ts`, `memory-backup.ts`'s table list,
+  `memory-backup-restore.ts`'s seeded rows, `test/persistence/migration.ts` (all
+  three chains), `remote-d1-migration-syntax.test.ts`, and the backup manifest
+  schema-version expectation. One semicolon inside an SQL comment was written and
+  removed -- it is exactly the splitter trap AGENTS.md warns about, and it failed
+  as `SQL code did not contain a statement`.
+- **Observed focused results (one worker):** `test/email` 38/0/0;
+  `deepseek-agent-catalogue` + `remote-d1-migration-syntax` +
+  `migration-list-parity` + `tool-classification` + `d2l-email-handler` 128/0/0;
+  `voice/call-session-do` 130/0/0; `voice-agent` + `owner-telegram-agent` +
+  `school-paste` 170/0/0; `memory-backup` + `memory-backup-restore` 38/0/0.
+  Source `typecheck` exits 0.
+- **Mutation (10 guards, all confirmed on a second run, 6 files restored
+  byte-identical):** the owner-only dispatch guard, both `requireOwner` checks,
+  the `email_inbox_update_guard` trigger, the page bound, body truncation, the
+  HTML-alternative render, the shared-catalogue wiring, `safeUlid` on `email_id`,
+  and the `RAW_WITHHELD_REASONS` withholding. `safeUlid` SURVIVED the first sweep
+  because no test fed it a non-ULID; a test was added for it and it was killed and
+  confirmed on a re-run. Evidence: `email-inbox-ds-mutations.log` and
+  `email-inbox-ds-mutation-e09.log` in `C:\Users\Sid\codex-ledgers\`.
+- **Premise finding, recorded in the PR.** The brief says D2L mail arrives at
+  `school@onesid.ca`. `configuration()` requires
+  `SCHOOL_EMAIL_INGEST_ADDRESS` to match
+  `^school-[a-z0-9][a-z0-9-]{15,56}@onesid\.ca$` and `setReject`s plus throws
+  `school_email_configuration_invalid` for `school@onesid.ca` -- its own test at
+  `test/school/d2l-email-handler.test.ts:217` pins exactly that. General inbox
+  delivery works at any address; the D2L notification path needs the capability
+  address. The wrapper contains only that configuration error, so general mail
+  does not depend on school config, and every other legacy failure still
+  propagates so the platform retries.
+- **Reconciliation.** PR #174 (`codex/channel-parity`, head `ac5c89eb`) is still
+  open and also touches the catalogue. This change adds `agent/owner-tools.ts`
+  with `SHARED_OWNER_TOOL_DEFINITIONS`; whoever lands second moves the inbox
+  definitions into the shared list and deletes the duplicate. See the PR body.
+- **Not verified:** no live delivery, no deploy, no remote migration, and the
+  Gmail forwarding confirmation is exercised only against a synthetic fixture.
 
 ## 2026-09-24 10:19 PM — Claude builder: #191 review nits and main merge
 
