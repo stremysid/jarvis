@@ -3,6 +3,38 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
+
+Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`
+(last DeepSeek-audited head `8e097f2`). Normal merge of `origin/main` at `bd2efef8`; no
+rebase, no force. Touches Sid's rules 3, 4 and 8.
+
+- **Catalogue.** #174's `OWNER_TOOL_DEFINITIONS` is the one list both adapters send. This
+  branch's `SHARED_OWNER_TOOL_DEFINITIONS` and per-channel lists are gone; the two inbox
+  tools are appended to main's list. The count is now 22 (main's 20 plus two), asserted in
+  `voice-agent.test.ts`.
+- **Migration.** `0046_email_inbox.sql` is now `0052_email_inbox.sql`. Main tops out at
+  `0049`, #168 holds `0050` and #199 holds `0051`; no other open PR or origin branch has a
+  `005x` file (checked 2026-09-25). The restore list, the test chains, the remote-D1
+  syntax list, the backup manifest expectation and OWNER-ACTIONS are updated.
+- **Redaction (#197).** `new Redactor()` now means the external reader, so the Gmail-code
+  test (which built its own) failed after the merge. It now uses the reader production
+  picks (`telegramTurnRedactor`) and the owner call's `VoiceReplyStream`, for an 8-digit
+  Gmail code and a 6-digit sign-in code. It asserts Sid gets both unredacted and that a
+  non-owner reader does not. The `email_inbox_read` description no longer says Sid's
+  replies hide six-digit codes. The redactor is unchanged.
+- **Unchanged:** `send_email` stays a reserved tier-3 capability (`contact.third_party`).
+  The inbox tools are read-only (tier 1).
+- **Evidence:** focused tests, one worker: `test/email` plus `voice-agent`: 103 passed.
+  Ten related files (`call-session-do`, backup, restore, remote-D1 syntax, catalogue,
+  tool classification, D2L handler, web tools, deadline voice, school paste): 357 passed.
+  `tsc --noEmit` clean. Test tsconfig: 142 diagnostics, none in `test/email`.
+  `reviewer-tools/mutate.ps1`: 5/5 KILLED, each confirmed on a second run. The PR
+  comment has the full list.
+- **Not verified:** no deploy, no live delivery, no remote migration. Reading a code aloud
+  on an owner call needs no PIN, per the #196 OWNER-ACTIONS row ("Reading or saying
+  anything Jarvis knows never needs it"). This PR adds no gate.
+
 ## 2026-09-25 — Claude builder: #197 merged with main after #196 and #195
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/no-redaction-toward-sid` from audited
