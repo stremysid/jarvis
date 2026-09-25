@@ -237,13 +237,6 @@ interface AuthorityRow {
   current_grant_version: number | null;
   current_access_document_hash: string | null;
   current_grant_status: string | null;
-  step_up_requirement: string | null;
-  step_up_attestation_class: string | null;
-  step_up_policy: string | null;
-  step_up_success_version: number | null;
-  current_owner_verifier_version: number | null;
-  current_owner_head_status: string | null;
-  current_owner_verifier_status: string | null;
 }
 
 interface SessionLineageRow {
@@ -608,26 +601,13 @@ const AUTHORITY_SELECT = `SELECT
   principal.status AS principal_status, identity.status AS identity_status, identity.verified_at,
   current_grant.grant_version AS current_grant_version,
   current_grant.access_document_hash AS current_access_document_hash,
-  current_grant.status AS current_grant_status,
-  step_up.requirement AS step_up_requirement,
-  step_up.attestation_class AS step_up_attestation_class,
-  step_up.policy AS step_up_policy,
-  step_up_success.verifier_version AS step_up_success_version,
-  owner_head.verifier_version AS current_owner_verifier_version,
-  owner_head.status AS current_owner_head_status,
-  owner_verifier.status AS current_owner_verifier_status
+  current_grant.status AS current_grant_status
 FROM call_session_authorities authority
 JOIN call_sessions session ON session.session_id = authority.session_id
 JOIN principals principal ON principal.principal_id = authority.principal_id
 JOIN channel_identities identity ON identity.identity_id = authority.identity_id
 LEFT JOIN voice_owner_identity owner ON owner.singleton_id = 1
-LEFT JOIN voice_access_grants current_grant ON current_grant.grant_id = authority.grant_id
-LEFT JOIN owner_call_step_up_bindings step_up ON step_up.session_id = authority.session_id
-LEFT JOIN owner_call_step_up_successes step_up_success ON step_up_success.session_id = authority.session_id
-LEFT JOIN owner_passphrase_heads owner_head ON owner_head.singleton_id = 1
-LEFT JOIN owner_passphrase_verifiers owner_verifier
-  ON owner_verifier.owner_identity_id = owner_head.owner_identity_id
-  AND owner_verifier.verifier_version = owner_head.verifier_version`;
+LEFT JOIN voice_access_grants current_grant ON current_grant.grant_id = authority.grant_id`;
 
 const OWNER_MUTATION_AUTHORITY_GUARD = `EXISTS (
   SELECT 1
@@ -1403,19 +1383,11 @@ export class VoiceAccessRepository {
       return false;
     }
     if (row.authority_kind === "owner") {
-      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
-        && row.direction === "inbound"
-        && row.step_up_attestation_class === "passed_a"
-        && row.step_up_policy === "waive_on_passed_a"
-        && row.current_owner_verifier_version !== null
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active"
-        || row.step_up_requirement === "required"
-        && row.step_up_success_version !== null
-        && row.step_up_success_version === row.current_owner_verifier_version
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active";
-      return stepUpCurrent && row.grant_id === null
+      // The passphrase waiver or success receipt this used to require is gone
+      // with the per-call gate (Sid, 2026-09-24), and nothing can write either
+      // row any more. The durable enrolment check is what remains: the authority
+      // is only current while the session's owner identity is the enrolled one.
+      return row.grant_id === null
         && row.grant_version === null
         && row.access_document_hash === null
         && row.owner_principal_id === row.principal_id
@@ -1599,19 +1571,11 @@ export class VoiceAccessRepository {
       throw new Error("call_authority_stale");
     }
     if (authority.kind === "owner") {
-      const stepUpCurrent = row.step_up_requirement === "waived_passed_a"
-        && row.direction === "inbound"
-        && row.step_up_attestation_class === "passed_a"
-        && row.step_up_policy === "waive_on_passed_a"
-        && row.current_owner_verifier_version !== null
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active"
-        || row.step_up_requirement === "required"
-        && row.step_up_success_version !== null
-        && row.step_up_success_version === row.current_owner_verifier_version
-        && row.current_owner_head_status === "active"
-        && row.current_owner_verifier_status === "active";
-      if (!stepUpCurrent || row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
+      // The per-call passphrase success or waiver this used to require is gone
+      // with the gate, and nothing can write either row any more: keeping the
+      // check would make every owner turn stale. The durable enrolment check
+      // below is what remains.
+      if (row.owner_principal_id !== authority.principalId || row.owner_identity_id !== authority.identityId) {
         throw new Error("call_authority_stale");
       }
     } else if (

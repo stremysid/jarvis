@@ -48,18 +48,30 @@ describe("FourDigitPinCapture", () => {
 });
 
 describe("normalizeSpokenPin", () => {
-  it("accepts only exact canonical digits or four lower-case English digit words", () => {
+  it("accepts exactly four digits, worded as digits, digit words, or two two-digit numbers", () => {
     expect(normalizeSpokenPin("4827")).toEqual(Uint8Array.from([52, 56, 50, 55]));
+    expect(normalizeSpokenPin("4 8 2 7")).toEqual(Uint8Array.from([52, 56, 50, 55]));
     expect(normalizeSpokenPin("four eight two seven")).toEqual(Uint8Array.from([52, 56, 50, 55]));
+    // Forgiving on purpose: Sid says a PIN this way at least as readily, and a
+    // transcription's casing is not something he said.
+    expect(normalizeSpokenPin("forty-eight twenty-one")).toEqual(Uint8Array.from([52, 56, 50, 49]));
+    expect(normalizeSpokenPin("forty eight twenty one")).toEqual(Uint8Array.from([52, 56, 50, 49]));
+    expect(normalizeSpokenPin("48 21")).toEqual(Uint8Array.from([52, 56, 50, 49]));
+    expect(normalizeSpokenPin("four eight twenty one")).toEqual(Uint8Array.from([52, 56, 50, 49]));
+    expect(normalizeSpokenPin("Four eight two seven")).toEqual(Uint8Array.from([52, 56, 50, 55]));
+  });
 
+  it("refuses a candidate that does not resolve to exactly four digits", () => {
     for (const rejected of [
+      // A word that is not a number makes the whole candidate unreadable rather
+      // than being dropped, which would silently guess a PIN out of a sentence.
       "for eight to seven",
       "my pin is four eight two seven",
       "four eight two seven please",
-      "Four eight two seven",
       "four, eight, two, seven",
       "four eight two",
       "four eight two seven eight",
+      "twenty-four sixty-eight these",
       "４８２７",
       "4827\n",
       null,

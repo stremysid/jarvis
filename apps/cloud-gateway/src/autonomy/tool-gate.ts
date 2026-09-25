@@ -65,6 +65,33 @@ export interface ToolGateEvaluationRequest {
   readonly arguments: string;
 }
 
+/**
+ * How a channel authorizes a tier-3 call when no standing tap can be spent.
+ *
+ * Telegram's keyboard is the confirmation surface the tap flow was built for.
+ * A phone call has no button, so the medium's own authorization -- the spoken
+ * or keypad four digit PIN -- arrives through this port instead. It is asked
+ * only after a standing tap failed to be claimed, so a tap Sid already gave
+ * keeps authorizing the call on either channel, and it returns an
+ * authorization id that is then treated exactly like a decision id: the
+ * evaluation is re-run with it attached, and a changed outcome denies.
+ */
+export interface ToolChannelAuthorizationRequest {
+  readonly principalId: string;
+  readonly toolName: string;
+  readonly capability: string;
+  readonly argumentsHash: string;
+}
+
+export interface ToolChannelAuthorizationPort {
+  /**
+   * The single-use authorization id, or null when this channel will not
+   * authorize the call. A throw is a denial: `ToolAutonomyGate` does not catch
+   * it, and the dispatcher turns it into a refusal.
+   */
+  authorizeToolCall(request: ToolChannelAuthorizationRequest): Promise<string | null>;
+}
+
 export interface ToolAutonomyGateContract {
   evaluateToolCall(request: ToolGateEvaluationRequest): Promise<ToolGateDecision>;
 }
@@ -104,6 +131,7 @@ export function gateReceipt(
   toolName: string,
   classified: boolean,
   confirmedBy: string | null,
+  via: "tap" | "pin" = "tap",
 ): string {
   const audit = evaluationAudit(evaluation);
   switch (evaluation.outcome) {
@@ -114,10 +142,12 @@ export function gateReceipt(
         ? `Nothing has happened yet: ${toolName} is ${
           describeTier(evaluation.tier)
         } and needs your tap before it runs. Confirm again if the previous tap was already used or expired; each tap is valid once for ${CONFIRMATION_TTL_MS / 60_000} minutes. ${audit}`
-        // The tap is why this ran, and the owner can see which one. Without the
-        // decision id here a confirmed action looks identical to an unconfirmed
-        // one in the only place he reads.
-        : `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by you with decision ${confirmedBy}). ${audit}`;
+        // Which authorization let it through is named in the only place the
+        // owner reads. Without it a confirmed action looks identical to an
+        // unconfirmed one.
+        : via === "pin"
+          ? `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by your PIN on this call). ${audit}`
+          : `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by you with decision ${confirmedBy}). ${audit}`;
     case "withheld_shadow":
       return `Nothing happened: ${toolName} is ${
         describeTier(evaluation.tier)
@@ -149,13 +179,16 @@ function verdictFor(evaluation: AutonomyEvaluation): ToolGateVerdict {
 export class ToolAutonomyGate implements ToolAutonomyGateContract {
   readonly #service: AutonomyServiceContract;
   readonly #confirmations: ToolConfirmationStoreContract | null;
+  readonly #channel: ToolChannelAuthorizationPort | null;
 
   constructor(
     service: AutonomyServiceContract,
     confirmations: ToolConfirmationStoreContract | null = null,
+    channel: ToolChannelAuthorizationPort | null = null,
   ) {
     this.#service = service;
     this.#confirmations = confirmations;
+    this.#channel = channel;
   }
 
   async evaluateToolCall(request: ToolGateEvaluationRequest): Promise<ToolGateDecision> {
@@ -173,7 +206,7 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       decisionId: null,
     });
 
-    if (first.outcome !== "requires_confirmation" || this.#confirmations === null) {
+    if (first.outcome !== "requires_confirmation" || this.#confirmations === null && this.#channel === null) {
       return Object.freeze({
         verdict: verdictFor(first),
         evaluation: first,
@@ -183,12 +216,27 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     }
 
     const argumentsHash = await argumentsFingerprint(request.arguments);
-    const decisionId = await this.#confirmations.consumeStandingDecision({
-      principalId: request.principalId,
-      toolName: request.toolName,
-      capability,
-      argumentsHash,
-    });
+    let decisionId = this.#confirmations === null
+      ? null
+      : await this.#confirmations.consumeStandingDecision({
+        principalId: request.principalId,
+        toolName: request.toolName,
+        capability,
+        argumentsHash,
+      });
+    // The tap is asked for first and the channel second, so a confirmation Sid
+    // already gave on the other channel keeps working and the call does not ask
+    // him for a PIN it did not need.
+    let via: "tap" | "pin" = "tap";
+    if (decisionId === null && this.#channel !== null) {
+      decisionId = await this.#channel.authorizeToolCall({
+        principalId: request.principalId,
+        toolName: request.toolName,
+        capability,
+        argumentsHash,
+      });
+      via = "pin";
+    }
     if (decisionId === null) {
       return Object.freeze({
         verdict: "confirm",
@@ -198,9 +246,10 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       });
     }
 
-    // Evaluated a second time with the decision attached. The first row records
-    // that the policy asked, this one records which tap answered it, and an
-    // incident review can follow the link without reading the conversation.
+    // Evaluated a second time with the authorization attached. The first row
+    // records that the policy asked, this one records which tap or PIN answered
+    // it, and an incident review can follow the link without reading the
+    // conversation.
     const confirmed = await this.#service.evaluate({
       capability,
       principalId: request.principalId,
@@ -220,10 +269,10 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     return Object.freeze({
       // The policy outcome is still `requires_confirmation`, because tier 3
       // always requires one. What changed is that one stands, which is why the
-      // verdict is a permit and the receipt names the decision.
+      // verdict is a permit and the receipt names the authorization.
       verdict: "permit",
       evaluation: confirmed,
-      receipt: gateReceipt(confirmed, request.toolName, classified, decisionId),
+      receipt: gateReceipt(confirmed, request.toolName, classified, decisionId, via),
       confirmedBy: decisionId,
     });
   }

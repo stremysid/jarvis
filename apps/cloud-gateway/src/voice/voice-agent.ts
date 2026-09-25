@@ -61,7 +61,7 @@ A receipt added to your words is read aloud verbatim by the system, so never rea
 
 There is no screen and he cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here.
 
-When an action needs his tap, say what you would do and that he must confirm it in Telegram: a call has no button to tap.`;
+When an action needs his confirmation, the system asks him for it: on a call it asks for his four digit PIN in the moment and he says or keys it in, and a tap he already gave in Telegram in the last ten minutes also counts. Never ask for the PIN yourself and never repeat it back.`;
 
 /** The tools a call can use; exported so the provider's tool cap is tested against it. */
 export const OWNER_VOICE_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object.freeze([

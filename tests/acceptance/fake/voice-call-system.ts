@@ -13,7 +13,6 @@ import { CallRepository, type DispatchIntent } from "../../../apps/cloud-gateway
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { OwnerPassphraseRepository } from "../../../apps/cloud-gateway/src/persistence/owner-passphrase-repository.js";
 import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
-import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import type { CallSessionInitialization, CallSessionTermination } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
 import { FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
@@ -158,7 +157,6 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
   openRelay(): Promise<FakeRelayCall>;
   pinAttempts(): Promise<number>;
   conversationTurnCount(): Promise<number>;
-  ownerStepUpAttempts(sessionId: Ulid): Promise<number>;
   advanceTime(milliseconds: number): void;
   sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string, handoffData?: string): Promise<Response>;
   terminations(): readonly CallSessionTermination[];
@@ -168,10 +166,8 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
 export async function createFakeCallingSystem(input: {
   now?: Date;
   ownerPrincipalId?: string;
-  ownerCallerIdPolicy?: string;
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
-  beforeOwnerStepUpAlert?: () => Promise<void>;
   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
   beforeOutboundSessionCreate?: () => Promise<void>;
   beforeSessionInitialize?: () => Promise<void>;
@@ -184,13 +180,9 @@ export async function createFakeCallingSystem(input: {
   const twilio = new FakeTwilioProvider();
   if (input.loseDispatchResponse === true) twilio.acceptAndLoseNextResponse();
   const repository = new CallRepository(env.DB, new EventRepository(env.DB));
-  const ownerStepUp = new OwnerCallStepUpService(
-    env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
-  );
   let inboundSequence = 100;
   const relays = new FakeRelaySessions(repository,
-    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(now),
-    input.beforeOwnerStepUpAlert);
+    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(now));
   const dispatcher = new OutboundCallDispatcher({
       controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
@@ -241,9 +233,7 @@ export async function createFakeCallingSystem(input: {
       expectedInboundE164: "+14165550100",
       ownerIdentityId: "identity:voice",
       currentChallengeHmacKeyVersion: "hmac-v1",
-      ownerCallerIdPolicy: input.ownerCallerIdPolicy,
-      ownerStepUp,
-      ownerStepUpAlerts: { async alert(): Promise<void> {} },
+      ownerCallAlerts: { async alert(): Promise<void> {} },
       sessions: repository,
       initializeSession,
       now: () => new Date(now),
@@ -258,8 +248,7 @@ export async function createFakeCallingSystem(input: {
           return repository.getOrCreateOutboundSession(request);
         },
       },
-      ownerStepUp,
-      ownerStepUpAlerts: { async alert(): Promise<void> {} },
+      ownerCallAlerts: { async alert(): Promise<void> {} },
       initializeSession: async (initialization) => {
         await initializeSession(initialization);
         initializationLog.push(initialization);
@@ -328,9 +317,6 @@ export async function createFakeCallingSystem(input: {
     dispatchIntent: () => repository.resolveDispatchIntent(COMMAND_ID),
     conversationTurnCount: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns")
       .first<{ count: number }>())?.count ?? 0,
-    ownerStepUpAttempts: async (sessionId: Ulid) => (await env.DB.prepare(
-      "SELECT count(*) AS count FROM owner_call_step_up_attempts WHERE session_id = ?",
-    ).bind(sessionId).first<{ count: number }>())?.count ?? 0,
     advanceTime: (milliseconds: number) => { now.setTime(now.valueOf() + milliseconds); },
     twilioRequests: () => twilio.requests,
     initializations: () => Object.freeze([...initializationLog]),

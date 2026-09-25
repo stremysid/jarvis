@@ -14,9 +14,7 @@ import { FakeModelProvider, type FakeModelProviderOptions } from "../../src/prov
 import { CallRepository, type StoredCallSession } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
-import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
-import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../../src/sync/identity-challenge.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
@@ -27,7 +25,6 @@ import {
   PhoneActivationChallengeConfirmer,
   type CallSessionInitialization,
   type CallSessionRuntimeFactory,
-  type OwnerStepUpAlarmPort,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../../src/memory/memory-tools.js";
@@ -48,12 +45,6 @@ import {
   GuestPinProofIssuer,
   VoiceAccessAuthorityService,
 } from "../../src/voice/voice-access-authority.js";
-import {
-  OWNER_STEP_UP_REJECTED,
-  OWNER_STEP_UP_REPEAT_MS,
-  OWNER_STEP_UP_REPEAT_FRAGMENT_MS,
-  OwnerCallStepUpService,
-} from "../../src/voice/owner-call-step-up.js";
 import {
   canonicalize,
   newUlid,
@@ -102,8 +93,6 @@ const OUTBOUND_CALL_SID = `CA${"7".repeat(32)}`;
 const OUTBOUND_RELAY_NONCE = `${"E".repeat(42)}Q`;
 const GUEST_GRANT_ID = "01k3wceg000000000000000105" as Ulid;
 const GUEST_E164 = "+14165550111";
-const OWNER_TEST_PHRASE = "ablaze abrasion abrasive";
-const OWNER_TEST_PEPPER = new Uint8Array(32).fill(29);
 
 async function applyCallStepUpTestMigrations(): Promise<void> {
   await applyVoiceRuntimeMigration();
@@ -212,71 +201,16 @@ function repository(): CallRepository {
 async function createInboundSession(
   repo: CallRepository,
   currentChallengeHmacKeyVersion = "hmac-v1",
-  requirePassphrase = false,
 ): Promise<StoredCallSession> {
-  const stored = await repo.getOrCreateInboundSession({
+  // An owner call needs no passphrase binding row any more: setup alone mints
+  // the owner authority and moves the call to `active`. Sid, 2026-09-24.
+  return repo.getOrCreateInboundSession({
     callSid: CALL_SID,
     callerE164: "+14165550123",
     ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion,
     now: NOW,
   });
-  if (!stored.binding.activationOnly && !requirePassphrase) {
-    const head = await env.DB.prepare("SELECT singleton_id FROM owner_passphrase_heads WHERE singleton_id = 1")
-      .first<{ singleton_id: number }>();
-    if (head === null) await seedActiveOwnerPassphrase();
-  }
-  await new OwnerCallStepUpService(
-    env.DB,
-    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
-  ).bind({
-    sessionId: stored.sessionId,
-    callSid: stored.callSid,
-    ownerPrincipalId: stored.binding.principalId,
-    ownerIdentityId: stored.binding.identityId,
-    direction: stored.direction,
-    lifecycleGeneration: 1,
-    requirement: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "required" : "waived_passed_a",
-    attestationClass: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "absent" : "passed_a",
-    policy: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "passphrase_always" : "waive_on_passed_a",
-    createdAt: NOW.toISOString(),
-  });
-  return stored;
-}
-
-async function seedActiveOwnerPassphrase(): Promise<void> {
-  const verifier = new OwnerPassphraseVerifier(
-    OWNER_TEST_PEPPER,
-    "v1",
-    () => new Uint8Array(16).fill(7),
-  );
-  const record = await verifier.create("identity:voice", 1, OWNER_TEST_PHRASE);
-  await new OwnerPassphraseRepository(env.DB).rotate({
-    verified: {
-      deviceId: "device:owner", principalId: "principal:owner", audience: DEVICE_AUDIENCE,
-      issuedAt: NOW.toISOString(), nonce: "test", bodyHash: "3".repeat(64), keyId: "key:owner",
-      keyFingerprint: "a".repeat(64), keyGeneration: 1, body: {},
-    },
-    ownerPrincipalId: "principal:owner", ownerIdentityId: "identity:voice",
-    expectedVerifierVersion: null, record,
-    commitId: "01m2ccccccccccccccccccc099", committedAt: NOW.toISOString(),
-  });
-}
-
-async function revokeOwnerVerifierForTest(): Promise<() => Promise<void>> {
-  const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
-    WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
-    .first<{ sql: string }>();
-  if (guard === null) throw new Error("owner_passphrase_verifier_guard_missing");
-  await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
-  await env.DB.prepare(`UPDATE owner_passphrase_verifiers
-    SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`)
-    .bind("2026-08-30T12:00:01.000Z").run();
-  return async () => {
-    await env.DB.prepare(`UPDATE owner_passphrase_verifiers
-      SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();
-    await env.DB.prepare(guard.sql).run();
-  };
 }
 
 function relaySetup(session: StoredCallSession): Extract<RelayEvent, { type: "setup" }> {
@@ -315,10 +249,6 @@ function makeCore(input: {
       new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
     )
     : input.authority;
-  const ownerStepUp = new OwnerCallStepUpService(
-    env.DB,
-    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
-  );
   const turnIds = [...(input.turnIds ?? [TURN_ID])];
   const newTurnId = vi.fn(() => {
     const turnId = turnIds.shift();
@@ -342,8 +272,6 @@ function makeCore(input: {
       guestAuthentication: input.guestAuthentication ?? null,
       activation: input.activation ?? null,
       ownerAccess: input.ownerAccess ?? null,
-      ownerStepUp,
-      ownerStepUpAlarm: { async arm() {}, async clear() {} },
       conversation: input.conversation ?? null,
       relay: { close, sendNeutralText, sendToken, finish, cancelOutput },
       newTurnId,
@@ -455,12 +383,10 @@ async function sendDigits(session: CallSessionCore, digits: string): Promise<voi
 async function authenticateOwnerAdministration(
   harness: Awaited<ReturnType<typeof accessHarness>>,
 ): Promise<void> {
+  // An owner call is active the moment the relay setup frame binds. There is
+  // no phrase to speak and no window to wait out.
   await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-  await harness.instance.handleRelayEvent({
-    type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
-  });
   expect(harness.instance.phase).toBe("active");
-  harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
 }
 
 async function reservationCount(): Promise<number> {
@@ -628,7 +554,6 @@ async function accessHarness(
   callSidLimit?: number,
   withOwnerAdministration = false,
   capacity = healthyCapacity,
-  withCleanEnd = false,
 ) {
   await clearFixture();
   await seedActiveVoiceIdentity();
@@ -641,7 +566,7 @@ async function accessHarness(
   );
   if (kind === "guest") await seedPendingGuestAccess(registry, pinVerifier);
   const stored = kind === "owner"
-    ? await createInboundSession(repo, "hmac-v1", withOwnerAdministration)
+    ? await createInboundSession(repo, "hmac-v1")
     : await repo.getOrCreateInboundSession({
       callSid: CALL_SID,
       callerE164: GUEST_E164,
@@ -651,27 +576,6 @@ async function accessHarness(
     });
   const proofs = new GuestPinProofIssuer();
   const authority = new VoiceAccessAuthorityService(voiceRepository, registry, proofs);
-  const ownerStepUp = new OwnerCallStepUpService(
-    env.DB,
-    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
-  );
-  if (kind === "owner" && withOwnerAdministration) {
-    await seedActiveOwnerPassphrase();
-  }
-  if (kind === "owner") {
-    await ownerStepUp.bind({
-      sessionId: stored.sessionId,
-      callSid: stored.callSid,
-      ownerPrincipalId: stored.binding.principalId,
-      ownerIdentityId: stored.binding.identityId,
-      direction: stored.direction,
-      lifecycleGeneration: 1,
-      requirement: withOwnerAdministration ? "required" : "waived_passed_a",
-      attestationClass: withOwnerAdministration ? "absent" : "passed_a",
-      policy: withOwnerAdministration ? "passphrase_always" : "waive_on_passed_a",
-      createdAt: NOW.toISOString(),
-    });
-  }
   const budgets = new AuthenticationAttemptBudget(
     env.DB,
     PEPPER,
@@ -707,11 +611,7 @@ async function accessHarness(
     })),
   } as unknown as ConversationService;
   const close = vi.fn<(code: number) => void>();
-  const end = vi.fn<(handoffData: string) => Promise<void>>(async () => undefined);
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
-  const armOwnerStepUpAlarm = vi.fn<OwnerStepUpAlarmPort["arm"]>(async () => undefined);
-  const clearOwnerStepUpAlarm = vi.fn(async () => undefined);
-  const ownerStepUpAlert = vi.fn(async () => undefined);
   let currentNow = new Date(NOW);
   const instance = new CallSessionCore({
     capacity,
@@ -722,9 +622,6 @@ async function accessHarness(
     guestAuthentication,
     activation: null,
     ownerAccess,
-    ownerStepUp,
-    ownerStepUpAlerts: { alert: ownerStepUpAlert },
-    ownerStepUpAlarm: { arm: armOwnerStepUpAlarm, clear: clearOwnerStepUpAlarm },
     conversation,
     relay: {
       close,
@@ -732,7 +629,6 @@ async function accessHarness(
       sendToken: async () => undefined,
       finish: async () => undefined,
       cancelOutput: async () => undefined,
-      ...(withCleanEnd ? { end } : {}),
     },
     now: () => new Date(currentNow),
   } as never);
@@ -743,15 +639,10 @@ async function accessHarness(
     authority,
     guestAuthentication,
     ownerAccess,
-    ownerStepUp,
     authenticate,
     conversation,
     close,
-    end,
     sendNeutralText,
-    armOwnerStepUpAlarm,
-    clearOwnerStepUpAlarm,
-    ownerStepUpAlert,
     advanceTime(milliseconds: number) {
       currentNow = new Date(currentNow.valueOf() + milliseconds);
     },
@@ -780,25 +671,6 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.instance.phase).toBe("active");
     expect(harness.authenticate).not.toHaveBeenCalled();
     expect(harness.sendNeutralText.mock.calls.flat()).not.toContainEqual(expect.stringMatching(/pin|passcode/iu));
-  });
-
-  it("checks the active verifier before a Passed-A waiver reaches authority minting", async () => {
-    await clearFixture();
-    await seedActiveVoiceIdentity();
-    await seedActiveOwnerPassphrase();
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const core = makeCore({ session: stored, repo });
-    if (core.authority === null) throw new Error("owner_authority_fixture_missing");
-    const mint = vi.spyOn(core.authority, "mintOwner");
-    const restore = await revokeOwnerVerifierForTest();
-    try {
-      await expect(core.instance.handleRelayEvent(relaySetup(stored))).rejects.toThrow("owner_step_up_unavailable");
-      expect(mint).not.toHaveBeenCalled();
-      expect(core.instance.phase).toBe("pre_auth");
-    } finally {
-      await restore();
-    }
   });
 
   it("authenticates only the bound guest grant and rechecks it before conversation", async () => {
@@ -1085,217 +957,6 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
   });
 
-  it("uses the policy-close fallback when a rejected step-up cannot send a clean end frame", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    for (const candidate of [
-      "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
-    ]) {
-      await harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: candidate,
-      });
-    }
-
-    expect(harness.instance.phase).toBe("rejected");
-    expect(harness.close).toHaveBeenCalledExactlyOnceWith(1008);
-  });
-
-  it("ignores a final arriving during KDF work instead of replacing the window alarm", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
-    let announceStarted!: () => void;
-    let releaseVerifier!: () => void;
-    const started = new Promise<void>((resolve) => { announceStarted = resolve; });
-    const blocked = new Promise<void>((resolve) => { releaseVerifier = resolve; });
-    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, baseKey, length) => {
-      announceStarted();
-      await blocked;
-      return deriveBits(algorithm, baseKey, length);
-    });
-    try {
-      await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-      const first = harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion active",
-      });
-      await started;
-      await harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "ablaze",
-      });
-      releaseVerifier();
-      await first;
-
-      expect(harness.instance.phase).toBe("pre_auth");
-      expect(harness.armOwnerStepUpAlarm.mock.calls.at(-1)?.[0]).toMatchObject({ kind: "window" });
-      expect(harness.sendNeutralText).not.toHaveBeenCalledWith("Please say only your passphrase.");
-    } finally {
-      releaseVerifier();
-      spy.mockRestore();
-    }
-  }, 15_000);
-
-  it.each([false, true])("alerts the owner when the relay disconnects during the third KDF (close throws=%s)", async (closeThrows) => {
-    const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    for (const text of ["ablaze abrasion active", "ablaze abrasion activist"]) {
-      await harness.instance.handleRelayEvent({ type: "prompt", final: true, language: "en-US", text });
-    }
-    let announceStarted!: () => void;
-    let releaseVerifier!: () => void;
-    const started = new Promise<void>((resolve) => { announceStarted = resolve; });
-    const blocked = new Promise<void>((resolve) => { releaseVerifier = resolve; });
-    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
-    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, key, length) => {
-      announceStarted();
-      await blocked;
-      return deriveBits(algorithm, key, length);
-    });
-    const pending = harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activity",
-    });
-    void pending.catch(() => undefined);
-    try {
-      await started;
-      // The peer hangs up before its close event is delivered to this core.
-      // The in-flight verification then discovers that the wire cannot send.
-      harness.sendNeutralText.mockRejectedValue(new Error("fixture_peer_disconnected"));
-      if (closeThrows) harness.close.mockImplementation(() => { throw new Error("fixture_already_closed"); });
-      releaseVerifier();
-      await expect(pending).resolves.toBeUndefined();
-      expect(harness.instance.phase).toBe("rejected");
-      expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_STEP_UP_REJECTED);
-      expect(harness.close).toHaveBeenCalledWith(1008);
-      expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
-      expect(harness.clearOwnerStepUpAlarm).toHaveBeenCalledOnce();
-    } finally { releaseVerifier(); await pending.catch(() => undefined); spy.mockRestore(); }
-  }, 30_000);
-
-  it("delivers the refusal before waiting for the rejection alert sink", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    let announceAlert!: () => void;
-    let releaseAlert!: () => void;
-    const alertStarted = new Promise<void>((resolve) => { announceAlert = resolve; });
-    const alertBlocked = new Promise<void>((resolve) => { releaseAlert = resolve; });
-    harness.ownerStepUpAlert.mockImplementation(async () => {
-      announceAlert();
-      await alertBlocked;
-    });
-    try {
-      await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-      await harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion active",
-      });
-      await harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activist",
-      });
-      const terminal = harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activity",
-      });
-      await alertStarted;
-
-      expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_STEP_UP_REJECTED);
-      expect(harness.close).toHaveBeenCalledWith(1008);
-      releaseAlert();
-      await terminal;
-    } finally {
-      releaseAlert();
-    }
-  }, 15_000);
-
-  it("completes a frame and alarm rejection race only once in one isolate", async () => {
-    const harness = await accessHarness("owner", undefined, true, healthyCapacity, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    harness.advanceTime(60_001);
-    const binding = harness.ownerStepUp.binding.bind(harness.ownerStepUp);
-    let announceBinding!: () => void;
-    let releaseBinding!: () => void;
-    const bindingStarted = new Promise<void>((resolve) => { announceBinding = resolve; });
-    const bindingBlocked = new Promise<void>((resolve) => { releaseBinding = resolve; });
-    const spy = vi.spyOn(harness.ownerStepUp, "binding").mockImplementation(async (sessionId) => {
-      announceBinding();
-      await bindingBlocked;
-      return binding(sessionId);
-    });
-    try {
-      const frame = harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "hello there",
-      });
-      await bindingStarted;
-      const alarm = harness.instance.handleOwnerStepUpAlarm("window", 1);
-      releaseBinding();
-      await Promise.all([frame, alarm]);
-
-      expect(harness.sendNeutralText.mock.calls.filter(([text]) => text === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
-      expect(harness.end).toHaveBeenCalledOnce();
-      expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
-    } finally {
-      releaseBinding();
-      spy.mockRestore();
-    }
-  }, 30_000);
-
-  it("retries only the final alarm clear after rejection delivery completed", async () => {
-    const harness = await accessHarness("owner", undefined, true, healthyCapacity, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    harness.advanceTime(60_001);
-    harness.clearOwnerStepUpAlarm.mockRejectedValueOnce(new Error("fixture_alarm_clear_failed"));
-
-    await expect(harness.instance.handleOwnerStepUpAlarm("window", 1)).rejects.toThrow("fixture_alarm_clear_failed");
-    await expect(harness.instance.handleOwnerStepUpAlarm("window", 1)).resolves.toBeUndefined();
-
-    expect(harness.sendNeutralText.mock.calls.filter(([text]) => text === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
-    expect(harness.end).toHaveBeenCalledOnce();
-    expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
-    expect(harness.clearOwnerStepUpAlarm).toHaveBeenCalledTimes(2);
-  }, 30_000);
-
-  it("marks a pre-authentication socket close failed even when its alarm clear fails", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    harness.clearOwnerStepUpAlarm.mockRejectedValueOnce(new Error("fixture_alarm_clear_failed"));
-
-    await expect(harness.instance.handleSocketClose("socket_closed")).resolves.toBeUndefined();
-
-    expect(harness.instance.phase).toBe("failed");
-    expect(await storedPhase(harness.stored.sessionId)).toBe("failed");
-  });
-
-  it("serializes a stale assembly alarm with a late-fragment reprompt", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: "ablaze",
-    });
-    harness.advanceTime(4_001);
-    const recordReprompt = harness.ownerStepUp.recordReprompt.bind(harness.ownerStepUp);
-    let announceReprompt!: () => void;
-    let releaseReprompt!: () => void;
-    let repromptCalls = 0;
-    const repromptStarted = new Promise<void>((resolve) => { announceReprompt = resolve; });
-    const repromptBlocked = new Promise<void>((resolve) => { releaseReprompt = resolve; });
-    const spy = vi.spyOn(harness.ownerStepUp, "recordReprompt").mockImplementation(async (sessionId, now) => {
-      repromptCalls += 1;
-      if (repromptCalls === 1) {
-        announceReprompt();
-        await repromptBlocked;
-      }
-      return recordReprompt(sessionId, now);
-    });
-    try {
-      const lateFragment = harness.instance.handleRelayEvent({
-        type: "prompt", final: true, language: "en-US", text: "abrasion",
-      });
-      await repromptStarted;
-      await harness.instance.handleOwnerStepUpAlarm("assembly", 1);
-      expect(spy).toHaveBeenCalledOnce();
-      expect(harness.armOwnerStepUpAlarm.mock.calls.at(-1)?.[0]).toMatchObject({ kind: "window" });
-      releaseReprompt();
-      await lateFragment;
-    } finally {
-      releaseReprompt();
-      spy.mockRestore();
-    }
-  });
-
   it("does not start a conversation turn when termination wins during authorization", async () => {
     const harness = await accessHarness("owner");
     await harness.instance.handleRelayEvent(relaySetup(harness.stored));
@@ -1461,60 +1122,6 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
     expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
       .toEqual({ count: 0 });
-  });
-
-  it("suppresses every repeat of the spoken passphrase, including one after the repeat check is spent", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await authenticateOwnerAdministration(harness);
-
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: "confirm",
-    });
-    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
-
-    // First repeat: the status is `fragment`, so verifyRepeat reserves the
-    // repeat-check row and the utterance is suppressed.
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
-    });
-    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
-    const spentAt = new Date(NOW.valueOf() + OWNER_STEP_UP_REPEAT_MS + 1);
-    expect(await harness.ownerStepUp.repeatStatus(harness.stored.sessionId, spentAt)).toBe("spent");
-
-    // Second repeat: the row now exists, so the status is `spent`. Returning the
-    // utterance here would store the passphrase as a conversation turn and send
-    // it to the model, which is the whole reason the repeat filter exists.
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
-    });
-    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
-  });
-
-  it("suppresses a spent repeat at the step-up service itself", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await authenticateOwnerAdministration(harness);
-
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
-    });
-    const spentAt = new Date(NOW.valueOf() + OWNER_STEP_UP_REPEAT_MS + 1);
-    expect(await harness.ownerStepUp.repeatStatus(harness.stored.sessionId, spentAt)).toBe("spent");
-
-    await expect(
-      harness.ownerStepUp.verifyRepeat(harness.stored.sessionId, OWNER_TEST_PHRASE, spentAt),
-    ).resolves.toBe("suppress");
-  });
-
-  it("resumes ordinary conversation once the repeat fragment window has closed", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await authenticateOwnerAdministration(harness);
-    harness.advanceTime(OWNER_STEP_UP_REPEAT_FRAGMENT_MS);
-
-    await harness.instance.handleRelayEvent({
-      type: "prompt", final: true, language: "en-US", text: "what is due this week",
-    });
-
-    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
   });
 
   it("invalidates an interrupted proposal and clears partial owner PIN input before a replacement", async () => {
@@ -2307,7 +1914,6 @@ describe("CallSession production composition", () => {
       DEEPSEEK_MODEL: "synthetic-runtime-model",
       TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
       GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
-      OWNER_PASSPHRASE_PEPPER_V1: base64(OWNER_TEST_PEPPER),
       AUTHENTICATION_BUDGET_PEPPER: base64(PEPPER),
       IDENTITY_CHALLENGE_HMAC_PEPPER: base64(new Uint8Array(32).fill(11)),
       IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
@@ -2501,11 +2107,8 @@ describe("CallSession production composition", () => {
 
   it("shares the production owner authority with confirmed access administration without calling the model", async () => {
     await seedActiveVoiceIdentity();
-    await seedActiveOwnerPassphrase();
-    const call = await runtime(await createInboundSession(repository(), "hmac-v1", true));
+    const call = await runtime(await createInboundSession(repository()));
     await call.setup();
-    await call.prompt(OWNER_TEST_PHRASE);
-    vi.advanceTimersByTime(OWNER_STEP_UP_REPEAT_MS + 1);
     await call.prompt(`allow ${GUEST_E164} with conversation`);
     await call.digits("2468");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first()).toEqual({ count: 0 });
@@ -2555,7 +2158,8 @@ describe("CallSession production composition", () => {
       await call.setup();
       expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))[0])
         .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, last: true });
-      await call.prompt(OWNER_TEST_PHRASE);
+      // Setup alone mints the owner authority: there is no phrase prompt to
+      // answer before the call is active.
       expect(await storedPhase(stored.sessionId)).toBe("active");
       expect(call.close).not.toHaveBeenCalled();
       expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -2578,7 +2182,7 @@ describe("CallSession production composition", () => {
     ["missing challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
     ["oversized challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "s".repeat(65)],
     ["control in challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "v1\nv2"],
-    ...["GUEST_PIN_PEPPER_V1", "OWNER_PASSPHRASE_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
+    ...["GUEST_PIN_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
       [`short ${key}`, key, base64(new Uint8Array(31))],
       [`long ${key}`, key, base64(new Uint8Array(33))],
       [`noncanonical ${key}`, key, `${"A".repeat(42)}B=`],

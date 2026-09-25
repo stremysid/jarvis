@@ -9,13 +9,10 @@ export const VOICE_SMOKE_SCENARIOS = [
   "unauthorized-caller",
   "outbound-answer",
   "outbound-no-answer",
-  "outbound-step-up-refused",
-  "owner-step-up-refused",
   "failure-callbacks",
 ] as const;
 
 export type VoiceSmokeScenario = typeof VOICE_SMOKE_SCENARIOS[number];
-export type OwnerStepUpOutcome = "verified" | "refused" | "waived_passed_a" | "not_started";
 
 export const LIVE_VOICE_SMOKE_CONFIRMATION = "I_AUTHORIZE_PAID_VOICE_SMOKE";
 const AUDIT_CLOCK_SKEW_MS = 5 * 60_000;
@@ -100,14 +97,8 @@ const COMMON_FIELDS = [
 const INBOUND_FIELDS = [
   ...COMMON_FIELDS,
   "authenticatedTurns",
-  "authenticationMode",
-  "ownerStepUpOutcome",
-  "ownerStepUpPromptCount",
-  "ownerStepUpAttemptCount",
-  "callerIdAttestation",
-  "ownerCallerIdPolicy",
   "ownerAuthorityGranted",
-  "ownerStepUpBeforeFirstModelTurn",
+  "authenticationPromptsBeforeFirstModelTurn",
   "interruptions",
   "firstAudibleMs",
   "interruptionStopMs",
@@ -141,14 +132,8 @@ const UNAUTHORIZED_FIELDS = [
 const OUTBOUND_ANSWER_FIELDS = [
   ...COMMON_FIELDS,
   "authenticatedTurns",
-  "authenticationMode",
-  "ownerStepUpOutcome",
-  "ownerStepUpPromptCount",
-  "ownerStepUpAttemptCount",
-  "callerIdAttestation",
-  "ownerCallerIdPolicy",
   "ownerAuthorityGranted",
-  "ownerStepUpBeforeFirstModelTurn",
+  "authenticationPromptsBeforeFirstModelTurn",
   "recipientAuthenticated",
   "neutralGreetingBeforeAuthentication",
   "purposeDisclosedAfterAuthentication",
@@ -167,13 +152,8 @@ const OUTBOUND_ANSWER_FIELDS = [
 
 const OUTBOUND_NO_ANSWER_FIELDS = [
   ...COMMON_FIELDS,
-  "authenticationMode",
-  "ownerStepUpOutcome",
-  "ownerStepUpPromptCount",
-  "ownerStepUpAttemptCount",
-  "callerIdAttestation",
-  "ownerCallerIdPolicy",
   "ownerAuthorityGranted",
+  "authenticationPromptsBeforeFirstModelTurn",
   "callAttempts",
   "recipientAuthenticated",
   "purposeDisclosed",
@@ -181,50 +161,6 @@ const OUTBOUND_NO_ANSWER_FIELDS = [
   "modelRequests",
   "personalContextReads",
   "statusCallbackSchema",
-] as const;
-
-const OUTBOUND_STEP_UP_REFUSED_FIELDS = [
-  ...COMMON_FIELDS,
-  "authenticatedTurns",
-  "authenticationMode",
-  "ownerStepUpOutcome",
-  "ownerStepUpPromptCount",
-  "ownerStepUpAttemptCount",
-  "ownerStepUpRepromptCount",
-  "ownerStepUpRejectionReason",
-  "callerIdAttestation",
-  "ownerCallerIdPolicy",
-  "ownerAuthorityGranted",
-  "callAttempts",
-  "recipientAnswered",
-  "recipientAuthenticated",
-  "neutralGreetingBeforeAuthentication",
-  "purposeDisclosed",
-  "privateMessageLeft",
-  "modelRequests",
-  "personalContextReads",
-  "rejectionRowCount",
-  "rejectionDeliveryRowCount",
-  "ownerAlertDisposition",
-] as const;
-
-const OWNER_STEP_UP_REFUSED_FIELDS = [
-  ...COMMON_FIELDS,
-  "authenticatedTurns",
-  "authenticationMode",
-  "ownerStepUpOutcome",
-  "ownerStepUpPromptCount",
-  "ownerStepUpAttemptCount",
-  "ownerStepUpRepromptCount",
-  "ownerStepUpRejectionReason",
-  "callerIdAttestation",
-  "ownerCallerIdPolicy",
-  "ownerAuthorityGranted",
-  "modelRequests",
-  "personalContextReads",
-  "rejectionRowCount",
-  "rejectionDeliveryRowCount",
-  "ownerAlertDisposition",
 ] as const;
 
 const FAILURE_FIELDS = [
@@ -250,8 +186,6 @@ const TASK_5_VOICE_SENT = "voice_sent" satisfies ConversationTurnOutcome;
 const TASK_5_MODEL_FAILED = "failed" satisfies ConversationTurnOutcome;
 const TASK_5_MODEL_FAILURE_CODE = "model_failed" satisfies ConversationFailureCode;
 const TASK_5_MODEL_FAILURE_CATEGORY = "provider" satisfies ConversationFailureCategory;
-const OWNER_PASSPHRASE_AUTHENTICATION_MODE = "owner_passphrase";
-const OWNER_ATTESTED_WAIVER_AUTHENTICATION_MODE = "owner_attested_waiver";
 const OWNER_VOICE_IDENTITY_CONFIGURATION = "OWNER_VOICE_IDENTITY_ID";
 const TASK_5_TURN_RESULT_FIELDS = [
   "outcome",
@@ -330,7 +264,7 @@ function percentile95(samples: readonly number[]): number {
 
 function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeScenario, manifestKey: string): void {
   if (
-    evidence.schemaVersion !== "1.3"
+    evidence.schemaVersion !== "1.4"
     || evidence.generatorVersion !== "0.1.0"
     || evidence.status !== "passed"
     || evidence.scenario !== scenario
@@ -346,63 +280,18 @@ function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeS
   ) unsafe();
 }
 
-function validateOwnerStepUp(
+/**
+ * An owner call must reach its first model turn with nothing asked of the
+ * caller. A non-zero count here means a credential prompt reappeared on the
+ * call path -- the per-call passphrase gate that was deliberately removed --
+ * and the smoke must fail rather than quietly bless a prompt again.
+ */
+function validateOwnerCallActivation(
   evidence: Record<string, unknown>,
-  direction: "inbound" | "outbound",
   claimsOwnerAuthority: boolean,
 ): void {
-  const outcome = evidence.ownerStepUpOutcome;
-  const attestation = evidence.callerIdAttestation;
-  const policy = evidence.ownerCallerIdPolicy;
-  if (
-    outcome !== "verified" && outcome !== "refused" && outcome !== "waived_passed_a" && outcome !== "not_started"
-    || attestation !== "passed_a" && attestation !== "other" && attestation !== "absent" && attestation !== "not_applicable"
-    || policy !== "passphrase_always" && policy !== "waive_on_passed_a"
-    || evidence.ownerAuthorityGranted !== claimsOwnerAuthority
-    || !validInteger(evidence.ownerStepUpPromptCount, 0, 5)
-    || !validInteger(evidence.ownerStepUpAttemptCount, 0, 3)
-    || direction === "outbound" && attestation !== "not_applicable"
-    || direction === "inbound" && attestation === "not_applicable"
-  ) unsafe();
-
-  if (outcome === "waived_passed_a") {
-    if (
-      direction !== "inbound"
-      || !claimsOwnerAuthority
-      || evidence.authenticationMode !== OWNER_ATTESTED_WAIVER_AUTHENTICATION_MODE
-      || attestation !== "passed_a"
-      || policy !== "waive_on_passed_a"
-      || evidence.ownerStepUpPromptCount !== 0
-      || evidence.ownerStepUpAttemptCount !== 0
-    ) unsafe();
-  } else if (outcome === "not_started") {
-    if (
-      direction !== "outbound"
-      || claimsOwnerAuthority
-      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
-      || policy !== "passphrase_always"
-      || evidence.ownerStepUpPromptCount !== 0
-      || evidence.ownerStepUpAttemptCount !== 0
-    ) unsafe();
-  } else {
-    if (
-      evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
-      || direction === "outbound" && policy !== "passphrase_always"
-      || direction === "inbound" && attestation === "passed_a" && policy === "waive_on_passed_a"
-    ) unsafe();
-    if (outcome === "verified") {
-      if (
-        !claimsOwnerAuthority
-        || direction === "inbound" && policy !== "passphrase_always"
-        || !validInteger(evidence.ownerStepUpPromptCount, 1, 5)
-        || !validInteger(evidence.ownerStepUpAttemptCount, 1, 3)
-        || evidence.ownerStepUpAttemptCount > evidence.ownerStepUpPromptCount
-        || evidence.ownerStepUpPromptCount > evidence.ownerStepUpAttemptCount + 2
-      ) unsafe();
-    } else if (claimsOwnerAuthority) unsafe();
-  }
-
-  if (claimsOwnerAuthority && evidence.ownerStepUpBeforeFirstModelTurn !== true) unsafe();
+  if (evidence.ownerAuthorityGranted !== claimsOwnerAuthority) unsafe();
+  if (evidence.authenticationPromptsBeforeFirstModelTurn !== 0) unsafe();
 }
 
 function validateTask5VoiceTurn(
@@ -446,7 +335,7 @@ function validateInbound(value: unknown): void {
     || evidence.recallVerified !== true
     || evidence.cleanHangup !== true
   ) unsafe();
-  validateOwnerStepUp(evidence, "inbound", evidence.ownerStepUpOutcome !== "not_started");
+  validateOwnerCallActivation(evidence, true);
   validateRelayContract(evidence);
   validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
@@ -491,7 +380,7 @@ function validateOutboundAnswer(value: unknown): void {
     || evidence.neutralGreetingBeforeAuthentication !== true
     || evidence.purposeDisclosedAfterAuthentication !== true
   ) unsafe();
-  validateOwnerStepUp(evidence, "outbound", true);
+  validateOwnerCallActivation(evidence, true);
   validateRelayContract(evidence);
   validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
@@ -505,53 +394,11 @@ function validateOutboundNoAnswer(value: unknown): void {
     || evidence.recipientAuthenticated !== false
     || evidence.purposeDisclosed !== false
     || evidence.privateMessageLeft !== false
-    || evidence.ownerStepUpOutcome !== "not_started"
-    || evidence.ownerStepUpPromptCount !== 0
-    || evidence.ownerStepUpAttemptCount !== 0
     || evidence.modelRequests !== 0
     || evidence.personalContextReads !== 0
     || evidence.statusCallbackSchema !== "verified"
   ) unsafe();
-  validateOwnerStepUp(evidence, "outbound", false);
-}
-
-function validateRefusedOwnerStepUp(evidence: Record<string, unknown>, direction: "inbound" | "outbound"): void {
-  if (
-    evidence.terminalState !== "rejected"
-    || evidence.authenticatedTurns !== 0
-    || evidence.ownerStepUpOutcome !== "refused"
-    || evidence.ownerStepUpAttemptCount !== 3
-    || !validInteger(evidence.ownerStepUpRepromptCount, 0, 2)
-    || evidence.ownerStepUpPromptCount !== 3 + evidence.ownerStepUpRepromptCount
-    || evidence.ownerStepUpRejectionReason !== "attempts_exhausted"
-    || evidence.modelRequests !== 0
-    || evidence.personalContextReads !== 0
-    || evidence.rejectionRowCount !== 1
-    || evidence.rejectionDeliveryRowCount !== 1
-    || evidence.ownerAlertDisposition !== "sent"
-    || Date.parse(evidence.endedAt as string) - Date.parse(evidence.startedAt as string) > 5 * 60_000
-  ) unsafe();
-  validateOwnerStepUp(evidence, direction, false);
-}
-
-function validateOutboundStepUpRefused(value: unknown): void {
-  const evidence = exactRecord(value, OUTBOUND_STEP_UP_REFUSED_FIELDS);
-  validateCommon(evidence, "outbound-step-up-refused", "outbound_step_up_refused");
-  if (
-    evidence.callAttempts !== 1
-    || evidence.recipientAnswered !== true
-    || evidence.recipientAuthenticated !== false
-    || evidence.neutralGreetingBeforeAuthentication !== true
-    || evidence.purposeDisclosed !== false
-    || evidence.privateMessageLeft !== false
-  ) unsafe();
-  validateRefusedOwnerStepUp(evidence, "outbound");
-}
-
-function validateOwnerStepUpRefused(value: unknown): void {
-  const evidence = exactRecord(value, OWNER_STEP_UP_REFUSED_FIELDS);
-  validateCommon(evidence, "owner-step-up-refused", "owner_step_up_refused");
-  validateRefusedOwnerStepUp(evidence, "inbound");
+  validateOwnerCallActivation(evidence, false);
 }
 
 function validSafeErrorCategories(value: unknown): boolean {
@@ -593,12 +440,6 @@ export function validateEvidence(value: unknown): true {
         break;
       case "outbound-no-answer":
         validateOutboundNoAnswer(value);
-        break;
-      case "outbound-step-up-refused":
-        validateOutboundStepUpRefused(value);
-        break;
-      case "owner-step-up-refused":
-        validateOwnerStepUpRefused(value);
         break;
       case "failure-callbacks":
         validateFailureCallbacks(value);
@@ -740,16 +581,6 @@ export function auditVoiceEvidence(records: readonly unknown[], auditTime = new 
       if (
         Date.parse(dataField(record as object, "startedAt") as string) > auditTimeMs + AUDIT_CLOCK_SKEW_MS
       ) throw new Error();
-      if (
-        scenario === "inbound"
-        || scenario === "outbound-answer"
-        || scenario === "outbound-no-answer"
-        || scenario === "outbound-step-up-refused"
-        || scenario === "owner-step-up-refused"
-      ) {
-        if (scenario !== "inbound" && dataField(record as object, "ownerCallerIdPolicy") !== "passphrase_always") throw new Error();
-        if (scenario === "inbound" && dataField(record as object, "ownerStepUpOutcome") !== "verified") throw new Error();
-      }
     }
     if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();
     for (const scenario of VOICE_SMOKE_SCENARIOS) {

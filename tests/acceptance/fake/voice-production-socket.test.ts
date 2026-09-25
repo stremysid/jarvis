@@ -1,8 +1,6 @@
 import { env, evictDurableObject } from "cloudflare:test";
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import {
-  FAKE_OWNER_PASSPHRASE,
-  FAKE_OWNER_PASSPHRASE_PEPPER,
   FAKE_PIN_A,
   seedFakeGuest,
   seedFakeOwnerPassphrase,
@@ -13,8 +11,6 @@ import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/eve
 import { applyCloudMemoryMigration, applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
   applyVoiceOwnerDeliveryMigration, clearConversationDataForTest, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
-import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
-import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
 const ACCOUNT_SID = `AC${"6".repeat(32)}`;
@@ -104,16 +100,6 @@ describe("production voice through the real DO stub and socket", () => {
       300_000, () => sessionId);
     const stored = await repository.getOrCreateInboundSession({ callSid: CALL_SID, callerE164: caller,
       ownerIdentityId: "identity:voice", currentChallengeHmacKeyVersion: "identity-hmac-v1", now: NOW });
-    if (stored.binding.accessKind === "owner") {
-      await new OwnerCallStepUpService(
-        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
-      ).bind({
-        sessionId: stored.sessionId, callSid: stored.callSid,
-        ownerPrincipalId: stored.binding.principalId, ownerIdentityId: stored.binding.identityId,
-        direction: "inbound", lifecycleGeneration: 1, requirement: "required",
-        attestationClass: "absent", policy: "passphrase_always", createdAt: stored.createdAt,
-      });
-    }
     await stub().initialize({ sessionId: stored.sessionId, binding: stored.binding, relaySetupExpiresAt: stored.relaySetupExpiresAt! });
     const response = await stub().fetch(new Request(`https://internal/voice/relay/${stored.sessionId}`,
       { headers: { Upgrade: "websocket" } }));
@@ -126,11 +112,12 @@ describe("production voice through the real DO stub and socket", () => {
     client.addEventListener("close", (event) => { closes.push(event.code); });
     client.send(JSON.stringify({ type: "setup", sessionId: PROVIDER_SESSION_ID, accountSid: ACCOUNT_SID,
       callSid: CALL_SID, direction: "inbound", customParameters: { relayNonce: stored.binding.relayNonce } }));
-    await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("pre_auth"));
     if (stored.binding.accessKind === "owner") {
-      client.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
+      // An owner call goes straight to Jarvis: the setup frame alone moves it
+      // to active, with no phrase and no window.
       await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("active"));
-      vi.advanceTimersByTime(2_001);
+    } else {
+      await vi.waitFor(async () => expect((await repository.getCallSession(stored.sessionId))?.phase).toBe("pre_auth"));
     }
     return { repository, stored, frames, closes,
       prompt: (voicePrompt: string) => client!.send(JSON.stringify({ type: "prompt", voicePrompt, lang: "en-US", last: true })),

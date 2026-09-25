@@ -6,7 +6,7 @@ import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fa
 import { applyVoiceRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
   applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
-import { FAKE_OWNER_PASSPHRASE, seedFakeOwnerPassphrase } from "./voice-access-system.js";
+import { seedFakeOwnerPassphrase } from "./voice-access-system.js";
 
 const ACCOUNT = `AC${"6".repeat(32)}`;
 const CALL = `CA${"4".repeat(32)}`;
@@ -129,10 +129,7 @@ describe("production Worker voice and Telegram composition", () => {
     const frames: unknown[] = []; socket.addEventListener("message", (event) => { frames.push(JSON.parse(String(event.data))); });
     socket.send(JSON.stringify({ type: "setup", sessionId: `VX${"5".repeat(32)}`, accountSid: ACCOUNT,
       callSid: CALL, direction: "inbound", customParameters: { relayNonce: session!.relay_nonce } }));
-    await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("pre_auth"));
-    socket.send(JSON.stringify({ type: "prompt", voicePrompt: FAKE_OWNER_PASSPHRASE, lang: "en-US", last: true }));
     await vi.waitFor(async () => expect((await env.DB.prepare("SELECT phase FROM call_sessions").first())?.phase).toBe("active"));
-    vi.advanceTimersByTime(2_001);
     socket.send(JSON.stringify({ type: "prompt", voicePrompt: "A Worker question", lang: "en-US", last: true }));
     await vi.waitFor(() => expect(frames).toContainEqual({ type: "text", token: "Worker socket reply.", last: false }));
     expect(requests.filter((url) => url.endsWith("/chat/completions"))).toHaveLength(1);

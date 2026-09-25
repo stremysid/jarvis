@@ -1,17 +1,39 @@
-const SPOKEN_DIGITS = Object.freeze({
-  zero: 0x30,
-  one: 0x31,
-  two: 0x32,
-  three: 0x33,
-  four: 0x34,
-  five: 0x35,
-  six: 0x36,
-  seven: 0x37,
-  eight: 0x38,
-  nine: 0x39,
+/**
+ * The number words a spoken PIN may use, as the value each one names.
+ *
+ * The values are numbers, not characters: a digit word names its digit, and
+ * the ten-to-ninety entries let a two-digit group fold into one number. The
+ * tens entries exist because Sid says a four digit PIN as "forty-eight
+ * twenty-one" at least as readily as "four eight two one", and forgiving
+ * recognition is a blocking requirement, not a nicety. Nothing here is a
+ * keyword test of what Sid means: every entry maps a word to the number it is,
+ * and a candidate that does not resolve to exactly four digits is refused
+ * rather than guessed at.
+ */
+const SPOKEN_NUMBERS = Object.freeze({
+  zero: 0, one: 1, two: 2, three: 3, four: 4,
+  five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
 } as const);
 
-type SpokenDigit = keyof typeof SPOKEN_DIGITS;
+type SpokenNumber = keyof typeof SPOKEN_NUMBERS;
 
 export class FourDigitPinCapture {
   readonly #bytes = new Uint8Array(4);
@@ -44,6 +66,68 @@ export class FourDigitPinCapture {
   }
 }
 
+/** The digits a number word group names, or null when the token is not one. */
+function numberFromToken(token: string): number | null {
+  if (/^[0-9]$/u.test(token)) return token.charCodeAt(0) - 0x30;
+  return Object.hasOwn(SPOKEN_NUMBERS, token) ? SPOKEN_NUMBERS[token as SpokenNumber] : null;
+}
+
+/**
+ * A token into the numbers it contributes, in order.
+ *
+ * A tens word and a following unit fold into one number ("forty eight" is 48),
+ * which is why the tokens are walked in order rather than mapped one by one.
+ * Anything that is not a number word or a short digit run makes the whole
+ * candidate unreadable instead of being dropped: dropping it would silently
+ * turn "four eight two one please" into a guess at a PIN.
+ */
+function readNumberTokens(tokens: readonly string[]): readonly number[] | null {
+  const numbers: number[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (/^[0-9]{1,4}$/u.test(token)) {
+      numbers.push(Number(token));
+      continue;
+    }
+    const value = numberFromToken(token);
+    if (value === null) return null;
+    if (value >= 20 && value % 10 === 0 && value < 100) {
+      const next = tokens[index + 1];
+      const unit = next === undefined ? null : numberFromToken(next);
+      if (unit !== null && unit >= 1 && unit <= 9) {
+        numbers.push(value + unit);
+        index += 1;
+        continue;
+      }
+    }
+    numbers.push(value);
+  }
+  return numbers;
+}
+
+function digitsFromNumbers(numbers: readonly number[]): Uint8Array | null {
+  const digits: number[] = [];
+  for (const number of numbers) {
+    if (!Number.isSafeInteger(number) || number < 0 || number > 99) return null;
+    if (number < 10) {
+      digits.push(number);
+      continue;
+    }
+    digits.push(Math.floor(number / 10), number % 10);
+  }
+  return digits.length === 4
+    ? Uint8Array.from(digits, (digit) => digit + 0x30)
+    : null;
+}
+
+/**
+ * The four digits a spoken candidate names, or null when it does not name
+ * exactly four.
+ *
+ * Accepted: the four digits as digits ("4821", "4 8 2 1"), as four digit words
+ * ("four eight two one"), as two two-digit numbers ("forty-eight twenty-one",
+ * "48 21"), and as any mix that still resolves to exactly four digits.
+ */
 export function normalizeSpokenPin(text: unknown): Uint8Array | null {
   if (
     typeof text !== "string"
@@ -57,7 +141,8 @@ export function normalizeSpokenPin(text: unknown): Uint8Array | null {
     return Uint8Array.from(text, (digit) => digit.charCodeAt(0));
   }
 
-  const words = text.split(" ");
-  if (words.length !== 4 || words.some((word) => !(word in SPOKEN_DIGITS))) return null;
-  return Uint8Array.from(words, (word) => SPOKEN_DIGITS[word as SpokenDigit]);
+  const tokens = text.toLowerCase().replace(/-/gu, " ").split(" ").filter((token) => token.length > 0);
+  if (tokens.length === 0) return null;
+  const numbers = readNumberTokens(tokens);
+  return numbers === null ? null : digitsFromNumbers(numbers);
 }

@@ -3,6 +3,49 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-24 — DeepSeek builder: remove the every-call passphrase, add the spoken PIN
+
+Signed: DeepSeek V4.1 Flash (builder), branch `codex/call-pin` from `a7cd3553`.
+
+- **What Sid decided, and what this does.** (2026-09-17) "a spoken 4 digit pin will
+  work best on only sensitive things"; re-confirmed 2026-09-24: an ordinary owner call
+  gets no passphrase and no PIN. The every-call owner-passphrase step-up is deleted, and
+  a 4-digit PIN is asked only at a tier-3 action on a call. Sid knowingly accepts the
+  caller-ID spoofing risk and no gate was added for it.
+- **Removed:** `src/voice/owner-call-step-up.ts` and its wiring in `call-session-do.ts`
+  (the interaction, `#guardOwnerRepeat`, `#handleOwnerStepUpPrompt`, the window/assembly
+  alarms, the DO alarm, the rejected-call resume path, the handoff data),
+  `production-runtime.ts`, `production-routes.ts`, `inbound.ts`, `outbound.ts`,
+  `voice-route-construction.ts`, `voice-callbacks.ts`, the `/disable-owner-step-up`
+  Telegram command, and `OwnerCallStepUpService`. Kept deliberately: the owner-passphrase
+  verifier, its repository, migration `0017`/`0018` and their tables (the foundation,
+  unused for now).
+- **Kept and extracted:** the owner capacity-refusal alert is now
+  `src/voice/owner-call-alerts.ts` (`D1OwnerCallAdmissionAlertSink`); the `rejected` and
+  `configuration` alert classes are gone with the gate.
+- **Added:** `src/voice/sensitive-action-pin.ts` (the gate), a third
+  `ToolChannelAuthorizationPort` argument on `ToolAutonomyGate`, routing of a call's
+  utterance and DTMF to the PIN question in `CallSessionCore`, forgiving
+  `normalizeSpokenPin` (digits, digit words, two two-digit numbers), and migration
+  `0047_sensitive_action_pin_attempts.sql` as the append-only wrong-candidate ledger.
+- **The PIN itself** is a Worker secret (`OWNER_ACTION_PIN`), read in
+  `production-runtime.ts`, never logged, never stored, never spoken back, and compared in
+  constant time. No derived material is stored. `docs/OWNER-ACTIONS.md` has the row.
+- **Fail-closed:** no PIN configured, no surface attached, a broken ledger write, a
+  question nobody answers, or a missing channel gate are all refusals; the action is
+  never run unguarded.
+- **Finding to carry forward:** "reading memories marked sensitive" is **not** tier-3 at
+  the tool-gate boundary and this change does not make it so. The boundary classifies per
+  tool name and sensitivity is a per-item property, so the only ways to gate it are
+  gating every `memory_explain`/`memory_search` (not what Sid asked for) or reading the
+  model's `itemId` argument to choose a tier (forbidden by `tool-gate.ts`'s own contract).
+  Stated in the PR body rather than papered over with a second list.
+- **Docs rewritten:** `docs/runbooks/owner-passphrase.md`, `docs/runbooks/voice-smoke.md`,
+  the live smoke evidence schema (now `1.4`, with
+  `authenticationPromptsBeforeFirstModelTurn: 0` for an owner call), and the release gate
+  filters.
+- **Scope:** no merge, no deploy, no migration applied to any real database, no live call.
+
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
 Signed: Claude (orchestrator agent, builder), branch `fix/agent-tool-cap` from `68675ba`.
