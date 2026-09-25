@@ -276,7 +276,6 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
     const pin = this.#pin;
     if (session === null || pin === null || this.#pending !== null) return null;
     const signal = request.signal;
-    if (signalAborted(signal)) return CHANNEL_REFUSED;
     const now = isoDate(this.#now());
     if (now === null) return null;
     if (await this.#rateLimited(request.principalId, now)) {
@@ -305,8 +304,9 @@ export class SensitiveActionPinGate implements SensitiveActionPinPort {
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
       session.questionOpened?.();
-      // The rate-limit read awaited before the listener existed, so an abort
-      // during it is caught here rather than by the listener.
+      // A turn that ended before the listener existed (already over on
+      // arrival, or during the rate-limit read) is caught here: the question
+      // closes before anything is spoken.
       if (signalAborted(signal)) this.#settle(pending, null);
       if (!pending.settled) await this.#speak(SENSITIVE_ACTION_PIN_PROMPT);
       const expired = new Promise<void>((expire) => { pending.expire = expire; });

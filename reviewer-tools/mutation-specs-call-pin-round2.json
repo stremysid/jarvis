@@ -82,7 +82,7 @@
   {
     "name": "pin-asks-for-ended-turn",
     "file": "apps/cloud-gateway/src/voice/sensitive-action-pin.ts",
-    "find": "    if (signalAborted(signal)) return CHANNEL_REFUSED;\n",
+    "find": "      if (signalAborted(signal)) this.#settle(pending, null);\n",
     "replace": "",
     "testPath": "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
     "expect": "never asks for a turn that has already ended"
