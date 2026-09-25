@@ -284,14 +284,15 @@ it("counts each folder-specific projection label and keeps the digest gap visibl
   const status = await repo(f).status();
   expect(status).toMatchObject({ unmappedRoutes: 2, hosts: [expect.objectContaining({ unmappedRoutes: 2 })] });
   expect(status.instructions).toContain("unmappedRoutes counts unmapped_json label entries");
+  expect(status.instructions).toContain("Older rows may carry the same labels without an item id; those name the route only.");
   expect((await digest(f)).text).toContain("unknown projection or date disagreement");
 });
 
-it("counts an unmapped route once even when several of its items cannot be projected", async () => {
+it("records one route-level projection label when several items cannot be projected", async () => {
   const f = await collectorFixture(false);
   const batch = observedBatch(f);
   const mapped = mapSchoolCourse({ ...batch, routes: batch.routes.map((row, i) => i === 0 ? { ...row, body: [{ Surprise: 1 }, { Surprise: 2 }] } : row) });
-  expect(mapped.unmapped).toHaveLength(1);
+  expect(mapped.unmapped).toEqual([`${batch.routes[0].route}:array(2):projection_unknown`]);
 });
 
 it("reports a stale host even when another host has a fresh successful read", async () => {
