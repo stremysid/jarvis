@@ -16,6 +16,24 @@ A decision written in code is not a style problem. It is a piece of Jarvis's bra
 in the wrong language, and it is invisible to Jarvis, so Jarvis cannot reason about it,
 report it, or be corrected about it.
 
+**This page is a removal list, not a list of accepted exceptions** (Sid, 2026-09-25: "any
+judgment and decisions and thought should be the ai brain"). Code never decides meaning,
+relevance, how many, which, how long, or whether to act; the model does, through tool
+arguments and its prompt, and asks Sid when unsure. Code may keep only permissions (guest
+isolation, Sid's five confirmed actions), validation that an id exists and is Sid's, and
+system-protection limits (sizes, timeouts, runaway caps), each named as such.
+
+- **A pull request that adds a code-side judgment does not merge.** It is a blocking review
+  finding. Adding a row here is not a substitute for removing it.
+- **A judgment found in existing code** is removed in that pull request if it is small;
+  otherwise it gets a row here **and** a removal item in [QUEUE](QUEUE.md), in the same PR.
+
+**Every current row is queued for removal** in [QUEUE](QUEUE.md#work-with-no-pull-request-yet),
+in three batches: voice (rows 1, 3, 4, 5), memory (rows 6–9 and 13) and school (rows 10–12,
+plus the two school collector rows at the end of this file). Two DeepSeek builders started
+the memory and school batches on 2026-09-25. **Row 2 is a permission, not a judgment**: the
+tier gate on placing a call stays; what is missing is a `call_place` hand.
+
 ---
 
 ## Read this before treating the list as the population
@@ -168,6 +186,19 @@ and rewrite are unchanged by #171.
 | 7 | `captureInput` (`src/memory/memory-repository.ts`) | How long a fact lasts. `input.lifetime === undefined ? (validTo === null ? "durable" : "temporary") : …` decides durability when the caller is silent — and the `memory_remember` tool description **invites the model to be silent**: *"Leave it out and the fact is durable."* The same default is written independently in `owner-telegram-agent.ts` and `memory-owner-controls.ts`. | Make `lifetime` and `expiresAt` **required** in the `memory_remember` schema so the omission cannot occur, and delete the three defaulting branches so an absent lifetime is refused rather than assumed. The same subsystem already states this principle: `automatic-distillation.ts` refuses to guess an expiry because *"answering it by guessing an expiry here would be code deciding what the roadmap gives to the model."* |
 | 8 | `findActiveItemByNormalizedText` / `normalizedRememberText` (`src/memory/memory-repository.ts`) | Whether two statements are the same memory. Normalises case, apostrophes, zero-width characters and punctuation, compares strings, and on a match **silently merges** the new wording into the old item as an extra source — so the stored wording never changes and the receipt implies the new words were recorded. | Expose the candidate memories to the model and let it decide whether a new statement duplicates, extends or corrects an existing memory — exactly as `memory_correct` already invites. A mechanical guard, if kept, is a **non-authoritative hint returned to the model**, never a silent merge in the write path. **`silent` penalty.** |
 | 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
+| 13 | `OwnerAgentCore.forget` (`src/agent/owner-agent-core.ts`), found in [#199](https://github.com/stremysid/jarvis/pull/199) | Whether to act at all when Sid asks to forget several memories. `itemIds.length !== 1` raises a `telegram-memory-forget` decision ("Nothing changes unless Sid taps Confirm forget") instead of forgetting them. Forgetting is not one of the five actions Sid wants asked about (2026-09-24), so this is a confirmation his rule removes. It exists because `commandKey` in `memory-owner-controls.ts` allows one ledger mutation per owner turn, not because anyone decided multi-forget is risky. | Delete the tap. Give `forget` a per-item idempotency key (`<turn event>:forget:<itemId>`, the shape `forgetConfirmedDecision` already uses), so one turn can forget several memories in one tool call. Each memory still gets its own receipt. Also listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25). |
+
+### Reply-reference selection: removed
+
+Row 14, `MAX_REPLY_REFERENCES` / `replyReferences` in `owner-agent-core.ts`, is
+deleted by [#200](https://github.com/stremysid/jarvis/pull/200). It kept the 8
+most recent memory items a turn had touched, so code chose which memories the
+reply was about and which a later "forget that" could reach. The model now
+declares them: `declare_memory_references` takes the item ids the reply relied
+on, and every tool result names the item ids it touched so the model can name
+them. Code checks only that each declared id was shown this turn and that the
+list fits the store's bound of 8, refusing rather than trimming; a turn that
+declares nothing records nothing, with no recency fallback.
 
 ---
 
@@ -216,8 +247,9 @@ visible eviction counts. This remains a partial register, not a completed audit.
 2. **Do not fix these by adding a guard.** A guard that suppresses the symptom is a second
    copy of the same decision, which is how several of the duplicate thresholds above came to
    exist. Items 6 and 7 each already have three or four copies of one number.
-3. **A new decision in code is a new row here, in the same pull request that adds it.**
-   That is what makes "a tenth is not progress" checkable.
+3. **A new decision in code does not merge.** A reviewer who finds one blocks the pull
+   request; recording it here does not clear it. A row here is only for a judgment already
+   on main, and it comes with a removal item in [QUEUE](QUEUE.md).
 4. **When a row is fixed, move it to a "fixed" section with the commit** rather than deleting
    it. The value of this page is the count of things still deciding.
 
@@ -272,8 +304,10 @@ storable unknown JSON as a failed school read. It records projection labels and 
 raw evidence for Jarvis; `200 []` submissions stay unknown. `school_d2l_status` reads
 deliberately bypass the tier gate and spend no tap under [Sid's 2026-09-24 decision](https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523).
 The pipeline's direct-text authority still applies because that decision removed the safety
-tier, not the authenticated-source boundary. Collector revocation still requires its
-tier-three tap. The two existing judgment findings below remain open.
+tier, not the authenticated-source boundary. Collector revocation no longer asks: migration
+`0051` ([#199](https://github.com/stremysid/jarvis/pull/199)) moved `school.collector.revoke`
+to tier 1, because it is not one of Sid's five actions. The two existing judgment findings
+below remain open.
 
 Date-disagreement follow-up, 2026-09-24: no rationale for preferring a
 `content/myItems` date to the folder `DueDate` was recorded in #175's review, its

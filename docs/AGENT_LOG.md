@@ -93,6 +93,101 @@ rules 1 and 8. No merge, deploy, database query or migration.
   option has no production caller (tests only); it is kept as an explicit
   caller-supplied override, not a title guess. The register stays partial.
 
+## 2026-09-25 — DeepSeek builder: #200 round 4 (model-declared reply references)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `7c23884b`.
+Touches Sid's rules 1, 2, 3 and 8.
+
+- **The blocker.** `replyReferences` kept the 8 most recent memory items a turn had touched, so
+  code chose which memories the reply was about -- and which a later "forget that" could reach.
+  Deleted, with `MAX_REPLY_REFERENCES`. Sid, 2026-09-25: "any judgment and decisions and thought
+  should be the ai brain".
+- **What replaced it.** The shared tool `declare_memory_references` (both channels, from
+  `OWNER_TOOL_DEFINITIONS`; capability `memory.read`, no migration). Every tool result now names
+  the item ids it touched in its content, so the model can name them even for an id a write just
+  committed. Code checks each declared id was shown this turn (context plus earlier tool results,
+  carried across rounds) and that the list is at most 8; a malformed, repeated, unseen or
+  over-bound list is refused back to the model with the reason, never trimmed. A turn that
+  declares nothing records nothing: no recency fallback. Malformed protocol and the tier gate for
+  real actions are unchanged; this tool is bookkeeping, not an action.
+- **Docs.** `docs/CODE-VS-JUDGMENT.md` row 14 removed, with a "Reply-reference selection: removed"
+  note. Also merged `origin/main` at `01dc06f1` (#203, docs) normally, no conflict.
+- **Verified here:** gateway `tsc` 0; focused vitest 5 files / 296 passed after the merge
+  (multi-step-tools, memory-search, voice-agent, owner-telegram-agent, telegram-memory), plus
+  11 further neighbour files / 274 passed and 10 more / 318 passed on the same tree;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` **16/16 KILLED** (M12 and M14-M16 are
+  the new guards), each confirmed, restore byte-identical. Full suites on CI; none run locally.
+- Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: #200 round 3 (main `3f3748c6` merged, test fix)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/multi-step-tools`, from `9289cd19`.
+Touches Sid's rules 2, 3 and 8.
+
+- **Merge.** `origin/main` at `3f3748c6` (#199) merged normally, no rebase. Three doc conflicts
+  kept both sides: `KNOWN_ISSUES.md` (this branch's "several tools per turn" section and #199's
+  "confirmations outside Sid's five"), `docs/AGENT_LOG.md`, and `docs/CODE-VS-JUDGMENT.md`, where
+  #199's `OwnerAgentCore.forget` holds row 13, so this branch's `MAX_REPLY_REFERENCES` row is now
+  **row 14**.
+- **Tier-3-in-a-chain test.** #199's `0051` moved `school.collector.revoke` to tier 1, so the test
+  failed on both channels on the merged tree. Its `beforeAll` now promotes that one capability with
+  `UPDATE capability_tiers SET tier = 3 ...`, the shape #199's `tier3-pin-turn.test.ts` uses. No
+  product tier changed; `five-confirmed-actions.test.ts` still pins the shipped registry.
+- **Low finding fixed.** `ScriptedModel` in `multi-step-tools.test.ts` now calls
+  `assertAgentToolHistory` in both `completeAgent` and `streamAgent`, so every chain test checks its
+  history the way the real provider would, not only the F1 cross-round test.
+- **Verified here:** 7 focused files, 285 passed (multi-step-tools, deepseek-provider, voice-agent,
+  owner-telegram-agent, five-confirmed-actions, tier3-pin-turn, memory-search); gateway `tsc` 0;
+  `mutate.ps1` with `mutation-specs-multi-step-tools.json` 14/14 KILLED, each confirmed, restore
+  byte-identical. Full suites on CI; none run locally.
+- Claude-authored at `9289cd19`; this round is DeepSeek, so the cross-vendor rule holds. Not
+  merged or deployed.
+
+## 2026-09-25 — Claude builder: several tools in one turn (branch `codex/multi-step-tools`)
+
+Signed: Claude Opus 5.5 (builder agent), from `f43fcf42`. Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **What changed.** `MAX_TOOL_CALLS = 1` and the one-round Telegram/voice flows are gone.
+  `OwnerAgentCore` runs one tool loop for both channels: the model calls tools (several per
+  step), sees every result, and decides the next step until it answers. Bounds: the turn
+  deadline, and a runaway cap `MAX_TOOL_ROUNDS = 20` after which one tools-off request asks it
+  to answer. Calls in a step run in order, never concurrently (a PIN question cannot be
+  answered twice at once). Every call keeps its own authority check, tier gate and receipt.
+  An ended turn runs nothing further and asks no gate; #196's re-check before gated bodies stays.
+- **Provider.** `earlierToolRounds` on `ModelAgentCompletionInput`; DeepSeek renders each
+  round (assistant tool_calls, then its results) in order before the latest round, which keeps
+  `previousToolCalls`/`toolResults`. A call id reused across rounds is refused.
+- **Found, not fixed (KNOWN_ISSUES.md):** memory controls key idempotency as
+  `<turn event>:mutation`, so a second memory write in one turn is refused (proven by test run).
+  School plan save looks like the same shape (unverified). Long chains can hit the 128 KiB
+  request cap (unverified in practice).
+- **Evidence:** 36 focused files, 972 passed. `tsc --noEmit` clean; test tsconfig 140
+  diagnostics, none in touched files. `mutate.ps1` with
+  `reviewer-tools/mutation-specs-multi-step-tools.json`: 13/13 KILLED, each confirmed.
+  No full suite run locally; CI runs it.
+
+## 2026-09-25 — Claude builder: #199 round 2 (DeepSeek audit of `b5950275`, main merged after #190)
+
+Signed: Claude (builder agent), `codex/five-action-gates`. Touches Sid's rules 1, 4, 8, 9.
+
+- **Merge:** main `f43fcf42` (#190, `0052`) merged normally. `0051` sorts before `0052` wherever both appear (the restore operator, the newest and full fixture chains, the remote-D1 inventory). `0051` is deliberately not in the memory-ingress chain, which holds `0052`. `send_email` stays `send.email` (tier 3) over #190's `contact.third_party`. `email_inbox_*` map to `email.read`, tier 1.
+- **Findings 1, 2, 5 fixed:** the CODE-VS-JUDGMENT collector line now says the revoke no longer asks. ARCHITECTURE says "no other registered capability asks" and links KNOWN_ISSUES. Five fixture pairs of `send_email` with `contact.third_party` now use `send.email`.
+- **Finding 3:** met by the merge. `0052` is in the memory-ingress chain, and the memory-chain parity case passes run alone (`-t "memory fixture chain"`: 1 passed, 4 skipped).
+- **Finding 4:** tier 2 now means "not one of the five: runs without asking once shadow mode is off". This is written in `autonomy-types.ts`, `0051`, ARCHITECTURE and KNOWN_ISSUES. `0008` is applied and left as written.
+- **Finding 6:** CODE-VS-JUDGMENT row 13, `OwnerAgentCore.forget`.
+- **Verified here:** 29 focused files, 421 passed; gateway `tsc` 0; test typecheck 140 errors, none new; `check-state` pass.
+
+## 2026-09-25 — Claude builder: confirm only Sid's five actions (#199, migration 0051)
+
+Signed: Claude (builder agent), `codex/five-action-gates` from main `9ea215b`. Touches Sid's rules 1, 3, 4, 8, 9.
+
+- **What:** `0051_confirm_only_five_actions.sql` makes tier 3 exactly `spend.money`, `send.email` (new), `place.call` (new), `submit.school_work` (new), `contact.third_party` (reworded). `school.collector.revoke` 3 to 1; `delete.data`, `write.production`, `vehicle.unlock` 3 to 2. Reserved `send_email` now maps to `send.email`. The revoke tool description no longer tells the model to ask for a tap.
+- **Premise found wrong:** the brief said tier 2 is "just do it". It is only while `/shadow` is off; in shadow mode tier 2 is withheld. So the one dispatchable dropped tool (collector revoke) went to tier 1, not 2.
+- **Principles conflict, flagged not resolved:** `sid-principles.md` rule 4 (Sep 17, exact words not recorded) lists deleting, unlocking and booking as outward actions that ask. Sid's Sep 24 verbatim rule is newer and says only the five; this PR follows Sep 24. That principles file lives in a scratchpad, not the repo.
+- **Not changed, in KNOWN_ISSUES:** the multi-memory forget tap, the guest-access "Say confirm" on calls, `/call --confirm` and `jarvis call-me` (kept as "making a call"), and the `/shadow` switch.
+- **Verified here:** focused autonomy, persistence-list, rollout and collector-wiring files 13 files / 201 tests passed; backup-restore 12/12; gateway `tsc` exit 0; test typecheck 140 errors, none in changed files. `mutate.ps1`: 9/9 killed and confirmed (first sweep 8 killed, 1 survived because the wiring test's `afterEach` hard-coded tier 1; fixed to restore the migrated tier, then killed). Full suites on CI. First CI run failed one test, `memory-backup.test.ts` pinning the newest schema version as `0048`. It was updated to `0051` and passes locally 30/30. Then main (#195, #197, #168, #198) was merged normally. `0051` is kept out of the memory-ingress fixture chain because that chain runs before `0040`. The new tools map to tier 1: reminders to `notify.owner`, web to `read.web`, `history_search` to `memory.read`. A test now pins `send_email` to `send.email`, because #190 still maps it to `contact.third_party`.
+- Claude-authored: needs a non-Claude review. Not merged, deployed or applied.
+
 ## 2026-09-25 — Claude builder: PR #190 round 3 (main merged after #197, migration 0052, owner reader)
 
 Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75748efc`
