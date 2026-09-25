@@ -14,8 +14,8 @@ const action: SchoolCatchupAction = {
 };
 const deadline: Deadline = {
   deadlineId: id, sourceId: "fixture", externalId: "fixture", course: "Physics", title: "Unit test",
-  dueAt: "2026-11-01T06:30:00.000Z", leadMinutes: 90, effort: "test", effortJudged: true, status: "open",
-  contentHash: "a".repeat(64), firstSeenAt: now.toISOString(), lastSeenAt: now.toISOString(), remindedAt: null,
+  dueAt: "2026-11-01T06:30:00.000Z", status: "open",
+  contentHash: "a".repeat(64), firstSeenAt: now.toISOString(), lastSeenAt: now.toISOString(),
 };
 const application: UniversityApplicationDigestItem = {
   itemId: id, kind: "essay", label: "Essay", status: "drafting", dueDate: "2027-01-15",
@@ -32,7 +32,7 @@ const input: CalendarFeedInput = { now, actions: [action], deadlines: [deadline]
 const unfold = (value: string) => value.replace(/\r\n /gu, "");
 
 describe("the private calendar composer", () => {
-  it("serializes saved dates and alarm lead times without shifting all-day dates or UTC instants", () => {
+  it("serializes saved dates without shifting all-day dates or UTC instants, and emits no alarm", () => {
     const feed = unfold(composeCalendarFeed(input));
     expect(feed.startsWith("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n")).toBe(true);
     expect(feed.endsWith("END:VCALENDAR\r\n")).toBe(true);
@@ -40,7 +40,9 @@ describe("the private calendar composer", () => {
     expect(feed).toContain("DTSTAMP:20260923T123456Z\r\n");
     expect(feed).toContain("DTSTART;VALUE=DATE:20260923\r\nDTEND;VALUE=DATE:20260924\r\nSUMMARY:Chemistry: Finish the lab (25 min)");
     expect(feed).toContain("DTSTART:20261101T063000Z\r\nSUMMARY:Physics: Unit test");
-    expect(feed).toContain("BEGIN:VALARM\r\nTRIGGER:-PT90M\r\nACTION:DISPLAY\r\nDESCRIPTION:Physics: Unit test\r\nEND:VALARM");
+    // Whether and when Sid is warned is Jarvis's decision through the reminder
+    // tools, so the calendar export carries no VALARM.
+    expect(feed).not.toContain("VALARM");
     expect(feed).toContain("DTSTART;VALUE=DATE:20270115\r\nDTEND;VALUE=DATE:20270116\r\nSUMMARY:[unverified] Test University / Computing: Essay");
     expect(feed).toContain("DTSTART:20261101T053000Z\r\nSUMMARY:[unverified] Test University / Computing: Reply");
     expect(feed.match(/DTEND;VALUE=DATE:/gu)).toHaveLength(2);
@@ -93,7 +95,7 @@ describe("the private calendar composer", () => {
     expect(verifiedApplication).toContain("SUMMARY:[verified] Test University / Computing: Essay");
   });
 
-  it("escapes property injection and punctuation in every text-bearing event and alarm field", () => {
+  it("escapes property injection and punctuation in every text-bearing event field", () => {
     const hostile = "a\\b,c;d\r\nATTACH:https://example.invalid/payload\nEND:VEVENT\rBEGIN:VEVENT\u2028ATTACH:zl\u2029ATTACH:zp";
     const feed = unfold(composeCalendarFeed({ ...input,
       actions: [{ ...action, courseName: hostile, text: hostile }],
@@ -103,8 +105,8 @@ describe("the private calendar composer", () => {
     }));
     const escaped = "a\\\\b\\,c\\;d\\nATTACH:https://example.invalid/payload\\nEND:VEVENT\\nBEGIN:VEVENT\\nATTACH:zl\\nATTACH:zp";
     expect(feed).toContain(`SUMMARY:${escaped}: ${escaped} (25 min)`);
-    expect(feed).toContain(`SUMMARY:${escaped}: ${escaped}\r\nBEGIN:VALARM`);
-    expect(feed).toContain(`DESCRIPTION:${escaped}: ${escaped}\r\nEND:VALARM`);
+    expect(feed).toContain(`SUMMARY:${escaped}: ${escaped}`);
+    expect(feed).not.toContain("VALARM");
     expect(feed.split("\r\n").filter((line) => line.startsWith("SUMMARY:[unverified]")))
       .toEqual(Array(2).fill(`SUMMARY:[unverified] ${escaped} / ${escaped}: ${escaped}`));
     expect(feed.split("\r\n").filter((line) => line === "BEGIN:VEVENT")).toHaveLength(4);

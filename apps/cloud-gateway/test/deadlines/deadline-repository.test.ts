@@ -34,8 +34,6 @@ describe("DeadlineRepository", () => {
       course: "SPH4U Physics",
       title: "Unit 3 Quiz",
       dueAt: "2026-09-18T18:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 720,
       now: MONDAY,
       ...overrides,
     });
@@ -101,19 +99,14 @@ describe("DeadlineRepository", () => {
     expect(again.deadline.firstSeenAt).toBe("2026-09-07T12:00:00.000Z");
   });
 
-  it("appends a revision when a due date moves, updates the row, and clears the reminder so it fires again", async () => {
+  it("appends a revision when a due date moves and updates the row", async () => {
     const created = await upsert();
-    await repository.markReminded(created.deadline.deadlineId, TUESDAY);
-    expect((await repository.readDeadline(created.deadline.deadlineId))?.remindedAt).toBe("2026-09-08T12:00:00.000Z");
 
     const moved = await upsert({ dueAt: "2026-09-25T18:00:00.000Z", now: WEDNESDAY });
 
     expect(moved.outcome).toBe("revised");
     expect(moved.previous).toEqual({ dueAt: "2026-09-18T18:00:00.000Z", title: "Unit 3 Quiz", course: "SPH4U Physics" });
     expect(moved.deadline.dueAt).toBe("2026-09-25T18:00:00.000Z");
-    // He was already told about the old date. A moved date is the one thing he
-    // has to be told about a second time.
-    expect(moved.deadline.remindedAt).toBeNull();
 
     const revisions = await repository.listRevisions(created.deadline.deadlineId);
     expect(revisions.map((revision) => revision.dueAt)).toEqual([
@@ -124,32 +117,46 @@ describe("DeadlineRepository", () => {
     expect(revisions[0]!.dueAt).not.toBe(moved.deadline.dueAt);
   });
 
-  it("appends a revision for a corrected title but leaves the reminder standing", async () => {
+  it("appends a revision for a corrected title", async () => {
     const created = await upsert();
-    await repository.markReminded(created.deadline.deadlineId, TUESDAY);
 
     const retitled = await upsert({ title: "Unit 3 Quiz (kinematics)", now: WEDNESDAY });
 
     expect(retitled.outcome).toBe("revised");
     expect(await countRevisions(created.deadline.deadlineId)).toBe(2);
-    // A typo fixed by a teacher is not a reason to interrupt him again.
-    expect(retitled.deadline.remindedAt).toBe("2026-09-08T12:00:00.000Z");
   });
 
-  it("keeps a tag through every sweep that sees the same text and re-derives it only when the text changes", async () => {
-    const created = await upsert({ effort: "quiz", leadMinutes: 720 });
-    // The sweep re-derives an effort each time. On an unchanged item the stored
-    // one must win, or the owner's own retag would be undone every five minutes.
-    const repeated = await upsert({ effort: "project", leadMinutes: 7200, now: TUESDAY });
-    expect(repeated.deadline.effort).toBe("quiz");
-    expect(repeated.deadline.leadMinutes).toBe(720);
+  it("stores a deadline with no due date as null instead of inventing one", async () => {
+    const created = await upsert({ dueAt: null });
 
-    const rewritten = await upsert({ title: "Unit 3 Project", effort: "project", leadMinutes: 7200, now: WEDNESDAY });
-    // Once the teacher actually edits the item, the tag derived from the old
-    // text is stale and is replaced.
-    expect(rewritten.deadline.effort).toBe("project");
-    expect(rewritten.deadline.leadMinutes).toBe(7200);
+    expect(created.outcome).toBe("created");
+    expect(created.deadline.dueAt).toBeNull();
+    // No window can contain an instant that does not exist.
+    expect(await repository.listDueWithin({ from: MONDAY, to: WEDNESDAY })).toEqual([]);
+    // But it is not lost: the review listing always shows it.
+    const reviewable = await repository.listReviewable({ from: MONDAY, to: WEDNESDAY });
+    expect(reviewable.map((deadline) => deadline.externalId)).toEqual(["c-physics:1"]);
+    expect(reviewable[0]?.dueAt).toBeNull();
+  });
+
+  it("treats a later date on a previously undated deadline as a content revision", async () => {
+    const created = await upsert({ dueAt: null });
+    const dated = await upsert({ dueAt: "2026-09-18T18:00:00.000Z", now: TUESDAY });
+
+    expect(dated.outcome).toBe("revised");
+    expect(dated.previous?.dueAt).toBeNull();
+    expect(dated.deadline.dueAt).toBe("2026-09-18T18:00:00.000Z");
     expect(await countRevisions(created.deadline.deadlineId)).toBe(2);
+  });
+
+  it("lists undated deadlines and windowed ones together, undated first", async () => {
+    await upsert({ externalId: "undated", dueAt: null });
+    await upsert({ externalId: "soon", dueAt: "2026-09-10T00:00:00.000Z" });
+    await upsert({ externalId: "far", dueAt: "2026-12-01T00:00:00.000Z" });
+
+    const reviewable = await repository.listReviewable({ from: "2026-09-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" });
+
+    expect(reviewable.map((deadline) => deadline.externalId)).toEqual(["undated", "soon"]);
   });
 
   it("refuses to let a revision be deleted, which is what the append-only history rests on", async () => {
@@ -266,52 +273,6 @@ describe("DeadlineRepository", () => {
     });
   });
 
-  it("filters a window by effort, which is how exam windows are found without reading every deadline", async () => {
-    await upsert({ externalId: "quiz", effort: "quiz", dueAt: "2026-09-10T00:00:00.000Z" });
-    await upsert({ externalId: "exam", effort: "exam", dueAt: "2026-09-11T00:00:00.000Z" });
-
-    const exams = await repository.listDueWithin({
-      from: "2026-09-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z", efforts: ["exam"],
-    });
-    expect(exams.map((deadline) => deadline.externalId)).toEqual(["exam"]);
-  });
-
-  it("brings a deadline up for reminding on its own effort's scale and not a shared one", async () => {
-    const dueIn20Hours = minutesAfter(MONDAY, 1_200).toISOString();
-    await upsert({ externalId: "quiz", effort: "quiz", leadMinutes: 720, dueAt: dueIn20Hours });
-    await upsert({ externalId: "project", effort: "project", leadMinutes: 7_200, dueAt: dueIn20Hours });
-
-    // Same due date, same instant, different answers -- which is the entire
-    // point of storing a lead time per deadline.
-    const due = await repository.listReminderDue(MONDAY);
-    expect(due.map((deadline) => deadline.externalId)).toEqual(["project"]);
-
-    // Twelve hours later the quiz is inside its own lead time too.
-    const later = await repository.listReminderDue(minutesAfter(MONDAY, 600));
-    expect(due.length).toBe(1);
-    expect(later.map((deadline) => deadline.externalId).sort()).toEqual(["project", "quiz"]);
-  });
-
-  it("stops offering a deadline for reminding once it has been reminded or has passed", async () => {
-    const created = await upsert({ dueAt: minutesAfter(MONDAY, 60).toISOString() });
-    expect(await repository.listReminderDue(MONDAY)).toHaveLength(1);
-
-    await repository.markReminded(created.deadline.deadlineId, MONDAY);
-    expect(await repository.listReminderDue(MONDAY)).toHaveLength(0);
-
-    const other = await upsert({ externalId: "past", dueAt: minutesAfter(MONDAY, -60).toISOString() });
-    expect(other.outcome).toBe("created");
-    expect(await repository.listReminderDue(MONDAY)).toHaveLength(0);
-  });
-
-  it("keeps the reminder mark monotonic so a replayed digest does not move it backwards", async () => {
-    const created = await upsert();
-    expect(await repository.markReminded(created.deadline.deadlineId, TUESDAY)).toBe(true);
-    expect(await repository.markReminded(created.deadline.deadlineId, MONDAY)).toBe(false);
-    expect(await repository.markReminded(created.deadline.deadlineId, TUESDAY)).toBe(false);
-    expect((await repository.readDeadline(created.deadline.deadlineId))?.remindedAt).toBe("2026-09-08T12:00:00.000Z");
-  });
-
   it("names the open deadlines a sweep did not mention without touching them", async () => {
     const stale = await upsert({ externalId: "stale" });
     await upsert({ externalId: "fresh" });
@@ -328,7 +289,7 @@ describe("DeadlineRepository", () => {
 
   describe("quiet windows", () => {
     it("creates an exam window bound to its deadline and a manual window bound to nothing", async () => {
-      const created = await upsert({ effort: "exam" });
+      const created = await upsert();
       const exam = await repository.createQuietWindow({
         reason: "exam",
         deadlineId: created.deadline.deadlineId,

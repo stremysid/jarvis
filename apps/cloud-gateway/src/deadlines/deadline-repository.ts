@@ -28,14 +28,11 @@ import { TransactionRunner } from "../persistence/transaction.js";
 import {
   DEADLINE_SOURCE_KINDS,
   instantOf,
-  requireEffort,
   requireInstant,
-  requireLeadMinutes,
   requireStatus,
   requireText,
   toInstant,
   type Deadline,
-  type DeadlineEffort,
   type DeadlineRevision,
   type DeadlineSource,
   type DeadlineSourceKind,
@@ -50,6 +47,8 @@ const MAXIMUM_TITLE_CHARACTERS = 512;
 export const MAXIMUM_FAILURE_CHARACTERS = 512;
 export const STUDY_DEADLINE_ROW_LIMIT = 24;
 export const STUDY_DEADLINE_NEAR_DUE_HOURS = 72;
+/** The model review pass reads this many open deadlines at most. */
+export const DEADLINE_REVIEW_ROW_LIMIT = 50;
 
 /** One re-read is enough to resolve a concurrent writer; a second means something else is wrong. */
 const UPSERT_ATTEMPTS = 2;
@@ -60,15 +59,11 @@ interface DeadlineRow {
   readonly external_id: string;
   readonly course: string;
   readonly title: string;
-  readonly due_at: string;
-  readonly effort: string;
-  readonly effort_judged: number;
-  readonly lead_minutes: number;
+  readonly due_date: string | null;
   readonly status: string;
   readonly content_hash: string;
   readonly first_seen_at: string;
   readonly last_seen_at: string;
-  readonly reminded_at: string | null;
 }
 
 interface DeadlineSourceRow {
@@ -86,7 +81,7 @@ interface DeadlineRevisionRow {
   readonly revision_id: string;
   readonly deadline_id: string;
   readonly content_hash: string;
-  readonly due_at: string;
+  readonly due_date: string | null;
   readonly title: string;
   readonly observed_at: string;
 }
@@ -114,15 +109,11 @@ function toDeadline(row: DeadlineRow): Deadline {
     externalId: row.external_id,
     course: row.course,
     title: row.title,
-    dueAt: row.due_at,
-    effort: requireEffort(row.effort),
-    effortJudged: row.effort_judged === 1,
-    leadMinutes: row.lead_minutes,
+    dueAt: row.due_date,
     status: requireStatus(row.status),
     contentHash: row.content_hash,
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,
-    remindedAt: row.reminded_at,
   });
 }
 
@@ -144,7 +135,7 @@ function toRevision(row: DeadlineRevisionRow): DeadlineRevision {
     revisionId: row.revision_id,
     deadlineId: row.deadline_id,
     contentHash: row.content_hash,
-    dueAt: row.due_at,
+    dueAt: row.due_date,
     title: row.title,
     observedAt: row.observed_at,
   });
@@ -166,10 +157,8 @@ function toQuietWindow(row: QuietWindowRow): QuietWindow {
  * The hash that decides whether a sighting is a new version.
  *
  * It covers exactly what the source controls: the course, the title, and the
- * due date. `effort`, `effort_judged` and `lead_minutes` are ours -- judged by
- * the model or defaulted by ingestion -- and folding them in would make his own
- * retag of a course look like every teacher in it moved every date on the same
- * afternoon.
+ * due date, with `null` for a date the source does not state. Nothing that
+ * belongs to Jarvis is folded in.
  *
  * `canonicalJson` rather than string concatenation, so a title containing the
  * separator cannot be arranged to collide with a different course and title.
@@ -177,7 +166,7 @@ function toQuietWindow(row: QuietWindowRow): QuietWindow {
 export function deadlineContentHash(input: {
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
+  readonly dueAt: string | null;
 }): Promise<string> {
   return sha256Hex(canonicalJson({ course: input.course, dueAt: input.dueAt, title: input.title }));
 }
@@ -195,19 +184,10 @@ export interface DeadlineUpsertInput {
   readonly externalId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: DeadlineEffort;
-  readonly leadMinutes: number;
-  /**
-   * Whether `effort` is the model's judgment (`deadline_record` /
-   * `deadline_judge`) or an ingestion default. Defaults to
-   * `replaceEffortAndLead`, so a tool that deliberately sets effort is judged.
-   */
-  readonly effortJudged?: boolean;
+  /** Null when the source states no due date. */
+  readonly dueAt: string | null;
   /** Omission preserves the stored status, including a prior submission. */
   readonly status?: DeadlineStatus;
-  /** Owner tools may retag unchanged content; collector sweeps preserve a prior retag. */
-  readonly replaceEffortAndLead?: boolean;
   readonly now: Date;
 }
 
@@ -219,7 +199,7 @@ export interface DeadlineUpsertResult {
   /** Metadata changes do not append a content revision. */
   readonly revisionId: string | null;
   /** What the row said before, present only on `revised`. It is how a caller reports that a date moved. */
-  readonly previous: Readonly<{ dueAt: string; title: string; course: string }> | null;
+  readonly previous: Readonly<{ dueAt: string | null; title: string; course: string }> | null;
 }
 
 export interface ListDueWithinInput {
@@ -227,7 +207,6 @@ export interface ListDueWithinInput {
   readonly to: Date | string;
   /** Defaults to open deadlines only; a submitted one is not something to remind about. */
   readonly statuses?: readonly DeadlineStatus[];
-  readonly efforts?: readonly DeadlineEffort[];
 }
 
 export type CreateQuietWindowInput =
@@ -379,40 +358,24 @@ export class DeadlineRepository {
    * Insert or update one deadline, appending a revision only when the content
    * hash moved.
    *
-   * On a change the row's `effort`, `effort_judged` and `lead_minutes` are
-   * rewritten from the arguments, and on no change they are left alone. That
-   * asymmetry is what lets the owner retag a deadline by hand and keep the tag:
-   * the sweep sees the same title tomorrow, computes the same hash, and does
-   * not reach the branch that would overwrite him.
+   * There is no effort or lead to reconcile any more. The row is what the
+   * source states: course, title, due date (possibly null) and, when the caller
+   * supplies one, Sid's status. A collector sweep and the owner tool converge
+   * on the same content hash, so a repeat sighting is one statement.
    *
-   * A sweep also preserves a judgment it did not make: when
-   * `replaceEffortAndLead` is false and the stored row is `effort_judged`, the
-   * revision keeps the stored effort and lead rather than writing the incoming
-   * `other`. Without that, a collector noticing a moved due date would undo the
-   * model's judgment on the same write, which is the bug this branch would
-   * otherwise have.
-   *
-   * An explicit owner status also replaces effort on unchanged content, so a
-   * spoken submission or retag cannot be swallowed by the polling fast path.
-   *
-   * `reminded_at` is cleared only when the due date itself moved. A corrected
-   * typo in a title is not a reason to remind him again; a date that moved is
-   * the one thing he must be told about a second time.
+   * The content-hash guard on every UPDATE is the race safety: a concurrent
+   * writer that changed the row makes this re-read and retry rather than write
+   * over it. A `null` due date is a value, not an absence to be filled in.
    */
   async upsert(input: DeadlineUpsertInput): Promise<DeadlineUpsertResult> {
     const sourceId = requireText(input.sourceId, "deadline_source_id", MAXIMUM_IDENTIFIER_CHARACTERS);
     const externalId = requireText(input.externalId, "deadline_external_id", MAXIMUM_IDENTIFIER_CHARACTERS);
     const course = requireText(input.course, "deadline_course", MAXIMUM_TITLE_CHARACTERS);
     const title = requireText(input.title, "deadline_title", MAXIMUM_TITLE_CHARACTERS);
-    const dueAt = requireInstant(input.dueAt, "deadline_due_at");
-    const effort = requireEffort(input.effort);
-    const leadMinutes = requireLeadMinutes(input.leadMinutes);
+    // Null is a real value: the source states no due date, and code must not
+    // manufacture one here or anywhere downstream.
+    const dueAt = input.dueAt === null ? null : requireInstant(input.dueAt, "deadline_due_at");
     const status = input.status === undefined ? null : requireStatus(input.status);
-    const replaceEffortAndLead = input.replaceEffortAndLead === true || status !== null;
-    // A tool that says "this is my judgment" is what makes the effort judged;
-    // an ingestion default is not. Defaulting to the replace flag keeps every
-    // caller that deliberately sets effort judged without a second argument.
-    const effortJudged = input.effortJudged ?? replaceEffortAndLead;
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
@@ -420,20 +383,14 @@ export class DeadlineRepository {
       // The common hourly path is one statement per unchanged item. Reading
       // first and then touching last_seen_at tripled the D1 cost of a steady
       // school feed before the caller even computed disappearances.
-      //
-      // The `effort_judged` term matters when replacing: a row still marked
-      // unjudged whose effort happens to match must fall through to the
-      // metadata update, or a judgment of "other" with the default lead would
-      // never be recorded as judged.
       const unchanged = await this.#database.prepare(
         `UPDATE deadlines
          SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
              status = coalesce(?, status)
          WHERE source_id = ? AND external_id = ? AND content_hash = ?
-           AND (? IS NULL OR status = ?) AND (? = 0 OR (effort = ? AND lead_minutes = ? AND effort_judged = ?))
+           AND (? IS NULL OR status = ?)
          RETURNING *`,
-      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status,
-        replaceEffortAndLead ? 1 : 0, effort, leadMinutes, effortJudged ? 1 : 0).first<DeadlineRow>();
+      ).bind(observedAt, observedAt, status, sourceId, externalId, contentHash, status, status).first<DeadlineRow>();
       if (unchanged !== null) {
         return Object.freeze({
           outcome: "unchanged" as const,
@@ -451,12 +408,12 @@ export class DeadlineRepository {
         const results = await this.#transactions.batch([
           this.#database.prepare(
             `INSERT INTO deadlines (
-               deadline_id, source_id, external_id, course, title, due_at, effort, effort_judged, lead_minutes,
-               status, content_hash, first_seen_at, last_seen_at, reminded_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, coalesce(?, 'open'), ?, ?, ?, NULL)
+               deadline_id, source_id, external_id, course, title, due_at, due_date,
+               effort, lead_minutes, status, content_hash, first_seen_at, last_seen_at
+             ) VALUES (?, ?, ?, ?, ?, coalesce(?, ''), ?, 'other', 0, coalesce(?, 'open'), ?, ?, ?)
              ON CONFLICT (source_id, external_id) DO NOTHING`,
           ).bind(
-            deadlineId, sourceId, externalId, course, title, dueAt, effort, effortJudged ? 1 : 0, leadMinutes,
+            deadlineId, sourceId, externalId, course, title, dueAt, dueAt,
             status, contentHash, observedAt, observedAt,
           ),
           // Guarded on the insert above having landed. Without the guard a lost
@@ -464,9 +421,9 @@ export class DeadlineRepository {
           // exist, and the foreign key would abort the batch -- turning a
           // benign collision into a failed sweep.
           this.#database.prepare(
-            `INSERT INTO deadline_revisions (revision_id, deadline_id, content_hash, due_at, title, observed_at)
-             SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM deadlines WHERE deadline_id = ?)`,
-          ).bind(revisionId, deadlineId, contentHash, dueAt, title, observedAt, deadlineId),
+            `INSERT INTO deadline_revisions (revision_id, deadline_id, content_hash, due_at, due_date, title, observed_at)
+             SELECT ?, ?, ?, coalesce(?, ''), ?, ?, ? WHERE EXISTS (SELECT 1 FROM deadlines WHERE deadline_id = ?)`,
+          ).bind(revisionId, deadlineId, contentHash, dueAt, dueAt, title, observedAt, deadlineId),
         ]);
         // Another writer inserted the same (source, external_id) first. Re-read
         // and take the update path rather than reporting a creation that is not
@@ -485,47 +442,29 @@ export class DeadlineRepository {
         // A metadata update must be receipted as an update without inventing a
         // due-date revision. Compare the read row so a racing edit is retried.
         const updated = await this.#database.prepare(`UPDATE deadlines
-          SET status = coalesce(?, status),
-              effort = CASE WHEN ? THEN ? ELSE effort END,
-              lead_minutes = CASE WHEN ? THEN ? ELSE lead_minutes END,
-              effort_judged = CASE WHEN ? THEN ? ELSE effort_judged END, last_seen_at = max(last_seen_at, ?)
+          SET status = coalesce(?, status), last_seen_at = max(last_seen_at, ?)
           WHERE deadline_id = ? AND content_hash = ?
-          RETURNING *`).bind(status, replaceEffortAndLead ? 1 : 0, effort, replaceEffortAndLead ? 1 : 0, leadMinutes,
-          replaceEffortAndLead ? 1 : 0, effortJudged ? 1 : 0, observedAt, existing.deadline_id,
-          contentHash).first<DeadlineRow>();
+          RETURNING *`).bind(status, observedAt, existing.deadline_id, contentHash).first<DeadlineRow>();
         if (updated === null) continue;
         return Object.freeze({ outcome: "updated" as const, deadline: toDeadline(updated), revisionId: null, previous: null });
       }
 
-      // A collector revision of an already-judged row keeps the judgment. The
-      // source controls the date and title, not what kind of work it is, so
-      // writing the incoming `other` here would silently undo the model on the
-      // same write that moved the deadline.
-      const keepJudgedEffort = !replaceEffortAndLead && existing.effort_judged === 1;
-      const writtenEffort = keepJudgedEffort ? requireEffort(existing.effort) : effort;
-      const writtenLeadMinutes = keepJudgedEffort ? existing.lead_minutes : leadMinutes;
-      const writtenJudged = keepJudgedEffort ? true : effortJudged;
       const revisionId = newUlid();
       const results = await this.#transactions.batch([
-        // SQLite evaluates every SET expression against the pre-update row, so
-        // `due_at = ?` inside the CASE is comparing the stored date with the
-        // incoming one.
         this.#database.prepare(
           `UPDATE deadlines
-           SET course = ?, title = ?, due_at = ?, effort = ?, lead_minutes = ?, effort_judged = ?,
-               content_hash = ?, last_seen_at = ?, status = coalesce(?, status),
-               reminded_at = CASE WHEN due_at = ? THEN reminded_at ELSE NULL END
+           SET course = ?, title = ?, due_at = coalesce(?, ''), due_date = ?, content_hash = ?, last_seen_at = ?, status = coalesce(?, status)
            WHERE deadline_id = ? AND content_hash = ?`,
         ).bind(
-          course, title, dueAt, writtenEffort, writtenLeadMinutes, writtenJudged ? 1 : 0, contentHash, observedAt, status,
-          dueAt, existing.deadline_id, existing.content_hash,
+          course, title, dueAt, dueAt, contentHash, observedAt, status,
+          existing.deadline_id, existing.content_hash,
         ),
         // Guarded on the new hash being what the row now holds, so a concurrent
         // writer that applied the same change cannot make us append it twice.
         this.#database.prepare(
-          `INSERT INTO deadline_revisions (revision_id, deadline_id, content_hash, due_at, title, observed_at)
-           SELECT ?, ?, ?, ?, ?, ? WHERE (SELECT content_hash FROM deadlines WHERE deadline_id = ?) = ?`,
-        ).bind(revisionId, existing.deadline_id, contentHash, dueAt, title, observedAt, existing.deadline_id, contentHash),
+          `INSERT INTO deadline_revisions (revision_id, deadline_id, content_hash, due_at, due_date, title, observed_at)
+           SELECT ?, ?, ?, coalesce(?, ''), ?, ?, ? WHERE (SELECT content_hash FROM deadlines WHERE deadline_id = ?) = ?`,
+        ).bind(revisionId, existing.deadline_id, contentHash, dueAt, dueAt, title, observedAt, existing.deadline_id, contentHash),
       ]);
       if ((results[0]?.meta.changes ?? 0) !== 1) continue;
       if ((results[1]?.meta.changes ?? 0) !== 1) throw new Error("deadline_revision_write_failed");
@@ -533,7 +472,7 @@ export class DeadlineRepository {
         outcome: "revised" as const,
         deadline: await this.#requireDeadline(existing.deadline_id),
         revisionId,
-        previous: Object.freeze({ dueAt: existing.due_at, title: existing.title, course: existing.course }),
+        previous: Object.freeze({ dueAt: existing.due_date, title: existing.title, course: existing.course }),
       });
     }
 
@@ -554,21 +493,44 @@ export class DeadlineRepository {
     return row === null ? null : toDeadline(row);
   }
 
-  /** Deadlines due in `[from, to)`. Half-open so consecutive digest windows neither overlap nor skip. */
+  /**
+   * Deadlines due in `[from, to)`. Half-open so consecutive digest windows
+   * neither overlap nor skip.
+   *
+   * A row with a null due date is not in any window: there is no instant to
+   * compare. Callers that must not miss one read `listReviewable`.
+   */
   async listDueWithin(input: ListDueWithinInput): Promise<readonly Deadline[]> {
     const from = instantOf(input.from, "deadline_window_from");
     const to = instantOf(input.to, "deadline_window_to");
     const statuses = (input.statuses ?? ["open"]).map(requireStatus);
     if (statuses.length === 0) throw new TypeError("deadline_status_invalid");
-    const efforts = input.efforts === undefined ? null : input.efforts.map(requireEffort);
-    if (efforts !== null && efforts.length === 0) throw new TypeError("deadline_effort_invalid");
 
-    const effortClause = efforts === null ? "" : ` AND effort IN (${placeholders(efforts.length)})`;
     const result = await this.#database.prepare(
       `SELECT * FROM deadlines
-       WHERE status IN (${placeholders(statuses.length)}) AND due_at >= ? AND due_at < ?${effortClause}
-       ORDER BY due_at, deadline_id`,
-    ).bind(...statuses, from, to, ...(efforts ?? [])).all<DeadlineRow>();
+       WHERE status IN (${placeholders(statuses.length)}) AND due_date >= ? AND due_date < ?
+       ORDER BY due_date, deadline_id`,
+    ).bind(...statuses, from, to).all<DeadlineRow>();
+    return Object.freeze(result.results.map(toDeadline));
+  }
+
+  /**
+   * Open deadlines a model review pass should see: those due in `[from, to)`,
+   * and every undated one, because an assignment with no due date is exactly
+   * what the model must ask Sid about. Undated rows sort first.
+   */
+  async listReviewable(input: { readonly from: Date | string; readonly to: Date | string; readonly statuses?: readonly DeadlineStatus[] }): Promise<readonly Deadline[]> {
+    const from = instantOf(input.from, "deadline_review_from");
+    const to = instantOf(input.to, "deadline_review_to");
+    const statuses = (input.statuses ?? ["open"]).map(requireStatus);
+    if (statuses.length === 0) throw new TypeError("deadline_status_invalid");
+    const result = await this.#database.prepare(
+      `SELECT * FROM deadlines
+       WHERE status IN (${placeholders(statuses.length)})
+         AND (due_date IS NULL OR (due_date >= ? AND due_date < ?))
+       ORDER BY due_date IS NOT NULL, due_date, deadline_id
+       LIMIT ${DEADLINE_REVIEW_ROW_LIMIT}`,
+    ).bind(...statuses, from, to).all<DeadlineRow>();
     return Object.freeze(result.results.map(toDeadline));
   }
 
@@ -582,8 +544,8 @@ export class DeadlineRepository {
         s.last_failure AS source_last_failure
       FROM deadlines d
       JOIN deadline_sources s ON s.source_id = d.source_id AND s.active = 1
-      WHERE d.status = 'open' AND d.due_at >= ?1 AND d.due_at < ?2
-      ORDER BY d.due_at, d.deadline_id
+      WHERE d.status = 'open' AND d.due_date >= ?1 AND d.due_date < ?2
+      ORDER BY d.due_date, d.deadline_id
       LIMIT ${STUDY_DEADLINE_ROW_LIMIT}`)
       .bind(toInstant(now), toInstant(to)).all<StudyDeadlineRow>();
     return Object.freeze(result.results.map((row) => {
@@ -605,32 +567,6 @@ export class DeadlineRepository {
   }
 
   /**
-   * Open deadlines whose reminder is due: still unreminded, still ahead of us,
-   * and inside their own lead time.
-   *
-   * The lead arithmetic is done here rather than in SQL on purpose. This
-   * subsystem defines an instant as one exact string format and compares it as
-   * text; SQLite's date functions define it a second time, with their own
-   * parsing rules, and a system with two definitions of "when" eventually
-   * disagrees with itself at a daylight-saving boundary. The row count is a
-   * student's open assignments, so reading them and filtering costs nothing.
-   */
-  async listReminderDue(now: Date): Promise<readonly Deadline[]> {
-    const at = toInstant(new Date(now.getTime()));
-    const result = await this.#database.prepare(
-      `SELECT * FROM deadlines
-       WHERE status = 'open' AND reminded_at IS NULL AND due_at > ?
-       ORDER BY due_at, deadline_id`,
-    ).bind(at).all<DeadlineRow>();
-    const milliseconds = new Date(at).getTime();
-    return Object.freeze(
-      result.results
-        .map(toDeadline)
-        .filter((deadline) => new Date(deadline.dueAt).getTime() - deadline.leadMinutes * 60_000 <= milliseconds),
-    );
-  }
-
-  /**
    * Open deadlines this source did not produce in the sweep that ran at
    * `observedAt`. Every sighting advances `last_seen_at` to the sweep's
    * timestamp, so anything still behind it was not seen.
@@ -640,18 +576,9 @@ export class DeadlineRepository {
     const result = await this.#database.prepare(
       `SELECT * FROM deadlines
        WHERE source_id = ? AND status = 'open' AND last_seen_at < ?
-       ORDER BY due_at, deadline_id`,
+       ORDER BY due_date, deadline_id`,
     ).bind(sourceId, at).all<DeadlineRow>();
     return Object.freeze(result.results.map(toDeadline));
-  }
-
-  /** Monotonic: a later mark wins, an earlier one is ignored, and a replay changes nothing. */
-  async markReminded(deadlineId: string, now: Date): Promise<boolean> {
-    const at = toInstant(new Date(now.getTime()));
-    const result = await this.#database.prepare(
-      "UPDATE deadlines SET reminded_at = ? WHERE deadline_id = ? AND (reminded_at IS NULL OR reminded_at < ?)",
-    ).bind(at, deadlineId, at).run();
-    return result.meta.changes > 0;
   }
 
   async createQuietWindow(input: CreateQuietWindowInput): Promise<QuietWindow> {

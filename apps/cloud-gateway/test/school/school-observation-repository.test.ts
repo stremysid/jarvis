@@ -37,8 +37,6 @@ async function fixture(suffix: string, dueAt = "2026-09-15T11:00:00.000Z"): Prom
     course: "Calculus",
     title: "Limits quiz",
     dueAt,
-    effort: "quiz",
-    leadMinutes: 60,
     now: NOW,
   });
   return { principalId, sourceId, deadlineId: deadline.deadline.deadlineId, deadlineExternalId };
@@ -177,8 +175,6 @@ describe("SchoolObservationRepository", () => {
         course: "Calculus",
         title: `Untrusted title ${index}`,
         dueAt: "2026-09-16T11:00:00.000Z",
-        effort: "other",
-        leadMinutes: 60,
         now: NOW,
       });
       items.push(observation(item, {
@@ -428,8 +424,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-20T11:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     await expect(repository.deriveMissingWorkPage({
@@ -463,8 +457,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-20T11:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     expect((await repository.readDigestSnapshot({
@@ -500,8 +492,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-15T12:30:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     expect((await repository.readDigestSnapshot({

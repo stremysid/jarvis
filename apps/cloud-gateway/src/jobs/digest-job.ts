@@ -353,7 +353,6 @@ function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]
     course: deadline.course,
     title: deadline.title,
     dueAt: deadline.dueAt,
-    effort: deadline.effort,
     ...(label === undefined ? {} : { source: label }),
   };
 }

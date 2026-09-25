@@ -5,25 +5,26 @@
  * Two sources feed this -- the Google Classroom API and Brightspace's private
  * calendar-subscription feed -- and the plan is explicit that both are
  * load-bearing, because coverage is split by teacher rather than by course.
- * Once ingested they are the same thing: a due date with a lead time. Nothing
- * below this line asks where a deadline came from, which makes a third source
- * cost nothing but an adapter.
+ * Once ingested they are the same thing: what the source states about an
+ * assignment. A source may state no due date at all, and that is stored as
+ * `null` rather than filled in; nothing here invents, defaults or infers one.
+ * Nothing below this line asks where a deadline came from, which makes a third
+ * source cost nothing but an adapter.
+ *
+ * There is deliberately no effort category and no warning lead here. Whether
+ * and when Sid is warned is Jarvis's decision through the reminder tools, not a
+ * column's.
  *
  * Everything that arrives from a source is untrusted text. A coursework title
  * is written by a teacher into a system we do not control, and a provider
  * response is whatever text the vendor served that morning. This subsystem
  * extracts structured data from it and never treats it as an instruction: a title is
  * stored as opaque text, bound into SQL as a parameter, and never read to decide
- * what the work is. It is never composed into a model prompt as though the owner had
- * said it, and nothing here builds a request, a path, or a regular expression
- * out of it.
+ * what the work is.
  */
 
 /** Mirrors the `kind` CHECK on `deadline_sources`. */
 export type DeadlineSourceKind = "classroom" | "brightspace" | "manual";
-
-/** Mirrors the `effort` CHECK on `deadlines`. */
-export type DeadlineEffort = "quiz" | "test" | "exam" | "essay" | "project" | "other";
 
 /** Mirrors the `status` CHECK on `deadlines`. */
 export type DeadlineStatus = "open" | "submitted" | "missed" | "cancelled";
@@ -33,10 +34,6 @@ export type QuietWindowReason = "exam" | "manual";
 
 export const DEADLINE_SOURCE_KINDS: readonly DeadlineSourceKind[] = Object.freeze([
   "classroom", "brightspace", "manual",
-]);
-
-export const DEADLINE_EFFORTS: readonly DeadlineEffort[] = Object.freeze([
-  "quiz", "test", "exam", "essay", "project", "other",
 ]);
 
 export const DEADLINE_STATUSES: readonly DeadlineStatus[] = Object.freeze([
@@ -109,28 +106,11 @@ export function requireText(value: unknown, label: string, maximumCharacters: nu
   return value;
 }
 
-export function requireEffort(value: unknown): DeadlineEffort {
-  if (typeof value !== "string" || !DEADLINE_EFFORTS.includes(value as DeadlineEffort)) {
-    throw new TypeError("deadline_effort_invalid");
-  }
-  return value as DeadlineEffort;
-}
-
 export function requireStatus(value: unknown): DeadlineStatus {
   if (typeof value !== "string" || !DEADLINE_STATUSES.includes(value as DeadlineStatus)) {
     throw new TypeError("deadline_status_invalid");
   }
   return value as DeadlineStatus;
-}
-
-/** A day of lead is generous; a year is a typo or an overflow, and the CHECK only stops negatives. */
-export const MAXIMUM_LEAD_MINUTES = 525_600;
-
-export function requireLeadMinutes(value: unknown): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > MAXIMUM_LEAD_MINUTES) {
-    throw new TypeError("deadline_lead_minutes_invalid");
-  }
-  return value as number;
 }
 
 /** A source of deadlines, as stored. */
@@ -150,7 +130,7 @@ export interface DeadlineSource {
   readonly createdAt: string;
 }
 
-/** A deadline, as stored. */
+/** A deadline, as stored. `dueAt` is null when the source states no due date. */
 export interface Deadline {
   readonly deadlineId: string;
   readonly sourceId: string;
@@ -158,16 +138,8 @@ export interface Deadline {
   readonly externalId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: DeadlineEffort;
-  /**
-   * False means ingestion defaulted `effort` to `other` because no one had
-   * judged the row yet. The listing shows it as unjudged so the model can see
-   * what still needs a judgment, and a collector revision keeps a judged effort
-   * instead of overwriting it. See `deadline-judgment-tools.ts`.
-   */
-  readonly effortJudged: boolean;
-  readonly leadMinutes: number;
+  /** Null means the assignment has no stated due date. Code never fills this in. */
+  readonly dueAt: string | null;
   readonly status: DeadlineStatus;
   /** Lowercase hex SHA-256 over the fields the source controls. See `deadlineContentHash`. */
   readonly contentHash: string;
@@ -178,7 +150,6 @@ export interface Deadline {
    * anything but an actual sighting.
    */
   readonly lastSeenAt: string;
-  readonly remindedAt: string | null;
 }
 
 /** One bounded open deadline with enough source health to label a study signal. */
@@ -194,7 +165,7 @@ export interface DeadlineRevision {
   readonly revisionId: string;
   readonly deadlineId: string;
   readonly contentHash: string;
-  readonly dueAt: string;
+  readonly dueAt: string | null;
   readonly title: string;
   readonly observedAt: string;
 }
@@ -220,13 +191,6 @@ export interface RawDeadlineItem {
   readonly externalId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  /**
-   * Set only when the source itself states the type. It is the source's
-   * assertion, not a model judgment; `deadline_judge` is how the model judges
-   * a collected row. See `deadline-ingestion.ts`.
-   */
-  readonly effort?: DeadlineEffort;
-  /** Set to override the effort's default lead time for this one item. */
-  readonly leadMinutes?: number;
+  /** Null when the source states no due date. Ingestion stores it as null. */
+  readonly dueAt: string | null;
 }

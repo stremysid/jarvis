@@ -18,14 +18,11 @@
  * Nothing in this file composes a title into a prompt, a path, or a pattern.
  */
 
-import { DEFAULT_LEAD_MINUTES } from "./effort-lead-times.js";
 import type { DeadlineRepository } from "./deadline-repository.js";
 import { truncateFailure } from "./deadline-repository.js";
 import {
-  requireLeadMinutes,
   toInstant,
   type Deadline,
-  type DeadlineEffort,
   type RawDeadlineItem,
 } from "./deadline-types.js";
 
@@ -56,8 +53,6 @@ export type RejectionReason =
   | "missing_course"
   | "missing_title"
   | "invalid_due_at"
-  | "invalid_effort"
-  | "invalid_lead_minutes"
   | "duplicate_external_id"
   | "invalid_source_item";
 
@@ -69,7 +64,7 @@ export interface RejectedDeadlineItem {
 
 export interface MovedDeadline {
   readonly deadline: Deadline;
-  readonly previousDueAt: string;
+  readonly previousDueAt: string | null;
   readonly previousTitle: string;
   /** True when the date itself moved, as opposed to a title or course correction. */
   readonly dueDateMoved: boolean;
@@ -109,16 +104,14 @@ interface NormalizedItem {
   readonly externalId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: DeadlineEffort | null;
-  readonly leadMinutes: number | null;
+  /** Null when the source states no due date; stored as null, never filled in. */
+  readonly dueAt: string | null;
 }
 
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/gu;
 const UNSAFE_IDENTIFIER_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 const WHITESPACE_RUN = /\s+/gu;
-const EFFORTS: readonly DeadlineEffort[] = Object.freeze(["quiz", "test", "exam", "essay", "project", "other"]);
 
 /**
  * Flatten a title to one line of stored text.
@@ -163,30 +156,22 @@ function normalizeItem(item: RawDeadlineItem): { ok: true; value: NormalizedItem
   const title = typeof item.title === "string" ? normalizeTitle(item.title) : "";
   if (title.length === 0) return { ok: false, rejection: { externalId, reason: "missing_title" } };
 
-  if (typeof item.dueAt !== "string" || !UTC_MILLISECONDS.test(item.dueAt)) {
-    return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
-  }
-  const parsed = new Date(item.dueAt);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== item.dueAt) {
-    return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
-  }
-
-  let effort: DeadlineEffort | null = null;
-  if (item.effort !== undefined) {
-    if (!EFFORTS.includes(item.effort)) return { ok: false, rejection: { externalId, reason: "invalid_effort" } };
-    effort = item.effort;
-  }
-
-  let leadMinutes: number | null = null;
-  if (item.leadMinutes !== undefined) {
-    try {
-      leadMinutes = requireLeadMinutes(item.leadMinutes);
-    } catch {
-      return { ok: false, rejection: { externalId, reason: "invalid_lead_minutes" } };
+  // Null is a real value: the assignment has no stated due date, and it is
+  // stored that way rather than rejected, defaulted or skipped. Only a
+  // non-null value that is not a canonical instant is refused.
+  let dueAt: string | null = null;
+  if (item.dueAt !== null) {
+    if (typeof item.dueAt !== "string" || !UTC_MILLISECONDS.test(item.dueAt)) {
+      return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
     }
+    const parsed = new Date(item.dueAt);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== item.dueAt) {
+      return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
+    }
+    dueAt = item.dueAt;
   }
 
-  return { ok: true, value: { externalId, course, title, dueAt: item.dueAt, effort, leadMinutes } };
+  return { ok: true, value: { externalId, course, title, dueAt } };
 }
 
 export class DeadlineIngestion {
@@ -291,20 +276,14 @@ export class DeadlineIngestion {
         }
         seen.add(item.externalId);
 
-        // Nothing here derives an effort from the title. A source tag is the
-        // source's own assertion; otherwise the row is `other` and stays
-        // unjudged until the model judges it through `deadline_judge`. Choosing
-        // a category from the title's words would be this code making Jarvis's
-        // decision.
-        const effort = item.effort ?? "other";
+        // The row is exactly what the source states, including a null due
+        // date. Nothing here derives an effort, a lead or a date.
         const result = await this.#repository.upsert({
           sourceId,
           externalId: item.externalId,
           course: item.course,
           title: item.title,
           dueAt: item.dueAt,
-          effort,
-          leadMinutes: item.leadMinutes ?? DEFAULT_LEAD_MINUTES[effort],
           now,
         });
 

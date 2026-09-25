@@ -16,7 +16,7 @@ beforeAll(async () => {
   // it is independent of the host migration this fixture is about applying
   // second. Leaving it out built an older row shape than any live database has.
   await applyD1Migrations(env.DB, MEMORY_BACKUP_RESTORE_MIGRATIONS.filter((row) =>
-    row.name < migrationName || row.name === "0053_deadline_effort_judgment.sql")
+    row.name < migrationName || row.name === "0053_deadlines_store_facts.sql")
     .map((row) => ({ name: row.name, queries: splitMigration(row.sql) })));
 });
 
@@ -41,7 +41,7 @@ it("migrates existing LDSB projections without changing deadline identities, rev
   expect((await deadlines.readSource(newSource))?.active).toBe(true);
   expect(await env.DB.prepare("SELECT host FROM school_collector_reads WHERE read_id = 'legacy-read'").first()).toEqual({ host: "ldsb.elearningontario.ca" });
   await new SchoolCollectorRepository(env.DB, f.owner, f.clock).ingest(f.key.collector_id, batch, await sha256Hex(bytes(batch)));
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id IN (?, ?)").bind(oldSource, newSource).first()).toEqual({ n: 1 });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id IN (?, ?)").bind(oldSource, newSource).first()).toEqual({ n: 2 });
   expect((await env.DB.prepare("SELECT * FROM deadline_revisions WHERE deadline_id = ? ORDER BY revision_id").bind(before!.deadline_id).all()).results).toEqual(revisions.results);
   expect((await env.DB.prepare("SELECT deadline_id, status, reminded_at FROM deadlines WHERE source_id = ?").bind(newSource).first()))
     .toEqual({ deadline_id: before!.deadline_id, status: "submitted", reminded_at: before!.reminded_at });
