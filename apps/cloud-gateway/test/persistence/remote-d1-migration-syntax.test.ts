@@ -78,6 +78,36 @@ const GUIDED_ASSIGNMENT_TRIGGERS = [
     BEGIN SELECT RAISE(ABORT, 'guided_assignment_answer_delete_forbidden'); END;`],
 ] as const;
 
+const OWNER_CHANNEL_PARITY_TRIGGERS = Object.freeze([
+  "school_course_cards_require_owner_turn_insert",
+  "school_course_cards_require_owner_turn_update",
+  "school_course_facts_require_owner_turn",
+  "school_catchup_actions_require_plan_turn",
+  "school_catchup_turn_receipts_require_turn",
+  "university_programs_require_owner_turn_insert",
+  "university_programs_require_owner_turn_update",
+  "university_program_items_require_owner_turn",
+  "university_tracker_turn_receipts_require_turn",
+  "school_study_preferences_require_owner_turn_insert",
+  "school_study_preferences_require_owner_turn_update",
+  "school_practice_items_source_guard",
+  "school_practice_items_status_transition",
+  "school_study_evidence_source_guard",
+  "school_study_evidence_status_transition",
+  "university_application_items_require_owner_turn_insert",
+  "university_application_items_require_owner_turn_update",
+  "university_workflow_revisions_require_owner_turn",
+  "school_study_signal_controls_insert_guard",
+]);
+
+function triggerDefinition(sql: string, name: string): string | undefined {
+  return new RegExp(`\\bCREATE\\s+TRIGGER\\s+${name}\\b[\\s\\S]*?\\bEND;`, "iu").exec(sql)?.[0];
+}
+
+function normalizedSql(sql: string): string {
+  return sql.replace(/\s+/gu, " ").trim();
+}
+
 describe("remote D1 migration trigger syntax", () => {
   it("pins all three guided assignment trigger names in migration 0043", () => {
     const migration = remoteD1Migrations.find(({ name }) => name === "0043_guided_assignment.sql");
@@ -90,6 +120,34 @@ describe("remote D1 migration trigger syntax", () => {
     const definition = new RegExp(`\\bCREATE\\s+TRIGGER\\s+${name}\\b[\\s\\S]*?\\bEND;`, "iu").exec(sql)?.[0];
     expect(definition?.replace(/\s+/gu, " ").trim()).toBe(`CREATE TRIGGER ${name} ${body.replace(/\s+/gu, " ").trim()}`);
   });
+
+  it("pins all nineteen widened trigger and drop names in migration 0044", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0044_owner_channel_parity.sql");
+    const sql = migration?.sql ?? "";
+    expect([...sql.matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)].map((match) => match[1]))
+      .toEqual(OWNER_CHANNEL_PARITY_TRIGGERS);
+    expect([...sql.matchAll(/\bDROP\s+TRIGGER\s+([a-z0-9_]+)/giu)].map((match) => match[1]))
+      .toEqual(OWNER_CHANNEL_PARITY_TRIGGERS);
+  });
+
+  it.each(OWNER_CHANNEL_PARITY_TRIGGERS)(
+    "keeps %s in its complete prior form with only the owner channel widened",
+    (name) => {
+      const current = remoteD1Migrations.find(
+        ({ name: migrationName }) => migrationName === "0044_owner_channel_parity.sql",
+      )?.sql ?? "";
+      const previous = [...remoteD1Migrations]
+        .reverse()
+        .find(({ sequence, sql }) => sequence < 44 && triggerDefinition(sql, name) !== undefined)?.sql ?? "";
+      const previousDefinition = triggerDefinition(previous, name);
+      const expected = previousDefinition?.replace(
+        /channel\s*=\s*'telegram'/gu,
+        "channel IN ('telegram', 'voice')",
+      );
+      expect(expected).not.toBe(previousDefinition);
+      expect(normalizedSql(triggerDefinition(current, name) ?? "")).toBe(normalizedSql(expected ?? ""));
+    },
+  );
 
   it("discovers every migration", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
@@ -132,7 +190,9 @@ describe("remote D1 migration trigger syntax", () => {
       "0039_tool_confirmation_consumptions.sql",
       "0040_school_collector_keys.sql",
       "0043_guided_assignment.sql",
+      "0044_owner_channel_parity.sql",
       "0045_school_collector_hosts.sql",
+      "0048_note_sources_without_markdown_citation.sql",
       "0049_web_tools.sql",
     ]);
   });
@@ -211,3 +271,4 @@ describe("remote D1 migration trigger syntax", () => {
     }
   });
 });
+

@@ -32,7 +32,7 @@ heads, verdicts and next owners; merged PRs have left it.
 
 | PR | What it would change |
 |---|---|
-| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; `codex/channel-parity` at `ac5c89e`, migration `0044`; round-5 integration review approved at `0e458a6` and the `ac5c89e` merge delta cleared, with one pre-existing finding (F1: the voice refusal names `/decisions`, which is not a command) for its owner to fix before merge |
+| [#174](https://github.com/stremysid/jarvis/pull/174) | Owner channel parity and guest-call privacy fix; `codex/channel-parity`, migration `0044`; round-5 integration review approved at `0e458a6`, F1 (voice refusal named `/decisions`) fixed in `d9738d6`, and head `ca14f01` reviewed PASS. A Claude-authored merge of main `2e12b3b` (#179, #180, #183, #188, #191) followed and needs a DeepSeek audit before merge |
 | [#168](https://github.com/stremysid/jarvis/pull/168) | Owner reminders, head `d214216`, conflicting against main; needs its builder/renumbering round after #174; #166 has merged |
 | [#179](https://github.com/stremysid/jarvis/pull/179) | This docs refresh, now round 5: Claude-authored fixes for the round-4 review at `34b4c78`; needs a non-Claude (DeepSeek) audit of the round-5 delta before merge |
 | [#180](https://github.com/stremysid/jarvis/pull/180) | Test lows, reviewed and cleared: ready to merge at `ac8d75b` after a main merge at `68675ba`, 0 High/Medium/Low on round 1, 7/7 mutants killed. Earlier CI failed the local-agent (ubuntu-latest) real-socket 0.1 s retry-wait race and the hermes-runtime (windows) `canonical-closure-review3.test.mjs:51` default 5 s timeout; both unrelated to #180 and now addressed by #185 |
@@ -50,23 +50,22 @@ heads, verdicts and next owners; merged PRs have left it.
 
 | Phase | Verdict | Remaining boundary |
 |---|---|---|
-| 1 The nervous system | **partial; shared agent core** | `OwnerAgentCore` shares the loop, caps, tier gate and receipt guard. Telegram and voice still compose separate conversations; #174 addresses channel parity. No shared conversation DO, SMS path or Queues |
-| 2 Memory | **shared write store; different recall** | #147 lets calls act on `memory_items` through `D1MemoryControlTargetFinder`. Telegram recalls the memory store; voice still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. #174 addresses recall and confirmation parity. Hidden-text receipts remain a defect |
+| 1 The nervous system | **shared owner brain in code (#174, not deployed); transcript continuity partial** | Channel-parity shares the 18-tool catalogue, pipeline construction, core prompt, honesty checks and canonical retrieval. Telegram Worker and voice CallSession remain transport adapters with separate conversations. `CHANNEL-CONTINUITY-TRANSCRIPT` in QUEUE covers the missing cross-channel assistant transcript. No shared conversation DO, SMS path or Queues |
+| 2 Memory | **shared code paths (#174, not deployed); rollout unverified** | Both channels now retrieve canonical `memory_items`, projected facts and bounded D1/R2 owner history through the same reader. Same-call replies retain durable target references, while model-inferred promotion requires the shared tap. Deployed `a7cd355` predates this: voice there still recalls `memory_fact_projection_*`, recorded empty on 2026-09-21. Hidden-text receipts remain a defect |
 | 3 School | **paste and calendar deployed; guided assignment and D2L collector/receiver merged, rollout pending** | #164 (Telegram assignment pastes) and #165 (private calendar feed) are deployed in `0d69556`; owner acceptance of both is in OWNER-ACTIONS. #172 guided assignments, #169/#170 the receiver/extension, #175/#176/#178 two-board evidence and date labels, and #166 owner-reported deadlines (no migration) are on main, pending tonight's deploy of `68675ba` with migrations `0040`, `0043` and `0045`. The extension compatibility hold and host-failure emission still need a follow-up. Live two-board acceptance remains pending; the old D2L email route yields no deadlines |
 | 4 Control | **built and deployed for taps; policy remains table-driven** | #159's single-use ten-minute taps and migration `0039` are applied in production (orchestrator-observed). On main, #182 is not deployed: confirmations bind tool name, capability and argument hash, and a changed second autonomy outcome is denied. T1/T2 guards remain in QUEUE. Pending pre-deploy confirmations need a fresh tap; see [the compatibility note](../KNOWN_ISSUES.md#tier-3-confirmations-issued-before-tool-binding-2026-09-24) |
-| 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate |
+| 5 Calling | **calls owner-reported working; streaming merged, acceptance incomplete; full owner catalogue in code via #174** | Sid, 2026-09-24: "ive already done test calling and it works". #147 memory tools are deployed; #171 streaming and #172 guided tools are on main. That owner report does not establish #171 live streaming/receipt/latency checks or the full voice release gate. #174 gives voice the same 18 tools, including school, university and study; migration `0044_owner_channel_parity.sql` widens 19 existing pipeline owner-turn triggers without removing their other checks. A call sends model-inferred memory confirmation to the shared Telegram decision queue; tier 3 also requires a Telegram tap until the separate PIN rebuild. No live call or rollout of #174 |
 | 6 Daily rhythm | **cron only** | Four cron triggers; owner reminders await #168. Jarvis cannot schedule its own wake-ups or choose the digest time |
 | 7 Plumbing | **mostly built** | Backup, archive and watchdog code are present; heartbeat was observed working. No external watchdog recorded; vault sync stops at 64 notes. #145 adds Windows `serve`, #157 sync/store recovery; device acceptance remains in OWNER-ACTIONS |
 
 Measured against [the roadmap](plan/2026-09-19-jarvis-roadmap.md).
 
-## The one thing that changes what Jarvis is
+## Owner channel parity
 
-Both channels share the agent loop; their context and catalogues still differ. On main,
-voice has memory, deadline, guided-assignment and school-collector tools while Telegram also
-has school, university and study pipelines; production (`0d69556`) predates the guided and
-collector tools, so voice there has the nine memory tools. Voice recall still reads the
-local-agent projection. #174 is the pending parity change, not a deployed guarantee.
+Sid, 2026-09-23: **"THE ONLY difference between call and telegram is the method of communication, THAT'S IT."** In code (#174, not deployed), both channels share one `OWNER_TOOL_DEFINITIONS` catalogue (18 tools), `OwnerAgentCore`, one prompt core, one claim policy, the same canonical recall and the same Telegram tap for inferred memory and tier 3; guests get no owner profile, framing or tools.
+Only phrasing, voice's retrieval deadline and the `/queue` pointer differ; voice assistant replies are not yet in the cross-channel timeline (`CHANNEL-CONTINUITY-TRANSCRIPT`).
+Deployed `a7cd355` predates it: voice there lacks the school, university and study pipelines and recalls the local-agent projection.
+[Full audit, premise corrections and evidence](reviews/2026-09-23-channel-parity.md).
 
 ## Production
 

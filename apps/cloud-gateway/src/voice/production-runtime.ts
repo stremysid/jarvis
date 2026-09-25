@@ -1,4 +1,5 @@
-import { D1ContextRetriever } from "../conversation/context-retriever.js";
+import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
+import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
 import { AutonomyService } from "../autonomy/autonomy-service.js";
@@ -19,7 +20,7 @@ import {
 import { CallRepository } from "../persistence/call-repository.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
-import { DeepSeekAgentProvider, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, DeepSeekModelAdapter, DEFAULT_MODEL } from "../providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
@@ -156,6 +157,13 @@ export function createProductionCallSessionCore(
     targets,
     ...(meaningSearch === undefined ? {} : { memorySearch: meaningSearch }),
     directOwnerText: true,
+    ...createOwnerPipelineModels(env, new DeepSeekModelAdapter({
+      apiKey: configuration.modelApiKey, model: configuration.model,
+      // A tier-3 tap is claimed before the tool body. Voice also has a tighter
+      // response deadline, so hidden reasoning must not spend the claimed tap's
+      // remaining window before the validated pipeline can settle its receipt.
+      telegramTurn: true, telegramThinking: "disabled",
+    }), new Redactor(), ownerPrincipalId, true, now),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
     // The same tier gate Telegram puts in front of its tools, constructed here
     // rather than left out: a channel that dispatches tools without it is the
@@ -171,7 +179,7 @@ export function createProductionCallSessionCore(
   const conversation = new DefaultConversationService({
     repository: conversations,
     model: agent,
-    context: new D1ContextRetriever(env.DB),
+    context: new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE, meaningSearch, now }),
     dispatcher,
     redactor: new Redactor(),
     now,

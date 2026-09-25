@@ -1,10 +1,11 @@
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
 import { ownerTelegramToolAuthority } from "../../src/index.js";
 import { composeReceiptReply } from "../../src/agent/owner-agent-core.js";
 import { schoolPlanReceipt } from "../../src/school/school-catchup-receipt.js";
-import { OwnerTelegramAgentAdapter, OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../../src/channels/telegram/owner-telegram-agent.js";
+import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
@@ -259,7 +260,7 @@ describe("school assignment pastes", () => {
   });
 
   it("describes when each pipeline should handle school progress or tutoring", () => {
-    const descriptions = Object.fromEntries(OWNER_TELEGRAM_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.description]));
+    const descriptions = Object.fromEntries(OWNER_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.description]));
     expect(descriptions.school_update).toContain("pasted D2L assignment list");
     for (const example of ["I missed", "I finished", "what should I do today"]) expect(descriptions.school_update).toContain(example);
     expect(descriptions.university_update).toContain("I finished my application draft");
@@ -415,7 +416,7 @@ describe("school assignment pastes", () => {
   });
 
   it("wires the school planner to the production core-profile database", () => {
-    const sources = import.meta.glob("../../src/index.ts", { query: "?raw", import: "default", eager: true });
-    expect(sources["../../src/index.ts"]).toMatch(/const schoolModel = new SchoolCatchupModelAdapter\(\{\s*model: baseModel,\s*database: env.DB,/u);
+    const sources = import.meta.glob("../../src/agent/owner-pipelines.ts", { query: "?raw", import: "default", eager: true });
+    expect(sources["../../src/agent/owner-pipelines.ts"]).toMatch(/const schoolModel = new SchoolCatchupModelAdapter\(\{\s*model: baseModel,\s*database: env.DB,/u);
   });
 });

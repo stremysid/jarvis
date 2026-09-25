@@ -94,7 +94,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  * tier 2. `tesla_unlock` moves the car and is tier 3.
  *
  * A model cannot reach any of these through the agent today -- they are absent
- * from `OWNER_TELEGRAM_TOOL_DEFINITIONS`, so an attempt falls through to the
+ * from `OWNER_TOOL_DEFINITIONS`, so an attempt falls through to the
  * unknown-tool refusal. Listing them here means the tier question is already
  * answered when the tool is finally defined, instead of being answered in a
  * hurry at the same time as the integration.
