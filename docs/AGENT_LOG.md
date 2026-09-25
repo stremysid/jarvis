@@ -48,15 +48,21 @@ half-done changes were discarded before this started.
   compare the now-placeholder `deadlines.due_at`; the Brightspace ICS client
   cannot surface an item with no `DUE`/`DTSTART` at all; the collector's
   `staleAfterMs` default remains.
-- **Evidence.** `test/deadlines`: **184 passed / 0 failed**. The neighbour set
-  (persistence, jobs, digest, calendar, http, reminders, autonomy, school,
-  channels, voice, agent, memory, providers, backup): **4,123 passed / 0
-  failed**. Source `tsc --noEmit` clean; `typecheck:tests` 140 baseline errors,
-  none new in a touched file. `reviewer-tools/mutate.ps1` at `8c98bcd8`:
-  **12/12 KILLED, each confirmed on a second run**, 0 survived / not-applied /
-  invalid, restore byte-identical across 6 files. The first sweep had D5
-  survive because the list notice also contained "no due date"; the test now
-  pins the row line itself.
+- **Evidence.** `test/deadlines`: **184 passed / 0 failed**. Focused neighbour
+  runs were green (61 files across digest, http, persistence, school and the
+  agent: **1,902 passed / 0 failed**; a later 12-file set 231 passed). A single
+  169-file local run under load produced unrelated voice/PIN timeouts, so CI is
+  the authority here: the **`workspace suite` job passed** at `87d3ec62`. The
+  only failing CI job, on both the first run and the re-run, is
+  `hermes-runtime suite (windows)`: `sbom-integrity-round2.test.mjs >
+  rejects a fabricated release-shaped source root ...` times out at 5000 ms.
+  That file passes alone on this PC (14/14, 5.8 s) and touches no deadline code;
+  it is the known Hermes timeout flake #185 addresses. Source `tsc --noEmit`
+  clean; `typecheck:tests` 140 baseline errors, none new in a touched file.
+  `reviewer-tools/mutate.ps1` at `8c98bcd8`: **12/12 KILLED, each confirmed on
+  a second run**, 0 survived / not-applied / invalid, restore byte-identical
+  across 6 files. The first sweep had D5 survive because the list notice also
+  contained "no due date"; the test now pins the row line itself.
 - **Not verified:** no deploy, no live D1, no production read. The review pass
   runs daily from the digest, not on each collector upload, so a new deadline is
   seen at least once a day. Live model compliance with the reminder-tool prompt
