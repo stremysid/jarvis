@@ -1,5 +1,6 @@
 import { validateEnvelope, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { CONVERSATION_EVENT_PRODUCER_VERSION, CONVERSATION_EVENT_SOURCE } from "../conversation/conversation-repository.js";
+import { admitsHistoryEligible, CALL_REPLY_EVENT_TYPE } from "../conversation/history-eligibility.js";
 import { readHistoryPayloadEnvelope } from "./telegram-memory-controls.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -29,7 +30,9 @@ function safeUlid(value: unknown): Ulid {
 export function readVoiceReplyPayload(value: unknown): VoiceReplyPayload {
   const { memoryItemIds, ...history } = value as Record<string, unknown>;
   const text = readHistoryPayloadEnvelope(history, "owner_agent_previous_reply_invalid");
-  if (history.channelCode !== 1 || history.historyEligible !== false || memoryItemIds !== undefined && (
+  // The same reading of the flag as literal history and recent context: either value.
+  if (history.channelCode !== 1 || !admitsHistoryEligible(CALL_REPLY_EVENT_TYPE, history.historyEligible)
+    || memoryItemIds !== undefined && (
     !Array.isArray(memoryItemIds) || memoryItemIds.length === 0 || memoryItemIds.length > 8
     || memoryItemIds.some(id => typeof id !== "string" || !ULID.test(id))
     || new Set(memoryItemIds).size !== memoryItemIds.length

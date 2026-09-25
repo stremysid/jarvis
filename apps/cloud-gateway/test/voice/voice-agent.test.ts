@@ -487,14 +487,16 @@ describe("the voice agent adapter", () => {
     const base = { schemaCode: 1, channelCode: 1, sensitivityCode: 1, historyEligible: false, text: "A reply." };
     const id = newUlid();
     expect(readVoiceReplyPayload({ ...base, memoryItemIds: [id] }).itemIds).toEqual([id]);
+    // The flag is legacy on a call reply: either boolean is read, as literal history and recent context do.
+    expect(readVoiceReplyPayload({ ...base, historyEligible: true, memoryItemIds: [id] }).itemIds).toEqual([id]);
     for (const payload of [
-      { ...base, channelCode: 2 }, { ...base, historyEligible: true }, { ...base, memoryItemIds: [] },
+      { ...base, channelCode: 2 }, { ...base, historyEligible: "true" }, { ...base, memoryItemIds: [] },
       { ...base, memoryItemIds: ["invalid"] }, { ...base, memoryItemIds: [id, id] },
       { ...base, memoryItemIds: "invalid" }, { ...base, memoryItemIds: Array.from({ length: 9 }, () => newUlid()) },
     ]) expect(() => readVoiceReplyPayload(payload)).toThrow("owner_agent_previous_reply_invalid");
   });
 
-  it("keeps every settled voice assistant reply out of general history", async () => {
+  it("still writes the legacy historyEligible false on a settled voice reply, which every history reader admits", async () => {
     const principalId = `principal:voice-history-ineligible:${serial + 1}`;
     await runVoiceTurn({
       text: "hello",
@@ -1161,12 +1163,12 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(25);
+    expect(request?.tools).toHaveLength(26);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
-      "memory_confirm", "memory_explain", "memory_search", "memory_pin", "memory_unpin",
+      "memory_confirm", "memory_explain", "memory_search", "history_search", "memory_pin", "memory_unpin",
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",

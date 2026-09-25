@@ -35,6 +35,93 @@ Signed: Claude Opus 5.5 (builder agent), branch `codex/email-inbox-ds`, from `75
 - **Not verified:** no deploy, no live delivery, no remote migration. Reading a code aloud
   on an owner call needs no PIN, per the #196 OWNER-ACTIONS row ("Reading or saying
   anything Jarvis knows never needs it"). This PR adds no gate.
+## 2026-09-25 — Claude builder: #198 merges main `cc398eba` (#195, #197, #168) after the re-audit PASS
+
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search` from `79d8676c`. Normal merge; no
+merge to main, deploy or migration. Touches Sid's rules 3, 4 and 8.
+
+- **Conflicts:** `voice-agent.test.ts` tool count (main 23, this branch 19) resolved to **24**; OWNER-ACTIONS
+  keeps main's `0048` row and adds the #198 deploy row; AGENT_LOG keeps both sides.
+- **Counts:** STATE's catalogue lines now say 24 (#174's 18, #195's 2 web tools, #168's 3 reminder tools,
+  `history_search`).
+- **#197 reader:** `history_search` adds no redactor; its text reaches Sid through the turn's reader, which
+  production sets to `owner` for Sid on both channels, and guests get no owner tools. The tests now build the
+  same readers production does (`telegramTurnRedactor`, `voiceSessionAudience`) instead of the new `external`
+  default, and a new test gives Sid his locker code back unredacted on a call and on Telegram.
+
+## 2026-09-25 — Claude builder: #198 round 2 (DeepSeek audit findings 1–8)
+
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,
+[#198](https://github.com/stremysid/jarvis/pull/198), after a normal merge of
+`origin/main`. No merge, deploy, migration or production access. Touches Sid's
+rules 3, 8 and 9. **Claude-authored, so the delta needs a DeepSeek re-audit.**
+
+- **F1 carriers:** STATE's tool counts (18 → 19 with `history_search`) and
+  cross-channel-timeline lines, and QUEUE's `CHANNEL-CONTINUITY-TRANSCRIPT`
+  status (now "partly done in #198", with what is still open), corrected.
+- **F2 one flag reading:** `conversation/history-eligibility.ts`
+  (`admitsHistoryEligible`) is the only reading of a call reply's
+  `historyEligible`; literal history, recent context and `readVoiceReplyPayload`
+  all use it, so the writer can be flipped without breaking Telegram recall.
+  #174's voice test that pinned "`true` is refused" was updated to the new
+  contract.
+- **F3 backfill:** new messages are indexed before the call-reply backfill;
+  backfill runs once the cursor has caught up; forget/lift/archive refreshes keep
+  priority.
+- **F4–F6 wording:** a missing range now carries `missingReason`
+  (`not_indexed_yet`/`being_reindexed`) and only the tail is called "the newest
+  messages"; an emptied page names forgotten messages as well as the speaker; a
+  refused around read names the event id.
+- **F7:** the around test runs from a call and from Telegram and compares the
+  receipts. **F8:** `reviewer-tools/mutation-specs-history-search.json` is the
+  committed sweep spec (the 24 round-1 mutations, three re-pointed, plus nine
+  round-2 ones).
+- **Evidence:** in the PR comment.
+
+## 2026-09-25 — Claude builder: history_search, on calls and Telegram (codex/history-search)
+
+Signed: Claude (builder agent, Opus 5.5), branch `codex/history-search`,
+[#198](https://github.com/stremysid/jarvis/pull/198). Started stacked on #194; #194 has
+since merged (`605c177`) and the branch is merged up to main. No merge, deploy,
+migration or production access.
+**Needs a DeepSeek audit.** Touches Sid's rules 1, 3, 4, 8 and 9.
+
+- **What it is.** `history_search`, plan #122 §3.3 phase 4a: FTS over literal
+  history, returning the real messages (date, call/Telegram, Sid/Jarvis, event id,
+  excerpt of the original text), one page at a time with a more-results line and
+  the index's coverage, plus an `aroundEventId` shape that reads the messages
+  either side of a hit from the event stream. Defined once in `memory-tools.ts`,
+  which #174's single `OWNER_TOOL_DEFINITIONS` carries to both channels;
+  dispatched in `OwnerAgentCore`; classified `memory.read` (tier 1, no migration).
+- **Line breaks.** The first version of this branch also stored a search form in
+  the chunk, after proving (mutation M1) that `0016`'s CHECK still refused raw line
+  breaks on top of #194 round 1. #194 round 2 then did the same with the chunk
+  hash covering the search form; this branch now uses #194's `historySearchText`
+  and drops its own copy. The first sweep's M19 finding (the retriever hashed the
+  chunk against the original-text hash) is moot under #194's hash semantics.
+- **Call replies are history.** `conversation.assistant_sent` is admitted by
+  `literal-history.ts` (`historyEvent`, `sourceChannel`) and by
+  `D1ContextRetriever`, with either `historyEligible` value and with any
+  `memoryItemIds` (#174) set aside as identifiers. `recordVoiceSent` is **not**
+  changed: #174's `readVoiceReplyPayload` requires `historyEligible: false` for the
+  spoken-reply grounding, and no history reader needs the flag any more. Replies
+  the cursor already passed are backfilled through the maintenance path.
+  `searchLiteral` (the automatic recall path) stays owner-only.
+- **A fifth reader the plan did not list (finding).** `TelegramMemoryRetriever`'s
+  forgotten-turn filter (`withoutForgottenTurns`) threw on any context event that
+  was not `user_committed` or `assistant_delivered`, so once call replies reached
+  recent context, recall returned nothing (caught by
+  `voice-agent.test.ts > retrieves the same canonical memory and owner history on
+  either channel`). It now links a call reply to its turn through
+  `sent_assistant_event_id` and reads its cited memory ids with
+  `readVoiceReplyPayload`, so a reply citing a forgotten memory is dropped as a
+  Telegram one is. #174's call-reply payload also carries `memoryItemIds`; the
+  history readers set those identifiers aside instead of refusing the row.
+- **Not done / limits:** R2-only call replies below the cursor are not
+  backfilled; one call reply cannot be forgotten by id (0016's suppression
+  trigger); no date/channel/sort filters or whole-day read; the unindexed tail is
+  reported, not scanned (phase 4b). In KNOWN_ISSUES.
+- **Evidence:** in the PR body.
 
 ## 2026-09-25 — Claude builder: #168 round 4, merge of main `8d7e2c02` after the DeepSeek PASS
 

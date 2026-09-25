@@ -13,6 +13,7 @@ import type {
   RetrievedContext,
 } from "../conversation/conversation-types.js";
 import { D1ContextRetriever } from "../conversation/context-retriever.js";
+import { readVoiceReplyPayload } from "./voice-memory-reference.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
   CONVERSATION_EVENT_SOURCE,
@@ -83,6 +84,8 @@ const MEANING_TIMEOUT_CODE = "memory_meaning_search_timeout";
 const MEANING_PROVIDER_ERROR_CODE = "memory_meaning_search_provider_error";
 const ASSISTANT_STAGE_EVENT_TYPE = "conversation.assistant_staged";
 const ASSISTANT_DELIVERED_EVENT_TYPE = "conversation.assistant_delivered";
+/** A call reply: recorded as sent on the relay, with no delivery row. */
+const ASSISTANT_SENT_EVENT_TYPE = "conversation.assistant_sent";
 const HISTORY_PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
 ]);
@@ -715,6 +718,32 @@ async function deliveredAssistantText(input: Readonly<{
     throw new TypeError("telegram_memory_reference_invalid");
   }
   return conversationText(envelope.payload);
+}
+
+/**
+ * A call reply as recent context: the text Jarvis spoke and the memory ids it
+ * cited, read with #174's own payload reader, so a reply that cited a memory
+ * Sid has since forgotten is filtered the same way a Telegram reply is.
+ */
+async function spokenAssistantReply(input: Readonly<{
+  envelopeJson: string;
+  eventId: Ulid;
+  turnId: Ulid;
+  userEventId: Ulid;
+  principalId: string;
+}>): Promise<Readonly<{ text: string; itemIds: readonly Ulid[] }>> {
+  let decoded: unknown;
+  try { decoded = JSON.parse(input.envelopeJson); }
+  catch { throw new TypeError("telegram_memory_reference_invalid"); }
+  const envelope = await validateEnvelope(decoded);
+  if (envelope.eventId !== input.eventId || envelope.correlationId !== input.turnId
+    || envelope.causationId !== input.userEventId || envelope.subjectId !== input.principalId
+    || envelope.eventType !== ASSISTANT_SENT_EVENT_TYPE
+    || envelope.source !== CONVERSATION_EVENT_SOURCE
+    || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  return readVoiceReplyPayload(envelope.payload);
 }
 
 function citedMemoryItemIds(text: string): readonly Ulid[] {
@@ -1640,6 +1669,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         FROM context_events context
         JOIN events event ON event.event_id = context.event_id AND event.subject_id = ?1
         LEFT JOIN conversation_turns turn ON turn.delivered_assistant_event_id = event.event_id
+          OR turn.sent_assistant_event_id = event.event_id
         LEFT JOIN events owner_event ON owner_event.event_id = turn.user_event_id
         LEFT JOIN conversation_deliveries delivery ON delivery.delivery_id = turn.staged_delivery_id
         LEFT JOIN events staged ON staged.event_id = delivery.staged_event_id
@@ -1701,6 +1731,30 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           assistant: false,
           suppressed,
           referencedItemIds: Object.freeze([]),
+        }));
+        return;
+      }
+      if (row.event_type === ASSISTANT_SENT_EVENT_TYPE) {
+        // A call reply is recent context too (D1ContextRetriever admits it).
+        // It has a turn but no staged delivery; forgetting Sid's turn hides it.
+        if (row.staged_event_id !== null || row.staged_envelope_json !== null) {
+          throw new TypeError("telegram_memory_suppression_invalid");
+        }
+        const reply = await spokenAssistantReply({
+          envelopeJson: row.event_envelope_json,
+          eventId,
+          turnId: safeUlid(row.turn_id),
+          userEventId: safeUlid(row.user_event_id),
+          principalId,
+        });
+        const context = contexts.find((entry) => entry.sourceEventId === eventId);
+        if (context === undefined || context.text !== reply.text) {
+          throw new TypeError("telegram_memory_suppression_invalid");
+        }
+        metadata.set(eventId, Object.freeze({
+          assistant: true,
+          suppressed,
+          referencedItemIds: Object.freeze([...new Set([...reply.itemIds, ...citedMemoryItemIds(reply.text)])]),
         }));
         return;
       }
