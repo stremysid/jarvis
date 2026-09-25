@@ -135,8 +135,10 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
 
   protected port(input: Readonly<ModelAdapterStreamInput>): OwnerAgentChannelPort {
     const adapter = this;
+    const ownerZone = adapter.telegram.timeZone ?? "America/Toronto";
+    const now = () => adapter.telegram.now?.() ?? new Date();
     return Object.freeze({
-      channelPrompt: `Owner time zone: ${adapter.telegram.timeZone ?? "America/Toronto"}. Message arrival: ${adapter.telegram.turnReceivedAt ?? (adapter.telegram.now?.() ?? new Date()).toISOString()}. Resolve deadline dates from this message, not a later processing time; if you are unsure which date or time Sid means, ask him.`,
+      channelPrompt: `Owner time zone: ${ownerZone}. Current instant: ${now().toISOString()}. Message arrival: ${adapter.telegram.turnReceivedAt ?? now().toISOString()}. Resolve deadline dates from this message, not a later processing time. Use the current instant and owner zone when choosing reminder times. If you are unsure which date or time Sid means, ask him.`,
       toolDefinitions: OWNER_TOOL_DEFINITIONS,
       // Authority: this is Sid's direct current Telegram text, and nothing else.
       // A turn that fails this refuses before any tool body and before the tier
@@ -179,7 +181,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
         "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.",
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
-        () => adapter.telegram.now?.() ?? new Date(), adapter.telegram.timeZone ?? "America/Toronto"),
+        now, ownerZone),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await adapter.previousAssistant(turnInput);
