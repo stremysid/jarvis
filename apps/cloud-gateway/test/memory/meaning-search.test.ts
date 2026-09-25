@@ -1165,6 +1165,31 @@ describe("memory meaning indexing", () => {
     expect(await service.readCoverage(fixture.principalId)).toEqual({ eligible: 1, indexed: 1, missing: 0 });
   });
 
+  it("indexes an archived owner message with line breaks against its search-form chunk", async () => {
+    const principalId = await seedPrincipal();
+    // The chunk stores line breaks as spaces (the 0016 CHECK refuses them);
+    // the verified event keeps the original text.
+    const archived = await seedArchivedMeaningHistory({
+      principalId,
+      chunkText: "The archived cello recital moved to Monday.",
+      envelopeText: "The archived cello recital\nmoved to Monday.",
+    });
+    const vectors = new FakeVectors();
+    const service = new MemoryMeaningService({
+      database: env.DB,
+      embeddings: new FakeEmbeddings(),
+      vectors,
+      historyEvents: archived.historyEvents,
+    });
+
+    await expect(service.runIndexStep(principalId)).resolves.toMatchObject({
+      outcome: "indexed",
+      upserted: 1,
+      remaining: false,
+    });
+    expect(vectors.upserts[0]?.metadata.itemId).toBe(archived.hit.itemId);
+  });
+
   it("fails an archived owner candidate whose verified payload text differs from the indexed chunk", async () => {
     const principalId = await seedPrincipal();
     const archived = await seedArchivedMeaningHistory({
@@ -1504,6 +1529,22 @@ describe("Telegram meaning recall", () => {
     });
     expect(contexts[0]?.text).toContain(`${event.occurredAt}; telegram; speaker owner]`);
     expect(contexts[0]?.text).not.toContain(hit.contentHash);
+  });
+
+  it("returns meaning-history evidence with the owner's original line breaks", async () => {
+    const principalId = await seedPrincipal();
+    const text = "The biology lab is due Thursday.\nBring the goggles.";
+    const event = await seedConversation(principalId, text, "conversation.user_committed");
+    const hit = await indexConversationAsHistory({
+      principalId,
+      ...event,
+      text,
+      chunkText: "The biology lab is due Thursday. Bring the goggles.",
+    });
+
+    const contexts = await retrieve(principalId, "When is the science lab due?", { hits: [hit] });
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.text).toContain("speaker owner]: The biology lab is due Thursday.\nBring the goggles.");
   });
 
   it("does not repeat a recent turn as meaning-history evidence", async () => {
