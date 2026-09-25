@@ -10,6 +10,7 @@
  */
 
 import { validateEnvelope, type Ulid } from "../../../../../packages/contracts/src/index.js";
+import { sanitizeRedaction } from "../../../../../packages/contracts/src/calls.js";
 import type { ArchiveBucket } from "../../archive/archival-service.js";import type { ToolAutonomyGateContract } from "../../autonomy/tool-gate.js";
 import type { DecisionItem, RaiseDecisionInput } from "../../decisions/decision-types.js";
 import { buildDecisionKeyboard } from "../../decisions/telegram-keyboard.js";
@@ -141,9 +142,15 @@ export function ownerTelegramAgentSystemPrompt(
 }
 
 export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
+  private readonly authorityText: string;
+
   constructor(private readonly telegram: OwnerTelegramAgentDependencies) {
     super(telegram, snapshotTelegramModelAdapterStreamInput);
-    safeText(telegram.authorityText, 65_536);
+    // handleTurn supplies redacted text to the model and durable owner proof.
+    // Comparing it with raw ingress text falsely denies every redacted turn.
+    const authority = sanitizeRedaction(safeText(telegram.authorityText, 65_536));
+    if (!authority.ok) throw new TypeError("owner_agent_authority_invalid");
+    this.authorityText = authority.text;
     if (telegram.replyToBotMessageId !== undefined && telegram.replyToBotMessageId !== null
       && (!Number.isSafeInteger(telegram.replyToBotMessageId) || telegram.replyToBotMessageId <= 0)) {
       throw new TypeError("owner_agent_authority_invalid");
@@ -160,7 +167,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       // gate, so a steered or forwarded turn is not even audited as an action.
       canActOn: (): boolean => {
         if (input.channel !== "telegram" || input.principalId !== adapter.telegram.ownerPrincipalId
-          || adapter.telegram.authorityText !== input.userText) return false;
+          || adapter.authorityText !== input.userText) return false;
         return true;
       },
       authorityRefusal:
