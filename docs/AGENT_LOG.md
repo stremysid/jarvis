@@ -3,6 +3,58 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: a collected deadline gets a judged effort, and a lead override survives (`codex/effort-by-ai` round 2)
+
+Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `5933c49f`, round 2 on PR
+#201, fixing the Claude cross-vendor review of `34cce44`. Touches Sid's rules 1,
+2 and 8. No merge, no deploy, no database query, no production read.
+
+- **F1 — every deadline, not just Sid's own.** `deadline_record` only reached
+  `source_id = 'owner-reported'`, so every collected row was `other` with the
+  1,440-minute lead and the exam quiet window could never open for one. Two
+  tools now share the core (`deadline-judgment-tools.ts`, in `OWNER_TOOL_DEFINITIONS`
+  so calls and Telegram are identical): `deadline_list` lists open rows with
+  their `deadlineId` and marks a row whose effort nobody judged as
+  "unjudged effort (stored other)", telling the model to judge each one and
+  never to infer effort from a title word list; `deadline_judge` sets effort and
+  optional lead on any stored row by id. Migration
+  `0053_deadline_effort_judgment.sql` adds `deadlines.effort_judged`, marks
+  owner-reported rows judged and leaves collected rows unjudged. Reviewer
+  finding 1's second blocker is fixed in `DeadlineRepository.upsert`: when
+  `replaceEffortAndLead` is false and the stored row is judged, a content
+  revision keeps the stored effort and lead instead of writing the incoming
+  `other`.
+- **F5 — existing rows.** The same migration marks every existing collected row
+  unjudged, so the model can re-judge the keyword classifier's old answers
+  rather than being stuck with them. No separate reset migration is needed.
+- **F2 — a lead override survives.** `leadMinutesForWrite` keeps a stored lead
+  when the caller names none and the effort is unchanged, and uses the new
+  effort's default only when the kind of work changed. A status update or a
+  due-date correction no longer resets 45 to 10,080.
+- **F3 — the receipt says what was saved.** `deadline_record`'s receipt now
+  carries `effort <x>; lead <n> minutes`.
+- **F4 — dead code removed.** `DeadlineIngestionOptions.courseEffort` and its
+  `E2` spec are gone; it had no production caller, no store and no model-facing
+  surface.
+- **Register.** `docs/CODE-VS-JUDGMENT.md` corrects the overclaim that "Jarvis
+  sets effort through `deadline_record`" and states the remaining limit: there
+  is no scheduled model pass over newly collected deadlines; the digest composes
+  no prompt, so judging happens on an owner turn that lists deadlines.
+- **Evidence.** `test/deadlines`: **206 passed / 0 failed** (10 files). The
+  65-file neighbour set (persistence, autonomy, backup, digest, reminders,
+  email, web, memory-search, provider catalogue, collector ingest/migration,
+  calendar feed, study-coach signals): **1,268 passed / 0 failed**. An earlier
+  run of that set caught two consequences of the new migration — a hard-coded
+  schema version and a partial-schema fixture that stopped before `0053` — and
+  both were fixed before this green run. Source `tsc --noEmit` clean;
+  `typecheck:tests` has no diagnostic in any touched file (140 baseline errors
+  elsewhere). `reviewer-tools/mutate.ps1` at `5933c49f`: **13/13 KILLED, each
+  confirmed on a second run**, 0 survived / not-applied / invalid, restore
+  verified byte-identical.
+- **Not verified:** no deploy, no live D1, no production read. No scheduled AI
+  pass judges new collected deadlines automatically; adding one is a separate
+  design decision, because the digest is deliberately model-free.
+
 ## 2026-09-25 — DeepSeek builder: deadlines get effort from Jarvis, not a keyword list (`codex/effort-by-ai`)
 
 Signed: **DeepSeek**, reasoning effort not exposed to the session, so it is stated
