@@ -187,6 +187,8 @@ async function seedItem(
     principalId: memory.principalId,
     itemId,
     kind: "fact",
+    // The fixture states the pair the caller asked for: an end means temporary.
+    lifetime: validTo === null ? "durable" : "temporary",
     creationEventId: source.eventId,
     creationEventSequence: source.eventSequence,
     version: {

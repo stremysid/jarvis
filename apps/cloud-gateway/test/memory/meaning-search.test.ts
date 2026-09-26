@@ -265,6 +265,8 @@ async function remember(text: string): Promise<MemoryFixture> {
     text,
     kind: "preference",
     sensitivity: "normal",
+    lifetime: "durable",
+    validTo: null,
   });
   const item = await new MemoryRepository(env.DB).readCurrentItem(principalId, receipt.item.itemId);
   return { principalId, controls, item, sourceEventId: turn.input.eventId };
@@ -281,6 +283,8 @@ async function rememberAnother(
     text,
     kind: "preference",
     sensitivity: "normal",
+    lifetime: "durable",
+    validTo: null,
   });
   return new MemoryRepository(env.DB).readCurrentItem(principalId, receipt.item.itemId);
 }
@@ -295,6 +299,7 @@ async function lift(fixture: MemoryFixture): Promise<CanonicalMemoryItem> {
   const result = await fixture.controls.lift({
     ownerTurn: turn.input,
     candidateItemIds: [fixture.item.itemId],
+    basis: "stated",
   });
   return new MemoryRepository(env.DB).readCurrentItem(fixture.principalId, result.item.itemId);
 }

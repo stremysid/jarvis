@@ -31,15 +31,15 @@ submitting school work, texting or calling someone on his behalf). Sid,
 is the stuff I mentioned and that's literaly it". Four other asks exist
 outside the tier registry and are not changed by it:
 
-- **Forgetting two or more memories at once asks for a Telegram tap.**
-  `OwnerAgentCore.forget` in
+- **Forgetting two or more memories at once: RESOLVED 2026-09-25.** This used
+  to raise a `telegram-memory-forget` tap because the memory ledger recorded
+  one mutation per owner turn (`commandKey`). `OwnerAgentCore.forget` in
   [`owner-agent-core.ts`](apps/cloud-gateway/src/agent/owner-agent-core.ts)
-  raises a `telegram-memory-forget` decision when `itemIds.length !== 1`.
-  It is not one of the five. It stays because the memory ledger records one
-  mutation per owner turn (`commandKey` in
-  [`memory-owner-controls.ts`](apps/cloud-gateway/src/memory/memory-owner-controls.ts)),
-  so forgetting several without the tap needs a per-item idempotency key, a
-  ledger change of its own. Forgetting one memory never asks.
+  now forgets every id it was given, and each target carries its own key,
+  `<turn event>:forget:<itemId>`. Nothing is queued for a tap. The consumer
+  that resolves a decision already in the queue
+  (`forgetConfirmedDecision`) is kept, not deleted. See
+  [CODE-VS-JUDGMENT](docs/CODE-VS-JUDGMENT.md) rows 6–9 and 13.
 - **Changing guest access on a call no longer ends with "Say confirm".**
   Removed in the calls judgment batch (2026-09-25): `#confirmOwnerAccess`, the
   `parseOwnerAccessIntent` grammar and the 60-second proposal expiry are
@@ -368,7 +368,7 @@ the corrected tool gates, normal 403s and undated digest evidence.
 | Voice and Telegram still retrieve different stores. | [production-runtime.ts](apps/cloud-gateway/src/voice/production-runtime.ts) composes `D1ContextRetriever`; [index.ts](apps/cloud-gateway/src/index.ts) composes `TelegramMemoryRetriever`. They share the owner tool loop in `bde0a9b` (#147), **deployed in the observed production revision `0d69556`**. Voice context still reads the projection, recorded empty on 2026-09-21 under `352991e`; its contents were not re-queried. |
 | Provenance enforcement depends on the adapter. | [conversation-repository.ts](apps/cloud-gateway/src/conversation/conversation-repository.ts) persists `directOwnerText`; [telegram-memory-controls.ts](apps/cloud-gateway/src/memory/telegram-memory-controls.ts) checks it for direct controls. [validateOwnerTurn](apps/cloud-gateway/src/memory/memory-repository.ts) still takes caller-supplied flags and intent rather than a complete persisted provenance/intent enum. The old claim that no marker exists is false. |
 | Moving or merging the bootstrap inbox can break later bootstrap reads. | `readBootstrapState` in [memory-repository.ts](apps/cloud-gateway/src/memory/memory-repository.ts) requires an active inbox directly under the root. Future topic callers must preserve that invariant or support redirects. |
-| Accepted commands can finish later; acceptance and application are separate. | [memory-owner-controls.ts](apps/cloud-gateway/src/memory/memory-owner-controls.ts) replays accepted commands without a durable command expiry. A failed forget/lift race can consume the turn mutation key without applying; correction appends replacement and retirement commands before its atomic memory batch, leaving a partial command pair if interrupted. |
+| Accepted commands can finish later; acceptance and application are separate. | [memory-owner-controls.ts](apps/cloud-gateway/src/memory/memory-owner-controls.ts) replays accepted commands without a durable command expiry. A failed forget/lift race can consume that target's command key without applying (forget keys on the target as of 2026-09-25, so one target's failure no longer blocks the turn); correction appends replacement and retirement commands before its atomic memory batch, leaving a partial command pair if interrupted. |
 | Targeting has different limits at different layers. | `exactSingleTarget` applies to individual controls, but `forgetItemsFromDecision` already supports a decision-bound set. [memory-control-targets.ts](apps/cloud-gateway/src/memory/memory-control-targets.ts) caps target discovery and narrows correction candidates to active items; [the control service](apps/cloud-gateway/src/memory/memory-owner-controls.ts) also refuses inactive corrections. The old “every request accepts exactly one” statement was too broad. No new coverage claim for the redundant finder check. |
 | Restored inferred proposals do not auto-promote merely because they were restored. | [liftItem](apps/cloud-gateway/src/memory/memory-repository.ts) records an owner transition. An explicit confirmation path now exists in [memory-owner-controls.ts](apps/cloud-gateway/src/memory/memory-owner-controls.ts); saying that it must be built before restore can be exposed is obsolete. [voice-agent.ts](apps/cloud-gateway/src/voice/voice-agent.ts) reads the previous assistant turn from the same call in `bde0a9b` (#147), **deployed in the observed production revision `0d69556`**. A tier-3 confirmation on a call is the spoken or keyed PIN once [#196](https://github.com/stremysid/jarvis/pull/196) is deployed with `OWNER_ACTION_PIN` set; on Telegram it stays a tap. |
 | Proposed items remain outside meaning recall. | [meaning-search.ts](apps/cloud-gateway/src/memory/meaning-search.ts) selects `memory_retrievable_item_versions`, whose [0016 view](apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql) requires active state. Keyword/area recall can include uncertain proposals. A non-direct turn may yield an uncertain reference; it does not thereby become an authenticated owner fact. |
