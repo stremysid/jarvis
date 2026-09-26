@@ -3,6 +3,34 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rules 1, 2, 3 and 8.
+
+- **What changed.** The nine intent parsers in `school/study-coach-model.ts` are deleted
+  (`parsePracticeRequest`, `parseStudyPreferenceIntent`, `parseOwnerStudyObservation`,
+  `resolveCourse`/`phraseMatches`, `forgetSubject`/`correctionIntent`/
+  `parseStudySignalControlIntent`/`parseCheckInPracticeMode`, `isUncertainAnswer`,
+  `plausiblyAnswersQuiz`, `courseFactSource` priority, and the fixed clarifying question).
+  `study_coach` is now one tool whose arguments carry the model's declared action:
+  `operation` (practice, check_in_practice, observe, preference, forget, signal, answer_quiz,
+  stop_quiz, correction) plus `mode`, `sourcePhrase`, `useCourseEvidence`, `factId`, `courseId`,
+  `topic`, `outcome`, `signal` and `preferencePatch`.
+- **What code keeps.** Course and fact ids are validated against the owner's own snapshot, the
+  enum values are checked, and the quiz answer keeps its 30-minute window and 256-byte bound.
+  A missing or unknown course or fact id returns the candidate list instead of defaulting; the
+  model asks Sid. Removed: the 12-word quiz-answer cap, the negation/"finished"/"plan" word
+  lists, the fuzzy course matching, the fact priority sort, and the code-written clarifying
+  question. The study-coach receipts stay code-authored, because they are receipts.
+- **Plumbing.** `owner-agent-core.ts`'s `runPipeline` passes the tool call to `study_coach`
+  (and only that pipeline; the others still refuse any argument), and `collectPipelineOutcome`
+  forwards it. `owner-tools.ts` uses the exported `STUDY_COACH_TOOL`.
+- **Verified here:** gateway `tsc` 0; 76 focused files across school, agent, channels, voice,
+  autonomy and providers: 2320 passed, 1 load-sensitive timeout in
+  `call-session-relay-fixes.test.ts` that passes 9/9 alone; `mutate.ps1` with
+  `mutation-specs-judg-coach1.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
 ## 2026-09-25 — DeepSeek builder: calls judgment batch (`codex/calls-judgment-to-ai`)
 
 Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 8.
