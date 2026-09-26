@@ -235,6 +235,10 @@ function deadlineSignals(
   return deadlines.flatMap((item) => {
     const course = matchCourse(courses, item.deadline.course);
     if (course === null) return [];
+    // A study signal is a claim about timing, so an undated deadline has no
+    // signal to contribute here. It is not dropped from the store or the
+    // deadline listing; it simply is not a near-due signal.
+    if (item.deadline.dueAt === null) return [];
     const due = Date.parse(item.deadline.dueAt);
     if (!Number.isFinite(due)) return [];
     const hours = (due - now.getTime()) / 3_600_000;

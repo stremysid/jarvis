@@ -126,7 +126,7 @@ describe("ClassroomClient", () => {
     throw new Error(`unrouted ${url.pathname}`);
   }
 
-  it("collects every dated published assignment across active courses and keys each one by course and item", async () => {
+  it("collects every published assignment, storing a missing due date as null rather than skipping it", async () => {
     const { fetchImplementation, calls } = stubFetch(corpus);
     const client = new ClassroomClient({ accessToken: async () => "token-abc", fetchImplementation, timeZone: "America/Toronto" });
 
@@ -135,11 +135,16 @@ describe("ClassroomClient", () => {
 
     expect(items).toEqual([
       { externalId: "c-physics:1", course: "SPH4U Physics", title: "Unit 3 Quiz", dueAt: "2026-09-15T18:30:00.000Z" },
+      // Classroom states no due date for this one. It is still stored, with a
+      // null due date, so Jarvis can see it and ask Sid.
+      { externalId: "c-physics:2", course: "SPH4U Physics", title: "Formula sheet", dueAt: null },
       { externalId: "c-english:1", course: "ENG4U English", title: "Comparative essay", dueAt: "2026-09-21T03:59:59.999Z" },
     ]);
     // The two items share a Classroom id; only the course prefix keeps them
     // from collapsing onto one row under the (source, external_id) key.
     expect(new Set(items.map((item) => item.externalId)).size).toBe(items.length);
+    // The grade/submission sync still gets the undated ids, because it cannot
+    // derive a missing-work transition without a due date.
     expect(collection.undatedExternalIds).toEqual(["c-physics:2"]);
     expect([...collection.courseWorkMaxPoints]).toEqual([
       ["c-physics:1", 10],
