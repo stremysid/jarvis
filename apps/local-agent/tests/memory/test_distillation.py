@@ -74,7 +74,12 @@ def coordinator(archive: ArchiveRepository, facts: FactRepository, client: FakeC
 
 
 def proposal(**overrides: Any) -> dict[str, Any]:
-    base = {"text": "Sid likes coffee", "sourceEventIds": [f"{1:026x}"]}
+    base = {
+        "text": "Sid likes coffee",
+        "sourceEventIds": [f"{1:026x}"],
+        "confidence": 0.9,
+        "sensitivity": "normal",
+    }
     base.update(overrides)
     return base
 
@@ -191,6 +196,38 @@ def test_a_confidence_outside_a_probability_is_dropped(
     archive.insert_event_if_absent(event(1, "I like coffee"))
     client = FakeClient([proposal(confidence=confidence)])
     assert coordinator(archive, facts, client).run_once().proposals_recorded == 0
+
+
+def test_a_missing_confidence_is_dropped_rather_than_becoming_certainty(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    raw = proposal()
+    raw.pop("confidence")
+    assert coordinator(archive, facts, FakeClient([raw])).run_once().proposals_recorded == 0
+
+
+@pytest.mark.parametrize("sensitivity", ["restricted", 1, True, None])
+def test_an_unknown_or_absent_sensitivity_is_dropped(
+    archive: ArchiveRepository, facts: FactRepository, sensitivity: Any
+) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    raw = proposal()
+    if sensitivity is None:
+        raw.pop("sensitivity")
+    else:
+        raw["sensitivity"] = sensitivity
+    assert coordinator(archive, facts, FakeClient([raw])).run_once().proposals_recorded == 0
+
+
+def test_a_sensitive_proposal_keeps_its_sensitivity(archive: ArchiveRepository, facts: FactRepository) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(sensitivity="sensitive")])
+    assert coordinator(archive, facts, client).run_once().proposals_recorded == 1
+    stored = facts.connection.execute(
+        "SELECT sensitivity FROM fact WHERE principal_id = ?", (PRINCIPAL,)
+    ).fetchone()
+    assert stored is not None and stored[0] == "sensitive"
 
 
 def test_one_bad_proposal_does_not_discard_the_good_ones(archive: ArchiveRepository, facts: FactRepository) -> None:

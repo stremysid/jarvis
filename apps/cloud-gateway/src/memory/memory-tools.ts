@@ -36,12 +36,12 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
-      required: ["fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity", "lifetime", "expiresAt"],
+      required: ["fact", "supportingExcerpt", "basis", "filingConfidence", "kind", "sensitivity", "lifetime", "expiresAt"],
       properties: {
         fact: { type: "string", minLength: 1, maxLength: 4096, description: "The fact in Sid's own words, one sentence. Do not tidy or summarise his phrasing." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "The exact words from Sid's current message that carry the fact. Copied, never paraphrased." },
-        evidenceClass: { enum: ["stated", "confirmed"], description: "stated when Sid said it plainly; confirmed only when he is confirming wording you offered first." },
-        previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096, description: "The words of your immediately previous offer, when evidenceClass is confirmed. Pass null otherwise." },
+        basis: { enum: ["stated", "confirmed", "observed", "inferred", "third_party"], description: "What the evidence counts as. stated when Sid said it plainly; confirmed only when he is confirming wording you offered first; observed when you saw it happen; inferred when the wording is your own inference and not his sentence; third_party when it comes from somebody else. You decide this; there is no default." },
+        filingConfidence: { type: "number", minimum: 0, maximum: 1, description: "0 to 1: how sure you are that this fact belongs where you are filing it, not whether the fact is true. Low values keep it in the inbox for review. Required every time; there is no default." },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"], description: "What sort of thing it is about Sid: a fact about him, a preference, a plan, a decision he made, or a relationship." },
         sensitivity: { enum: ["normal", "sensitive"], description: "sensitive for anything you would not repeat in front of someone else." },
         lifetime: { enum: ["durable", "temporary"], description: "You decide how long this lasts. durable for something with no end date (\"I hate mornings\"); temporary for something that stops being true, which must also carry expiresAt (\"I'm tired today\"). There is no default: state it every time, and if you cannot tell how long it lasts, ask Sid rather than guessing." },
@@ -55,11 +55,13 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
-      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity", "lifetime", "expiresAt"],
+      required: ["itemId", "newFact", "supportingExcerpt", "basis", "filingConfidence", "kind", "sensitivity", "lifetime", "expiresAt"],
       properties: {
         itemId: { type: "string", description: "The id of the memory being replaced, from the item ids in your context." },
         newFact: { type: "string", minLength: 1, maxLength: 4096, description: "The new wording, drawn from Sid's current message." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "The exact words from his current message that carry the new wording." },
+        basis: { enum: ["stated", "confirmed", "observed", "inferred", "third_party"], description: "What the corrected evidence counts as. stated when Sid said the new wording plainly; confirmed only when he is confirming wording you offered; inferred when the new wording is your own inference. You decide this; there is no default." },
+        filingConfidence: { type: "number", minimum: 0, maximum: 1, description: "0 to 1: how sure you are that the corrected memory belongs where you are filing it, not whether it is true. Required every time; there is no default." },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"], description: "What sort of thing it is about Sid." },
         sensitivity: { enum: ["normal", "sensitive"], description: "sensitive for anything you would not repeat in front of someone else." },
         lifetime: { enum: ["durable", "temporary"], description: "You decide how long the replacement lasts. When the correction changes only the wording, pass the replaced memory's own lifetime and expiresAt; when it changes the timespan too, say so here. There is no default." },

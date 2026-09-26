@@ -19,31 +19,17 @@ import { readPreviousVoiceAssistant } from "./voice-memory-reference.js";
  */
 
 import { validateEnvelope, type Ulid } from "../../../../packages/contracts/src/index.js";
-import { ArchivalService, type ArchiveBucket } from "../archive/archival-service.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
   CONVERSATION_EVENT_SOURCE,
 } from "../conversation/conversation-repository.js";
-import { MemoryRepository } from "./memory-repository.js";
-import {
-  MemoryRepositoryError,
-  type MemoryLifecycleState,
-} from "./memory-types.js";
-import { CANDIDATE_SUPPRESSION_CLAUSES } from "./suppression-clauses.js";
+import { type MemoryLifecycleState } from "./memory-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
-const MAX_FTS_TERMS = 16;
-const MAX_FTS_TERM_BYTES = 128;
 const MAX_CONTROL_TARGETS = 2;
 const MAX_REFERENCED_ITEMS = 8;
 const MAX_QUERY_BYTES = 65_536;
 const encoder = new TextEncoder();
-
-const CONTROL_STOPWORDS = new Set([
-  "a", "about", "again", "an", "and", "could", "do", "forget", "i", "it", "me",
-  "memory", "my", "please", "remember", "that", "the", "think", "this", "use", "why",
-  "would", "you",
-]);
 
 const ALL_MEMORY_STATES: readonly MemoryLifecycleState[] = Object.freeze([
   "proposed", "active", "rejected", "superseded", "forgotten", "expired",
@@ -89,12 +75,6 @@ const SUPPORTED_OPERATIONS = Object.freeze({
   forget: true, lift: true, confirm: true, explain: true, correct: true, pin: true, unpin: true,
 } satisfies Readonly<Record<MemoryTargetOperation, true>>);
 
-interface CandidateRow {
-  readonly item_id: unknown;
-  readonly version_id: unknown;
-  readonly relevance: unknown;
-}
-
 interface PreviousAssistantRow {
   readonly turn_id: unknown;
   readonly user_event_id: unknown;
@@ -111,8 +91,6 @@ interface ItemStateRow {
 
 export interface MemoryControlTargetFinderOptions {
   readonly database: D1Database;
-  /** Absent in some test compositions; only the item store is read either way. */
-  readonly archive?: ArchiveBucket;
 }
 
 class StatementBudget {
@@ -186,38 +164,6 @@ function safeUlid(value: unknown): Ulid {
   return value as Ulid;
 }
 
-function candidateRows(value: unknown): readonly Readonly<{ itemId: Ulid; versionId: Ulid }>[] {
-  if (!Array.isArray(value) || value.length > MAX_CONTROL_TARGETS) {
-    throw new TypeError("telegram_memory_candidates_invalid");
-  }
-  return Object.freeze(value.map((rowValue) => {
-    if (rowValue === null || typeof rowValue !== "object" || Array.isArray(rowValue)) {
-      throw new TypeError("telegram_memory_candidate_invalid");
-    }
-    exactRow(rowValue, new Set(["item_id", "version_id", "relevance"]), "telegram_memory_candidate_invalid");
-    const row = rowValue as unknown as CandidateRow;
-    if (typeof row.relevance !== "number" || !Number.isFinite(row.relevance)) {
-      throw new TypeError("telegram_memory_candidate_invalid");
-    }
-    return Object.freeze({ itemId: safeUlid(row.item_id), versionId: safeUlid(row.version_id) });
-  }));
-}
-
-function controlFtsQuery(value: string): string | null {
-  const terms: string[] = [];
-  const seen = new Set<string>();
-  for (const match of value.matchAll(/[\p{L}\p{N}]+/gu)) {
-    const term = match[0].normalize("NFC");
-    const folded = term.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
-    if (CONTROL_STOPWORDS.has(folded) || encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES
-      || seen.has(folded)) continue;
-    seen.add(folded);
-    terms.push(`"${term}"`);
-    if (terms.length === MAX_FTS_TERMS) break;
-  }
-  return terms.length === 0 ? null : terms.join(" AND ");
-}
-
 function targetStates(operation: MemoryTargetOperation): readonly MemoryLifecycleState[] {
   if (operation === "forget") return Object.freeze(["active", "proposed"]);
   if (operation === "lift") return Object.freeze(["forgotten"]);
@@ -250,77 +196,27 @@ export class D1MemoryControlTargetFinder implements MemoryTargetFinder {
       throw new TypeError("telegram_memory_target_invalid");
     }
     const states = targetStates(input.operation);
-    const query = input.query === null ? null : safeText(input.query, 1_024, "telegram_memory_target_invalid");
-    const terms = query === null ? null : controlFtsQuery(query);
-    if (query !== null && terms === null) return Object.freeze([]);
-    // One budget per lookup, split across the item read and the target SQL so a
-    // read that starts walking the store fails rather than timing out.
+    // One budget per lookup, so a read that starts walking the store fails
+    // rather than timing out mid-write.
     const ids = countedDatabase(this.database, new StatementBudget(MEMORY_CONTROL_TARGET_LIMITS.d1Statements));
-    const memory = this.memory(ids);
-    if (terms === null) {
-      return input.turnId === undefined
-        ? Object.freeze([])
-        : this.findLastReferencedTarget(ids, principalId, safeUlid(input.turnId), states);
-    }
-    return this.selectControlTargets(ids, memory, principalId, states, terms);
-  }
-
-  private memory(database: D1Database): MemoryRepository {
-    const bucket = this.options.archive;
-    return bucket === undefined
-      ? new MemoryRepository(database)
-      // `archivedEventReader` is passed whenever an archive bucket exists so a
-      // remembered source that has since been archived still resolves. Without
-      // the bucket the finder has no archive to read and constructs without it.
-      : new MemoryRepository(database, {
-        archivedEventReader: new ArchivalService({
-          database, bucket, cacheVerifiedSegments: true,
-        }),
-      });
-  }
-
-  private async selectControlTargets(
-    ids: D1Database,
-    memory: MemoryRepository,
-    principalId: string,
-    states: readonly MemoryLifecycleState[],
-    terms: string,
-  ): Promise<readonly Ulid[]> {
-    const stateSql = states.map((state) => `'${state}'`).join(", ");
-    const result = await ids.prepare(`SELECT version.item_id, version.version_id,
-        memory_item_fts.rank AS relevance
-      FROM memory_item_fts
-      JOIN memory_item_versions version ON version.version_rowid = memory_item_fts.rowid
-      JOIN memory_item_state state
-        ON state.principal_id = version.principal_id
-        AND state.current_version_id = version.version_id
-      JOIN memory_items item
-        ON item.principal_id = state.principal_id AND item.item_id = state.item_id
-      WHERE memory_item_fts MATCH ? AND state.principal_id = ?
-        AND state.lifecycle_state IN (${stateSql})
-        ${CANDIDATE_SUPPRESSION_CLAUSES}
-      ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
-      .bind(terms, principalId, MAX_CONTROL_TARGETS).all<CandidateRow>();
-    const rows = candidateRows(result.results);
-    const selected: Ulid[] = [];
-    for (const candidate of rows) {
-      try {
-        const item = await memory.readCurrentItem(principalId, candidate.itemId);
-        if (item.version.versionId === candidate.versionId && states.includes(item.lifecycle.state)) {
-          selected.push(item.itemId);
-        }
-      } catch (error) {
-        if (!(error instanceof MemoryRepositoryError) || error.code !== "memory_not_found") throw error;
-      }
-    }
-    return Object.freeze(selected);
+    // `query` is part of the finder's historical interface; the model names an
+    // id from the previous reply instead, so it is no longer consulted. Only the
+    // ids this turn actually put in front of the model are candidates, and the
+    // state filter is the ledger's.
+    return input.turnId === undefined
+      ? Object.freeze([])
+      : this.findLastReferencedTarget(ids, principalId, safeUlid(input.turnId), states);
   }
 
   /**
-   * The most recently delivered assistant turn's item ids, when exactly one.
+   * The most recently delivered assistant turn's item ids, in the states the
+   * operation accepts.
    *
-   * Only one, because "which memory did he mean" with two candidates is a
-   * question the model has to answer by naming an id, not one this may guess.
+   * Every referenced id is considered. Code used to narrow to the single id
+   * when exactly one was referenced and otherwise offer none, which hid Sid's
+   * own memories from the model merely because the previous reply named two.
+   * Naming which id he meant is the model's judgment; the ids are the
+   * candidates, and the state filter is the ledger's.
    */
   private async findLastReferencedTarget(
     ids: D1Database,
@@ -329,21 +225,20 @@ export class D1MemoryControlTargetFinder implements MemoryTargetFinder {
     states: readonly MemoryLifecycleState[],
   ): Promise<readonly Ulid[]> {
     const referenced = await this.previousReferences(ids, principalId, turnId);
-    if (referenced.length !== 1) return Object.freeze([]);
-    const itemId = referenced[0]!;
-    const state = await ids.prepare(`SELECT item_id, lifecycle_state
-      FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
-      .bind(principalId, itemId).first<ItemStateRow>();
-    if (state === null) return Object.freeze([]);
-    exactRow(state, new Set(["item_id", "lifecycle_state"]), "telegram_memory_reference_invalid");
-    if (safeUlid(state.item_id) !== itemId || typeof state.lifecycle_state !== "string"
-      || !ALL_MEMORY_STATES.includes(state.lifecycle_state as MemoryLifecycleState)) {
-      throw new TypeError("telegram_memory_reference_invalid");
+    const selected: Ulid[] = [];
+    for (const itemId of referenced) {
+      const state = await ids.prepare(`SELECT item_id, lifecycle_state
+        FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
+        .bind(principalId, itemId).first<ItemStateRow>();
+      if (state === null) continue;
+      exactRow(state, new Set(["item_id", "lifecycle_state"]), "telegram_memory_reference_invalid");
+      if (safeUlid(state.item_id) !== itemId || typeof state.lifecycle_state !== "string"
+        || !ALL_MEMORY_STATES.includes(state.lifecycle_state as MemoryLifecycleState)) {
+        throw new TypeError("telegram_memory_reference_invalid");
+      }
+      if (states.includes(state.lifecycle_state as MemoryLifecycleState)) selected.push(itemId);
     }
-    if (!states.includes(state.lifecycle_state as MemoryLifecycleState)) {
-      return Object.freeze([]);
-    }
-    return Object.freeze([itemId]);
+    return Object.freeze(selected);
   }
   private async previousReferences(ids: D1Database, principalId: string, turnId: Ulid): Promise<readonly Ulid[]> {
     const voice = await readPreviousVoiceAssistant(ids, { principalId, correlationId: turnId });

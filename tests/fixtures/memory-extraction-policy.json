@@ -318,20 +318,35 @@
       }
     },
     {
-      "name": "defaults omitted confidence and sensitivity without trusting the model",
+      "name": "rejects a proposal that omits confidence",
       "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
       "proposal": {
         "text": "Sid is working on St. Remy.",
-        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"]
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "sensitivity": "normal"
       },
-      "expected": {
+      "expected": null
+    },
+    {
+      "name": "rejects a proposal that omits sensitivity",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
         "text": "Sid is working on St. Remy.",
         "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
-        "confidence": 1,
-        "sensitivity": "normal",
-        "origin": "model",
-        "uncertain": true
-      }
+        "confidence": 0.9
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects a proposal with an unknown sensitivity",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
+        "text": "Sid is working on St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 0.9,
+        "sensitivity": "restricted"
+      },
+      "expected": null
     },
     {
       "name": "preserves an explicitly sensitive model proposal",

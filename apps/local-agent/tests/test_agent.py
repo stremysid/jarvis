@@ -136,7 +136,18 @@ def test_a_clean_cycle_replicates_distils_and_leaves_proposals_unpromoted(
         archive,
         facts,
         FakeCloud([page]),
-        FakeDistiller([{"text": "Likes coffee", "sourceEventIds": [f"{1:026x}"]}]),
+        FakeDistiller(
+            [
+                {
+                    "text": "Likes coffee",
+                    "sourceEventIds": [f"{1:026x}"],
+                    # Required, never defaulted: a missing confidence used to
+                    # become 1.0 and a missing sensitivity became normal.
+                    "confidence": 0.9,
+                    "sensitivity": "normal",
+                }
+            ]
+        ),
     )
 
     result = run_cycle(replicator, distiller, facts, PRINCIPAL)

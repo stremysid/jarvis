@@ -45,12 +45,6 @@ const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"])
 const MEMORY_BASES = new Set<MemoryBasis>([
   "stated", "confirmed", "observed", "inferred", "third_party",
 ]);
-const REMEMBER_CONTROL_PREFIXES = [
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
-  /^(?:please[ \t]+)?remember:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)/iu,
-] as const;
 const APOSTROPHE_LOOKALIKES = /[\u02bc\u2018\u2019\u2032\uff07`]/gu;
 const ZERO_WIDTH_CHARACTERS = /[\u200b-\u200d\u2060\ufeff]/gu;
 
@@ -59,9 +53,19 @@ export interface RememberMemoryInput {
   readonly text: string;
   readonly kind: MemoryKind;
   readonly sensitivity: MemorySensitivity;
-  readonly sourceExcerpt?: string;
-  readonly basis?: "stated" | "confirmed" | "inferred";
+  /** The exact owner wording this memory is drawn from. Required: no fallback. */
+  readonly sourceExcerpt: string;
+  /** What the model says the evidence counts as. Required: code never picks. */
+  readonly basis: MemoryBasis;
   readonly normalizedFromSource?: boolean;
+  /**
+   * The model's own confidence that this memory belongs where it filed it.
+   *
+   * Required, not defaulted: the model rates its filing, and a missing rating
+   * is refused rather than replaced by a code-chosen number. The ledger's
+   * automatic-filing threshold compares against this value.
+   */
+  readonly filingConfidence: number;
   /**
    * Whether this stops being true on its own, and when.
    *
@@ -131,9 +135,14 @@ export interface CorrectMemoryInput extends TargetedMemoryControlInput {
   readonly text: string;
   readonly kind: MemoryKind;
   readonly sensitivity: MemorySensitivity;
-  readonly sourceExcerpt?: string;
+  /** The exact owner wording this replacement is drawn from. Required. */
+  readonly sourceExcerpt: string;
+  /** What the model says the corrected wording counts as. Required. */
+  readonly basis: MemoryBasis;
   /** True only when the caller proved the new wording is drawn from Sid's own words. */
   readonly normalizedFromSource?: boolean;
+  /** The model's own rating of the corrected wording's filing. Required. */
+  readonly filingConfidence: number;
   /**
    * How long the replacement lasts, stated by the caller rather than inherited
    * in code. The model normally passes the replaced memory's own lifetime and
@@ -358,15 +367,6 @@ function decodeStoredCommand<T>(value: JsonValue, decode: (payload: JsonValue) =
     if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
     throw error;
   }
-}
-
-function rememberRemainder(ownerText: string): string {
-  const source = ownerText.trim();
-  for (const prefix of REMEMBER_CONTROL_PREFIXES) {
-    const match = prefix.exec(source);
-    if (match !== null) return source.slice(match[0].length).trim();
-  }
-  return source;
 }
 
 function normalizeRememberComparison(value: string): string {
@@ -647,15 +647,16 @@ export class MemoryOwnerControlsService {
       const text = this.memory.validateItemText(input.text);
       const kind = input.kind;
       const sensitivity = input.sensitivity;
-      const basis = input.basis ?? "stated";
+      const basis = input.basis;
       const normalizedFromSource = input.normalizedFromSource ?? false;
       const modelInferred = basis === "inferred";
-      if (basis !== "stated" && basis !== "confirmed" && basis !== "inferred"
+      if (!MEMORY_BASES.has(basis)
         || typeof normalizedFromSource !== "boolean" || modelInferred && normalizedFromSource) refuse();
-      const requestedExcerpt = input.sourceExcerpt === undefined
-        ? null
-        : this.memory.validateItemText(input.sourceExcerpt);
-      if (!MEMORY_KINDS.has(kind) || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
+      const requestedExcerpt = this.memory.validateItemText(input.sourceExcerpt);
+      if (!MEMORY_KINDS.has(kind) || !MEMORY_SENSITIVITIES.has(sensitivity)
+        || typeof input.filingConfidence !== "number"
+        || !Number.isFinite(input.filingConfidence)
+        || input.filingConfidence < 0 || input.filingConfidence > 1) refuse();
       const requestHash = await this.requestHash("remember", ownerTurn, [
         text,
         kind,
@@ -663,6 +664,7 @@ export class MemoryOwnerControlsService {
         basis,
         requestedExcerpt,
         normalizedFromSource,
+        input.filingConfidence,
       ]);
       const key = commandKey(ownerTurn, "remember");
       const existing = await this.hasCommand(key, requestHash);
@@ -679,8 +681,7 @@ export class MemoryOwnerControlsService {
           ownerTurn,
           command.envelope.eventId,
         );
-        sourceExcerpt = requestedExcerpt
-          ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        sourceExcerpt = requestedExcerpt;
         if (!isAuthorizedRememberText(
           text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, modelInferred,
         )) refuse();
@@ -689,8 +690,7 @@ export class MemoryOwnerControlsService {
           text: await this.memory.validateOwnerTurn(ownerTurn, "remember"),
           suppressed: false,
         });
-        sourceExcerpt = requestedExcerpt
-          ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        sourceExcerpt = requestedExcerpt;
         if (!isAuthorizedRememberText(
           text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, modelInferred,
         )) refuse();
@@ -766,7 +766,11 @@ export class MemoryOwnerControlsService {
           placementEventId: payload.placementEventId,
           topicId: payload.topicId,
           filingSource: "rule",
-          confidence: 0.4,
+          // The model rated how sure it is that this memory belongs in the
+          // inbox topic it filed under. Code stores the rating; it does not
+          // choose one. A low rating keeps the item in the inbox because the
+          // repository's own threshold sees it, not because code guessed here.
+          confidence: input.filingConfidence,
           reason: "owner memory starts in the explicit inbox",
         },
       });
@@ -821,12 +825,15 @@ export class MemoryOwnerControlsService {
       const text = this.memory.validateItemText(input.text);
       const kind = input.kind;
       const sensitivity = input.sensitivity;
+      const basis = input.basis;
       const normalizedFromSource = input.normalizedFromSource ?? false;
-      if (typeof normalizedFromSource !== "boolean" || !MEMORY_KINDS.has(kind)
-        || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
-      const requestedExcerpt = input.sourceExcerpt === undefined
-        ? null
-        : this.memory.validateItemText(input.sourceExcerpt);
+      if (typeof normalizedFromSource !== "boolean" || !MEMORY_BASES.has(basis)
+        || !MEMORY_KINDS.has(kind)
+        || !MEMORY_SENSITIVITIES.has(sensitivity)
+        || typeof input.filingConfidence !== "number"
+        || !Number.isFinite(input.filingConfidence)
+        || input.filingConfidence < 0 || input.filingConfidence > 1) refuse();
+      const requestedExcerpt = this.memory.validateItemText(input.sourceExcerpt);
       const replacementHash = await this.requestHash("correct", ownerTurn, [
         "replacement",
         supersededItemId,
@@ -834,7 +841,9 @@ export class MemoryOwnerControlsService {
         kind,
         sensitivity,
         requestedExcerpt,
+        basis,
         normalizedFromSource,
+        input.filingConfidence,
       ]);
       const supersessionHash = await this.requestHash("correct", ownerTurn, [
         "supersession",
@@ -877,8 +886,7 @@ export class MemoryOwnerControlsService {
           ownerTurn,
           replacementCommand.envelope.eventId,
         );
-        sourceExcerpt = requestedExcerpt
-          ?? this.memory.validateItemText(acceptedTurn.text);
+        sourceExcerpt = requestedExcerpt;
         if (!isAuthorizedRememberText(
           text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, false,
         )) refuse();
@@ -887,8 +895,7 @@ export class MemoryOwnerControlsService {
           text: await this.memory.validateOwnerTurn(ownerTurn, "correct"),
           suppressed: false,
         });
-        sourceExcerpt = requestedExcerpt
-          ?? this.memory.validateItemText(acceptedTurn.text);
+        sourceExcerpt = requestedExcerpt;
         // Sid's own words are the only authority for the new wording. Model
         // paraphrase that his sentence does not support is refused rather than
         // promoted, because a correction carries no confirmation step.
@@ -942,7 +949,7 @@ export class MemoryOwnerControlsService {
           versionId: replacementPayload.versionId,
           text,
           textHash: await sha256Hex(text),
-          basis: "stated",
+          basis,
           origin: "authenticated_first_person",
           uncertain: false,
           sensitivity,
@@ -974,7 +981,9 @@ export class MemoryOwnerControlsService {
           placementEventId: replacementPayload.placementEventId,
           topicId: replacementPayload.topicId,
           filingSource: "rule",
-          confidence: 0.4,
+          // The model's own rating, the same as `remember`: code stores it and
+          // lets the repository's threshold decide what the rating means.
+          confidence: input.filingConfidence,
           reason: "owner memory starts in the explicit inbox",
         },
       });

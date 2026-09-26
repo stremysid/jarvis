@@ -441,6 +441,9 @@ async function rememberedThenMaybeForgotten(forget: boolean): Promise<Readonly<{
     text: forgottenText,
     kind: "fact",
     sensitivity: "normal",
+    sourceExcerpt: forgottenText,
+    basis: "stated",
+    filingConfidence: 0.4,
     lifetime: "durable",
     validTo: null,
   });
@@ -631,10 +634,8 @@ describe("automatic memory distillation", () => {
     const example = JSON.parse(MEMORY_EXTRACTION_JSON_EXAMPLE) as {
       proposals: Array<Record<string, unknown>>;
     };
-    expect(schema.properties.proposals.items.required).not.toEqual(expect.arrayContaining([
-      "topicPath",
-      "filingConfidence",
-    ]));
+    expect(schema.properties.proposals.items.required).toContain("filingConfidence");
+    expect(schema.properties.proposals.items.required).not.toContain("topicPath");
     expect(schema.properties.proposals.items.properties.topicPath).toMatchObject({
       type: "array",
       minItems: 1,
@@ -759,7 +760,7 @@ describe("automatic memory distillation", () => {
     }
   });
 
-  it("treats a missing or out-of-range filingConfidence as zero without rejecting the fact", async () => {
+  it("rejects a proposal whose filingConfidence is missing or out of range rather than defaulting it", async () => {
     for (const filingConfidence of [undefined, -0.01, 1.01, "invalid"] as const) {
       const principalId = await principal();
       const events = new EventRepository(env.DB);
@@ -771,11 +772,15 @@ describe("automatic memory distillation", () => {
 
       const result = await workflow(principalId, new FakeModelProvider({ completeJson: [raw] }))
         .runNext({ runKey: `invalid-filing-confidence:${newUlid()}` });
-      const placement = await placementDetail(principalId);
 
-      expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
-      expect(placement).toMatchObject({ display_name: "Inbox / Needs filing", confidence: 0 });
-      expect(placement.reason).toContain('"decision":"inbox_low_confidence"');
+      expect(result).toMatchObject({
+        outcome: "nothing_new",
+        cursorEventSequence: event.eventSequence,
+        createdItemCount: 0,
+        failureCode: null,
+      });
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
+        .bind(principalId).first("count")).toBe(0);
     }
   });
 

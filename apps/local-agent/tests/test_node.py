@@ -364,6 +364,10 @@ class SignedFlowOpener:
                     {
                         "text": "Likes coffee",
                         "sourceEventIds": ["01k3w1t4000000000000000110"],
+                        # Required, never defaulted: a missing confidence used
+                        # to become 1.0 and a missing sensitivity became normal.
+                        "confidence": 0.9,
+                        "sensitivity": "normal",
                     }
                 ]
             },

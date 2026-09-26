@@ -1,13 +1,3 @@
-export type TelegramMemoryControl =
-  | Readonly<{ intent: "remember"; memoryText: string }>
-  | Readonly<{ intent: "forget" | "lift" | "explain"; targetQuery: string | null }>;
-
-const REMEMBER_PREFIXES = [
-  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
-  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
-  /^(?:please[ \t]+)?([a-z]{6,10}):[ \t]*/iu,
-  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)/iu,
-] as const;
 const CONTROL_OR_QUOTE_MARKERS = /[\r\n\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
 const OUTER_QUOTE = /^(?:[>"'`]|\u201c|\u2018|\u00ab)/u;
 
@@ -17,68 +7,6 @@ function plainCurrentTurn(value: unknown): string | null {
     || OUTER_QUOTE.test(value)) return null;
   const trimmed = value.trim();
   return trimmed === value && trimmed.length <= 4_096 ? trimmed : null;
-}
-
-function target(match: RegExpExecArray): string | null {
-  const value = match[1]?.trim();
-  return value === undefined || value.length === 0 ? null : value;
-}
-
-function rememberWord(value: string): boolean {
-  const word = value.toLocaleLowerCase("en-CA");
-  if (!word.startsWith("r")) return false;
-  // These are ordinary words, not plausible imperative typos. Keeping them
-  // out prevents prose such as "remembered that" from becoming a control.
-  if (word === "renumber" || word === "remembered"
-    || word === "members" || word === "member") return false;
-  const expected = "remember";
-  let previous = Array.from({ length: expected.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= word.length; row += 1) {
-    const current = [row];
-    for (let column = 1; column <= expected.length; column += 1) {
-      current[column] = Math.min(
-        (current[column - 1] ?? Number.POSITIVE_INFINITY) + 1,
-        (previous[column] ?? Number.POSITIVE_INFINITY) + 1,
-        (previous[column - 1] ?? Number.POSITIVE_INFINITY)
-          + (word[row - 1] === expected[column - 1] ? 0 : 1),
-      );
-    }
-    previous = current;
-  }
-  return (previous[expected.length] ?? Number.POSITIVE_INFINITY) <= 2;
-}
-
-/**
- * Recognises only a whole, single-line owner utterance. Embedded examples,
- * quoted blocks and pasted multi-line material remain conversation data.
- */
-export function parseTelegramMemoryControl(value: unknown): TelegramMemoryControl | null {
-  const text = plainCurrentTurn(value);
-  if (text === null || text.startsWith("/")) return null;
-
-  for (const prefix of REMEMBER_PREFIXES) {
-    const match = prefix.exec(text);
-    if (match === null || match[1] === undefined || !rememberWord(match[1])) continue;
-    const memoryText = text.slice(match[0].length).trim();
-    return memoryText.length === 0 ? null : Object.freeze({ intent: "remember", memoryText });
-  }
-
-  let match = /^(?:please[ \t]+)?forget[ \t]+(?:that|this)[ \t]+memory[.!?]?$/iu.exec(text);
-  if (match !== null) return Object.freeze({ intent: "forget", targetQuery: null });
-  match = /^(?:please[ \t]+)?forget[ \t]+(?:the[ \t]+)?memory[ \t]+(?:about|that[ \t]+says)[ \t]+(.+?)[.!?]?$/iu.exec(text);
-  if (match !== null) return Object.freeze({ intent: "forget", targetQuery: target(match) });
-
-  match = /^(?:please[ \t]+)?use[ \t]+(?:that|this)[ \t]+memory[ \t]+again[.!?]?$/iu.exec(text);
-  if (match !== null) return Object.freeze({ intent: "lift", targetQuery: null });
-  match = /^(?:please[ \t]+)?use[ \t]+(?:the[ \t]+)?memory[ \t]+(?:about|that[ \t]+says)[ \t]+(.+?)[ \t]+again[.!?]?$/iu.exec(text);
-  if (match !== null) return Object.freeze({ intent: "lift", targetQuery: target(match) });
-
-  if (/^why[ \t]+do[ \t]+you[ \t]+think[ \t]+that\?$/iu.test(text)) {
-    return Object.freeze({ intent: "explain", targetQuery: null });
-  }
-  match = /^why[ \t]+do[ \t]+you[ \t]+remember[ \t]+(?:that[ \t]+)?(.+?)\?$/iu.exec(text);
-  if (match !== null) return Object.freeze({ intent: "explain", targetQuery: target(match) });
-  return null;
 }
 
 /** The named area after a whole-question form; path components use `>` only. */

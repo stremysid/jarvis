@@ -161,14 +161,14 @@ describe("the item suppression predicate is written once, in the clauses every a
   });
 
   it("composes the shared suppression clauses in every SQL template that reads a memory candidate", () => {
-    // Both files that hold candidate arms. The totals below are the same with the
-    // control-target arm in either file, which is how it was checked when #147
-    // moved it: eight templates and six candidate templates before, and after.
+    // Both files that hold candidate arms. The control-target keyword arm was
+    // deleted with the dead adapter that reached it, so the total is one lower
+    // than the eight templates #147 counted.
     const templates = [retrieverSource, finderSource]
       .flatMap((source) => [...source.matchAll(PREPARED_SQL)].map((match) => match[1] ?? ""));
     // The scan finds nothing if the source stops using backtick templates, and
     // "no templates" must not read as "no offenders".
-    expect(templates.length).toBeGreaterThanOrEqual(8);
+    expect(templates.length).toBeGreaterThanOrEqual(7);
     const candidateTemplates = templates.filter((sql) => READS_MEMORY_CANDIDATES.test(sql));
     expect(candidateTemplates.length).toBeGreaterThanOrEqual(5);
 
@@ -229,17 +229,6 @@ describe("every arm that returns a memory candidate sends the same suppression c
     // not `memory_item_placement_state`, which the topic-path walk also names.
     const area = preparedOnce(database, "WITH RECURSIVE subtree(");
     expect(area).toContain(CANDIDATE_SUPPRESSION_CLAUSES);
-  });
-
-  it("sends them in the arm that chooses a control target", async () => {
-    const principalId = await seedPrincipal();
-    const database = recordingDatabase();
-    await retriever(database.database).findControlTargets({
-      principalId,
-      operation: "forget",
-      query: "kite",
-    });
-    expect(preparedOnce(database, "FROM memory_item_fts")).toContain(CANDIDATE_SUPPRESSION_CLAUSES);
   });
 
   it("sends the note-source form of them in the arm that reads a living note citing an item", async () => {
