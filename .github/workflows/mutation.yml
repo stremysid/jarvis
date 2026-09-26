@@ -1,0 +1,91 @@
+name: Mutation sweep
+
+# Runs reviewer-tools/mutate.ps1 on a runner instead of the owner's home PC.
+# A sweep is several full test-suite runs (a baseline plus one run, sometimes
+# two, per mutation) and the PC also hosts builders; GitHub Actions is free
+# for this public repo and idles the rest of the day.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Path to a reviewer-tools/mutation-specs-*.json file"
+        required: true
+      ref:
+        description: "Branch or SHA to test"
+        required: true
+
+permissions:
+  contents: read
+
+# One sweep at a time: the runs are long and each holds a whole runner. A
+# second dispatch waits rather than cancelling the first, because a cancelled
+# sweep has no verdict.
+concurrency:
+  group: mutation-sweep
+  cancel-in-progress: false
+
+jobs:
+  mutate:
+    name: mutate.ps1 (windows)
+    # mutate.ps1 is PowerShell and shells out to npx.cmd / the pnpm/npx
+    # shims, which AGENTS.md and this script's own header say cannot be
+    # invoked from Git Bash on Sid's machine; windows-latest matches how it
+    # is actually run today.
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      # Same toolchain as ci.yml's workspace suite job, so a mutation sweep
+      # measures the same install this repo's other CI already trusts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      # mutate.ps1 refuses a dirty gate directory and checks HEAD itself, so
+      # the checkout above -- already detached at `ref` -- is the gate copy;
+      # no second clone. continue-on-error lets the verdict and artifact steps
+      # below run even on SURVIVED/NOT APPLIED/INVALID.
+      #
+      # The output is redirected to a file, NOT piped through Tee-Object: a
+      # pipeline between the native call and the exit-code read is the one
+      # shape that can leave $LASTEXITCODE at 0 and report a bad sweep green.
+      # reviewer-tools/test/verdict-selftest.ps1 asserts this shape on CI.
+      - name: Run mutation sweep
+        id: mutate
+        shell: pwsh
+        continue-on-error: true
+        # Read the spec path from an env var rather than interpolating
+        # `${{ inputs.spec }}` straight into the script text, so a spec value
+        # containing quotes or PowerShell metacharacters cannot inject code.
+        env:
+          MUTATION_SPEC: ${{ inputs.spec }}
+        run: |
+          pwsh -NoProfile -File reviewer-tools/mutate.ps1 -Spec "$env:MUTATION_SPEC" -GateDir "${{ github.workspace }}" *> mutation-report.txt
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath mutation-report.txt
+          Write-Host "mutate.ps1 exited $code"
+          "exit_code=$code" >> $env:GITHUB_OUTPUT
+
+      # The one step that decides the job. It reformats the summary into the run
+      # page and fails closed: a non-zero sweep exit, any verdict that is not a
+      # confirmed KILLED, an unparseable summary block or an unrestored tree all
+      # fail the run. See reviewer-tools/mutation-verdict.ps1.
+      - name: Verify the sweep result
+        if: always()
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File reviewer-tools/mutation-verdict.ps1 `
+            -ReportPath mutation-report.txt `
+            -MutateExitCode ${{ steps.mutate.outputs.exit_code || 2 }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-report
+          path: mutation-report.txt
+          if-no-files-found: warn
