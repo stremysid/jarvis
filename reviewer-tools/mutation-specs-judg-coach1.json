@@ -1,0 +1,42 @@
+[
+  {
+    "name": "S1 a missing course id falls back to the only course instead of asking",
+    "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+    "find": "  return courseId === null ? null : snapshot.courses.find((course) => course.courseId === courseId) ?? null;\n",
+    "replace": "  return courseId === null ? snapshot.courses[0] ?? null : snapshot.courses.find((course) => course.courseId === courseId) ?? null;\n",
+    "testPath": "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "expect": "refuses practice with no course id and lists the courses instead of guessing"
+  },
+  {
+    "name": "S2 the chosen course-card fact is ignored in favour of the first one",
+    "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+    "find": "    const fact = intent.factId === null ? undefined\n      : course.facts.find((candidate) => candidate.factId === intent.factId);\n",
+    "replace": "    const fact = course.facts[0];\n",
+    "testPath": "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "expect": "practises from the exact course-card fact the model chose"
+  },
+  {
+    "name": "S3 the model's preference patch is dropped",
+    "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+    "find": "          preference: applyPreferencePatch(snapshot.preference, intent.preferencePatch!),\n",
+    "replace": "          preference: snapshot.preference,\n",
+    "testPath": "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "expect": "applies the model's preference patch and reports the applied values"
+  },
+  {
+    "name": "S4 the quiz answer window no longer bounds a declared answer",
+    "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+    "find": "        if (!Number.isFinite(createdAt) || age < 0 || age > QUIZ_ANSWER_WINDOW_MS\n",
+    "replace": "        if (!Number.isFinite(createdAt) || age < 0 || false\n",
+    "testPath": "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "expect": "refuses a declared answer after the quiz window and records nothing"
+  },
+  {
+    "name": "S5 an unnamed course-card fact no longer lists the choices",
+    "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+    "find": "  return `Course-card facts for ${course.name}: ${course.facts.map((fact) => `${fact.factId} (${fact.kind}): ${fact.statement}`).join(\"; \")}.`;\n",
+    "replace": "  return \"No course-card fact was selected.\";\n",
+    "testPath": "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "expect": "lists the course-card facts when a course-evidence practice names no fact"
+  }
+]
