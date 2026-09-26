@@ -17,9 +17,23 @@ import { ToolAutonomyGate } from "../../src/autonomy/tool-gate.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 
-beforeAll(applyNewestRuntimeMigration);
-// These fixtures promote status to tier 3; leaving that row changed would gate unrelated read tests.
-afterEach(async () => { await env.DB.prepare("UPDATE capability_tiers SET tier = 1 WHERE capability = 'school.track'").run(); });
+// These fixtures promote status and revoke to tier 3; leaving either row changed would gate unrelated tests.
+// Each row goes back to the tier the migrations gave it, not to a literal, so the revoke test below
+// reads the production tier (0051) rather than one this file chose.
+const migratedTiers = new Map<string, number>();
+beforeAll(async () => {
+  await applyNewestRuntimeMigration();
+  for (const capability of ["school.track", "school.collector.revoke"]) {
+    const row = await env.DB.prepare("SELECT tier FROM capability_tiers WHERE capability = ?").bind(capability).first<{ tier: number }>();
+    if (row === null) throw new Error(`fixture_missing_capability_row:${capability}`);
+    migratedTiers.set(capability, row.tier);
+  }
+});
+afterEach(async () => {
+  for (const [capability, tier] of migratedTiers) {
+    await env.DB.prepare("UPDATE capability_tiers SET tier = ? WHERE capability = ?").bind(tier, capability).run();
+  }
+});
 
 async function runSchoolTool(f: CollectorFixture, name: string, args: Record<string, unknown>, directPipelineText = true) {
   const requests: ModelAgentCompletionInput[] = [];
@@ -54,7 +68,8 @@ it.each([
 ] as const)("validates %s arguments before spending a matching confirmation tap", async (name, capability, args) => {
   const f = await collectorFixture();
   await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = ?").bind(capability).run();
-  const decision = await f.decisions.raise({ principalId: f.owner, origin: TIER3_TOOL_ORIGIN,
+  const decision = await f.decisions.raise({
+    rank: 100, principalId: f.owner, origin: TIER3_TOOL_ORIGIN,
     originReference: confirmationReference(name, capability, await argumentsFingerprint(JSON.stringify(args))), urgency: "normal",
     question: "Confirm the synthetic call?", choices: [{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }] });
   await f.decisions.markDelivered(decision.decisionId);
@@ -140,6 +155,31 @@ it("hands the model D2L evidence through the real tool dispatcher without an act
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
 });
 
+it("hands the model raw Classroom work evidence without an action receipt", async () => {
+  const f = await collectorFixture();
+  const requests = await runSchoolTool(f, "school_work_evidence", { cursor: "", seenSinceDays: 14, limit: 10 });
+  expect(requests.length).toBe(2);
+  expect(requests[0]!.tools.find((tool) => tool.name === "school_work_evidence")?.description)
+    .toContain("You decide whether work is missed; code does not");
+  // The evidence is a sense, not an action: the tool result carries it with no
+  // receipt id, so no reply sentence can borrow proof from having looked.
+  const toolResult = JSON.stringify(requests[1]);
+  expect(toolResult).toContain("school_work_evidence");
+  expect(toolResult).toContain("observations");
+  expect(toolResult).toContain("nextAfterDeadlineId");
+  expect(toolResult).toContain("completed");
+  expect(toolResult).toContain("receiptId");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
+});
+
+it("refuses an out-of-range evidence window before reading any evidence", async () => {
+  const f = await collectorFixture();
+  const requests = await runSchoolTool(f, "school_work_evidence", { cursor: "", seenSinceDays: 91, limit: 10 });
+  expect(requests.length).toBe(2);
+  expect(JSON.stringify(requests[1])).toContain("I couldn't read that school evidence request");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM autonomy_evaluations WHERE principal_id = ? AND capability = 'school.track'").bind(f.owner).first()).toEqual({ n: 0 });
+});
+
 it("keeps an unavailable collector status visible in the digest", async () => {
   const f = await collectorFixture();
   const digest = await assembleDigest("daily", { clock: { now: f.clock }, timeZone: "America/Toronto", delivery: { send: async () => undefined }, sources: {
@@ -150,7 +190,7 @@ it("keeps an unavailable collector status visible in the digest", async () => {
   expect(digest.text.toLowerCase()).not.toContain("nothing due");
 });
 
-it("revokes through the owner tool only after its tier-three confirmation tap", async () => {
+it("revokes through the owner tool on the first request, without a tap, because it is not one of Sid's five actions", async () => {
   const f = await collectorFixture();
   const autonomy = new ToolAutonomyGate(new AutonomyService({ repository: new AutonomyRepository(env.DB), now: f.clock }), new D1ToolConfirmationStore(env.DB, f.clock));
   const run = async () => {
@@ -169,18 +209,14 @@ it("revokes through the owner tool only after its tier-three confirmation tap", 
       reasoningEffort: "none", firstTokenTimeoutMs: 8_000, timeoutMs: 30_000, contextTokenBudget: 16_000, maxOutputCharacters: 8_000, signal: new AbortController().signal })) {}
     return requests;
   };
-  const pending = await run();
-  expect((await readKey(f.key.collector_id)).status).toBe("active");
-  expect(JSON.stringify(pending[1])).toContain("pending_confirmation");
-  const decision = await env.DB.prepare("SELECT decision_id FROM decision_items WHERE principal_id = ? AND origin = ?")
-    .bind(f.owner, TIER3_TOOL_ORIGIN).first<{ decision_id: string }>();
-  expect(decision).not.toBeNull();
-  await f.decisions.markDelivered(decision!.decision_id);
-  await f.decisions.answer({ decisionId: decision!.decision_id, answeredByIdentityId: f.identity, optionKey: TIER3_CONFIRM_OPTION });
-  const confirmed = await run();
-  expect(JSON.stringify(confirmed[1])).toContain("School collector revoked.");
+  const first = await run();
+  expect(JSON.stringify(first[1])).toContain("School collector revoked.");
+  expect(JSON.stringify(first[1])).not.toContain("pending_confirmation");
   expect((await readKey(f.key.collector_id)).status).toBe("revoked");
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM tool_confirmation_consumptions WHERE decision_id = ?").bind(decision!.decision_id).first()).toEqual({ n: 1 });
-  const repeated = await run();
-  expect(JSON.stringify(repeated[1])).toContain("pending_confirmation");
+  // Nothing was asked, and the action is still receipted: one permitted tier-1 audit row.
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM decision_items WHERE principal_id = ? AND origin = ?")
+    .bind(f.owner, TIER3_TOOL_ORIGIN).first()).toEqual({ n: 0 });
+  expect((await env.DB.prepare(`SELECT tier, outcome FROM autonomy_evaluations
+    WHERE principal_id = ? AND capability = 'school.collector.revoke'`).bind(f.owner).all()).results)
+    .toEqual([{ tier: 1, outcome: "permitted" }]);
 });

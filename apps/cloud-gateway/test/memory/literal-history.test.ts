@@ -18,8 +18,14 @@ import {
   LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
+  historySearchText,
+  rowText,
 } from "../../src/memory/literal-history.js";
-import { EventRepository, type AppendedEvent } from "../../src/persistence/event-repository.js";
+import {
+  EventRepository,
+  type AppendedEvent,
+  type SyncEventReader,
+} from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { applyArchiveLiteralHistoryMigration } from "../persistence/migration.js";
@@ -143,7 +149,7 @@ function clock(): TestClock {
   };
 }
 
-function service(events: EventRepository | TieredEventReader, time: TestClock): LiteralHistoryService {
+function service(events: SyncEventReader, time: TestClock): LiteralHistoryService {
   return new LiteralHistoryService({
     database: env.DB,
     events,
@@ -167,6 +173,32 @@ function redactPayload(value: unknown): RedactedJsonValue {
   );
 }
 
+/**
+ * A reader that returns one stored event with different payload text (and a
+ * matching content hash), standing in for a row written under older rules.
+ */
+async function rewrittenReader(
+  live: EventRepository,
+  sequence: number,
+  text: string,
+): Promise<SyncEventReader> {
+  return {
+    latestSequence: () => live.latestSequence(),
+    readRange: async (after, limit) => Promise.all((await live.readRange(after, limit)).map(async (event) => {
+      if (event.eventSequence !== sequence) return event;
+      const payload = { ...(event.envelope.payload as Record<string, unknown>), text };
+      return {
+        ...event,
+        envelope: {
+          ...event.envelope,
+          payload,
+          contentHash: await sha256Hex(canonicalJson(payload)),
+        } as AppendedEvent["envelope"],
+      };
+    })),
+  };
+}
+
 async function appendEnvelope(
   events: EventRepository,
   envelope: PersistableEventEnvelopeV1,
@@ -185,7 +217,12 @@ async function appendConversation(
   time: TestClock,
   text: string,
   channelCode: 1 | 2 = 2,
-  eventType: "conversation.user_committed" | "conversation.assistant_delivered" = "conversation.user_committed",
+  eventType:
+    | "conversation.user_committed"
+    | "conversation.assistant_delivered"
+    | "conversation.assistant_sent" = "conversation.user_committed",
+  historyEligible = true,
+  memoryItemIds?: readonly string[],
 ): Promise<AppendedEvent> {
   const occurredAt = time.advance();
   const eventId = newUlid(new Date(occurredAt));
@@ -203,8 +240,9 @@ async function appendConversation(
       schemaCode: 1,
       channelCode,
       sensitivityCode: 1,
-      historyEligible: true,
+      historyEligible,
       text,
+      ...(memoryItemIds === undefined ? {} : { memoryItemIds: [...memoryItemIds] }),
     }),
     producerVersion: "conversation-v1",
   });
@@ -552,6 +590,163 @@ describe("LiteralHistoryService", () => {
     if (result.status !== "hits") throw new Error("literal_history_expected_multibyte_hit");
     expect(result.hits[0]?.excerpt).toContain("quartz");
     expect(new TextEncoder().encode(result.hits[0]?.excerpt).byteLength).toBeLessThanOrEqual(1_024);
+  });
+
+  /**
+   * The acceptance test for the stuck history index. The 0016 CHECK on
+   * `memory_history_chunks.text` refuses every character below U+0020, so the
+   * chunk stores the search form (line breaks as spaces) while the event keeps
+   * the original. This runs against the real migrated schema.
+   */
+  it("indexes a history row containing a newline, carriage return or tab and moves the cursor past it", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const original = "The multi-line list is\nfirst\rsecond\tthird.";
+    await appendConversation(events, time, original);
+    await appendConversation(events, time, "The single-line teal control.");
+    await appendConversation(events, time, "Another line\nwith the violet word.");
+    const literal = service(events, time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ eventsExamined: 3, chunksWritten: 3, rowsSkipped: 0, complete: true });
+    expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'fts_history'`).bind(OWNER_ID)
+      .first("current_event_sequence")).toBe(3);
+    const chunk = await env.DB.prepare(`SELECT text, content_hash FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = 1`).bind(OWNER_ID)
+      .first<{ text: string; content_hash: string }>();
+    expect(chunk).toEqual({
+      text: "The multi-line list is first second third.",
+      content_hash: await sha256Hex("The multi-line list is first second third."),
+    });
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "multi-line" });
+    expect(result.status).toBe("hits");
+    if (result.status !== "hits") throw new Error("literal_history_expected_multiline_hit");
+    // The excerpt is cut from the stored event, so Sid gets his line breaks back.
+    expect(result.hits[0]?.excerpt).toBe(original);
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "violet" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 3, excerpt: "Another line\nwith the violet word." }] });
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "teal" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 2 }] });
+  });
+
+  it("lets a history row's line breaks through the row decoder while still refusing other control characters", () => {
+    // The code half of the fix above. The regex this replaced rejected the
+    // newline, and the assertions fail when that regex is restored.
+    expect(rowText("line one\nline two\rline three\tcolumn", 1_024))
+      .toBe("line one\nline two\rline three\tcolumn");
+    expect(() => rowText("bell\u0007here", 1_024)).toThrow(LiteralHistoryError);
+    expect(() => rowText("nul\u0000here", 1_024)).toThrow(LiteralHistoryError);
+    expect(() => rowText("line\u2028separator", 1_024)).toThrow(LiteralHistoryError);
+    expect(historySearchText("a\nb\rc\td e")).toBe("a b c d e");
+  });
+
+  it("skips one row it cannot decode, records the reason, and indexes the rest", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "A bell\u0007is not a line break.");
+    await appendConversation(events, time, "The saffron row after the bad one.");
+    const literal = service(events, time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ eventsExamined: 2, chunksWritten: 1, rowsSkipped: 1, complete: true });
+    const coverage = await env.DB.prepare(`SELECT start_event_sequence, indexing_outcome, failure_code
+      FROM memory_history_coverage WHERE principal_id = ? ORDER BY start_event_sequence`)
+      .bind(OWNER_ID).all();
+    expect(coverage.results).toEqual([
+      { start_event_sequence: 1, indexing_outcome: "failed", failure_code: "history_row_text_invalid" },
+      { start_event_sequence: 2, indexing_outcome: "indexed", failure_code: null },
+    ]);
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "saffron" }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 2 }] });
+    // The next step has nothing left to do: the skipped row is settled.
+    await expect(literal.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ eventsExamined: 0, refreshed: false, complete: true });
+  });
+
+  it("indexes a stored row that today's redactor would change instead of freezing the index", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "Placeholder for the stored text.");
+    await appendConversation(live, time, "The indigo row after it.");
+    const stored = "My door PIN is 4821 and my phone is 416-555-0199.";
+    // Precondition: the current rules would rewrite this text. Before this fix
+    // that difference stopped the whole index at this row.
+    expect(redactor.redactText(stored)).not.toMatchObject({ ok: true, text: stored });
+    const literal = service(await rewrittenReader(live, target.eventSequence, stored), time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ eventsExamined: 2, chunksWritten: 2, rowsSkipped: 0, complete: true });
+    expect(await env.DB.prepare(`SELECT text FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = ?`).bind(OWNER_ID, target.eventSequence)
+      .first("text")).toBe(stored);
+  });
+
+  it("settles a row whose refresh can no longer be decoded instead of refreshing it on every step", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "The ochre row indexes cleanly first.");
+    const literal = service(live, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+    await suppressEvent(live, time, target);
+    const broken = service(await rewrittenReader(live, target.eventSequence, "Now a bell\u0007row."), time);
+
+    await expect(broken.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ refreshed: true, rowsSkipped: 1, chunksWritten: 0 });
+    await broken.indexNext({ principalId: OWNER_ID });
+    await expect(broken.indexNext({ principalId: OWNER_ID }))
+      .resolves.toMatchObject({ refreshed: false, complete: true });
+    expect(await env.DB.prepare(`SELECT failure_code FROM memory_history_coverage
+      WHERE principal_id = ? AND start_event_sequence = ? AND indexing_outcome = 'failed'`)
+      .bind(OWNER_ID, target.eventSequence).first("failure_code")).toBe("history_row_text_invalid");
+  });
+
+  it("accepts a search query that carries a line break", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The cobalt phrase is on the first line.");
+    const literal = service(events, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "cobalt\nphrase" });
+
+    expect(result.status).toBe("hits");
+    if (result.status !== "hits") throw new Error("literal_history_expected_multiline_query_hit");
+    expect(result.hits[0]?.excerpt).toContain("cobalt phrase");
+  });
+
+  it("creates and runs an exhaustive search whose query carries a line break", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The cerulean phrase is here.");
+    const literal = service(events, time);
+    const jobId = newUlid(time.now());
+
+    // query_text has the same 0025 CHECK as a chunk. Before this fix the
+    // insert failed and the model saw memory_history_unavailable.
+    await expect(literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId,
+      jobKey: "line-break-query",
+      query: "cerulean\nphrase",
+    })).resolves.toMatchObject({ jobId, status: "pending", query: "cerulean phrase" });
+    expect(await env.DB.prepare(`SELECT query_text, query_hash FROM memory_literal_search_jobs
+      WHERE job_id = ?`).bind(jobId).first()).toEqual({
+      query_text: "cerulean phrase",
+      query_hash: await sha256Hex("cerulean phrase"),
+    });
+    // The same request again is the same job, not a refusal.
+    await expect(literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId,
+      jobKey: "line-break-query",
+      query: "cerulean\nphrase",
+    })).resolves.toMatchObject({ jobId, attempt: 1 });
+    await expect(literal.runExhaustiveSearchStep({ principalId: OWNER_ID, jobId }))
+      .resolves.toMatchObject({ job: { status: "succeeded", matchedEventCount: 1 } });
+    await expect(literal.readExhaustiveSearchResult({ principalId: OWNER_ID, jobId }))
+      .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 1 }] });
   });
 
   it("keeps an active suppression out of chunks, FTS, and results, then reindexes it after a lift", async () => {
@@ -1041,5 +1236,299 @@ describe("LiteralHistoryService", () => {
           endEventSequence: LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS.eventsExamined + 1,
         },
       });
+  });
+});
+
+describe("LiteralHistoryService.searchHistory and readHistoryAround", () => {
+  async function indexed(events: EventRepository, time: TestClock): Promise<LiteralHistoryService> {
+    const literal = service(events, time);
+    // One step reads at most eight events (262,144 bytes / 32,768 per event).
+    for (let step = 0; step < 8; step += 1) {
+      const result = await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+      if (result.complete) return literal;
+    }
+    throw new Error("literal_history_fixture_index_incomplete");
+  }
+
+  it("finds a Telegram message, a call utterance and a call reply in one search, each with its channel and speaker", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const telegram = await appendConversation(events, time, "The cobalt folder has my lab notes.", 2);
+    const utterance = await appendConversation(events, time, "Put the cobalt folder in my bag.", 1);
+    const reply = await appendConversation(
+      events, time, "I will remind you about the cobalt folder.", 1, "conversation.assistant_sent",
+    );
+    await appendConversation(events, time, "Nothing to see in this one.", 2);
+    const literal = await indexed(events, time);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "cobalt" });
+
+    expect(page.missingRange).toBeNull();
+    expect(page.moreResults).toBe(false);
+    expect(page.hits.map((hit) => [hit.eventId, hit.channel, hit.speaker]).sort()).toEqual([
+      [telegram.envelope.eventId, "telegram", "user"],
+      [utterance.envelope.eventId, "voice", "user"],
+      [reply.envelope.eventId, "voice", "assistant"],
+    ].sort());
+    expect(page.hits.find((hit) => hit.eventId === reply.envelope.eventId)?.excerpt)
+      .toBe("I will remind you about the cobalt folder.");
+  });
+
+  it("finds a call reply stored before call replies were history, with historyEligible false", async () => {
+    // Every call reply written before this change carries the old flag.
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "Your saffron notebook is on the shelf.", 1, "conversation.assistant_sent", false,
+    );
+    const literal = await indexed(events, time);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "saffron" });
+
+    expect(page.hits.map((hit) => [hit.eventId, hit.channel, hit.speaker]))
+      .toEqual([[reply.envelope.eventId, "voice", "assistant"]]);
+  });
+
+  it("finds a call reply that cited a memory, reading past its memory ids", async () => {
+    // #174 writes the ids of memories a spoken reply cited into its payload.
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "You said the maroon folder is for physics.", 1, "conversation.assistant_sent", false,
+      ["7zzzzzzzzzzzzzzzzzzzzzzzzz"],
+    );
+    const literal = await indexed(events, time);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "maroon" });
+
+    expect(page.hits.map((hit) => [hit.eventId, hit.speaker])).toEqual([[reply.envelope.eventId, "assistant"]]);
+  });
+
+  it("keeps the automatic searchLiteral path to Sid's own words after call replies are indexed", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const mine = await appendConversation(events, time, "The magenta badge is in my wallet.", 1);
+    await appendConversation(events, time, "The magenta badge is safe.", 1, "conversation.assistant_sent");
+    const literal = await indexed(events, time);
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "magenta" });
+
+    expect(result.status).toBe("hits");
+    expect(result.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(Object.keys(result.hits[0] ?? {})).not.toContain("speaker");
+  });
+
+  it("keeps a call reply archived to R2 out of Sid-only results, where SQL cannot see its type", async () => {
+    // Once an event is sealed into R2 and purged from D1, the SQL speaker
+    // filter has no event_type to read, so the decoded-hit filter is the only
+    // thing keeping Jarvis's words out of the owner-only paths.
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      live, time, "The garnet ring is in the drawer.", 1, "conversation.assistant_sent",
+    );
+    const { archive } = await archiveEvent(live, reply);
+    const mine = await appendConversation(live, time, "Where did I put the garnet ring?", 1);
+    const tiered = new TieredEventReader({ live, archive, state: new ArchiveRepository(env.DB) });
+    const literal = service(tiered, time);
+    for (let step = 0; step < 4; step += 1) {
+      const result = await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+      if (result.complete) break;
+    }
+
+    const automatic = await literal.searchLiteral({ principalId: OWNER_ID, query: "garnet" });
+    const sidOnly = await literal.searchHistory({ principalId: OWNER_ID, query: "garnet", speakers: ["user"] });
+    const both = await literal.searchHistory({ principalId: OWNER_ID, query: "garnet" });
+
+    expect(automatic.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(sidOnly.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(both.hits.map((hit) => [hit.eventId, hit.speaker, hit.sourceLocation]).sort()).toEqual([
+      [mine.envelope.eventId, "user", "live"],
+      [reply.envelope.eventId, "assistant", "archived"],
+    ].sort());
+  });
+
+  it("filters by speaker when asked for only Sid's words or only Jarvis's", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const mine = await appendConversation(events, time, "The indigo scarf is mine.", 1);
+    const said = await appendConversation(events, time, "The indigo scarf is by the door.", 1, "conversation.assistant_sent");
+    const delivered = await appendConversation(
+      events, time, "I noted the indigo scarf.", 2, "conversation.assistant_delivered",
+    );
+    const literal = await indexed(events, time);
+
+    const sid = await literal.searchHistory({ principalId: OWNER_ID, query: "indigo", speakers: ["user"] });
+    const jarvis = await literal.searchHistory({ principalId: OWNER_ID, query: "indigo", speakers: ["assistant"] });
+
+    expect(sid.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+    expect(jarvis.hits.map((hit) => hit.eventId).sort())
+      .toEqual([said.envelope.eventId, delivered.envelope.eventId].sort());
+    // The live-event speaker filter runs before LIMIT, so Sid's message does
+    // not spend a slot on a two-hit page of Jarvis's replies.
+    const page = await literal.searchHistory({
+      principalId: OWNER_ID, query: "indigo", speakers: ["assistant"], pageSize: 2,
+    });
+    expect([page.hits.length, page.moreResults]).toEqual([2, false]);
+  });
+
+  it("does not let call replies crowd Sid's own words out of the automatic search", async () => {
+    // searchLiteral validates at most eight candidates. Eight short call
+    // replies outrank one long owner message, so without the SQL filter on
+    // assistant_sent the owner's message is never examined.
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const mine = await appendConversation(
+      events, time,
+      "I think the lilac jacket might be somewhere in the hall closet behind the winter boxes and the old skates.",
+      1,
+    );
+    for (let index = 0; index < 8; index += 1) {
+      await appendConversation(events, time, `Lilac ${"abcdefgh"[index]}.`, 1, "conversation.assistant_sent");
+    }
+    const literal = await indexed(events, time);
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "lilac" });
+
+    expect(result.hits.map((hit) => hit.eventId)).toEqual([mine.envelope.eventId]);
+  });
+
+  it("pages through the results and says when more results exist", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const appended: AppendedEvent[] = [];
+    for (let index = 0; index < 7; index += 1) {
+      appended.push(await appendConversation(events, time, `Turquoise reminder number ${"abcdefg"[index]}.`, 2));
+    }
+    const literal = await indexed(events, time);
+
+    const first = await literal.searchHistory({ principalId: OWNER_ID, query: "turquoise", pageSize: 3 });
+    const second = await literal.searchHistory({ principalId: OWNER_ID, query: "turquoise", pageSize: 3, offset: 3 });
+    const last = await literal.searchHistory({ principalId: OWNER_ID, query: "turquoise", pageSize: 3, offset: 6 });
+
+    expect([first.hits.length, first.moreResults, first.nextOffset]).toEqual([3, true, 3]);
+    expect([second.hits.length, second.moreResults, second.nextOffset]).toEqual([3, true, 6]);
+    expect([last.hits.length, last.moreResults, last.nextOffset]).toEqual([1, false, null]);
+    const seen = [...first.hits, ...second.hits, ...last.hits].map((hit) => hit.eventId);
+    expect(new Set(seen).size).toBe(7);
+    expect([...seen].sort()).toEqual(appended.map((event) => event.envelope.eventId).sort());
+  });
+
+  it("finds a multi-line call utterance and keeps its line breaks in the excerpt", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const spoken = await appendConversation(events, time, "Shopping list:\nvermilion paint\nbrushes", 1);
+    const literal = await indexed(events, time);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "vermilion" });
+
+    expect(page.hits.map((hit) => hit.eventId)).toEqual([spoken.envelope.eventId]);
+    expect(page.hits[0]?.excerpt).toBe("Shopping list:\nvermilion paint\nbrushes");
+    const chunk = await env.DB.prepare(`SELECT text, content_hash FROM memory_history_chunks
+      WHERE principal_id = ? AND start_event_sequence = ?`)
+      .bind(OWNER_ID, spoken.eventSequence).first<{ text: string; content_hash: string }>();
+    expect(chunk).toEqual({
+      text: "Shopping list: vermilion paint brushes",
+      // #194: the chunk's hash covers the search form it stores.
+      content_hash: await sha256Hex("Shopping list: vermilion paint brushes"),
+    });
+  });
+
+  it("reports the unindexed range instead of presenting a partial search as complete", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The amber key opens the shed.", 2);
+    const literal = await indexed(events, time);
+    const later = await appendConversation(events, time, "The amber key is lost.", 2);
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "amber" });
+
+    expect(page.hits).toHaveLength(1);
+    expect(page.missingRange).toEqual({
+      startEventSequence: later.eventSequence,
+      endEventSequence: later.eventSequence,
+    });
+    expect(page.missingReason).toBe("not_indexed_yet");
+  });
+
+  it("indexes new messages before backfilling an old call reply, so a backlog cannot hold them back", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "The teal scarf is in the hall closet.", 1, "conversation.assistant_sent", false,
+    );
+    // The cursor passed the reply before call replies were history.
+    await env.DB.prepare(`INSERT INTO memory_cursors (
+      principal_id, cursor_name, current_event_sequence, updated_at
+    ) VALUES (?, 'fts_history', ?, ?)`).bind(OWNER_ID, reply.eventSequence, time.advance()).run();
+    const fresh = await appendConversation(events, time, "The teal scarf needs washing.", 2);
+    const literal = service(events, time);
+    const step = () => literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+
+    await expect(step()).resolves.toMatchObject({
+      refreshed: false, endEventSequence: fresh.eventSequence, complete: false,
+    });
+    await expect(step()).resolves.toMatchObject({
+      refreshed: true, startEventSequence: reply.eventSequence, complete: false,
+    });
+    await expect(step()).resolves.toMatchObject({ complete: true });
+
+    const page = await literal.searchHistory({ principalId: OWNER_ID, query: "teal" });
+    expect(page.missingRange).toBeNull();
+    expect(page.hits.map((hit) => hit.eventId).sort())
+      .toEqual([reply.envelope.eventId, fresh.envelope.eventId].sort());
+  });
+
+  it("backfills a call reply the cursor passed before call replies were history", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const reply = await appendConversation(
+      events, time, "The ochre umbrella is in the car.", 1, "conversation.assistant_sent", false,
+    );
+    // The state production is in: the cursor moved past the reply while
+    // historyEvent still returned null for it, so it has no coverage row.
+    await env.DB.prepare(`INSERT INTO memory_cursors (
+      principal_id, cursor_name, current_event_sequence, updated_at
+    ) VALUES (?, 'fts_history', ?, ?)`).bind(OWNER_ID, reply.eventSequence, time.advance()).run();
+    const literal = service(events, time);
+
+    const before = await literal.searchHistory({ principalId: OWNER_ID, query: "ochre" });
+    expect(before.hits).toEqual([]);
+    expect(before.missingRange).toEqual({
+      startEventSequence: reply.eventSequence,
+      endEventSequence: reply.eventSequence,
+    });
+    // An old event awaiting a refresh, not the newest messages.
+    expect(before.missingReason).toBe("being_reindexed");
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ refreshed: true, chunksWritten: 1 });
+
+    const after = await literal.searchHistory({ principalId: OWNER_ID, query: "ochre" });
+    expect(after.missingRange).toBeNull();
+    expect(after.hits.map((hit) => [hit.eventId, hit.speaker])).toEqual([[reply.envelope.eventId, "assistant"]]);
+  });
+
+  it("returns the messages around a hit, oldest first, and leaves out a forgotten neighbour", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    const first = await appendConversation(events, time, "What should I bring tomorrow?", 1);
+    const forgotten = await appendConversation(events, time, "Something I asked you to forget.", 1);
+    const target = await appendConversation(events, time, "Bring the lime binder.", 1, "conversation.assistant_sent");
+    const after = await appendConversation(events, time, "Thanks.", 2);
+    await suppressEvent(events, time, forgotten);
+    const literal = service(events, time);
+
+    const messages = await literal.readHistoryAround({
+      principalId: OWNER_ID, eventId: target.envelope.eventId, window: 5,
+    });
+
+    expect(messages.map((message) => [message.eventId, message.speaker, message.isTarget])).toEqual([
+      [first.envelope.eventId, "user", false],
+      [target.envelope.eventId, "assistant", true],
+      [after.envelope.eventId, "user", false],
+    ]);
+    await expect(literal.readHistoryAround({ principalId: OWNER_ID, eventId: forgotten.envelope.eventId }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_not_found"));
   });
 });

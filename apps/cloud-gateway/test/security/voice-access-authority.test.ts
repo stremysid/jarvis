@@ -154,7 +154,10 @@ describe("VoiceAccessAuthorityService", () => {
 
     expect(() => service.snapshot({ ...owner })).toThrow("call_authority_invalid");
     await expect(service.authorize(owner, "conversation.basic", NOW)).resolves.toBe(owner);
-    await expect(service.authorize(owner, "access.manage", NOW)).rejects.toThrow("owner_step_up_required");
+    // `access.manage` no longer needs a passphrase success receipt: that check was
+    // removed with the per-call passphrase, and no code path can produce the
+    // receipt any more. The owner authority on this call is what authorizes it.
+    await expect(service.authorize(owner, "access.manage", NOW)).resolves.toBe(owner);
     await expect(service.mintOwner({
       sessionId: OWNER_RUNTIME_SESSION,
       binding: Object.freeze({ ...relayBinding, relayNonce: `${"9".repeat(42)}A` }),

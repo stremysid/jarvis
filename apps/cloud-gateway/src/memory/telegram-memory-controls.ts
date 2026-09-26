@@ -55,7 +55,8 @@ const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?[Mm]emory evidence \[[^\]]*\bitem (
 const MEMORY_CITATION_ITEM = /\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu;
 const MAX_RECORDED_REFERENCES = 8;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Sid's memory: his reader.
+const redactor = new Redactor("owner");
 
 interface OwnerTurnRow {
   readonly turn_id: unknown;
@@ -124,8 +125,9 @@ function historyPayload(value: unknown, error: string): Record<string, unknown> 
  * Exported because a channel adapter needs it to read back what Jarvis itself
  * said on a previous turn, and doing that must not mean a second, weaker copy
  * of the payload check. `historyEligible` is deliberately not required to be
- * true here: a spoken assistant turn is stored with it false, because it is not
- * recall history -- it is still the exact text the owner heard.
+ * true here: a spoken call reply is stored with it false, a legacy value that
+ * says nothing about the text (see conversation/history-eligibility.ts); it is
+ * still the exact text the owner heard.
  */
 export function readHistoryPayloadEnvelope(value: unknown, error: string): string {
   const payload = historyPayload(value, error);
@@ -409,6 +411,13 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
         text: control.memoryText,
         kind: memoryKind(control.memoryText),
         sensitivity: "normal",
+        // This deterministic adapter has no model to ask, so it states the
+        // durable/no-end pair explicitly instead of leaning on a repository
+        // default. It is not composed in the production gateway; the model
+        // tools are what set lifetime in a live turn, and they refuse an
+        // omission rather than assuming one.
+        lifetime: "durable",
+        validTo: null,
       });
       return Object.freeze({
         receipt: namedReceipt(mutationReceipt("remember", result.receipt), control.memoryText),
@@ -432,11 +441,11 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       .readCurrentItem(input.principalId, candidates[0]!);
     const itemIds = Object.freeze([item.itemId]);
     if (control.intent === "forget") {
+      // One target: `findControlTargets` above already required exactly one.
+      const forgotten = await controls.forget({ ownerTurn, candidateItemIds: candidates });
+      if (forgotten.length !== 1) throw new TypeError("tel_memory_control_target_invalid");
       return Object.freeze({
-        receipt: namedReceipt(mutationReceipt(
-          "forget",
-          (await controls.forget({ ownerTurn, candidateItemIds: candidates })).receipt,
-        ), item.version.text),
+        receipt: namedReceipt(mutationReceipt("forget", forgotten[0]!.receipt), item.version.text),
         itemIds,
       });
     }
@@ -444,7 +453,14 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       return Object.freeze({
         receipt: namedReceipt(mutationReceipt(
           "lift",
-          (await controls.lift({ ownerTurn, candidateItemIds: candidates })).receipt,
+          (await controls.lift({
+            ownerTurn,
+            candidateItemIds: candidates,
+            // Same reason as `remember` above: a deterministic typed command
+            // has no model turn to decide the restored evidence's basis, so it
+            // states the first-person basis that the stored wording came from.
+            basis: "stated",
+          })).receipt,
         ), item.version.text),
         itemIds,
       });

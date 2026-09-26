@@ -63,7 +63,8 @@ const ORIGINS = new Set([
   "authenticated_first_person", "deterministic_observation", "model", "third_party",
 ]);
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Projected to Sid's own PC: his reader.
+const redactor = new Redactor("owner");
 
 type ProjectionBody = MemoryFactProjectionPageV1 | MemoryFactProjectionCommitV1 | MemoryFactProjectionAbandonV1;
 

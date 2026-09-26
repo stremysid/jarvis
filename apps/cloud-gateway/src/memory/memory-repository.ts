@@ -11,6 +11,7 @@ import { hasFactTextControls } from "../../../../packages/contracts/src/memory-p
 import type { ArchivedEventReader } from "../archive/tiered-event-reader.js";
 import { TransactionRunner } from "../persistence/transaction.js";
 import {
+  MEMORY_FILING_CONFIDENCE_THRESHOLD,
   MEMORY_INBOX_DISPLAY_NAME,
   MEMORY_ROOT_DISPLAY_NAME,
   MEMORY_TOPIC_REDIRECT_LIMIT,
@@ -430,6 +431,14 @@ const INBOX_BOOTSTRAP_REASON = "bootstrap explicit low-confidence inbox";
 const AUTOMATIC_TOPIC_DEPTH_LIMIT = 4;
 const AUTOMATIC_TOPIC_CHILD_LIMIT = 40;
 const AUTOMATIC_INBOX_REFILE_LIMIT = 10;
+/**
+ * How many similar-wording candidates a remember receipt names.
+ *
+ * A bound on the hint's size, not on which memories count as duplicates: the
+ * model is told about a few candidates and decides. Nothing is merged, so a
+ * candidate left out of the hint is stored as its own memory rather than lost.
+ */
+const REMEMBER_SIMILAR_HINT_LIMIT = 3;
 const AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT = 100;
 const AUTOMATIC_TOPIC_COMPONENT_BYTES = 64;
 export const AUTOMATIC_TOPIC_PROMPT_TREE_BYTES = 4_096;
@@ -882,13 +891,12 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
   const validFrom = input.version.validFrom === null ? null : inputTimestamp(input.version.validFrom);
   const validTo = input.version.validTo === null ? null : inputTimestamp(input.version.validTo);
   if (validFrom !== null && validTo !== null && validTo <= validFrom) refuse();
-  // Derived from the end when the caller does not say, so a caller written
-  // before this column existed -- every fixture in the suite, and the
-  // distillation writer -- keeps behaving exactly as it did. Only a genuine
-  // contradiction is refused: durable with an end, or temporary without one.
-  const lifetime = input.lifetime === undefined
-    ? (validTo === null ? "durable" as const : "temporary" as const)
-    : inputEnum(input.lifetime, new Set(["durable", "temporary"] as const));
+  // The caller states the lifetime; this only checks the shape. It used to be
+  // derived from the version's end when absent, which made code the thing
+  // choosing durability for a caller that said nothing -- the very decision the
+  // roadmap gives to the model. Only a genuine contradiction is refused:
+  // durable with an end, or temporary without one.
+  const lifetime = inputEnum(input.lifetime, new Set(["durable", "temporary"] as const));
   // The same coupling the `0038` trigger enforces, checked here as well so a
   // caller that gets it wrong receives a repository refusal naming the field
   // rather than a D1 ABORT from the trigger. The trigger stays the authority:
@@ -931,7 +939,7 @@ function captureInput(input: CommitInitialMemoryInput): CapturedInput {
     const inboxTopicId = inputUlid(input.automaticFiling.inboxTopicId);
     if (input.placement.topicId !== inboxTopicId || filingSource !== "rule"
       || input.transition.lifecycleState !== "active" || input.version.uncertain
-      || input.placement.confidence < 0.6) refuse();
+      || input.placement.confidence < MEMORY_FILING_CONFIDENCE_THRESHOLD) refuse();
     automaticFiling = Object.freeze({
       topicPath,
       maximumNewTopics: inputInteger(input.automaticFiling.maximumNewTopics, 0, 6),
@@ -1207,11 +1215,22 @@ export class MemoryRepository {
     });
   }
 
-  /** Reuses a normalized active owner memory when Telegram retries or restates it. */
-  async findActiveItemByNormalizedText(
+  /**
+   * Candidate memories whose stored wording normalizes to the same string.
+   *
+   * A **hint for the model, never a write**. This used to be
+   * `findActiveItemByNormalizedText`, and the caller merged the new wording into
+   * the matched item as an extra source — a silent duplicate decision made in
+   * code, with the stored wording unchanged and the receipt implying Sid's new
+   * words were recorded. The comparison is a mechanical string equality (case,
+   * apostrophes, zero-width characters and punctuation normalized); whether two
+   * statements are the same memory is the model's judgment, so this returns the
+   * candidates and the model decides whether to correct, extend or keep both.
+   */
+  async findSimilarActiveItems(
     principalIdInput: string,
     textInput: string,
-  ): Promise<CanonicalMemoryItem | null> {
+  ): Promise<readonly Readonly<{ itemId: Ulid; text: string }>[]> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
       const text = this.validateItemText(textInput);
@@ -1226,15 +1245,17 @@ export class MemoryRepository {
         ORDER BY item.created_at, item.item_id`).bind(principalId)
         .all<{ item_id: unknown; text: unknown }>();
       const comparison = normalizedRememberText(text);
+      const matches: Array<Readonly<{ itemId: Ulid; text: string }>> = [];
       for (const row of rows.results) {
         exactRow(row, new Set(["item_id", "text"]));
         const itemId = rowUlid(row.item_id);
         const storedText = safeRowText(row.text, 4096);
         if (normalizedRememberText(storedText) === comparison) {
-          return this.readCurrentItemInternal(principalId, itemId);
+          matches.push(Object.freeze({ itemId, text: storedText }));
+          if (matches.length === REMEMBER_SIMILAR_HINT_LIMIT) break;
         }
       }
-      return null;
+      return Object.freeze(matches);
     });
   }
 
@@ -1888,7 +1909,6 @@ export class MemoryRepository {
         WHERE placement.principal_id = ? AND placement.topic_id = ?
           AND placement.relation = 'primary' AND placement.status = 'active'
           AND state.lifecycle_state = 'active' AND version.uncertain = 0
-          AND event.confidence >= 0.6
           AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)`)
         .bind(principalId, bootstrapped.inbox.topicId, ...retryableReasonInputs)
         .first<CountRow>();
@@ -1918,7 +1938,6 @@ export class MemoryRepository {
           WHERE placement.principal_id = ? AND placement.topic_id = ?
             AND placement.relation = 'primary' AND placement.status = 'active'
             AND state.lifecycle_state = 'active' AND version.uncertain = 0
-            AND event.confidence >= 0.6
             AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
         ), rotated AS (
           SELECT candidates.*, 0 AS rotation FROM candidates
@@ -2293,6 +2312,9 @@ export class MemoryRepository {
       const transitionId = inputUlid(input.transitionId);
       const ownerAuthorizingEventId = inputUlid(input.ownerAuthorizingEventId);
       const lifecycleState = inputEnum(input.lifecycleState, new Set(["active", "proposed"] as const));
+      const basis = inputEnum(input.basis, new Set([
+        "stated", "confirmed", "observed", "inferred", "third_party",
+      ] as const));
       const reason = safeInputText(input.reason, 512);
       const policyVersion = safeInputText(input.policyVersion, 128);
       if (!Array.isArray(input.sourceIds) || !Array.isArray(input.lifts)
@@ -2314,6 +2336,7 @@ export class MemoryRepository {
         transitionId,
         ownerAuthorizingEventId,
         lifecycleState,
+        basis,
         sourceIds: Object.freeze(sourceIds),
         lifts: Object.freeze(lifts),
         reason,
@@ -2323,12 +2346,24 @@ export class MemoryRepository {
       if (replay !== null) return replay;
       const prepared = await this.prepareLiftItem(principalId, itemId);
       const item = prepared.item;
-      // Once every first-person source is archive-only, the owner's lift is
-      // the confirmation that lets the active transition retain that evidence.
-      const restoredBasis = item.version.origin === "authenticated_first_person"
+      // The caller states what the restored evidence counts as; this only holds
+      // the stored row to the same coupling `captureInput` enforces, so a basis
+      // the ledger would reject is refused by name here instead of surfacing as
+      // a D1 constraint error. It used to set `confirmed` by itself whenever the
+      // origin was first-person and every source was archive-only -- a silent
+      // basis change the model never saw.
+      if ((item.version.origin === "model" && basis !== "inferred")
+        || (item.version.origin === "third_party" && basis !== "third_party")
+        || ((basis === "inferred" || basis === "third_party") && !item.version.uncertain)) refuse();
+      // `0016`'s transition guard requires `confirmed` when a first-person
+      // version's every source is archive-only, because restoring text whose
+      // original live turn is gone is the owner's confirmation of it. That is a
+      // schema invariant, not a code preference: relaxing it needs a migration,
+      // and until then this refuses by name instead of as a D1 ABORT. Surfaced
+      // in `memory_restore`'s description so the model can pass it.
+      if (item.version.origin === "authenticated_first_person"
         && item.sources.every((source) => source.sourceLocation === "archived")
-        ? "confirmed"
-        : item.version.basis;
+        && basis !== "confirmed") refuse();
       if (item.version.versionId !== previousVersionId
         || prepared.restoredLifecycleState !== lifecycleState
         || item.sources.length !== sourceIds.length
@@ -2350,7 +2385,7 @@ export class MemoryRepository {
             item.version.versionNumber + 1,
             item.version.text,
             item.version.textHash,
-            restoredBasis,
+            basis,
             item.version.origin,
             item.version.uncertain ? 1 : 0,
             item.version.sensitivity,

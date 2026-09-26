@@ -345,12 +345,6 @@ describe("VoiceAccessRepository", () => {
       .bind(`VX${"6".repeat(32)}`, now, now, secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(secondSessionId).run();
-    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
-      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
-      lifecycle_generation, requirement, attestation_class, policy, created_at
-    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`)
-      .bind(secondSessionId, `CA${"6".repeat(32)}`, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now)
-      .run();
     const binding: RelayBinding = {
       callSid: `CA${"6".repeat(32)}`,
       principalId: OWNER_PRINCIPAL_ID,
@@ -378,10 +372,13 @@ describe("VoiceAccessRepository", () => {
     await env.DB.prepare(`UPDATE owner_passphrase_verifiers
       SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`).bind(now).run();
     try {
+      // Revoking the owner passphrase verifier no longer invalidates an owner
+      // call authority. That credential was removed from the call path on
+      // 2026-09-24, so it has nothing to say about a live call; only the durable
+      // owner enrolment does.
       await expect(repository.rehydrateAuthority({ sessionId: secondSessionId, binding, now: NOW }))
-        .rejects.toThrow("call_authority_invalid");
-      await expect(repository.requireCurrentAuthority(minted, NOW))
-        .rejects.toThrow("call_authority_stale");
+        .resolves.toMatchObject({ kind: "owner", sessionId: secondSessionId });
+      await expect(repository.requireCurrentAuthority(minted, NOW)).resolves.toEqual(minted);
     } finally {
       await env.DB.prepare(`UPDATE owner_passphrase_verifiers
         SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();

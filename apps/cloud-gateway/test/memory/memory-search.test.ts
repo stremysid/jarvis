@@ -1,3 +1,4 @@
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 /**
  * `memory_search`: what the search seam is allowed to see, and what it is not.
  *
@@ -25,7 +26,6 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { capabilityForTool } from "../../src/autonomy/tool-capabilities.js";
 import {
-  OWNER_TELEGRAM_TOOL_DEFINITIONS,
   OwnerTelegramAgentAdapter,
 } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
@@ -211,6 +211,11 @@ async function remember(
     text,
     kind: "preference",
     sensitivity: "normal",
+    // The model now decides how long a fact lasts; a test that does not care
+    // says durable with no end, which is the same value the removed default
+    // would have produced.
+    lifetime: "durable",
+    validTo: null,
   });
   return new MemoryRepository(env.DB).readCurrentItem(principalId, receipt.item.itemId);
 }
@@ -219,11 +224,11 @@ async function remember(
  * A committed, retrievable item with wording the caller chooses.
  *
  * Committed through the repository rather than through `remember` on purpose.
- * The owner path refuses to create a second *active* memory with the same
- * wording -- `findActiveItemByNormalizedText` is the duplicate guard -- so two
- * live versions sharing a `text_hash` are not reachable that way. What is under
- * test here is the read: given two rows that differ only by version id, does it
- * return the one the hit named.
+ * The owner path no longer merges a same-wording statement into an existing
+ * item -- the similar-wording candidates are only named back to the model -- so
+ * this helper still exists to place two rows with a caller-chosen wording
+ * directly. What is under test here is the read: given two rows that differ only
+ * by version id, does it return the one the hit named.
  */
 async function liveItem(
   principalId: string,
@@ -238,6 +243,7 @@ async function liveItem(
     principalId,
     itemId,
     kind: "preference",
+    lifetime: "durable",
     creationEventId: turn.eventId,
     creationEventSequence: turn.eventSequence,
     version: {
@@ -402,6 +408,8 @@ describe("memory search cannot return what Sid has forgotten or what has expired
       sensitivity: "normal",
       sourceExcerpt: "Actually my report needs a clear thesis",
       normalizedFromSource: true,
+      lifetime: "durable",
+      validTo: null,
     });
 
     const index = new FakeMeaningIndex();
@@ -412,8 +420,8 @@ describe("memory search cannot return what Sid has forgotten or what has expired
     // The correction really did produce new wording, so the empty result above
     // is the stale hit being refused rather than the correction having failed.
     const corrected = await new MemoryRepository(env.DB)
-      .findActiveItemByNormalizedText(principalId, "my report needs a clear thesis");
-    expect(corrected?.version.text).toBe("my report needs a clear thesis");
+      .findSimilarActiveItems(principalId, "my report needs a clear thesis");
+    expect(corrected.map((entry) => entry.text)).toContain("my report needs a clear thesis");
   });
 
   it("returns nothing for a hit whose content hash does not match the stored wording", async () => {
@@ -601,7 +609,7 @@ describe("the memory_search tool definition", () => {
     const definitions = MEMORY_TOOL_DEFINITIONS.filter((definition) => definition.name === "memory_search");
     expect(definitions).toHaveLength(1);
     expect(MEMORY_TOOL_NAMES).toContain("memory_search");
-    expect(OWNER_TELEGRAM_TOOL_DEFINITIONS.map((definition) => definition.name))
+    expect(OWNER_TOOL_DEFINITIONS.map((definition) => definition.name))
       .toContain("memory_search");
     expect(definitions[0]?.parameters).toEqual({
       type: "object",
@@ -810,14 +818,12 @@ describe("memory_search through the owner agent", () => {
     expect(result.receipt).toContain("no memory index bound");
   });
 
-  it("records what a search found as a durable reference on the turn", async () => {
+  it("records the memory the model declares as the turn's reference", async () => {
     // The relay this closes: `findControlTargets` for a later turn reads the
     // item ids out of the *previous* turn's staged assistant event, so a fact
     // the model only saw in a tool result is otherwise unnameable -- Sid could
-    // not forget or correct something Jarvis had just found. The assertion is on
-    // the stored envelope rather than on a following turn, because a following
-    // turn would also need the real retriever wired in, and what this change
-    // contributes is the id being recorded.
+    // not forget or correct something Jarvis had just found. The model declares
+    // which items its reply relied on; code records the declaration.
     const harness = await ownerHarness("reference");
     const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const found = await remember(harness.principalId, controls, "my spare key is under the mat");
@@ -829,12 +835,110 @@ describe("memory_search through the owner agent", () => {
       text: "where is my spare key?",
       provider: new FakeAgentProvider([
         called(tool("search-ref", "memory_search", { query: "spare key" })),
+        called(tool("declare-ref", "declare_memory_references", { itemIds: [found.itemId] })),
         stopped("Under the mat."),
       ]),
       memorySearch: index,
     });
 
     expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
+  });
+
+  it("records nothing when the model declares no references, even after a search found one", async () => {
+    // No recency fallback: searching is not a declaration of what the reply is
+    // about, so a turn that never calls declare_memory_references records no
+    // reference and a later "forget that" has nothing to name.
+    const harness = await ownerHarness("reference-undeclared");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    await runOwnerTurn({
+      harness,
+      text: "where is my spare key?",
+      provider: new FakeAgentProvider([
+        called(tool("search-undeclared", "memory_search", { query: "spare key" })),
+        stopped("Under the mat."),
+      ]),
+      memorySearch: index,
+    });
+
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
+  });
+
+  it("keeps what the model declared as the turn's reference when a later step touches no memory", async () => {
+    // The reference store replaces rather than appends, and the declaration is
+    // the whole set: a later step (an inbox read here) must not erase the item
+    // the model declared, and "forget that" must still reach it.
+    const harness = await ownerHarness("reference-chain");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my locker code is on a sticky note");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    await runOwnerTurn({
+      harness,
+      text: "where is my locker code, and anything in my inbox?",
+      provider: new FakeAgentProvider([
+        called(tool("search-chain", "memory_search", { query: "locker code" })),
+        called(tool("inbox-chain", "email_inbox_list", {})),
+        called(tool("declare-chain", "declare_memory_references", { itemIds: [found.itemId] })),
+        stopped("On a sticky note, and your inbox is quiet."),
+      ]),
+      memorySearch: index,
+    });
+
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([found.itemId]);
+  });
+
+  it("refuses a declared id the turn never showed the model, and records nothing", async () => {
+    const harness = await ownerHarness("reference-untouched");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+    const invented = newUlid();
+
+    const provider = new FakeAgentProvider([
+      called(tool("search-untouched", "memory_search", { query: "spare key" })),
+      called(tool("declare-untouched", "declare_memory_references", { itemIds: [invented] })),
+      stopped("I could not name that."),
+    ]);
+    await runOwnerTurn({
+      harness, text: "where is my spare key?", provider, memorySearch: index,
+    });
+
+    const refusal = JSON.parse(provider.requests[2]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(refusal.status).toBe("refused");
+    expect(refusal.receipt).toContain("not shown to you this turn");
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
+  });
+
+  it("refuses a declaration that repeats one id, and records nothing", async () => {
+    const harness = await ownerHarness("reference-duplicate");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const found = await remember(harness.principalId, controls, "my spare key is under the mat");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(found)]);
+
+    const provider = new FakeAgentProvider([
+      called(tool("search-duplicate", "memory_search", { query: "spare key" })),
+      called(tool("declare-duplicate", "declare_memory_references", {
+        itemIds: [found.itemId, found.itemId],
+      })),
+      stopped("I could not name that."),
+    ]);
+    await runOwnerTurn({
+      harness, text: "where is my spare key?", provider, memorySearch: index,
+    });
+
+    const refusal = JSON.parse(provider.requests[2]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(refusal.status).toBe("refused");
+    expect(refusal.receipt).toContain("repeated one id");
+    expect(await stagedMemoryItemIds(harness.principalId)).toEqual([]);
   });
 
   it("records nothing when the search found nothing", async () => {

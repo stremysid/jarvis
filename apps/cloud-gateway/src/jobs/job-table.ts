@@ -23,6 +23,7 @@ import {
 import { DeadlineIngestion, type DeadlineIngestionReport } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { SchoolCollectorRepository } from "../school/collector-repository.js";
+import { CLASSROOM_SOURCE_ID } from "../school/classroom-source.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
@@ -55,7 +56,7 @@ import {
   type PreparedMemoryExtractionPrice,
 } from "../memory/memory-extraction-budget.js";
 import { EventRepository } from "../persistence/event-repository.js";
-import type { ModelProvider } from "../providers/provider-types.js";
+import type { ModelAgentProvider, ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
@@ -74,6 +75,8 @@ import { isFailure, isNotMeasured } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, expectedPushSources, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
+import { OwnerReminderSender } from "../reminders/reminder-sender.js";
+import { runDeadlineReview } from "../deadlines/deadline-review-job.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -97,6 +100,17 @@ export interface JobEnvironment {
   readonly memoryMeaningFactory?: () => Readonly<{
     runIndexStep(principalId: string): Promise<MemoryMeaningIndexOutcome>;
   }>;
+  /**
+   * The model pass that reviews stored deadlines and schedules its own warnings
+   * through the reminder tools. It runs from the daily digest. Absent when no
+   * model key is configured.
+   */
+  readonly deadlineReview?: Readonly<{
+    provider: ModelAgentProvider;
+    ownerPrincipalId: string;
+    ownerZone: string;
+  }>;
+  readonly deadlineReviewFactory?: () => NonNullable<JobEnvironment["deadlineReview"]>;
 }
 
 function describe(error: unknown): string {
@@ -116,7 +130,9 @@ function notMeasured(detail: string): JobOutcome {
   return { notMeasured: true, detail };
 }
 
-export const CLASSROOM_SOURCE_ID = "google-classroom";
+// Re-exported so every existing `CLASSROOM_SOURCE_ID` import keeps working;
+// the agent core imports the same module directly instead of this heavier one.
+export { CLASSROOM_SOURCE_ID };
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
 const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
@@ -255,13 +271,15 @@ export function selectBrightspaceWindow(
   now: Date,
 ): SelectedBrightspaceWindow {
   const at = now.getTime();
-  const inside = (dueAt: string): boolean => {
+  const inside = (dueAt: string | null): boolean => {
+    if (dueAt === null) return false;
     const due = Date.parse(dueAt);
     return Number.isFinite(due)
       && due >= at - BRIGHTSPACE_PAST_WINDOW_MS
       && due < at + BRIGHTSPACE_FUTURE_WINDOW_MS;
   };
-  const inWindowItems = result.items.filter((item) => inside(item.dueAt));
+  // `inside` rejects a null due date, so everything left has one.
+  const inWindowItems = result.items.filter((item): item is typeof item & { dueAt: string } => inside(item.dueAt));
   const items = [...inWindowItems]
     .sort((left, right) => {
       const leftDue = Date.parse(left.dueAt);
@@ -667,6 +685,7 @@ async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
   let chargedD1Statements = 0;
   let eventsExamined = 0;
   let chunksWritten = 0;
+  let rowsSkipped = 0;
   let complete = false;
   let stopReason = "";
   for (let step = 0; step < MEMORY_HISTORY_STEPS_PER_POLL; step += 1) {
@@ -693,11 +712,13 @@ async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
     steps += 1;
     eventsExamined += result.eventsExamined;
     chunksWritten += result.chunksWritten;
+    rowsSkipped += result.rowsSkipped;
     complete = result.complete;
     if (complete) break;
   }
   const status = complete ? "complete" : "pending";
-  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written after ${steps} steps, `
+  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written, `
+    + `${rowsSkipped} rows skipped after ${steps} steps, `
     + `${chargedD1Statements} D1 statements charged${stopReason}`;
 }
 
@@ -904,7 +925,39 @@ async function digest(
     expectedPushSources: expectedPushSources(context.env),
   });
 
-  return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };
+  // The model's own look at the stored deadlines, after the digest. Code does
+  // not decide which deadlines matter or when to warn about them; this hands
+  // the model the rows and the reminder tools, and delivers whatever it writes
+  // (usually nothing, sometimes a question about a missing due date).
+  const review = await reviewDeadlines(context);
+  return { ok: true, detail: `${result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps`}; ${review}` };
+}
+
+/**
+ * The deadline review phase of the digest.
+ *
+ * A configuration that was never installed is reported as such and does not
+ * fail the digest: the digest really did run. A review that threw is reported
+ * in the detail rather than as a job failure for the same reason.
+ */
+async function reviewDeadlines(context: JobEnvironment): Promise<string> {
+  let configured = context.deadlineReview;
+  if (configured === undefined && context.deadlineReviewFactory !== undefined) {
+    try { configured = context.deadlineReviewFactory(); }
+    catch { return "deadline review not configured"; }
+  }
+  if (configured === undefined) return "deadline review not configured";
+  const result = await runDeadlineReview({
+    database: context.env.DB,
+    provider: configured.provider,
+    ownerPrincipalId: configured.ownerPrincipalId,
+    ownerZone: configured.ownerZone,
+    now: context.clock.now(),
+    delivery: context.delivery,
+  });
+  if (result.outcome === "failed") return `deadline review failed (${result.failure ?? "unknown"})`;
+  if (result.outcome === "nothing_to_review") return "no deadlines to review";
+  return `deadline review saw ${result.seen}, ${result.toolCalls} reminder tool calls, ${result.messaged ? "messaged Sid" : "no message"}`;
 }
 
 function memoryBackup(context: JobEnvironment): MemoryBackupService {
@@ -999,9 +1052,8 @@ export async function runMemoryConsolidationJob(context: JobEnvironment): Promis
  * cadences differ by an order of magnitude, and work that is already owed
  * should not wait an hour behind work that reaches the network.
  *
- * Today it only counts the open queue, which is a liveness signal and
- * nothing more: it proves D1 is reachable and the decision tables are
- * readable every five minutes. It does NOT yet expire lapsed items --
+ * It advances backups, drains notices and owner reminders, and reads the
+ * open queue. It does NOT yet expire lapsed decision items --
  * `listOpenQueue` filters them out of the queue, but nothing moves their
  * status to `expired`, so `answer` still refuses them on the delivered/open
  * check rather than on expiry. Sweeping them is the next thing this job
@@ -1017,6 +1069,7 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   // owner to do it for, and without one it has nothing to measure.
   if (principalId === undefined) return notMeasured("drain not set up (OWNER_PRINCIPAL_ID is not set)");
   try {
+    let reminderDetail = "owner reminders not run";
     const noticeDetail: GuestGrantNoticeDrainOutcome | "not_configured" = context.env.TELEGRAM_BOT_TOKEN === undefined
       ? "not_configured"
       : await new D1GuestGrantNoticeDrainer(
@@ -1026,6 +1079,12 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
           fetchImplementation: context.fetcher,
         })),
         context.clock,
+        async () => {
+          const sent = await new OwnerReminderSender(context.env.DB, new TelegramRestProvider({
+            botToken: context.env.TELEGRAM_BOT_TOKEN!, fetchImplementation: context.fetcher,
+          }), principalId, context.clock).run();
+          reminderDetail = `${sent} owner reminders sent`;
+        },
       ).run();
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),
@@ -1041,7 +1100,7 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
     if (backupContinuation.outcome === "failed") {
       return { ok: false, failure: backupContinuation.code };
     }
-    const detail = `${open.length} open; ${notices[noticeDetail]}; ${backupContinuation.detail}`;
+    const detail = `${open.length} open; ${notices[noticeDetail]}; ${reminderDetail}; ${backupContinuation.detail}`;
     // "guest notices not configured" used to be one clause of an `ok: true`
     // sentence, which made an unconfigured delivery path indistinguishable
     // from a working one on `/status`. The tick really did run -- D1 answered

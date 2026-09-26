@@ -160,6 +160,7 @@ async function commitItem(
     principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: creation.eventId,
     creationEventSequence: creation.sequence,
     version: {

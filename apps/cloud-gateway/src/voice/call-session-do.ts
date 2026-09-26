@@ -16,7 +16,6 @@ import {
 import { EventRepository } from "../persistence/event-repository.js";
 import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
-import { ownerPassphraseFragmentWordCount } from "../security/owner-passphrase-verifier.js";
 import {
   IdentityChallengeService,
   VerifiedChannelObservationAuthority,
@@ -25,9 +24,9 @@ import {
   AuthenticationAttemptBudget,
   evaluatePinAttempt,
 } from "./inbound-auth.js";
-import { parseOwnerAccessIntent, type OwnerAccessDraft } from "./owner-access-intent.js";
-import { OwnerAccessService, type OwnerPinSelection, type PreparedOwnerAccessProposal } from "./owner-access-service.js";
+import { OwnerAccessTool } from "./owner-access-tool.js";
 import { FourDigitPinCapture, normalizeSpokenPin } from "./pin-capture.js";
+import type { SensitiveActionPinPort } from "./sensitive-action-pin.js";
 import { createProductionCallSessionCore } from "./production-runtime.js";
 import {
   GuestPinProofIssuer,
@@ -40,17 +39,6 @@ import {
   type OutboundPreAuthenticationContract,
   type OutboundSessionInitialization,
 } from "./outbound.js";
-import {
-  OWNER_STEP_UP_ASSEMBLY_MS,
-  OWNER_STEP_UP_FORMAT_PROMPT,
-  OWNER_STEP_UP_HANDOFF_DATA,
-  OWNER_STEP_UP_PROMPT,
-  OWNER_STEP_UP_REJECTED,
-  OWNER_STEP_UP_RETRY_PROMPT,
-  OWNER_STEP_UP_VERIFIED,
-  type OwnerCallStepUpService,
-  type OwnerStepUpAlertSink,
-} from "./owner-call-step-up.js";
 
 type RelaySetupEvent = Extract<RelayEvent, { type: "setup" }>;
 type RelayDtmfEvent = Extract<RelayEvent, { type: "dtmf" }>;
@@ -62,15 +50,21 @@ const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const ACTIVATION_RESPONSE = /^\d{6}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_RELAY_FRAME_BYTES = 64 * 1024;
+// A barge-in aborts the live turn's controller, but the turn keeps the slot until
+// it finishes unwinding. This bounds how long the next prompt waits for that.
+const ACTIVE_TURN_SETTLE_BOUND_MS = 2_000;
+/**
+ * Spoken when a third utterance displaces the one already queued for the next
+ * turn, so the displaced words are never silently dropped.
+ */
+const QUEUED_PROMPT_REPLACED =
+  "I heard that. Give me a moment to finish this, then I will take your newest words.";
+const GUEST_REJECTED_SPEECH = "I couldn't verify access. Goodbye.";
+// Fixed handoff data, never interpolated: the relay-ended callback in
+// http/voice-callbacks.ts accepts at most one HandoffData value.
+export const GUEST_REJECTED_HANDOFF_DATA = "jarvis:guest-rejected:v1";
 const INITIALIZATION_KEY = "call-session.initialization.v1";
 const TERMINATION_KEY = "call-session.termination.v1";
-const OWNER_STEP_UP_ALARM_KEY = "call-session.owner-step-up-alarm.v1";
-interface StoredOwnerStepUpAlarm {
-  readonly sessionId: Ulid;
-  readonly lifecycleGeneration: 1;
-  readonly kind: "window" | "assembly";
-  readonly deadlineAt: string;
-}
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
@@ -98,6 +92,16 @@ const reserveActivationAttempt = AuthenticationAttemptBudget.prototype.reserveAc
 const issueObservation = VerifiedChannelObservationAuthority.prototype.issue;
 const confirmIdentityChallenge = IdentityChallengeService.prototype.confirm;
 const reserveGuestPinAttempt = AuthenticationAttemptBudget.prototype.reservePinAttempt;
+
+// Resolves when `promise` does or when the bound elapses, whichever is first.
+// The timer is cleared on the winning promise so a settled turn leaves no timer
+// holding the isolate awake for the rest of the bound.
+async function settleWithin(promise: Promise<void>, milliseconds: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<void>((resolve) => { timer = setTimeout(resolve, milliseconds); });
+  try { await Promise.race([promise, bound]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
+}
 
 function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -621,16 +625,9 @@ export class GuestCallAuthentication {
 }
 
 type CallInteraction =
-  | Readonly<{ kind: "owner_step_up" }>
   | Readonly<{ kind: "owner_enrollment" }>
   | Readonly<{ kind: "guest_pin" }>
-  | Readonly<{ kind: "conversation" }>
-  | Readonly<{ kind: "owner_access_pin"; proposal: PreparedOwnerAccessProposal }>
-  | Readonly<{
-    kind: "owner_access_confirmation";
-    proposal: PreparedOwnerAccessProposal;
-    pinSelection: OwnerPinSelection | null;
-  }>;
+  | Readonly<{ kind: "conversation" }>;
 
 export interface CallSessionCoreSetup {
   readonly capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
@@ -640,25 +637,29 @@ export interface CallSessionCoreSetup {
   readonly authority?: VoiceAccessAuthorityService | null;
   readonly guestAuthentication?: GuestCallAuthentication | null;
   readonly activation?: PhoneActivationChallengeConfirmer | null;
-  readonly ownerAccess?: OwnerAccessService | null;
-  readonly ownerStepUp?: OwnerCallStepUpService | null;
-  readonly ownerStepUpAlerts?: OwnerStepUpAlertSink | null;
-  readonly ownerStepUpAlarm?: OwnerStepUpAlarmPort | null;
+  /**
+   * Guest access management, as the model dispatches it.
+   *
+   * The core attaches the call surface (owner authority, speech, the PIN
+   * question) to this tool and then routes an owner utterance or keypad digits
+   * to it while a PIN question is open. There is no phrase grammar and no
+   * "confirm"/"cancel" word match: the model decides.
+   */
+  readonly ownerAccessTool?: OwnerAccessTool | null;
+  /**
+   * The spoken/keypad PIN that authorizes a tier-3 tool call on this call.
+   *
+   * Optional so the many tests that never reach a tier-3 action keep their
+   * construction, but a call without it refuses every sensitive action rather
+   * than running one unguarded: `VoicePinToolGate` fails closed when this is
+   * absent from the agent that dispatches tools.
+   */
+  readonly sensitiveActionPin?: SensitiveActionPinPort | null;
   readonly conversation?: ConversationService | null;
   readonly preAuthentication?: OutboundPreAuthenticationContract;
   readonly relay: CallSessionRelay;
   readonly newTurnId?: () => Ulid;
   readonly now: () => Date;
-}
-
-export interface OwnerStepUpAlarmPort {
-  arm(input: Readonly<{
-    sessionId: Ulid;
-    lifecycleGeneration: 1;
-    kind: "window" | "assembly";
-    deadlineAt: string;
-  }>): Promise<void>;
-  clear(): Promise<void>;
 }
 
 /**
@@ -673,10 +674,8 @@ export class CallSessionCore {
   readonly #authorityService: VoiceAccessAuthorityService | null;
   readonly #guestAuthentication: GuestCallAuthentication | null;
   readonly #activation: PhoneActivationChallengeConfirmer | null;
-  readonly #ownerAccess: OwnerAccessService | null;
-  readonly #ownerStepUp: OwnerCallStepUpService | null;
-  readonly #ownerStepUpAlerts: OwnerStepUpAlertSink | null;
-  readonly #ownerStepUpAlarm: OwnerStepUpAlarmPort | null;
+  readonly #ownerAccessTool: OwnerAccessTool | null;
+  readonly #sensitiveActionPin: SensitiveActionPinPort | null;
   readonly #conversation: ConversationService | null;
   readonly #assertCapacity: () => Promise<void>;
   readonly #preAuthentication: OutboundPreAuthenticationContract | null;
@@ -687,17 +686,16 @@ export class CallSessionCore {
   #setupHandledInThisInstance = false;
   readonly #guestPin = new FourDigitPinCapture();
   readonly #ownerAccessPin = new FourDigitPinCapture();
+  readonly #sensitiveActionPinKeypad = new FourDigitPinCapture();
   #activationDigits = "";
   #activationAttempted = false;
-  #ownerStepUpFragments: string[] = [];
-  #ownerStepUpFragmentStartedAt: number | null = null;
-  #ownerRepeatFragments: string[] = [];
-  #ownerRepeatFragmentStartedAt: number | null = null;
-  #ownerStepUpDeadlineAt: string | null = null;
-  #ownerStepUpVerificationInFlight = false;
-  #ownerStepUpRepromptInFlight = false;
-  #ownerStepUpRejection: Promise<void> | null = null;
   #activeTurnAbort: AbortController | null = null;
+  // Set and cleared with #activeTurnAbort so a prompt arriving after barge-in can
+  // wait for the aborted turn to release the slot instead of being dropped.
+  #activeTurnSettled: Promise<void> | null = null;
+  // One utterance that arrived while a live turn owned the slot. It runs as a
+  // real turn once that one releases, so an overlap is never silently dropped.
+  #queuedPrompt: Extract<RelayEvent, { type: "prompt" }> | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
   #authority: VoiceCallAuthority | null = null;
@@ -718,14 +716,14 @@ export class CallSessionCore {
         && !(input.guestAuthentication instanceof GuestCallAuthentication)
       || input.activation !== undefined && input.activation !== null
         && !(input.activation instanceof PhoneActivationChallengeConfirmer)
-      || input.ownerAccess !== undefined && input.ownerAccess !== null
-        && !(input.ownerAccess instanceof OwnerAccessService)
-      || input.ownerStepUp !== undefined && input.ownerStepUp !== null
-        && typeof input.ownerStepUp.verifyCandidate !== "function"
-      || input.ownerStepUpAlerts !== undefined && input.ownerStepUpAlerts !== null
-        && typeof input.ownerStepUpAlerts.alert !== "function"
-      || input.ownerStepUpAlarm !== undefined && input.ownerStepUpAlarm !== null
-        && (typeof input.ownerStepUpAlarm.arm !== "function" || typeof input.ownerStepUpAlarm.clear !== "function")
+      || input.ownerAccessTool !== undefined && input.ownerAccessTool !== null
+        && !(input.ownerAccessTool instanceof OwnerAccessTool)
+      || input.sensitiveActionPin !== undefined && input.sensitiveActionPin !== null
+        && (typeof input.sensitiveActionPin.attachSession !== "function"
+          || typeof input.sensitiveActionPin.hasPendingPrompt !== "function"
+          || typeof input.sensitiveActionPin.submitSpoken !== "function"
+          || typeof input.sensitiveActionPin.submitKeypad !== "function"
+          || typeof input.sensitiveActionPin.claimLateAnswer !== "function")
       || typeof input.expectedAccountSid !== "string"
       || !ACCOUNT_SID.test(input.expectedAccountSid)
     ) {
@@ -737,10 +735,8 @@ export class CallSessionCore {
     this.#authorityService = input.authority ?? null;
     this.#guestAuthentication = input.guestAuthentication ?? null;
     this.#activation = input.activation ?? null;
-    this.#ownerAccess = input.ownerAccess ?? null;
-    this.#ownerStepUp = input.ownerStepUp ?? null;
-    this.#ownerStepUpAlerts = input.ownerStepUpAlerts ?? null;
-    this.#ownerStepUpAlarm = input.ownerStepUpAlarm ?? null;
+    this.#ownerAccessTool = input.ownerAccessTool ?? null;
+    this.#sensitiveActionPin = input.sensitiveActionPin ?? null;
     this.#conversation = input.conversation ?? null;
     this.#assertCapacity = assertCapacity.bind(capacity);
     this.#preAuthentication = input.preAuthentication === undefined
@@ -760,16 +756,33 @@ export class CallSessionCore {
         ? "guest_pin"
         : input.session.binding.activationOnly
           ? "owner_enrollment"
-          : "owner_step_up",
+          : "conversation",
     }) as CallInteraction;
+    // The PIN question is asked deep inside a turn, where the conversation is
+    // streaming, so the surface that speaks the prompt and receives the digits
+    // is registered here, once, rather than relying on the turn's own output.
+    this.#sensitiveActionPin?.attachSession({
+      sessionId: this.#session.sessionId,
+      speak: (text: string) => this.#relay.sendNeutralText(text),
+      // Keys pressed before this question are not part of its answer.
+      questionOpened: () => { this.#sensitiveActionPinKeypad.clear(); },
+    });
+    // Guest access is managed by the model's `owner_access` tool call, which runs
+    // inside the same turn. The call supplies the owner authority, the speech
+    // surface and the PIN question; the model supplies every word and the choice.
+    this.#ownerAccessTool?.attachSession({
+      sessionId: this.#session.sessionId,
+      ownerAuthority: () => {
+        const authority = this.#authority;
+        return authority !== null && authority.kind === "owner" ? authority : null;
+      },
+      speak: (text: string) => this.#relay.sendNeutralText(text),
+      pinQuestionOpened: () => { this.#ownerAccessPin.clear(); },
+    });
   }
 
   get phase(): StoredCallSession["phase"] {
     return this.#session.phase;
-  }
-
-  get canResumeRejectedOwnerStepUp(): boolean {
-    return this.#session.phase === "rejected" && this.#interaction.kind === "owner_step_up";
   }
 
   validateRelaySetup(actual: RelaySetupEvent): void {
@@ -804,22 +817,13 @@ export class CallSessionCore {
         await this.#handlePrompt(event);
         return;
       case "interrupt":
-        this.#clearOwnerStepUpFragments();
-        this.#clearOwnerRepeatFragments();
-        if (this.#interaction.kind === "owner_step_up" && this.#ownerStepUp !== null) {
-          const observedAt = this.#now();
-          const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
-          if (state.rejectionReason !== null) {
-            await this.#rejectOwnerStepUp(observedAt, true);
-            return;
-          }
-          this.#ownerStepUpDeadlineAt = state.deadlineAt;
-          if (this.#ownerStepUpDeadlineAt !== null) {
-            await this.#ownerStepUpAlarm?.arm({
-              sessionId: this.#session.sessionId, lifecycleGeneration: 1,
-              kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-            });
-          }
+        // Speaking over the PIN prompt is how Sid answers it early, so while a
+        // question is open an interrupt stops the prompt's audio only. Aborting
+        // the turn here would close the question he is in the middle of
+        // answering.
+        if (this.#session.phase === "active" && this.#sensitiveActionPin?.hasPendingPrompt() === true) {
+          await this.#relay.cancelOutput();
+          return;
         }
         await this.#cancelCurrentOutput();
         return;
@@ -905,42 +909,11 @@ export class CallSessionCore {
           );
         }
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
-        if (this.#ownerStepUp === null || this.#ownerStepUpAlarm === null) {
-          throw new Error("owner_step_up_unavailable");
-        }
-        const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
-        if (binding === null) throw new Error("owner_step_up_binding_missing");
-        if (binding.requirement === "waived_passed_a") {
-          try {
-            await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
-          } catch (error) {
-            if (!(error instanceof Error) || error.message !== "owner_step_up_unavailable") throw error;
-            this.#interaction = Object.freeze({ kind: "owner_step_up" });
-            const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
-            if (state.rejectionReason === null) throw error;
-            await this.#rejectOwnerStepUp(observedAt, true);
-            return;
-          }
-          await this.#mintWaivedOwner(observedAt);
-        } else if (binding.requirement === "required") {
-          let window;
-          try { window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt); }
-          catch (error) {
-            if (!(error instanceof Error) || error.message !== "owner_step_up_disabled") throw error;
-            this.#interaction = Object.freeze({ kind: "owner_step_up" });
-            await this.#rejectOwnerStepUp(observedAt, true);
-            return;
-          }
-          this.#ownerStepUpDeadlineAt = window.deadlineAt;
-          this.#interaction = Object.freeze({ kind: "owner_step_up" });
-          await this.#ownerStepUpAlarm.arm({
-            sessionId: this.#session.sessionId, lifecycleGeneration: 1,
-            kind: "window", deadlineAt: window.deadlineAt,
-          });
-          if (enteredPreAuthentication) await this.#relay.sendNeutralText(OWNER_STEP_UP_PROMPT);
-        } else {
-          throw new Error("owner_step_up_binding_invalid");
-        }
+        // An owner call goes straight to Jarvis. There is no phrase prompt and
+        // no answer window at session start; the only credential a call asks
+        // for is the four digit PIN at a sensitive action, asked by the tool
+        // gate. Sid, 2026-09-24.
+        await this.#mintOwnerAuthority(observedAt);
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
         this.#interaction = Object.freeze({ kind: "guest_pin" });
         if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
@@ -948,7 +921,7 @@ export class CallSessionCore {
     }
   }
 
-  async #mintWaivedOwner(observedAt: Date): Promise<void> {
+  async #mintOwnerAuthority(observedAt: Date): Promise<void> {
     if (this.#authorityService === null) throw new Error("owner_authority_unavailable");
     this.#authority = await this.#authorityService.mintOwner({
       sessionId: this.#session.sessionId,
@@ -987,95 +960,19 @@ export class CallSessionCore {
   #clearAuthenticationState(): void {
     this.#guestPin.clear();
     this.#activationDigits = "";
+    this.#sensitiveActionPinKeypad.clear();
   }
 
+  /**
+   * Abandon an open owner-access PIN question.
+   *
+   * A pending proposal is not left behind: the service replaces the previous
+   * proposal for the session on the next `prepare`, and the tool does prepare
+   * and execute inside one call.
+   */
   #clearOwnerAccessState(): void {
-    const interaction = this.#interaction;
-    if (interaction.kind === "owner_access_confirmation" && interaction.pinSelection?.kind === "explicit") {
-      interaction.pinSelection.digits.fill(0);
-    }
-    if (interaction.kind === "owner_access_pin" || interaction.kind === "owner_access_confirmation") {
-      this.#ownerAccess?.invalidate(interaction.proposal);
-      this.#interaction = Object.freeze({ kind: "conversation" });
-    }
+    this.#ownerAccessTool?.cancelPendingPin();
     this.#ownerAccessPin.clear();
-  }
-
-  async #beginOwnerAccess(draft: OwnerAccessDraft, observedAt: Date): Promise<void> {
-    if (this.#ownerAccess === null || this.#authorityService === null || this.#authority?.kind !== "owner") {
-      throw new Error("owner_access_unavailable");
-    }
-    this.#clearOwnerAccessState();
-    await this.#authorityService.authorize(this.#authority, "access.manage", observedAt);
-    const proposal = await this.#ownerAccess.prepare({
-      ownerAuthority: this.#authority,
-      sessionId: this.#session.sessionId,
-      draft,
-      now: observedAt,
-    });
-    if (proposal.operation === "add" || proposal.operation === "rotate_pin") {
-      this.#interaction = Object.freeze({ kind: "owner_access_pin", proposal });
-      await this.#relay.sendNeutralText(
-        `Enter four digits or say use the default for ${proposal.maskedTarget ?? "the caller"}.`,
-      );
-      return;
-    }
-    this.#interaction = Object.freeze({
-      kind: "owner_access_confirmation",
-      proposal,
-      pinSelection: null,
-    });
-    await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
-  }
-
-  async #captureOwnerAccessPin(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
-    if (this.#interaction.kind !== "owner_access_pin") return;
-    let pinSelection: OwnerPinSelection;
-    if (event.text === "use the default") {
-      pinSelection = Object.freeze({ kind: "default" });
-    } else {
-      const digits = normalizeSpokenPin(event.text);
-      if (digits === null) {
-        await this.#relay.sendNeutralText("Use the keypad, say exactly four digits, or say use the default.");
-        return;
-      }
-      pinSelection = Object.freeze({ kind: "explicit", digits });
-    }
-    this.#interaction = Object.freeze({
-      kind: "owner_access_confirmation",
-      proposal: this.#interaction.proposal,
-      pinSelection,
-    });
-    await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
-  }
-
-  async #confirmOwnerAccess(text: string, observedAt: Date): Promise<void> {
-    if (this.#interaction.kind !== "owner_access_confirmation") return;
-    if (text === "cancel") {
-      this.#clearOwnerAccessState();
-      await this.#relay.sendNeutralText("Access change cancelled.");
-      return;
-    }
-    if (text !== "confirm") {
-      await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
-      return;
-    }
-    if (this.#ownerAccess === null || this.#authority?.kind !== "owner") {
-      this.#clearOwnerAccessState();
-      throw new Error("owner_access_unavailable");
-    }
-    const interaction = this.#interaction;
-    try {
-      const result = await this.#ownerAccess.execute({
-        proposal: interaction.proposal,
-        ownerAuthority: this.#authority,
-        pinSelection: interaction.pinSelection,
-        now: observedAt,
-      });
-      await this.#relay.sendNeutralText(result.speech);
-    } finally {
-      this.#clearOwnerAccessState();
-    }
   }
 
   #ownsLiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
@@ -1083,6 +980,48 @@ export class CallSessionCore {
       && !this.#socketClosed
       && this.#session.phase === "active"
       && this.#activeTurnAbort === controller;
+  }
+
+  // A barge-in aborts the live turn's controller but does not clear the slot until
+  // that turn's finally runs. A prompt arriving in that gap must wait, bounded, for
+  // the aborted turn to settle. A true overlap cannot take the slot now, so it is
+  // queued as the next turn rather than dropped.
+  async #awaitTurnSlot(): Promise<boolean> {
+    const live = this.#activeTurnAbort;
+    if (live === null) return true;
+    if (!live.signal.aborted) return false;
+    const settled = this.#activeTurnSettled;
+    if (settled !== null) await settleWithin(settled, ACTIVE_TURN_SETTLE_BOUND_MS);
+    // The bound expired: the aborted turn still owns the slot, so queue instead.
+    return this.#activeTurnAbort === null;
+  }
+
+  /**
+   * Hold one overlapping utterance for the next turn.
+   *
+   * Sid speaking while Jarvis is mid-turn is not an error and his words are not
+   * discarded: the newest one is kept and run as a real turn once the live turn
+   * releases the slot. A third utterance replaces the queued one, and that
+   * displacement is spoken so nothing is silently dropped; one slot is the
+   * bound, because a longer queue could not be answered any sooner.
+   */
+  #queuePrompt(event: Extract<RelayEvent, { type: "prompt" }>): void {
+    if (this.#queuedPrompt !== null) {
+      void this.#relay.sendNeutralText(QUEUED_PROMPT_REPLACED).catch(() => undefined);
+    }
+    this.#queuedPrompt = event;
+  }
+
+  #drainQueuedPrompt(): void {
+    const queued = this.#queuedPrompt;
+    if (queued === null) return;
+    this.#queuedPrompt = null;
+    // Run outside this call so the releasing turn's finally has completed.
+    queueMicrotask(() => {
+      void this.#handlePrompt(queued).catch(() => {
+        // A queued turn has no caller to report to; the call stays open.
+      });
+    });
   }
 
   #isActiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
@@ -1108,296 +1047,7 @@ export class CallSessionCore {
     }
   }
 
-  #clearOwnerStepUpFragments(): void {
-    this.#ownerStepUpFragments = [];
-    this.#ownerStepUpFragmentStartedAt = null;
-  }
-
-  #clearOwnerRepeatFragments(): void {
-    this.#ownerRepeatFragments = [];
-    this.#ownerRepeatFragmentStartedAt = null;
-  }
-
-  async #guardOwnerRepeat(text: string, observedAt: Date): Promise<string | null> {
-    if (this.#ownerStepUp === null) return text;
-    const status = await this.#ownerStepUp.repeatStatus(this.#session.sessionId, observedAt);
-    if (status === "guard") {
-      this.#clearOwnerRepeatFragments();
-      return null;
-    }
-    // `spent` means this call's step-up text was already repeated once and the
-    // repeat-check row exists. Returning `text` here handed the repeated
-    // passphrase to the conversation service, which stores it as a turn and
-    // sends it to the model -- the one thing this filter exists to prevent.
-    // `spent` therefore continues into verifyRepeat rather than leaving here.
-    if (status !== "fragment" && status !== "available" && status !== "spent") {
-      this.#clearOwnerRepeatFragments();
-      return text;
-    }
-    if (
-      this.#ownerRepeatFragmentStartedAt !== null
-      && observedAt.valueOf() - this.#ownerRepeatFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS
-    ) this.#clearOwnerRepeatFragments();
-
-    const wordCount = ownerPassphraseFragmentWordCount(text);
-    if (wordCount === null) {
-      this.#clearOwnerRepeatFragments();
-      return text;
-    }
-    if (status === "available" && wordCount < 3) {
-      this.#clearOwnerRepeatFragments();
-      return text;
-    }
-    if (this.#ownerRepeatFragmentStartedAt === null) {
-      if (wordCount === 3) {
-        return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, text, observedAt) === "suppress"
-          ? null : text;
-      }
-      this.#ownerRepeatFragmentStartedAt = observedAt.valueOf();
-      this.#ownerRepeatFragments = [text];
-      return null;
-    }
-
-    const candidate = [...this.#ownerRepeatFragments, text].join(" ");
-    const combinedWords = ownerPassphraseFragmentWordCount(candidate);
-    if (combinedWords === null) {
-      this.#clearOwnerRepeatFragments();
-      if (wordCount === 3) {
-        return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, text, observedAt) === "suppress"
-          ? null : text;
-      }
-      this.#ownerRepeatFragmentStartedAt = observedAt.valueOf();
-      this.#ownerRepeatFragments = [text];
-      return null;
-    }
-    if (combinedWords < 3) {
-      this.#ownerRepeatFragments.push(text);
-      return null;
-    }
-    this.#clearOwnerRepeatFragments();
-    return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, candidate, observedAt) === "suppress"
-      ? null : candidate;
-  }
-
-  #isFixedStepUpEcho(text: string): boolean {
-    return text === OWNER_STEP_UP_PROMPT || text === OWNER_STEP_UP_RETRY_PROMPT
-      || text === OWNER_STEP_UP_FORMAT_PROMPT || text === OWNER_STEP_UP_VERIFIED
-      || text === OWNER_STEP_UP_REJECTED;
-  }
-
-  async #rejectOwnerStepUp(observedAt: Date, alreadyDurable = false): Promise<void> {
-    let delivery = this.#ownerStepUpRejection;
-    if (delivery === null) {
-      delivery = this.#deliverOwnerStepUpRejection(observedAt, alreadyDurable);
-      this.#ownerStepUpRejection = delivery;
-      try {
-        await delivery;
-      } catch (error) {
-        if (this.#ownerStepUpRejection === delivery) this.#ownerStepUpRejection = null;
-        throw error;
-      }
-    } else {
-      await delivery;
-    }
-    // Delivery and alarm acknowledgement are separate. A failed final clear
-    // may be retried without speaking, ending, or alerting a second time.
-    await this.#ownerStepUpAlarm?.clear();
-  }
-
-  async #deliverOwnerStepUpRejection(observedAt: Date, alreadyDurable: boolean): Promise<void> {
-    if (this.#ownerStepUp === null) throw new Error("owner_step_up_unavailable");
-    if (!alreadyDurable) await this.#ownerStepUp.expire(this.#session.sessionId, observedAt);
-    const rejected = await this.#repository.getCallSession(this.#session.sessionId);
-    if (rejected === null || rejected.phase !== "rejected") throw new Error("owner_step_up_rejection_failed");
-    // Read everything required for the alert before completing the in-memory
-    // rejection. A failed read must leave the durable alarm available to retry.
-    const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
-    this.#session = rejected;
-    this.#clearOwnerStepUpFragments();
-    if (await this.#ownerStepUp.rejectionDelivered(this.#session.sessionId)) {
-      try { this.#relay.close(1008); }
-      catch { /* The provider may already have closed after the prior end frame. */ }
-      return;
-    }
-    try { await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED); }
-    catch { /* A disconnected caller must not prevent the owner's alert. */ }
-    try {
-      if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
-      await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
-    }
-    catch {
-      try { this.#relay.close(1008); }
-      catch { /* The relay may already have closed during verification. */ }
-    }
-    if (binding !== null && this.#ownerStepUpAlerts !== null) {
-      await this.#ownerStepUpAlerts.alert({
-        ownerPrincipalId: binding.ownerPrincipalId,
-        alertClass: "rejected",
-        direction: binding.direction,
-        attestationClass: binding.attestationClass,
-        now: observedAt,
-      });
-    }
-    await this.#ownerStepUp.recordRejectionDelivered(this.#session.sessionId, observedAt);
-  }
-
-  async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
-    if (this.#ownerStepUp === null || this.#authorityService === null || this.#ownerStepUpVerificationInFlight) return;
-    this.#ownerStepUpVerificationInFlight = true;
-    try {
-      const outcome = await this.#ownerStepUp.verifyCandidate(this.#session.sessionId, candidate, observedAt);
-      candidate = "";
-      if (outcome === "not_candidate") {
-        const reprompt = await this.#ownerStepUp.recordReprompt(this.#session.sessionId, observedAt);
-        if (reprompt === "rejected") await this.#rejectOwnerStepUp(observedAt, true);
-        else if (reprompt === "expired") await this.#rejectOwnerStepUp(observedAt);
-        else await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
-        return;
-      }
-      if (outcome === "expired") {
-        await this.#rejectOwnerStepUp(observedAt);
-        return;
-      }
-      if (outcome === "rejected") {
-        await this.#rejectOwnerStepUp(observedAt, true);
-        return;
-      }
-      if (outcome === "mismatched") {
-        await this.#relay.sendNeutralText(OWNER_STEP_UP_RETRY_PROMPT);
-        return;
-      }
-
-      // The match trigger has already committed the receipt, authority and authenticated phase.
-      const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
-      if (authenticated === null || authenticated.phase !== "authenticated") throw new Error("owner_step_up_commit_missing");
-      this.#session = authenticated;
-      this.#authority = await this.#authorityService.rehydrate({
-        sessionId: this.#session.sessionId, binding: this.#session.binding, now: observedAt,
-      });
-      await this.#transition("active", observedAt);
-      this.#interaction = Object.freeze({ kind: "conversation" });
-      await this.#ownerStepUpAlarm?.clear();
-      await this.#relay.sendNeutralText(OWNER_STEP_UP_VERIFIED);
-    } finally {
-      candidate = "";
-      this.#ownerStepUpVerificationInFlight = false;
-    }
-  }
-
-  async #handleOwnerStepUpPrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
-    if (!event.final || this.#isFixedStepUpEcho(event.text) || this.#ownerStepUpVerificationInFlight) return;
-    const observedAt = this.#now();
-    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
-    if (state.rejectionReason !== null) {
-      await this.#rejectOwnerStepUp(observedAt, true);
-      return;
-    }
-    this.#ownerStepUpDeadlineAt = state.deadlineAt;
-    if (this.#ownerStepUpDeadlineAt !== null && observedAt.toISOString() >= this.#ownerStepUpDeadlineAt) {
-      await this.#rejectOwnerStepUp(observedAt);
-      return;
-    }
-    if (this.#ownerStepUpFragmentStartedAt === null) this.#ownerStepUpFragmentStartedAt = observedAt.valueOf();
-    if (observedAt.valueOf() - this.#ownerStepUpFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS) {
-      this.#clearOwnerStepUpFragments();
-      if (this.#ownerStepUpRepromptInFlight) return;
-      this.#ownerStepUpRepromptInFlight = true;
-      try {
-        // Replace the stale assembly alarm before the durable reprompt write.
-        // A late alarm delivered during that write therefore observes only
-        // the window deadline and cannot consume a second reprompt.
-        if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
-          sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-        });
-        const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-        if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
-        else {
-          await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
-        }
-      } finally {
-        this.#ownerStepUpRepromptInFlight = false;
-      }
-      return;
-    }
-    this.#ownerStepUpFragments.push(event.text);
-    const candidate = this.#ownerStepUpFragments.join(" ");
-    const tokenCount = candidate.split(" ").filter(Boolean).length;
-    if (tokenCount < 3) {
-      await this.#ownerStepUpAlarm?.arm({
-        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "assembly",
-        deadlineAt: new Date(this.#ownerStepUpFragmentStartedAt + OWNER_STEP_UP_ASSEMBLY_MS).toISOString(),
-      });
-      return;
-    }
-    this.#clearOwnerStepUpFragments();
-    if (this.#ownerStepUpDeadlineAt !== null) {
-      await this.#ownerStepUpAlarm?.arm({
-        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window",
-        deadlineAt: this.#ownerStepUpDeadlineAt,
-      });
-    }
-    await this.#completeOwnerStepUp(candidate, observedAt);
-  }
-
-  async handleOwnerStepUpAlarm(kind: "window" | "assembly", lifecycleGeneration: 1): Promise<void> {
-    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" && this.#session.phase !== "rejected"
-      || this.#interaction.kind !== "owner_step_up") {
-      await this.#ownerStepUpAlarm?.clear();
-      return;
-    }
-    const observedAt = this.#now();
-    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
-    if (state.rejectionReason !== null) {
-      // expire() may have committed immediately before the previous invocation
-      // failed. The durable verdict does not prove that refusal/end/alert ran.
-      await this.#rejectOwnerStepUp(observedAt, true);
-      return;
-    }
-    if (state.deadlineAt === null) {
-      await this.#ownerStepUpAlarm?.clear();
-      return;
-    }
-    this.#ownerStepUpDeadlineAt = state.deadlineAt;
-    if (observedAt.toISOString() >= state.deadlineAt) {
-      await this.#rejectOwnerStepUp(observedAt);
-      return;
-    }
-    if (kind === "window") {
-      await this.#ownerStepUpAlarm?.arm({
-        sessionId: this.#session.sessionId, lifecycleGeneration: 1,
-        kind: "window", deadlineAt: state.deadlineAt,
-      });
-      return;
-    }
-    if (this.#ownerStepUpRepromptInFlight) {
-      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
-        sessionId: this.#session.sessionId, lifecycleGeneration: 1,
-        kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-      });
-      return;
-    }
-    this.#clearOwnerStepUpFragments();
-    this.#ownerStepUpRepromptInFlight = true;
-    try {
-      const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-      if (outcome !== "reprompt") {
-        await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
-        return;
-      }
-      await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
-      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
-        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-      });
-    } finally {
-      this.#ownerStepUpRepromptInFlight = false;
-    }
-  }
-
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
-    if (this.#interaction.kind === "owner_step_up" && this.#session.phase === "pre_auth") {
-      await this.#handleOwnerStepUpPrompt(event);
-      return;
-    }
     if (
       this.#authorityService !== null
       && this.#interaction.kind === "guest_pin"
@@ -1412,39 +1062,54 @@ export class CallSessionCore {
       await this.#authenticateGuest(candidate);
       return;
     }
+    // A PIN question is open on this call. The utterance IS the credential, so
+    // it is consumed here and never becomes a turn, an event, a transcript row
+    // or model input. The tier-3 tool call that asked is still awaiting this.
+    if (this.#session.phase === "active" && this.#sensitiveActionPin?.hasPendingPrompt() === true) {
+      if (!event.final) return;
+      await this.#sensitiveActionPin.submitSpoken(event.text, this.#now());
+      return;
+    }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
-    if (this.#isFixedStepUpEcho(event.text)) return;
-    const promptText = this.#authority?.kind === "owner"
-      ? await this.#guardOwnerRepeat(event.text, this.#now())
-      : event.text;
-    if (promptText === null) return;
+    // Four digits said just after a PIN question closed are still the
+    // credential: consumed here, before the turn-in-progress check, so a late
+    // PIN neither becomes a turn nor ends the call.
+    if (this.#sensitiveActionPin !== null && await this.#sensitiveActionPin.claimLateAnswer(event.text, this.#now())) {
+      return;
+    }
+    // An open guest-PIN question owns the utterance. It is consumed here, before
+    // the slot wait, because the turn that asked it is still live and awaiting it.
+    if (this.#ownerAccessTool?.hasPendingPin() === true) {
+      await this.#ownerAccessTool.submitPinSpoken(event.text);
+      return;
+    }
+    // A competing prompt waits, bounded, for a barge-in-aborted turn to release
+    // the slot. A true overlap is queued as the next turn, never dropped (#184).
+    if (!await this.#awaitTurnSlot()) {
+      this.#queuePrompt(event);
+      return;
+    }
+    const promptText = event.text;
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
     if (Array.from(promptText).length > 8_000 || encoder.encode(promptText).byteLength > 65_536) {
       throw new Error("turn_too_large");
     }
-    if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
-    if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
-      const draft = parseOwnerAccessIntent(promptText);
-      if (draft !== null) {
-        await this.#beginOwnerAccess(draft, this.#now());
-        return;
-      }
-      if (this.#interaction.kind === "owner_access_pin") {
-        await this.#captureOwnerAccessPin({ ...event, text: promptText });
-        return;
-      }
-      if (this.#interaction.kind === "owner_access_confirmation") {
-        await this.#confirmOwnerAccess(promptText, this.#now());
-        return;
-      }
-    }
 
     if (this.#conversation === null) throw new Error("conversation_unavailable");
+    // Re-check in the same synchronous run as the claim below: the awaits above
+    // (the late-PIN claim, the slot wait) let a competing prompt claim the slot first.
+    if (this.#activeTurnAbort !== null) {
+      this.#queuePrompt(event);
+      return;
+    }
     const lifecycleGeneration = this.#lifecycleGeneration;
     const controller = new AbortController();
+    let settleTurn!: () => void;
+    const turnSettled = new Promise<void>((resolve) => { settleTurn = resolve; });
     // Collection can await network I/O. Reserve ownership first so interruption
     // and a competing prompt cannot slip past a turn that has not reached the model.
     this.#activeTurnAbort = controller;
+    this.#activeTurnSettled = turnSettled;
     try {
       await this.#awaitAdmission(this.#assertCapacity(), controller.signal);
       if (!this.#ownsLiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
@@ -1500,10 +1165,25 @@ export class CallSessionCore {
       }
     } finally {
       if (this.#activeTurnAbort === controller) this.#activeTurnAbort = null;
+      // Release after the slot is clear, so a waiter resumed by this promise sees
+      // #activeTurnAbort === null and can claim the slot.
+      settleTurn();
+      if (this.#activeTurnSettled === turnSettled) this.#activeTurnSettled = null;
+      this.#drainQueuedPrompt();
     }
   }
 
   async #handleDtmf(event: RelayDtmfEvent): Promise<void> {
+    // Keypad is an equal alternative to speech at a PIN question, and the same
+    // rule holds: the digits are the credential and are consumed here.
+    if (this.#session.phase === "active" && this.#sensitiveActionPin?.hasPendingPrompt() === true) {
+      const status = this.#sensitiveActionPinKeypad.pushDtmf(event.digit);
+      if (status !== "complete") return;
+      const digits = this.#sensitiveActionPinKeypad.take();
+      if (digits === null) throw new Error("sensitive_action_pin_capture_failed");
+      await this.#sensitiveActionPin.submitKeypad(digits, this.#now());
+      return;
+    }
     if (
       this.#authorityService !== null
       && this.#interaction.kind === "guest_pin"
@@ -1516,17 +1196,12 @@ export class CallSessionCore {
       await this.#authenticateGuest(candidate);
       return;
     }
-    if (this.#session.phase === "active" && this.#interaction.kind === "owner_access_pin") {
+    if (this.#session.phase === "active" && this.#ownerAccessTool?.hasPendingPin() === true) {
       const status = this.#ownerAccessPin.pushDtmf(event.digit);
       if (status !== "complete") return;
       const digits = this.#ownerAccessPin.take();
       if (digits === null) throw new Error("owner_access_pin_capture_failed");
-      this.#interaction = Object.freeze({
-        kind: "owner_access_confirmation",
-        proposal: this.#interaction.proposal,
-        pinSelection: Object.freeze({ kind: "explicit", digits }),
-      });
-      await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+      await this.#ownerAccessTool.submitPinKeypad(digits);
       return;
     }
     if (
@@ -1555,12 +1230,12 @@ export class CallSessionCore {
         });
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "authentication_budget_exhausted") throw error;
-        await this.#transition("rejected", observedAt);
+        await this.#rejectGuest(observedAt);
         return;
       }
       if (result.proof === null) {
         const decision = evaluatePinAttempt({ failedAttempts: result.attemptOrdinal - 1, pinMatches: false });
-        if (decision.terminateCall) await this.#transition("rejected", observedAt);
+        if (decision.terminateCall) await this.#rejectGuest(observedAt);
         return;
       }
       this.#authority = await this.#authorityService.mintGuest({
@@ -1579,6 +1254,20 @@ export class CallSessionCore {
     } finally {
       candidate.fill(0);
       this.#guestPin.clear();
+    }
+  }
+
+  async #rejectGuest(observedAt: Date): Promise<void> {
+    await this.#transition("rejected", observedAt);
+    try {
+      await this.#relay.sendNeutralText(GUEST_REJECTED_SPEECH);
+      // Prefer the handoff frame so the provider ends the call cleanly. It is
+      // best-effort: a provider without end() still gets the close below.
+      if (this.#relay.end !== undefined) await this.#relay.end(GUEST_REJECTED_HANDOFF_DATA);
+    } catch {
+      // A failed final send must not stop the close: the caller is released below.
+    } finally {
+      this.#relay.close(1008);
     }
   }
 
@@ -1632,41 +1321,28 @@ export class CallSessionCore {
   async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
     if (this.#socketClosed) return;
     this.#socketClosed = true;
-    let terminalized = false;
-    try {
-      await this.#cancelCurrentOutput();
-      this.#activationDigits = "";
-      const observedAt = this.#now();
-      if (this.#session.phase === "completed" || this.#session.phase === "rejected"
-        || this.#session.phase === "failed" || this.#session.phase === "expired") {
-        terminalized = true;
-        return;
-      }
-      if (reason === "provider_error") {
-        await this.#transition("failed", observedAt);
-        terminalized = true;
-        return;
-      }
-      if (this.#session.phase === "active"
-        || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
-        await this.#transition("ending", observedAt);
-        await this.#transition("completed", observedAt);
-        terminalized = true;
-        return;
-      }
-      if (this.#session.phase === "ending") {
-        await this.#transition("completed", observedAt);
-        terminalized = true;
-        return;
-      }
-      await this.#transition("failed", observedAt);
-      terminalized = true;
-    } finally {
-      if (terminalized) {
-        try { await this.#ownerStepUpAlarm?.clear(); }
-        catch { /* The durable terminal phase is authoritative; a stale alarm may retry its own clear. */ }
-      }
+    await this.#cancelCurrentOutput();
+    this.#activationDigits = "";
+    const observedAt = this.#now();
+    if (this.#session.phase === "completed" || this.#session.phase === "rejected"
+      || this.#session.phase === "failed" || this.#session.phase === "expired") {
+      return;
     }
+    if (reason === "provider_error") {
+      await this.#transition("failed", observedAt);
+      return;
+    }
+    if (this.#session.phase === "active"
+      || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
+      await this.#transition("ending", observedAt);
+      await this.#transition("completed", observedAt);
+      return;
+    }
+    if (this.#session.phase === "ending") {
+      await this.#transition("completed", observedAt);
+      return;
+    }
+    await this.#transition("failed", observedAt);
   }
 
   async terminate(phase: DurableCallSessionTerminalPhase): Promise<void> {
@@ -1687,8 +1363,6 @@ export class CallSessionCore {
     this.#activeTurnAbort?.abort();
     this.#activeTurnAbort = null;
     this.#lastSentAssistantEventId = null;
-    this.#clearOwnerStepUpFragments();
-    this.#clearOwnerRepeatFragments();
     this.#activationDigits = "";
     this.#activationAttempted = false;
     this.#clearOwnerAccessState();
@@ -1709,8 +1383,6 @@ export class CallSessionCore {
     });
     if (TERMINAL_PHASES.has(nextPhase)) {
       this.#lifecycleGeneration += 1;
-      this.#clearOwnerStepUpFragments();
-      this.#clearOwnerRepeatFragments();
       this.#authorityService?.invalidate(this.#authority);
       this.#authority = null;
       this.#clearOwnerAccessState();
@@ -1723,7 +1395,6 @@ export interface CallSessionRuntimeInput {
   readonly initialization: Readonly<CallSessionInitialization>;
   readonly session: Readonly<StoredCallSession>;
   readonly relay: CallSessionRelay;
-  readonly ownerStepUpAlarm: OwnerStepUpAlarmPort;
 }
 
 /** Tests may replace the production graph through this trusted in-process adapter. */
@@ -1796,56 +1467,6 @@ export class CallSession extends DurableObject<Env> {
         throw new Error("call_session_initialization_conflict");
       }
     });
-  }
-
-  async #armOwnerStepUpAlarm(input: StoredOwnerStepUpAlarm): Promise<void> {
-    if (input.sessionId !== this.ctx.id.name || !canonicalTimestamp(input.deadlineAt)) {
-      throw new Error("owner_step_up_alarm_invalid");
-    }
-    await this.ctx.storage.put(OWNER_STEP_UP_ALARM_KEY, input);
-    await this.ctx.storage.setAlarm(new Date(input.deadlineAt));
-  }
-
-  async #clearOwnerStepUpAlarm(): Promise<void> {
-    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
-    await this.ctx.storage.deleteAlarm();
-  }
-
-  override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
-    try { await this.#handleOwnerStepUpAlarm(); }
-    catch (error) {
-      // Cloudflare retries an alarm at most six times. Close before the final
-      // retry rather than leaving a silent call open through a long D1 outage.
-      if ((alarmInfo?.retryCount ?? 0) < 5) throw error;
-      for (const socket of this.ctx.getWebSockets()) closeSocket(socket, 1011, "relay runtime unavailable");
-      await this.#clearOwnerStepUpAlarm();
-    }
-  }
-
-  async #handleOwnerStepUpAlarm(): Promise<void> {
-    const stored = await this.ctx.storage.get<StoredOwnerStepUpAlarm>(OWNER_STEP_UP_ALARM_KEY);
-    if (stored === undefined || stored.sessionId !== this.ctx.id.name || stored.lifecycleGeneration !== 1
-      || stored.kind !== "window" && stored.kind !== "assembly" || !canonicalTimestamp(stored.deadlineAt)) {
-      await this.#clearOwnerStepUpAlarm();
-      return;
-    }
-    const sockets = this.ctx.getWebSockets();
-    let handled = false;
-    for (const socket of sockets) {
-      const resolved = await this.#resolveCore(socket, true);
-      if (resolved.kind === "unavailable") throw new Error("owner_step_up_alarm_runtime_unavailable");
-      if (resolved.kind === "mismatch") {
-        closeSocket(socket, 1008, "relay session mismatch");
-        await this.#clearOwnerStepUpAlarm();
-        handled = true;
-        continue;
-      }
-      if (resolved.kind === "ready") {
-        await resolved.core.handleOwnerStepUpAlarm(stored.kind, 1);
-        handled = true;
-      }
-    }
-    if (!handled) throw new Error("owner_step_up_alarm_runtime_unavailable");
   }
 
   async terminate(value: CallSessionTermination): Promise<CallSessionTerminationResult> {
@@ -1930,7 +1551,6 @@ export class CallSession extends DurableObject<Env> {
     if (cleanupFailed) throw terminationFailure("call_session_termination_cleanup_failed");
 
     this.#cores.clear();
-    await this.#clearOwnerStepUpAlarm();
     for (const socket of this.ctx.getWebSockets()) closeSocket(socket, 1000, "call ended");
     await this.ctx.storage.transaction(async (transaction) => {
       const currentValue = await transaction.get<unknown>(TERMINATION_KEY);
@@ -2068,7 +1688,7 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
 
-    const resolved = await this.#resolveCore(socket, true);
+    const resolved = await this.#resolveCore(socket);
     if (resolved.kind === "mismatch") {
       closeSocket(socket, 1008, "relay session mismatch");
       return;
@@ -2078,12 +1698,10 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
     try {
-      if (resolved.core.phase === "rejected") {
-        await resolved.core.handleOwnerStepUpAlarm("window", 1);
-        return;
-      }
       await resolved.core.handleRelayEvent(event);
     } catch {
+      // An overlapping utterance is queued by the core, not thrown here. A real
+      // processing failure still closes the socket.
       if (!this.#policyClosedSockets.has(socket)) {
         closeSocket(socket, 1011, "relay processing failed");
       }
@@ -2096,19 +1714,17 @@ export class CallSession extends DurableObject<Env> {
     _reason: string,
     _wasClean: boolean,
   ): Promise<void> {
-    const resolved = await this.#resolveCore(socket, true);
+    const resolved = await this.#resolveCore(socket);
     if (resolved.kind === "ready") {
-      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
-      else await resolved.core.handleSocketClose("socket_closed");
+      await resolved.core.handleSocketClose("socket_closed");
     }
     this.#cores.delete(socket);
   }
 
   override async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
-    const resolved = await this.#resolveCore(socket, true);
+    const resolved = await this.#resolveCore(socket);
     if (resolved.kind === "ready") {
-      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
-      else await resolved.core.handleSocketClose("provider_error");
+      await resolved.core.handleSocketClose("provider_error");
     }
     this.#cores.delete(socket);
   }
@@ -2120,16 +1736,14 @@ export class CallSession extends DurableObject<Env> {
     catch { throw new Error("call_session_initialization_corrupt"); }
   }
 
-  async #resolveCore(socket: WebSocket, resumeRejected = false): Promise<
+  async #resolveCore(socket: WebSocket): Promise<
     | { readonly kind: "ready"; readonly core: CallSessionCore }
     | { readonly kind: "mismatch" }
     | { readonly kind: "unavailable" }
   > {
     const cached = this.#cores.get(socket);
     if (cached !== undefined) {
-      if (cached.phase === "rejected" && (!resumeRejected || !cached.canResumeRejectedOwnerStepUp)) {
-        return { kind: "mismatch" };
-      }
+      if (cached.phase === "rejected") return { kind: "mismatch" };
       return { kind: "ready", core: cached };
     }
     const socketSessionId = snapshotSocketSessionId(socket);
@@ -2146,28 +1760,8 @@ export class CallSession extends DurableObject<Env> {
       return { kind: "unavailable" };
     }
     if (session === null || !initializationMatchesSession(initialization, session)
-      || TERMINAL_PHASES.has(session.phase) && !(resumeRejected && session.phase === "rejected")) {
+      || TERMINAL_PHASES.has(session.phase)) {
       return { kind: "mismatch" };
-    }
-    if (session.phase === "rejected") {
-      let binding: { session_id: string } | null;
-      try {
-        binding = await this.env.DB.prepare(`SELECT binding.session_id
-          FROM owner_call_step_up_bindings binding
-          JOIN call_sessions session ON session.session_id = binding.session_id
-          WHERE binding.session_id = ? AND (
-              binding.requirement = 'required'
-              OR binding.requirement = 'waived_passed_a' AND EXISTS (
-                SELECT 1 FROM owner_call_step_up_disabled_rejections disabled
-                WHERE disabled.session_id = binding.session_id
-              )
-            )
-            AND session.access_kind = 'owner' AND session.activation_only = 0`)
-          .bind(session.sessionId).first<{ session_id: string }>();
-      } catch {
-        return { kind: "unavailable" };
-      }
-      if (binding === null) return { kind: "mismatch" };
     }
     if (this.#runtimeFactory === null) return { kind: "unavailable" };
     let core: CallSessionCore;
@@ -2176,16 +1770,11 @@ export class CallSession extends DurableObject<Env> {
         initialization,
         session,
         relay: socketRelay(socket, () => this.#policyClosedSockets.add(socket)),
-        ownerStepUpAlarm: Object.freeze({
-          arm: (input: StoredOwnerStepUpAlarm) => this.#armOwnerStepUpAlarm(input),
-          clear: () => this.#clearOwnerStepUpAlarm(),
-        }),
       }));
     } catch {
       return { kind: "unavailable" };
     }
     if (!(core instanceof CallSessionCore)) return { kind: "unavailable" };
-    if (session.phase === "rejected" && !core.canResumeRejectedOwnerStepUp) return { kind: "mismatch" };
     this.#cores.set(socket, core);
     return { kind: "ready", core };
   }

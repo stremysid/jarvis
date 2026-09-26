@@ -57,9 +57,9 @@ function allDay(value: string): readonly string[] {
 export function composeCalendarFeed(input: CalendarFeedInput): string {
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Jarvis//School Calendar//EN", "CALSCALE:GREGORIAN"];
   const stamp = instant(input.now.toISOString());
-  function event(uid: string, summary: string, dates: readonly string[], alarm: readonly string[] = []): void {
+  function event(uid: string, summary: string, dates: readonly string[]): void {
     lines.push("BEGIN:VEVENT", `UID:${text(uid)}@jarvis`, `DTSTAMP:${stamp}`,
-      ...dates, `SUMMARY:${text(summary)}`, ...alarm, "END:VEVENT");
+      ...dates, `SUMMARY:${text(summary)}`, "END:VEVENT");
   }
   // Explicit exclusive ends keep all-day events one day across calendar clients.
   // Timed deadlines remain instants rather than inventing a study duration.
@@ -68,11 +68,13 @@ export function composeCalendarFeed(input: CalendarFeedInput): string {
       allDay(action.localDate));
   }
   for (const deadline of input.deadlines) {
+    // A calendar event needs an instant. An undated deadline is not one, so it
+    // is not exported here; the deadline_list tool and the digest still show it.
+    // No VALARM is emitted: whether and when Sid is warned is Jarvis's decision
+    // through the reminder tools, not a lead time stored on the row.
+    if (deadline.dueAt === null) continue;
     const summary = `${deadline.course}: ${deadline.title}`;
-    event(`deadline-${deadline.deadlineId}`, summary, [`DTSTART:${instant(deadline.dueAt)}`], [
-      "BEGIN:VALARM", `TRIGGER:-PT${deadline.leadMinutes}M`, "ACTION:DISPLAY",
-      `DESCRIPTION:${text(summary)}`, "END:VALARM",
-    ]);
+    event(`deadline-${deadline.deadlineId}`, summary, [`DTSTART:${instant(deadline.dueAt)}`]);
   }
   for (const item of input.applications) {
     if (item.dueDate === null) continue;

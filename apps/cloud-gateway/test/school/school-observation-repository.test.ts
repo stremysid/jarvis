@@ -37,8 +37,6 @@ async function fixture(suffix: string, dueAt = "2026-09-15T11:00:00.000Z"): Prom
     course: "Calculus",
     title: "Limits quiz",
     dueAt,
-    effort: "quiz",
-    leadMinutes: 60,
     now: NOW,
   });
   return { principalId, sourceId, deadlineId: deadline.deadline.deadlineId, deadlineExternalId };
@@ -177,8 +175,6 @@ describe("SchoolObservationRepository", () => {
         course: "Calculus",
         title: `Untrusted title ${index}`,
         dueAt: "2026-09-16T11:00:00.000Z",
-        effort: "other",
-        leadMinutes: 60,
         now: NOW,
       });
       items.push(observation(item, {
@@ -428,8 +424,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-20T11:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     await expect(repository.deriveMissingWorkPage({
@@ -463,8 +457,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-20T11:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     expect((await repository.readDigestSnapshot({
@@ -500,8 +492,6 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       dueAt: "2026-09-15T12:30:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: changedAt,
     });
     expect((await repository.readDigestSnapshot({
@@ -658,5 +648,111 @@ describe("SchoolObservationRepository", () => {
     await bounded.readSync(item.principalId, item.sourceId);
     await expect(bounded.readSync(item.principalId, item.sourceId))
       .rejects.toThrow("school_observation_d1_budget_exhausted");
+  });
+
+  it("reads raw submission evidence for the model without writing a missing-work judgment", async () => {
+    const item = await fixture("work-evidence", "2026-09-15T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "created", assignedGrade: null, maxPoints: null })],
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+    const transitions = async (): Promise<number> =>
+      (await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_missing_work_transitions WHERE principal_id = ?`)
+        .bind(item.principalId).first<{ count: number }>())?.count ?? -1;
+    const before = await transitions();
+
+    const evidence = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+    });
+
+    expect(evidence.observations).toHaveLength(1);
+    expect(evidence.observations[0]).toMatchObject({
+      deadlineId: item.deadlineId,
+      course: "Calculus",
+      title: "Limits quiz",
+      dueAt: "2026-09-15T11:00:00.000Z",
+      deadlineStatus: "open",
+      submissionState: "created",
+      assignedGrade: null,
+      maxPoints: null,
+      lastSeenAt: NOW.toISOString(),
+      lastDerivedState: null,
+    });
+    expect(evidence.sourceLastSuccessAt).toBe(NOW.toISOString());
+    expect(evidence.hasMore).toBe(false);
+    expect(evidence.nextAfterDeadlineId).toBeNull();
+    // The read is a sense, not a judgment: it adds no transition row.
+    expect(await transitions()).toBe(before);
+  });
+
+  it("returns a deadline with no observation so the model can see the read gap", async () => {
+    const item = await fixture("work-evidence-unread", "2026-09-15T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+
+    const evidence = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+    });
+
+    expect(evidence.observations).toHaveLength(1);
+    expect(evidence.observations[0]).toMatchObject({
+      deadlineId: item.deadlineId,
+      submissionState: null,
+      lastSeenAt: null,
+      assignedGrade: null,
+      lastDerivedState: null,
+    });
+  });
+
+  it("bounds the evidence page and reports that more matches exist", async () => {
+    const item = await fixture("work-evidence-page", "2026-09-15T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    const deadlines = new DeadlineRepository(env.DB);
+    const second = await deadlines.upsert({
+      sourceId: item.sourceId, externalId: "course-page:work-2", course: "English",
+      title: "Essay", dueAt: "2026-09-16T11:00:00.000Z", effort: "essay", leadMinutes: 60, now: NOW,
+    });
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [
+        observation(item),
+        { ...observation(item), deadlineExternalId: "course-page:work-2", externalSubmissionId: "sub-2" },
+      ],
+      now: NOW,
+    });
+    const page = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+      limit: 1,
+    });
+    expect(page.observations).toHaveLength(1);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextAfterDeadlineId).toBe(page.observations[0]!.deadlineId);
+    // The cursor the model is handed reads the rest without repeating a row.
+    const rest = await repository.readWorkEvidence({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      seenSince: new Date("2026-09-14T00:00:00.000Z"),
+      afterDeadlineId: page.nextAfterDeadlineId,
+      limit: 1,
+    });
+    expect(rest.observations).toHaveLength(1);
+    expect(rest.observations[0]!.deadlineId).toBe(second.deadline.deadlineId);
+    expect(rest.observations[0]!.deadlineId).not.toBe(page.observations[0]!.deadlineId);
+    expect(rest.hasMore).toBe(false);
+    expect(rest.nextAfterDeadlineId).toBeNull();
+    expect(second.deadline.deadlineId).toBeTypeOf("string");
   });
 });

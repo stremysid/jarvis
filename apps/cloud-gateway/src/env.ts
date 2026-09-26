@@ -15,6 +15,15 @@ export interface Env {
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
   /** 32 random bytes, base64. Used only for the owner-passphrase verifier. */
   OWNER_PASSPHRASE_PEPPER_V1?: string;
+  /**
+   * The four digit PIN a sensitive action on a call is authorized with.
+   *
+   * A Worker secret, set by Sid, exactly four digits. Unset or malformed is not
+   * a startup failure: an ordinary call still works and every sensitive action
+   * on a call refuses, which is the direction that cannot run unguarded. See
+   * docs/OWNER-ACTIONS.md.
+   */
+  OWNER_ACTION_PIN?: string;
   /** Dormant caller-attestation waiver policy. Missing remains passphrase_always. */
   OWNER_CALLER_ID_POLICY?: string;
   /** Explicit rotation version shared by challenge issuance, inbound admission and confirmation. */
@@ -74,6 +83,22 @@ export interface Env {
 
   /** Model provider for all Jarvis reasoning. */
   DEEPSEEK_API_KEY?: string;
+
+  /**
+   * Optional web tools settings (`src/web/web-tools.ts`). None is required:
+   * web_read works with the `AI` binding alone and web_search works keyless.
+   *
+   * The Browser Rendering pair turns on web_read's JavaScript rendering path,
+   * and both are needed. The token needs only the "Browser Rendering - Edit"
+   * permission on this account. Without the pair the tool tells the model the
+   * path is not configured.
+   *
+   * EXA_API_KEY lifts web_search off Exa's shared keyless rate limit. It is
+   * sent as the `x-api-key` header to the same endpoint.
+   */
+  BROWSER_RENDERING_ACCOUNT_ID?: string;
+  BROWSER_RENDERING_API_TOKEN?: string;
+  EXA_API_KEY?: string;
 
   /**
    * Overrides the model id. Sid chose deepseek-flash everywhere on 2026-09-20;

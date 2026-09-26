@@ -25,7 +25,13 @@ describe("school evidence and projection", () => {
         dateRoute: batch.routes[1]!.route, submission: "unknown" },
       { id: "folder-18", title: "Undated practice", dueAt: null, dateSource: null, dateRoute: null, submission: "unknown" },
     ]);
-    expect(mapped.deadlines).toHaveLength(1);
+    // Every item is a stored deadline now, including the undated one: it is not
+    // dropped, it is stored with a null due date for Jarvis to ask Sid about.
+    expect(mapped.deadlines).toHaveLength(2);
+    expect(mapped.deadlines).toEqual([
+      { externalId: "folder-17", course: expect.any(String), title: "Synthetic essay [availability end]", dueAt: "2026-09-24T03:59:00.000Z" },
+      { externalId: "folder-18", course: expect.any(String), title: "Undated practice", dueAt: null },
+    ]);
     const receipt = await ingest(f, batch);
     expect(receipt.outcome).toBe("good");
     const status = await repo(f).status();
@@ -34,8 +40,11 @@ describe("school evidence and projection", () => {
     expect(status.evidence).toHaveLength(5);
     expect(status.evidence.find((row) => row.route === batch.routes[0]!.route)?.raw_json).toBe(JSON.stringify(batch.routes[0]!.body));
     expect(status.evidence[0]!.mapped_json).toContain("Undated practice");
-    expect(await env.DB.prepare("SELECT title, due_at FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first())
-      .toEqual({ title: "Synthetic essay [availability end]", due_at: "2026-09-24T03:59:00.000Z" });
+    expect(await env.DB.prepare("SELECT title, due_date FROM deadlines WHERE source_id = ? ORDER BY external_id")
+      .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).all()).toMatchObject({ results: [
+        { title: "Synthetic essay [availability end]", due_date: "2026-09-24T03:59:00.000Z" },
+        { title: "Undated practice", due_date: null },
+      ] });
   });
 
   it.each([
@@ -51,7 +60,10 @@ describe("school evidence and projection", () => {
     expect((await repo(f).status()).state).toBe("current");
     const deadlines = await env.DB.prepare("SELECT external_id, status FROM deadlines WHERE source_id = ? AND status = 'open' ORDER BY external_id")
       .bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).all();
-    expect(deadlines.results).toEqual([{ external_id: "folder-17", status: "open" }]);
+    expect(deadlines.results).toEqual([
+      { external_id: "folder-17", status: "open" },
+      { external_id: "folder-18", status: "open" },
+    ]);
   });
 
   it("keeps the last good assignment date when the folder list is refused", async () => {
@@ -253,7 +265,7 @@ describe("school evidence and projection", () => {
     const status = await repo(f).status();
     expect(status).toMatchObject({ state: "current", lastGoodReadAt: batch.startedAt });
     expect(status.refused).toEqual([{ route: routes.find((route) => route.status === 403)!.route, course: f.courseId, host: batch.host, disposition: "refused", status: 403, fetched_at: batch.startedAt }]);
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toEqual({ n: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deadlines WHERE source_id = ?").bind(`d2l-api:ldsb.elearningontario.ca:${f.courseId}`).first()).toEqual({ n: 2 });
   });
 
   it("keeps required tool refusals empty while failing transport, authentication, incomplete and unfamiliar results", async () => {

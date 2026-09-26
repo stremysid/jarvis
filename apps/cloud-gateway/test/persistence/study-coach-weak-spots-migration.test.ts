@@ -110,8 +110,6 @@ async function graph(suffix: string, externalDeadline = false): Promise<Graph> {
       course: "Chemistry",
       title: "Untrusted title",
       dueAt: "2026-09-15T13:30:00.000Z",
-      effort: "other",
-      leadMinutes: 60,
       now: NOW,
     });
     return { deadlines: await deadlines.listStudyCandidates(NOW) };
@@ -160,7 +158,7 @@ async function scaleObservation(suffix: string): Promise<{
   await deadlines.createSource({ sourceId, kind: "classroom", label: "Classroom", now: NOW });
   await deadlines.upsert({
     sourceId, externalId: `course-${suffix}:work-1`, course: "Chemistry", title: "Quiz",
-    dueAt: "2026-09-15T13:30:00.000Z", effort: "quiz", leadMinutes: 60, now: NOW,
+    dueAt: "2026-09-15T13:30:00.000Z", now: NOW,
   });
   const observations = new SchoolObservationRepository(env.DB);
   await observations.ensureSync(principalId, sourceId, NOW);
@@ -387,8 +385,6 @@ describe("study coach weak-spots migration", () => {
       course: "Chemistry",
       title: "Second worksheet",
       dueAt: "2026-09-15T14:30:00.000Z",
-      effort: "other",
-      leadMinutes: 60,
       now: NOW,
     });
     await expect(insertDeadlineControl(item, {

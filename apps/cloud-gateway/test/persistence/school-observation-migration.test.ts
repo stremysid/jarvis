@@ -34,8 +34,6 @@ async function graph(suffix: string, scanStartedAt = NOW.toISOString()): Promise
     course: "Calculus",
     title: "Limits quiz",
     dueAt: PAST,
-    effort: "quiz",
-    leadMinutes: 60,
     now: NOW,
   });
   const second = await deadlines.upsert({
@@ -44,8 +42,6 @@ async function graph(suffix: string, scanStartedAt = NOW.toISOString()): Promise
     course: "Calculus",
     title: "Derivative practice",
     dueAt: PAST,
-    effort: "other",
-    leadMinutes: 60,
     now: NOW,
   });
   await env.DB.prepare(`INSERT INTO school_observation_sync (

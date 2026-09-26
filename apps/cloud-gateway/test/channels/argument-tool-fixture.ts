@@ -10,14 +10,18 @@ import { Redactor } from "../../src/security/redaction.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
 import type { ToolAutonomyGateContract } from "../../src/autonomy/tool-gate.js";
-import type { ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageInput } from "../../src/providers/provider-types.js";
+import type { ModelAgentCompletion, ModelAgentCompletionInput, ModelFunctionCall, TelegramSendMessageInput } from "../../src/providers/provider-types.js";
+import type { WebToolsDependencies } from "../../src/web/web-tools.js";
 
 export const NOW = new Date("2026-09-23T14:00:00.000Z");
 let serial = 8_000_000;
 
-export async function argumentTurn(text: string, call: ModelFunctionCall, options: {
-  direct?: boolean; durableDirect?: boolean; pipeline?: boolean; gate?: ToolAutonomyGateContract;
-  timeZone?: string; messageAt?: Date; processingAt?: Date;
+export async function argumentTurn(text: string,
+  call: ModelFunctionCall | ((input: ModelAgentCompletionInput) => Promise<ModelFunctionCall>), options: {
+  direct?: boolean; durableDirect?: boolean; pipeline?: boolean; wrongOwner?: boolean; gate?: ToolAutonomyGateContract;
+  timeZone?: string; messageAt?: Date; processingAt?: Date; web?: WebToolsDependencies;
+  /** Replaces the default one-tool-then-answer model with a scripted multi-step one. */
+  script?: (input: ModelAgentCompletionInput, index: number) => ModelAgentCompletion | Promise<ModelAgentCompletion>;
 } = {}) {
   await applyMemoryIngressMigration();
   const principalId = `principal:argument:${newUlid()}`;
@@ -39,17 +43,20 @@ export async function argumentTurn(text: string, call: ModelFunctionCall, option
   }, principalId);
   const fallback = { async *stream() { yield { index: 0, text: "No action." }; } };
   const model = new OwnerTelegramAgentAdapter({
-    database: env.DB, archive: env.ARCHIVE, ownerPrincipalId: principalId, authorityText: text,
+    database: env.DB, archive: env.ARCHIVE,
+    ownerPrincipalId: options.wrongOwner ? "principal:another-owner" : principalId, authorityText: text,
     directOwnerText: options.direct ?? true, directPipelineText: options.pipeline ?? true,
     autonomy: options.gate ?? await testToolGate(env.DB), now: () => options.processingAt ?? NOW,
     ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }), turnReceivedAt: (options.messageAt ?? NOW).toISOString(),
+    ...(options.web === undefined ? {} : { web: options.web }),
     targets: { async findControlTargets() { return []; } },
     decisions: { async raise() { throw new Error("unexpected_decision"); } },
     schoolModel: fallback, universityModel: fallback, studyCoachModel: fallback,
     provider: { async completeAgent(input) {
       requests.push(input);
+      if (options.script !== undefined) return options.script(input, requests.length - 1);
       return requests.length === 1
-        ? { content: null, toolCalls: [call], finishReason: "tool_calls" }
+        ? { content: null, toolCalls: [typeof call === "function" ? await call(input) : call], finishReason: "tool_calls" }
         : { content: JSON.stringify({ reply: "Understood.", claimedActions: [] }), toolCalls: [], finishReason: "stop" };
     } },
   });

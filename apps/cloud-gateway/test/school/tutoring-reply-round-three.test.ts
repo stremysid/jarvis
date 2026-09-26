@@ -79,12 +79,14 @@ describe("The round-three adversarial review", () => {
     "I added the term 4x to the left side of the equation.",
     "I added a 200 ms timeout to the request example.",
     "I called parse() on the input string.",
-  ])("keeps a complete worked clause: %s", (sentence) => {
-    expect(guardReplyClaims(sentence)).toBe(sentence);
+  ])("keeps a complete worked clause the model declares: %s", (sentence) => {
+    expect(guardReplyClaims(sentence, { workedExplanations: [sentence] })).toBe(sentence);
   });
 
-  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("keeps the guided assignment question: %s", (sentence) => {
-    expect(guardReplyClaims(sentence)).toBe(sentence);
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("keeps the guided assignment question the model declares: %s", (sentence) => {
+    // A declaration names complete sentences, so a two-sentence question
+    // declares each one the model worked through.
+    expect(guardReplyClaims(sentence, { workedExplanations: sentence.split(/(?<=[.!?])\s+/u) })).toBe(sentence);
   });
 
   it("keeps the guided assignment save receipt supplied by PR 172", () => {

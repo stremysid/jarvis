@@ -27,16 +27,19 @@ checked against a live provider. The owner check is in [OWNER-ACTIONS.md](OWNER-
 
 ## What the voice path does
 
-Every model request streams plain text with tools, with `auto` on the first
-request and `none` on the follow-up. Tool arguments are assembled by index and
+Every model request streams plain text with tools, with `auto` on every request
+until the model answers (the shared multi-step tool loop), and `none` only once the
+runaway cap `MAX_TOOL_ROUNDS` is reached. Tool arguments are assembled by index and
 are never executed before a valid terminal tool completion. A tool appearing
 after text is handled the same way: earlier sentences have already been checked
 against the receipts available **then**. Replaced pre-tool claims are held until
 the round ends: spoken on a clean stop, discarded when a tool call follows.
 Unfinished pre-tool prose is discarded.
-One shared `executeCalls` still owns the one-action cap, owner authority, tier
-gate and all memory operations. A second tool round is refused even if a provider
-ignores `tool_choice: none`. There is no retry.
+One shared `executeCalls` owns owner authority, the tier gate and all memory
+operations, and runs a step's calls one after another; a turn that has ended runs
+nothing further and asks no gate. Each receipt is spoken as its step returns, and the
+turn deadline is checked before every step. A tool round past the cap is refused even
+if a provider ignores `tool_choice: none`. There is no retry.
 
 After the interrupted builder run, `origin/main` at `c5310bee` was merged
 normally, then round 2 merged `29fbfcd6` and `7b805fa2` (including #172 and #173).

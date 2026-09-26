@@ -63,6 +63,69 @@ export interface ToolGateEvaluationRequest {
   readonly principalId: string;
   /** The raw JSON the model supplied. Fingerprinted, never stored or decided on. */
   readonly arguments: string;
+  /**
+   * The agent turn that asked, when the channel may have to ask Sid a question
+   * before answering. Optional because most callers never reach a channel.
+   */
+  readonly turn?: ToolGateTurn;
+}
+
+/**
+ * The turn a tool call belongs to, as the gate needs it.
+ *
+ * `signal` is the turn's own abort signal. A channel question is tied to it,
+ * so a turn that ends -- the call hung up, the turn was cancelled -- closes
+ * the question and nothing it asked about can run afterwards.
+ *
+ * `holdDeadline` stops the turn's clock while the question is open and
+ * returns the function that restarts it. Without it the turn budget, which
+ * started before the model's first round, decides how long Sid has to answer
+ * instead of the question's own forgiving timer.
+ */
+export interface ToolGateTurn {
+  readonly signal: AbortSignal;
+  holdDeadline(): () => void;
+}
+
+/**
+ * What a channel answers when it asked Sid and he did not authorize: he said
+ * cancel, ran out of attempts, did not answer, or the turn ended.
+ *
+ * Distinct from null, which means the channel could not ask at all (no PIN
+ * configured, say). After a refusal the action is simply not done; it is not
+ * turned into a Telegram card for something Sid just declined.
+ */
+export const CHANNEL_REFUSED: Readonly<{ refused: true }> = Object.freeze({ refused: true });
+export type ToolChannelAuthorization = string | typeof CHANNEL_REFUSED | null;
+
+/**
+ * How a channel authorizes a tier-3 call when no standing tap can be spent.
+ *
+ * Telegram's keyboard is the confirmation surface the tap flow was built for.
+ * A phone call has no button, so the medium's own authorization -- the spoken
+ * or keypad four digit PIN -- arrives through this port instead. It is asked
+ * only after a standing tap failed to be claimed, so a tap Sid already gave
+ * keeps authorizing the call on either channel, and it returns an
+ * authorization id that is then treated exactly like a decision id: the
+ * evaluation is re-run with it attached, and a changed outcome denies.
+ */
+export interface ToolChannelAuthorizationRequest {
+  readonly principalId: string;
+  readonly toolName: string;
+  readonly capability: string;
+  readonly argumentsHash: string;
+  /** The asking turn's signal. The channel must stop asking when it aborts. */
+  readonly signal?: AbortSignal;
+}
+
+export interface ToolChannelAuthorizationPort {
+  /**
+   * The single-use authorization id; `CHANNEL_REFUSED` when the channel asked
+   * and was not given one; or null when this channel cannot ask. A throw is a
+   * denial: `ToolAutonomyGate` does not catch it, and the dispatcher turns it
+   * into a refusal.
+   */
+  authorizeToolCall(request: ToolChannelAuthorizationRequest): Promise<ToolChannelAuthorization>;
 }
 
 export interface ToolAutonomyGateContract {
@@ -104,6 +167,7 @@ export function gateReceipt(
   toolName: string,
   classified: boolean,
   confirmedBy: string | null,
+  via: "tap" | "pin" = "tap",
 ): string {
   const audit = evaluationAudit(evaluation);
   switch (evaluation.outcome) {
@@ -114,10 +178,12 @@ export function gateReceipt(
         ? `Nothing has happened yet: ${toolName} is ${
           describeTier(evaluation.tier)
         } and needs your tap before it runs. Confirm again if the previous tap was already used or expired; each tap is valid once for ${CONFIRMATION_TTL_MS / 60_000} minutes. ${audit}`
-        // The tap is why this ran, and the owner can see which one. Without the
-        // decision id here a confirmed action looks identical to an unconfirmed
-        // one in the only place he reads.
-        : `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by you with decision ${confirmedBy}). ${audit}`;
+        // Which authorization let it through is named in the only place the
+        // owner reads. Without it a confirmed action looks identical to an
+        // unconfirmed one.
+        : via === "pin"
+          ? `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by your PIN on this call). ${audit}`
+          : `Allowed ${toolName} (${describeTier(evaluation.tier)}, confirmed by you with decision ${confirmedBy}). ${audit}`;
     case "withheld_shadow":
       return `Nothing happened: ${toolName} is ${
         describeTier(evaluation.tier)
@@ -149,13 +215,16 @@ function verdictFor(evaluation: AutonomyEvaluation): ToolGateVerdict {
 export class ToolAutonomyGate implements ToolAutonomyGateContract {
   readonly #service: AutonomyServiceContract;
   readonly #confirmations: ToolConfirmationStoreContract | null;
+  readonly #channel: ToolChannelAuthorizationPort | null;
 
   constructor(
     service: AutonomyServiceContract,
     confirmations: ToolConfirmationStoreContract | null = null,
+    channel: ToolChannelAuthorizationPort | null = null,
   ) {
     this.#service = service;
     this.#confirmations = confirmations;
+    this.#channel = channel;
   }
 
   async evaluateToolCall(request: ToolGateEvaluationRequest): Promise<ToolGateDecision> {
@@ -173,7 +242,7 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       decisionId: null,
     });
 
-    if (first.outcome !== "requires_confirmation" || this.#confirmations === null) {
+    if (first.outcome !== "requires_confirmation" || this.#confirmations === null && this.#channel === null) {
       return Object.freeze({
         verdict: verdictFor(first),
         evaluation: first,
@@ -183,12 +252,62 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
     }
 
     const argumentsHash = await argumentsFingerprint(request.arguments);
-    const decisionId = await this.#confirmations.consumeStandingDecision({
-      principalId: request.principalId,
-      toolName: request.toolName,
-      capability,
-      argumentsHash,
-    });
+    let decisionId = this.#confirmations === null
+      ? null
+      : await this.#confirmations.consumeStandingDecision({
+        principalId: request.principalId,
+        toolName: request.toolName,
+        capability,
+        argumentsHash,
+      });
+    // The tap is asked for first and the channel second, so a confirmation Sid
+    // already gave on the other channel keeps working and the call does not ask
+    // him for a PIN it did not need.
+    let via: "tap" | "pin" = "tap";
+    let channelRefused = false;
+    if (decisionId === null && this.#channel !== null) {
+      const turn = request.turn;
+      const resumeDeadline = turn?.holdDeadline() ?? ((): void => undefined);
+      let answer: ToolChannelAuthorization;
+      try {
+        answer = turn !== undefined && turn.signal.aborted
+          ? CHANNEL_REFUSED
+          : await this.#channel.authorizeToolCall({
+            principalId: request.principalId,
+            toolName: request.toolName,
+            capability,
+            argumentsHash,
+            ...(turn === undefined ? {} : { signal: turn.signal }),
+          });
+      } finally {
+        resumeDeadline();
+      }
+      if (typeof answer === "string") {
+        decisionId = answer;
+        via = "pin";
+      } else if (answer !== null) {
+        channelRefused = true;
+      }
+    }
+    // The turn that asked is over. Whatever answered, nothing it asked about
+    // may run now: the reply that would have said so is gone, and Sid asking
+    // again would run it a second time.
+    if (request.turn?.signal.aborted === true) {
+      return Object.freeze({
+        verdict: "deny",
+        evaluation: first,
+        receipt: `Nothing happened: ${request.toolName} did not run because its turn ended before it could. ${evaluationAudit(first)}`,
+        confirmedBy: null,
+      });
+    }
+    if (channelRefused) {
+      return Object.freeze({
+        verdict: "deny",
+        evaluation: first,
+        receipt: `Nothing happened: ${request.toolName} was not confirmed on this call, so it did not run. ${evaluationAudit(first)}`,
+        confirmedBy: null,
+      });
+    }
     if (decisionId === null) {
       return Object.freeze({
         verdict: "confirm",
@@ -198,9 +317,10 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       });
     }
 
-    // Evaluated a second time with the decision attached. The first row records
-    // that the policy asked, this one records which tap answered it, and an
-    // incident review can follow the link without reading the conversation.
+    // Evaluated a second time with the authorization attached. The first row
+    // records that the policy asked, this one records which tap or PIN answered
+    // it, and an incident review can follow the link without reading the
+    // conversation.
     const confirmed = await this.#service.evaluate({
       capability,
       principalId: request.principalId,
@@ -213,17 +333,17 @@ export class ToolAutonomyGate implements ToolAutonomyGateContract {
       return Object.freeze({
         verdict: "deny",
         evaluation: confirmed,
-        receipt: `Nothing happened: ${request.toolName} was refused because its safety outcome changed from ${first.outcome} to ${confirmed.outcome} during confirmation. The tap was spent and cannot be reused. ${evaluationAudit(confirmed)}`,
+        receipt: `Nothing happened: ${request.toolName} was refused because its safety outcome changed from ${first.outcome} to ${confirmed.outcome} during confirmation. ${via === "pin" ? "The PIN authorization" : "The tap"} was spent and cannot be reused. ${evaluationAudit(confirmed)}`,
         confirmedBy: null,
       });
     }
     return Object.freeze({
       // The policy outcome is still `requires_confirmation`, because tier 3
       // always requires one. What changed is that one stands, which is why the
-      // verdict is a permit and the receipt names the decision.
+      // verdict is a permit and the receipt names the authorization.
       verdict: "permit",
       evaluation: confirmed,
-      receipt: gateReceipt(confirmed, request.toolName, classified, decisionId),
+      receipt: gateReceipt(confirmed, request.toolName, classified, decisionId, via),
       confirmedBy: decisionId,
     });
   }

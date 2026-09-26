@@ -371,10 +371,28 @@
       "expected": null
     },
     {
-      "name": "rejects a fact containing an unredacted authentication code",
+      "name": "keeps Sid's own sign-in code in a fact exactly as it is",
       "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
       "proposal": {
-        "text": "Use code 123456.",
+        "text": "Sid's school sign-in code is 123456.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal"
+      },
+      "expected": {
+        "text": "Sid's school sign-in code is 123456.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "rejects a fact containing a machine credential",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Use key sk-aaaaaaaaaaaaaaaaaaaaaaaa.",
         "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"]
       },
       "expected": null

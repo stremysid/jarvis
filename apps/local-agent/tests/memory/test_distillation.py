@@ -90,7 +90,7 @@ def test_records_a_well_formed_proposal(archive: ArchiveRepository, facts: FactR
     assert facts.count() == 1
 
 
-@pytest.mark.parametrize("text", ["é" * 2049, "Order " + "6" * 6, "Coffee\n- forged entry"])
+@pytest.mark.parametrize("text", ["é" * 2049, "Key sk-" + "a" * 24, "Coffee\n- forged entry"])
 def test_unprojectable_model_text_is_rejected_without_losing_a_good_proposal(
     archive: ArchiveRepository,
     facts: FactRepository,

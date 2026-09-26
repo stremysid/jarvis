@@ -26,7 +26,6 @@ import {
   MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES,
   OFFER_WORKFLOW_LABELS,
   OFFER_WORKFLOW_OWNERS,
-  supportsStatus,
   supportsWorkflowStatusEvidence,
 } from "./university-tracker-model.js";
 
@@ -802,21 +801,12 @@ export class UniversityTrackerRepository {
           responseApplicationIds.set(update.itemRef, duplicate.item.itemId);
           continue;
         }
-        const program = current.programs.find((candidate) => candidate.programId === programId);
-        if (program === undefined || update.status === null || update.statusEvidence === null
-          || !supportsStatus(
-            update.status,
-            update.statusEvidence,
-            false,
-            duplicate.item.status,
-            duplicate.item.itemId,
-            duplicate.item.label,
-            duplicate.item.kind,
-            program,
-            current,
-          )) throw new TypeError("university_application_item_exists");
         // The model can rediscover a retired row as response-local. Treat it as
-        // the existing row only after the owner evidence passes reactivation.
+        // the existing row when it declared a status carrying Sid's own message
+        // as evidence; code reads no wording to decide reactivation.
+        if (update.status === null || update.statusEvidence === null) {
+          throw new TypeError("university_application_item_exists");
+        }
         existingId = duplicate.item.itemId;
         existingRecord = duplicate;
       }

@@ -67,8 +67,8 @@ export class StoredAssignmentEvidenceReader implements AssignmentEvidenceReader 
     // Main's deadline store is single-owner and has no principal column. The
     // service authorizes the configured owner before this reader is reached.
     const deadlines = await this.database.prepare(`SELECT 'deadline:' || deadline_id AS assignmentId,
-      title, course, NULL AS instructions, NULL AS rubric, due_at AS dueDate,
-      source_id AS source FROM deadlines ORDER BY due_at, deadline_id`).all<AssignmentEvidence>();
+      title, course, NULL AS instructions, NULL AS rubric, due_date AS dueDate,
+      source_id AS source FROM deadlines ORDER BY due_date, deadline_id`).all<AssignmentEvidence>();
     return [...facts.results, ...actions.results, ...deadlines.results];
   }
 }

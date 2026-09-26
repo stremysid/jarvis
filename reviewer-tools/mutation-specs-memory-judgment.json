@@ -1,0 +1,105 @@
+[
+  {
+    "name": "row7-repository-defaults-lifetime-again",
+    "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+    "find": "  const lifetime = inputEnum(input.lifetime, new Set([\"durable\", \"temporary\"] as const));",
+    "replace": "  const lifetime = input.lifetime === undefined ? (validTo === null ? \"durable\" as const : \"temporary\" as const) : inputEnum(input.lifetime, new Set([\"durable\", \"temporary\"] as const));",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "refuses a remember that states no lifetime"
+  },
+  {
+    "name": "row7-agent-tool-defaults-lifetime-again",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+        "find": "  return parseArguments(call, [\n    \"fact\", \"supportingExcerpt\", \"evidenceClass\", \"previousOfferExcerpt\", \"kind\", \"sensitivity\",\n    \"lifetime\", \"expiresAt\",\n  ]);",
+        "replace": "  return parseArguments(call, [\n    \"fact\", \"supportingExcerpt\", \"evidenceClass\", \"previousOfferExcerpt\", \"kind\", \"sensitivity\",\n  ]);"
+      },
+      {
+        "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+        "find": "  const lifetime = args.lifetime;\n  if (lifetime !== \"durable\" && lifetime !== \"temporary\") {",
+        "replace": "  const lifetime = args.lifetime ?? \"durable\";\n  if (lifetime !== \"durable\" && lifetime !== \"temporary\") {"
+      },
+      {
+        "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+        "find": "  const expiresAt = args.expiresAt;\n  if (expiresAt !== null",
+        "replace": "  const expiresAt = args.expiresAt ?? null;\n  if (expiresAt !== null"
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "refuses to record a fact when the model states no lifetime"
+  },
+  {
+    "name": "row8-remember-stops-naming-the-similar-memory",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "        receipt: `${receipt}${similarHint}`,",
+    "replace": "        receipt,",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "stores a restatement as its own memory and names the similar stored wording"
+  },
+  {
+    "name": "row8-similar-finder-returns-nothing",
+    "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+    "find": "        if (normalizedRememberText(storedText) === comparison) {",
+    "replace": "        if (storedText.length === 0) {",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "stores a restatement as its own memory and names the similar stored wording"
+  },
+  {
+    "name": "row9-code-overrides-the-model-basis-with-confirmed",
+    "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+    "find": "            item.version.textHash,\n            basis,\n            item.version.origin,",
+    "replace": "            item.version.textHash,\n            item.version.origin === \"authenticated_first_person\" ? \"confirmed\" : basis,\n            item.version.origin,",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "stores the basis the model chose for a restore whose sources are still live"
+  },
+  {
+    "name": "row13-forget-key-is-shared-again",
+    "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+    "find": "        const key = `${ownerTurn.eventId}:forget:${itemId}`;",
+    "replace": "        const key = `${ownerTurn.eventId}:mutation`;",
+    "testPath": "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "expect": "forgets every memory Sid named in one call"
+  },
+  {
+    "name": "row13-agent-forgets-only-the-first-id",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "      candidateItemIds: itemIds,",
+    "replace": "      candidateItemIds: Object.freeze([itemIds[0]!]),",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "forgets several memories in one call and raises no confirmation tap"
+  },
+  {
+    "name": "row6-refile-confidence-floor-restored-in-the-candidate-query",
+    "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+    "find": "            AND state.lifecycle_state = 'active' AND version.uncertain = 0\n            AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)\n        ), rotated AS (",
+    "replace": "            AND state.lifecycle_state = 'active' AND version.uncertain = 0\n            AND event.confidence >= 0.6\n            AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)\n        ), rotated AS (",
+    "testPath": "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "expect": "re-files an inbox item whose stored filing confidence is below the old floor"
+  },
+  {
+    "name": "row6-shared-filing-floor-loosened",
+    "file": "apps/cloud-gateway/src/memory/memory-types.ts",
+    "find": "export const MEMORY_FILING_CONFIDENCE_THRESHOLD = 0.6;",
+    "replace": "export const MEMORY_FILING_CONFIDENCE_THRESHOLD = 0.0;",
+    "testPath": "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "expect": "treats a missing or out-of-range filingConfidence as zero without rejecting the fact"
+  },
+  {
+    "name": "review-restore-schema-drops-the-grounding-excerpt-again",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "      type: \"object\", additionalProperties: false, required: [\"itemId\", \"basis\", \"supportingExcerpt\"],",
+    "replace": "      type: \"object\", additionalProperties: false, required: [\"itemId\", \"basis\"],",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "requires memory_restore's basis and its grounding excerpt together"
+  },
+  {
+    "name": "review-a-sibling-tool-drops-the-grounding-excerpt",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "      required: [\"itemId\", \"newFact\", \"supportingExcerpt\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "replace": "      required: [\"itemId\", \"newFact\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "requires supportingExcerpt on every tool that declares the property"
+  }
+]

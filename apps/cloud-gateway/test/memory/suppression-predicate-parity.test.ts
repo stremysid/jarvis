@@ -65,6 +65,7 @@ import {
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
 import clausesSource from "../../src/memory/suppression-clauses.js?raw";
 import finderSource from "../../src/memory/memory-control-targets.js?raw";
+import ownerCoreSource from "../../src/agent/owner-agent-core.js?raw";
 import retrieverSource from "../../src/memory/telegram-memory-retriever.js?raw";
 import { applyNewestRuntimeMigration } from "../persistence/migration.js";
 
@@ -178,6 +179,20 @@ describe("the item suppression predicate is written once, in the clauses every a
     // the reader who has to decide whether their arm is a new exemption or a miss.
     expect(offenders, `Exempt arms: ${PROTECTED_WITHOUT_COMPOSING
       .map(({ marker, why }) => `${marker} -- ${why}`).join("; ")}`).toEqual([]);
+  });
+});
+
+describe("the forgotten-item visibility cap counts items rather than historical versions", () => {
+  it.each([
+    ["previous owner reply", ownerCoreSource],
+    ["retrieved history", retrieverSource],
+  ] as const)("joins only the current version for %s", (_surface, source) => {
+    const queries = [...source.matchAll(
+      /SELECT state\.item_id, version\.text[\s\S]*?state\.lifecycle_state = 'forgotten'[\s\S]*?LIMIT[^`]+/gu,
+    )].map((match) => match[0]);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("version.version_id = state.current_version_id");
+    expect(queries[0]).not.toContain("version.item_id = state.item_id");
   });
 });
 

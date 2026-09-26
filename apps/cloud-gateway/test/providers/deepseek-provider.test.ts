@@ -50,6 +50,23 @@ function agentResponse(choice: unknown): Response {
 }
 
 describe("DeepSeekAgentProvider", () => {
+  it("accepts a catalogue at the provider's sixty-four-tool sanity bound and refuses one above it before fetching", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "stop", message: { content: JSON.stringify({ reply: "Hello.", claimedActions: [] }) },
+    }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const tools = Array.from({ length: 65 }, (_, index) => ({
+      name: `owner_tool_${index}`, description: "One owner capability.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    }));
+    await expect(provider.completeAgent(agentInput({ tools: tools.slice(0, 64) })))
+      .resolves.toMatchObject({ finishReason: "stop" });
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as { tools: unknown[] };
+    expect(request.tools).toHaveLength(64);
+    await expect(provider.completeAgent(agentInput({ tools }))).rejects.toThrow("agent_request_invalid");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("pins non-thinking JSON function calling and parses an ordinary answer", async () => {
     const content = JSON.stringify({ reply: "Hello.", claimedActions: [] });
     const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
@@ -124,6 +141,53 @@ describe("DeepSeekAgentProvider", () => {
       },
       { role: "tool", tool_call_id: "call_1", content: "{\"status\":\"completed\"}" },
     ]);
+  });
+
+  it("sends every earlier tool round in order before the latest one, each call followed by its own result", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "stop",
+      message: { content: JSON.stringify({ reply: "Done.", claimedActions: [] }) },
+    }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const call = (id: string) => ({ id, name: "memory_remember", arguments: "{}" });
+    const result = (id: string) => ({ toolCallId: id, name: "memory_remember", content: `{"id":"${id}"}` });
+    await provider.completeAgent(agentInput({
+      earlierToolRounds: [
+        { calls: [call("search_1")], results: [result("search_1")] },
+        { calls: [call("read_1"), call("read_2")], results: [result("read_2"), result("read_1")] },
+      ],
+      previousToolCalls: [call("record_1")],
+      toolResults: [result("record_1")],
+    }));
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as {
+      messages: { role: string; tool_calls?: { id: string }[]; tool_call_id?: string }[];
+    };
+    // The user message, then one assistant message per round with that round's
+    // results directly after it -- so the model sees the search before the read.
+    expect(request.messages.slice(-8).map((message) => message.role === "assistant"
+      ? `assistant:${message.tool_calls!.map((entry) => entry.id).join(",")}`
+      : `${message.role}:${message.tool_call_id ?? ""}`)).toEqual([
+      "user:",
+      "assistant:search_1", "tool:search_1",
+      "assistant:read_1,read_2", "tool:read_1", "tool:read_2",
+      "assistant:record_1", "tool:record_1",
+    ]);
+  });
+
+  it("refuses a tool history that reuses a call id across rounds or has earlier rounds with no latest one", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const call = { id: "same_id", name: "memory_remember", arguments: "{}" };
+    const result = { toolCallId: "same_id", name: "memory_remember", content: "{}" };
+    await expect(provider.completeAgent(agentInput({
+      earlierToolRounds: [{ calls: [call], results: [result] }],
+      previousToolCalls: [call],
+      toolResults: [result],
+    }))).rejects.toThrow("agent_tool_history_invalid");
+    await expect(provider.completeAgent(agentInput({
+      earlierToolRounds: [{ calls: [call], results: [result] }],
+    }))).rejects.toThrow("agent_tool_history_invalid");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("accepts tool calls accompanied by provider content without treating the content as authority", async () => {
@@ -293,7 +357,7 @@ describe("DeepSeekModelAdapter", () => {
     }
   });
 
-  it("keeps the exact voice request body byte-identical", async () => {
+  it("uses the same configured thinking policy for an owner pipeline on voice", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
     const adapter = new DeepSeekModelAdapter({
       apiKey: API_KEY,
@@ -310,7 +374,7 @@ describe("DeepSeekModelAdapter", () => {
         { role: "user", content: "hello" },
       ],
       stream: true,
-      reasoning_effort: "high",
+      thinking: { type: "disabled" },
       max_tokens: 65_536,
     }));
   });

@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Facts report the commit age",
+    "file": "apps/cloud-gateway/src/projects/project-facts.ts",
+    "find": "const daysSinceLastCommit = Number.isFinite(lastCommitMs) ? (nowMs - lastCommitMs) / DAY_MS : null;",
+    "replace": "const daysSinceLastCommit = null;",
+    "expect": "reports the commit age as arithmetic and nothing about what it means",
+    "testPath": "apps/cloud-gateway/test/projects/project-facts.test.ts"
+  },
+  {
+    "name": "Dates keep the document's order",
+    "file": "apps/cloud-gateway/src/projects/project-facts.ts",
+    "find": "dates: Object.freeze([...days]),",
+    "replace": "dates: Object.freeze([...days].sort()),",
+    "expect": "keeps every date in the order the document wrote them rather than choosing one",
+    "testPath": "apps/cloud-gateway/test/projects/project-facts.test.ts"
+  },
+  {
+    "name": "Unreadable date text is reported",
+    "file": "apps/cloud-gateway/src/projects/project-facts.ts",
+    "find": "unreadable: Object.freeze([...unreadable].slice(0, MAX_SAMPLES)),",
+    "replace": "unreadable: Object.freeze([]),",
+    "expect": "reports an ambiguous numeric date as unreadable rather than as no date",
+    "testPath": "apps/cloud-gateway/test/projects/project-facts.test.ts"
+  },
+  {
+    "name": "Excerpt truncation is reported",
+    "file": "apps/cloud-gateway/src/projects/project-facts.ts",
+    "find": "truncated: isExcerptAtCap(excerpt),",
+    "replace": "truncated: false,",
+    "expect": "notes when the excerpt is at its bound and a date may sit past it",
+    "testPath": "apps/cloud-gateway/test/projects/project-facts.test.ts"
+  },
+  {
+    "name": "NEXT_STEPS absence is a fact",
+    "file": "apps/cloud-gateway/src/projects/project-facts.ts",
+    "find": "nextStepsPresent: nextSteps !== null,",
+    "replace": "nextStepsPresent: true,",
+    "expect": "says NEXT_STEPS.md is absent and that an excerpt may continue",
+    "testPath": "apps/cloud-gateway/test/projects/project-facts.test.ts"
+  },
+  {
+    "name": "Every document change is reported",
+    "file": "apps/cloud-gateway/src/projects/project-poller.ts",
+    "find": "const changes: DocumentChange[] = [];\n  for (const path of PROJECT_DOCUMENT_PATHS) {",
+    "replace": "const changes: DocumentChange[] = [];\n  for (const path of [\"KNOWN_ISSUES.md\", \"DECISIONS.md\"] as const) {",
+    "expect": "reports every changed document rather than only the ones code used to single out",
+    "testPath": "apps/cloud-gateway/test/projects/project-poller.test.ts"
+  },
+  {
+    "name": "The digest carries the commit age",
+    "file": "apps/cloud-gateway/src/jobs/digest-job.ts",
+    "find": "daysSinceLastCommit: facts?.daysSinceLastCommit ?? null,",
+    "replace": "daysSinceLastCommit: null,",
+    "expect": "states a project's commit age and NEXT_STEPS dates without a stalled verdict",
+    "testPath": "apps/cloud-gateway/test/jobs/digest-job.test.ts"
+  },
+  {
+    "name": "The facts tool is a receipt-less read",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "return unactionedTool(call, JSON.stringify(facts), Object.freeze([]));",
+    "replace": "return successfulTool(call, JSON.stringify(facts));",
+    "expect": "hands the model project facts with no receipt and no stalled verdict",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts"
+  },
+  {
+    "name": "The facts tool says the model decides",
+    "file": "apps/cloud-gateway/src/projects/project-tools.ts",
+    "find": "You decide whether a project needs Sid and what to raise; code makes no stale, approaching or overdue judgment.",
+    "replace": "Code decides whether a project needs Sid.",
+    "expect": "hands the model project facts with no receipt and no stalled verdict",
+    "testPath": "apps/cloud-gateway/test/agent/multi-step-tools.test.ts"
+  },
+  {
+    "name": "The facts tool has a registered capability",
+    "file": "apps/cloud-gateway/src/autonomy/tool-capabilities.ts",
+    "find": "project_facts: \"read.repository\",",
+    "replace": "project_facts: \"read.repository.missing\",",
+    "expect": "every capability those tools are classified as is registered at a tier",
+    "testPath": "apps/cloud-gateway/test/autonomy/tool-classification.test.ts"
+  }
+]

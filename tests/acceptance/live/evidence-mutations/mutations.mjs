@@ -1,17 +1,15 @@
 export const MUTATIONS = Object.freeze([
   Object.freeze({
-    id: "S1-not-started-no-owner-authority",
-    testName: "rejects an answered outbound call granted owner authority with no step-up",
-    from: `      || claimsOwnerAuthority
-      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
+    id: "P1-no-authentication-prompt-before-first-turn",
+    testName: "requires an owner call to reach its first model turn with zero authentication prompts",
+    from: `  if (evidence.authenticationPromptsBeforeFirstModelTurn !== 0) unsafe();
 `,
-    to: `      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
-`,
+    to: "",
   }),
   Object.freeze({
-    id: "N1-inbound-attestation-not-applicable",
-    testName: "binds the not_applicable attestation to outbound owner evidence only",
-    from: `    || direction === "inbound" && attestation === "not_applicable"
+    id: "P2-owner-authority-from-relay-setup",
+    testName: "requires an owner call to be authorized from relay setup without a prompt",
+    from: `  if (evidence.ownerAuthorityGranted !== claimsOwnerAuthority) unsafe();
 `,
     to: "",
   }),

@@ -1,0 +1,74 @@
+[
+  {
+    "name": "no-silent-argument-truncation",
+    "file": "apps/cloud-gateway/src/channels/telegram/telegram-commands.ts",
+    "find": "      : (rest ?? \"\").trim(),",
+    "replace": "      : (rest ?? \"\").trim().slice(0, 256),",
+    "testPath": "apps/cloud-gateway/test/channels/telegram-commands.test.ts",
+    "expect": "never silently truncates an argument"
+  },
+  {
+    "name": "reporting-commands-reach-the-model",
+    "file": "apps/cloud-gateway/src/channels/telegram/telegram-commands.ts",
+    "find": "  if (!KNOWN_COMMANDS.has(name)) return { kind: \"text\" };",
+    "replace": "  if (false) return { kind: \"text\" };",
+    "testPath": "apps/cloud-gateway/test/channels/telegram-commands.test.ts",
+    "expect": "hands the reporting or unknown command /status to the model"
+  },
+  {
+    "name": "decision-rank-has-no-default",
+    "file": "apps/cloud-gateway/src/decisions/decision-service.ts",
+    "find": "    const rank = input.rank;",
+    "replace": "    const rank = input.rank ?? 100;",
+    "testPath": "apps/cloud-gateway/test/decisions/decision-service.test.ts",
+    "expect": "refuses a question with no rank rather than choosing the owner's priority"
+  },
+  {
+    "name": "command-reads-mint-no-receipt",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    providerResult: toolResult(call, \"completed\", null, evidence, referencedItemIds),\n    receipt: null,\n    receiptId: null,",
+    "replace": "    providerResult: toolResult(call, \"completed\", `receipt:${call.id}`, evidence, referencedItemIds),\n    receipt: null,\n    receiptId: `receipt:${call.id}`,",
+    "testPath": "apps/cloud-gateway/test/agent/owner-command-tools.test.ts",
+    "expect": "mints no receipt for a read"
+  },
+  {
+    "name": "command-tools-are-classified",
+    "file": "apps/cloud-gateway/src/autonomy/tool-capabilities.ts",
+    "find": "  decision_queue: \"notify.owner\",\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/autonomy/tool-classification.test.ts",
+    "expect": "every tool the model can dispatch has a capability classification"
+  },
+  {
+    "name": "command-capability-is-registered",
+    "file": "apps/cloud-gateway/src/autonomy/tool-capabilities.ts",
+    "find": "  owner_status: \"notify.owner\",",
+    "replace": "  owner_status: \"owner.status\",",
+    "testPath": "apps/cloud-gateway/test/autonomy/tool-classification.test.ts",
+    "expect": "every capability those tools are classified as is registered at a tier"
+  },
+  {
+    "name": "command-tools-dispatch-through-the-port",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    const commandTool = port.commandTool?.(call);\n    if (commandTool != null) {",
+    "replace": "    const commandTool = null as (() => Promise<ExecutedTool>) | null;\n    if (commandTool != null) {",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "dispatches the reporting command tools through the shared port"
+  },
+  {
+    "name": "status-not-measured-is-not-ok",
+    "file": "apps/cloud-gateway/src/agent/owner-command-capabilities.ts",
+    "find": "    } else if (last.completion === \"not_measured\") {",
+    "replace": "    } else if (false) {",
+    "testPath": "apps/cloud-gateway/test/agent/owner-command-tools.test.ts",
+    "expect": "reports a job that reached the end without running as not set up rather than ok"
+  },
+  {
+    "name": "status-never-finished-is-not-ok",
+    "file": "apps/cloud-gateway/src/agent/owner-command-capabilities.ts",
+    "find": "    } else if (last.finishedAt === null) {",
+    "replace": "    } else if (false) {",
+    "testPath": "apps/cloud-gateway/test/agent/owner-command-tools.test.ts",
+    "expect": "reports a run that started and never finished"
+  }
+]

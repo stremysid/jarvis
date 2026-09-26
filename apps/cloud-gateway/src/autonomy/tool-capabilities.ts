@@ -37,13 +37,26 @@
  * owner-scoped, reversible operation is the observing one -- and the owner, not
  * this file, decides if he wants them stricter.
  *
- * Note `memory_forget` is tier 1 and not the tier-3 `delete.data`: forget is
+ * Note `memory_forget` is `memory.write` and not `delete.data`: forget is
  * hiding by transition and suppression, never erasure, and its own receipt says
  * the original conversation remains retained.
- * Collector revocation has its own tier-3 registry entry because it disables a
- * credential rather than changing conversational state.
+ * Collector revocation has its own registry entry because it disables a
+ * credential rather than changing conversational state. It is tier 1 since
+ * `0051`: it is not one of the five actions Sid wants asked about.
+ *
+ * Tier 3 -- the tap on Telegram, the PIN on a call -- belongs to exactly five
+ * capabilities, one per action Sid named on 2026-09-24: `spend.money`,
+ * `send.email`, `place.call`, `submit.school_work` and
+ * `contact.third_party`. `five-confirmed-actions.test.ts` pins that set against the
+ * migrated database, so mapping a tool here to a capability outside it can
+ * never make the tool ask, and adding a sixth tier-3 row fails a named test.
  */
 const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
+  // Tier 1: reading the inbox changes nothing and reaches nobody. The rows
+  // exist so this is a deliberate classification rather than a missing entry,
+  // which the gate would deny as an unregistered capability.
+  email_inbox_list: "email.read",
+  email_inbox_read: "email.read",
   memory_remember: "memory.write",
   // Correcting a memory supersedes one stored wording with another in the same
   // ledger, so it is a memory write and not a capability of its own. It shares
@@ -61,6 +74,20 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // dispatchable set from the definitions, leaving it out would have failed a
   // named test rather than silently refusing every search in production.
   memory_search: "memory.read",
+  // Read-only like memory_search: it searches the owner's own stored
+  // conversation and changes nothing, so it shares `memory.read`'s tier-1 row
+  // and needs no migration.
+  history_search: "memory.read",
+  // The model's own declaration of which memories its reply relied on. It
+  // selects nothing and changes no memory; it records the turn's reference set,
+  // so it shares `memory.read`'s tier-1 row and needs no migration.
+  declare_memory_references: "memory.read",
+  // Owner-only guest access management. `access.manage` is the capability the
+  // voice access authority already checks; `0055` registers it at tier 1 so the
+  // classification guard can read a real row. It is not one of the five actions
+  // Sid wants a confirmation for, and the model decides whether to read the
+  // number back, so no tap is added here.
+  owner_access: "access.manage",
   // Pinning changes a stored preference rather than an item's existence, so it is
   // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
   // the whole reason these two needed no migration: `0035` already seeds the tier.
@@ -68,15 +95,46 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_unpin: "memory.write",
   school_update: "school.track",
   deadline_record: "school.track",
+  // Reading Sid's own stored deadlines is owner-scoped and changes nothing, so
+  // it shares school.track's tier-1 row and needs no migration.
+  deadline_list: "school.track",
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
   // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
-  // authority still applies, and collector revocation stays gated. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
+  // authority still applies. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
+  // Read-only raw Classroom evidence for the model's own missing-work judgment.
+  // It shares school_d2l_status's ungated tier-1 row: it reads Sid's own
+  // school store, changes nothing and reaches nobody.
+  school_work_evidence: "school.track",
+  // Read-only facts about the tracked repositories: excerpts, commit ages,
+  // dates and poll health. It shares `read.repository`, the tier-1 row
+  // `0008_autonomy.sql` already seeds for polling a repository's status
+  // documents, so classifying it needed no migration. It changes nothing.
+  project_facts: "read.repository",
   school_collector_revoke: "school.collector.revoke",
+  reminder_schedule: "notify.owner",
+  reminder_list: "notify.owner",
+  reminder_cancel: "notify.owner",
+  // The three reporting reads that replaced the Telegram-only slash commands.
+  // Telling the owner his own status, queue and digest is `notify.owner`, tier 1
+  // (0008): it reads only his own store, reaches nobody else and changes
+  // nothing, so it needs no new registry row.
+  owner_status: "notify.owner",
+  decision_queue: "notify.owner",
+  run_digest: "notify.owner",
+  // The vault answer is a read of the owner's own stored information, so it
+  // shares `memory.read`'s tier-1 row and needs no migration. It reaches no
+  // other store: the vault itself is on Sid's PC, so the tool only returns the
+  // local command.
+  vault_search: "memory.read",
   university_update: "university.track",
   study_coach: "study.coach",
+  // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
+  // Sid and change nothing outside the gateway's own receipt table.
+  web_read: "read.web",
+  web_search: "read.web",
 });
 
 /**
@@ -85,18 +143,21 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
  *
  * These are classified BEFORE the tools exist, which is the whole point: the
  * gate is only a backstop if a new hand inherits a classification rather than
- * arriving unregistered. `email` reaches a third party and is tier 3.
- * `tesla_precondition` is the reversible vehicle action `0008` already seeds as
- * tier 2. `tesla_unlock` moves the car and is tier 3.
+ * arriving unregistered. `send_email` is `send.email`, one of Sid's five, so
+ * tier 3 whoever it is addressed to. `tesla_precondition` and `tesla_unlock`
+ * are the vehicle actions `0008` seeds, both tier 2 since `0051`: neither is
+ * one of the five, so neither asks.
  *
  * A model cannot reach any of these through the agent today -- they are absent
- * from `OWNER_TELEGRAM_TOOL_DEFINITIONS`, so an attempt falls through to the
+ * from `OWNER_TOOL_DEFINITIONS`, so an attempt falls through to the
  * unknown-tool refusal. Listing them here means the tier question is already
  * answered when the tool is finally defined, instead of being answered in a
  * hurry at the same time as the integration.
  */
 const RESERVED_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze({
-  send_email: "contact.third_party",
+  // `send_email` is the sending hand, not the inbox read above. Sending an
+  // email is one of Sid's five, so it has its own tier-3 row whoever it is to.
+  send_email: "send.email",
   tesla_precondition: "vehicle.precondition",
   tesla_unlock: "vehicle.unlock",
 });

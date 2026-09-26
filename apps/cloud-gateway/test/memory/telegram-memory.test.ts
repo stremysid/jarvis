@@ -347,6 +347,7 @@ async function commitTestItem(options: Readonly<{
     principalId: options.principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: options.creation.eventId,
     creationEventSequence: options.creation.sequence,
     version: {
@@ -1635,6 +1636,7 @@ describe("Telegram forget recall safety", () => {
       principalId: owner.principalId,
       itemId,
       kind: "relationship",
+      lifetime: "durable",
       creationEventId: user.event_id as ReturnType<typeof newUlid>,
       creationEventSequence: user.sequence,
       version: {
@@ -1765,6 +1767,8 @@ describe("Telegram owner memory correction", () => {
       sensitivity: "normal",
       sourceExcerpt: correction,
       normalizedFromSource: true,
+      lifetime: "durable",
+      validTo: null,
     });
 
     const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE })
@@ -2636,6 +2640,7 @@ describe("Telegram memory retrieval", () => {
       principalId: RETRIEVAL_ID,
       itemId: newUlid(),
       kind: "preference",
+      lifetime: "durable",
       creationEventId: admission.turn.userEventId,
       creationEventSequence: event.sequence,
       version: {

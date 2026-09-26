@@ -133,14 +133,15 @@ collector("Folder success before caching", "collector.js", 'const fresh = folder
 collector("Refusals are normal evidence", "collector.js", '[200, 403].includes(result.status)', '[200].includes(result.status)', refusals);
 collector("Folder refusal is not a shape failure", "collector.js", 'route === "folders" && result.status === 200 && result.complete', 'route === "folders" && result.complete', refusals);
 collector("Durham refusal remains evidence", "sessions.js", 'if (retry.status === 403 && !retry.error) return retry;', '', "It retains a complete Durham tool refusal after the single renewal attempt.");
-const incompatible = "It retains incompatible board and tool evidence without sending an invalid receiver batch.";
-protocol("Receiver host allowlist", "protocol.js", 'batch.host !== "ldsb.elearningontario.ca"', 'false', incompatible);
-protocol("Receiver route allowlist", "protocol.js", 'route.startsWith(prefix)', 'true', incompatible);
-protocol("Receiver gate before sending", "delivery.js", 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }', '', incompatible);
-protocol("Receiver mismatch is visible", "delivery.js", 'entry.error = uploadBlock(JSON.parse(entry.body)) ?? entry.error;', '', incompatible);
+const queue = (name, file, find, replace, testName) => add(name, file, find, replace, "queue.test.js", testName);
+// With the client-side hold gone a Durham batch, and a batch carrying news/ or
+// quizzes/, are ordinary uploads. Both mutations below restore that hold by
+// skipping an entry instead of sending it, which must fail the named test.
+const noHold = "It sends a Durham board batch and a news and quizzes batch instead of holding them.";
+queue("Durham board is sent", "delivery.js", 'const entry of [...queue]', 'const entry of [...queue].filter((entry) => entry.host === "ldsb.elearningontario.ca")', noHold);
+queue("News and quizzes are sent", "delivery.js", 'const entry of [...queue]', 'const entry of [...queue].filter((entry) => !JSON.parse(entry.body).routes.some((route) => /\\/(news|quizzes)\\/$/.test(route.route)))', noHold);
 protocol("Actual receiver signature witness", "protocol.js", '["POST", path, envelope.deviceId', '["POST", "/wrong", envelope.deviceId', "It passes extension bytes and signatures through the pinned receiver verifier and batch parser.");
 rows.at(-1).testFile = "receiver-contract.test.js";
-const queue = (name, file, find, replace, testName) => add(name, file, find, replace, "queue.test.js", testName);
 const bounded = "It bounds a week of unavailable delivery to the newest two reads of each board and course.";
 queue("Queue course retention", "delivery.js", 'count <= QUEUE_PER_COURSE', 'true', bounded);
 queue("Queue identity includes host", "delivery.js", '[entry.host, entry.courseId]', '[entry.courseId]', bounded);
@@ -159,7 +160,7 @@ queue("Queue persists only once", "delivery.js", 'queue.splice(queue.indexOf(ent
 const retain = "It retains pending evidence if the single queue commit fails and retries it without duplication.";
 queue("Queue clears pending after commit", "delivery.js", 'await store.set("queue", queue);\n    pending = [];', 'pending = [];\n    await store.set("queue", queue);', retain);
 queue("Queue clears committed pending", "delivery.js", 'pending = [];\n    return', 'return', retain);
-queue("Mixed held evidence survives success", "delivery.js", 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; continue; }', 'if (uploadBlock(JSON.parse(entry.body))) { blocked = true; queue.splice(queue.indexOf(entry),1); continue; }', "It retains held Durham evidence when a mixed queue delivers an LDSB batch.");
+queue("Previously held evidence is sent", "delivery.js", 'const entry of [...queue]', 'const entry of [...queue].filter((entry) => false)', noHold);
 queue("Interrupted reads persist", "controller.js", 'if (!backgroundOnly) status.delivery = await push.flush(!status.error);', 'if (!backgroundOnly && !status.error) status.delivery = await push.flush(!status.error);', "It commits collected evidence once when a later host interrupts the run without uploading it.");
 queue("Interrupted flush does not upload", "delivery.js", 'sendPending && identity?.status', 'identity?.status', "It commits collected evidence once when a later host interrupts the run without uploading it.");
 queue("Stored hop revalidated at use", "sessions.js", 'validateHop(hop)', 'hop', "It revalidates a hop loaded directly from settings before creating any tab for it.");

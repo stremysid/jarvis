@@ -7,7 +7,6 @@ import { VoiceAccessRepository } from "../../src/persistence/voice-access-reposi
 import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
 import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
-import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
 import { VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
 import {
   applyOwnerCallStepUpMigration,
@@ -165,14 +164,15 @@ describe("voice-access incremental migration", () => {
       now: new Date("2026-08-30T00:07:00.000Z"),
     })).rejects.toThrow("call_authority_invalid");
 
-    await new OwnerCallStepUpService(
-      env.DB, new OwnerPassphraseVerifier(new Uint8Array(32).fill(17), "v1"),
-    ).bind({
-      sessionId: FRESH_SESSION_ID, callSid: freshBinding.callSid,
-      ownerPrincipalId: OWNER_PRINCIPAL_ID, ownerIdentityId: OWNER_IDENTITY_ID,
-      direction: "inbound", lifecycleGeneration: 1, requirement: "waived_passed_a",
-      attestationClass: "passed_a", policy: "waive_on_passed_a", createdAt: CREATED_AT,
-    });
+    // The binding row is written directly now: the service that used to write it
+    // was deleted with the per-call passphrase gate, and what this test needs is
+    // the durable row the authority backfill is checked against, not the writer.
+    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
+      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
+      lifecycle_generation, requirement, attestation_class, policy, created_at
+    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`).bind(
+      FRESH_SESSION_ID, freshBinding.callSid, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, CREATED_AT,
+    ).run();
 
     const fresh = await restarted.mintOwner({
       sessionId: FRESH_SESSION_ID,

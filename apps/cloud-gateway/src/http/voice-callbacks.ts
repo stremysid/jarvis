@@ -9,7 +9,6 @@ import {
   type VerifiedTwilioForm,
   type VerifiedTwilioFormPair,
 } from "../providers/twilio-verifier.js";
-import { OWNER_STEP_UP_HANDOFF_DATA } from "../voice/owner-call-step-up.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
@@ -167,12 +166,6 @@ export async function handleTwilioRelayEndedCallback(
     await capturedRecorder.method.call(capturedRecorder.receiver, record);
   } catch {
     return neutral("unavailable", 503);
-  }
-  if (handoffValues[0] === OWNER_STEP_UP_HANDOFF_DATA) {
-    return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>", {
-      status: 200,
-      headers: { "content-type": "text/xml; charset=UTF-8", "cache-control": "no-store" },
-    });
   }
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
 }

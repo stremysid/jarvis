@@ -212,7 +212,7 @@ describe("the private calendar route", () => {
       ["after", to, "open"], ["submitted", NOW.getTime(), "submitted"],
     ] as const) {
       const result = await deadlines.upsert({ sourceId: source.sourceId, externalId: label, course: "Physics", title: label,
-        dueAt: new Date(due).toISOString(), effort: "test", leadMinutes: 90, now: NOW });
+        dueAt: new Date(due).toISOString(), now: NOW });
       if (status === "submitted") await env.DB.prepare("UPDATE deadlines SET status = 'submitted' WHERE deadline_id = ?")
         .bind(result.deadline.deadlineId).run();
     }

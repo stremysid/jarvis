@@ -16,16 +16,41 @@ const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
  * breaks a test instead of a delivery.
  */
 const DECISION_CALLBACK_DATA = /^d1:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-z0-9_-]{1,32}$/u;
+/**
+ * Who reads this text next. It is the whole privacy boundary, and it is a
+ * question about the recipient, never about the words.
+ *
+ * Sid, 2026-09-24: "there should be nothing between Jarvis and I interms of
+ * what he knows and I know". So:
+ *
+ * - `owner` is Sid himself: his Telegram chat, his owner calls, his memory,
+ *   his conversation store and his own PC. His data is stored and shown as it
+ *   is -- codes, PINs, phone numbers and passphrases included. Only machine
+ *   credentials are removed (private keys, `Authorization` headers, bearer
+ *   tokens and known API-key/bot-token shapes), because that is what Jarvis's
+ *   own infrastructure secrets look like and they must never reach a reply.
+ * - `external` is anyone who is not Sid: a guest caller, and developer audit or
+ *   telemetry records. Every rule below applies, so Sid's PINs, codes,
+ *   passphrases and phone numbers do not reach them.
+ *
+ * A labelled value of no known machine shape (`api_key=...`, `client_secret=...`)
+ * is Sid's own text on the owner path and reaches him as he wrote it; only the
+ * external reader loses it.
+ *
+ * `external` is the default, so a surface that forgets to name its reader
+ * hides too much from Sid -- a visible bug a test catches -- rather than showing
+ * Sid's codes to someone else. Every one of Sid's own paths names `owner`.
+ */
+export type RedactionAudience = "owner" | "external";
+// The rules from here to PHONE_NUMBER run only for the `external` audience.
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 /**
  * A credential word and what may sit between it and its digits. Both contextual
  * rules below are built from this one source, so the word list cannot learn a
- * word in one rule and not the other. `projection_policy.py` in the local agent
- * transcribes it, and `tests/fixtures/memory-projection-policy.json` holds both
- * runtimes to the same answers.
+ * word in one rule and not the other.
  */
 const AUTHENTICATION_WORD = String.raw`(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)`;
-const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{8})(?!\d)`, "gi");
+const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{8})\b`, "gi");
 /**
  * The owner PIN is four digits, and until this rule "my pin is 4821" crossed
  * every boundary verbatim -- into `events.envelope_json`, the R2 archive and the
@@ -38,22 +63,52 @@ const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICA
  * price and street number with it ("due Jan 15, [REDACTED_AUTH_DIGITS]"). A PIN
  * spoken with no credential word before it is not caught here.
  */
-const CONTEXTUAL_FOUR_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{4})(?!\d)`, "gi");
-const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
-const BARE_BEARER = /\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})/gi;
+const CONTEXTUAL_FOUR_DIGIT_AUTHENTICATION = new RegExp(String.raw`${AUTHENTICATION_WORD}(\d{4})\b`, "gi");
+const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*(?:bearer[ \t\r\n]+[A-Za-z0-9._~+/=-]+[^\r\n]*|[^\r\n]*)/gi;
+const BARE_BEARER = /\bbearer[ \t\r\n]+([A-Za-z0-9._~+/=-]{8,})/gi;
+const CREDENTIAL_LABEL = String.raw`api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret|pin|passphrase|passcode`;
+// These are syntactic boundaries, not guesses about what the prose means.
+// A digit boundary keeps ordinals/identifiers; the spoken run consumes every
+// consecutive digit word so that a fourth word cannot escape a three-word match.
+const SPOKEN_DIGIT = String.raw`(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b`;
+const PROSE_AUTHENTICATION = new RegExp(String.raw`(\b(?:pin|passcode|code)(?:\s+number)?(?:\s+(?:is|was)\s+|['’]s\s+))(?:\d+\b|${SPOKEN_DIGIT}(?:[ -]+${SPOKEN_DIGIT}){2,})`, "gi");
+// An ordinary course/code identifier stays text even after an explicit colon.
+const CODE_ASSIGNMENT = /(?<![A-Za-z0-9])((["']?)code\2\s*[=:]\s*)\d+\b/gi;
 // An escape can be split at EOF in a streaming prefix. Consume that dangling
 // backslash too; falling back to the unquoted alternative exposes later words.
-const CREDENTIAL_ASSIGNMENT = /(?<![A-Za-z0-9])(["']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|[^\s,;]+)/gi;
-const KNOWN_CREDENTIAL = /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b/g;
+// A numeric replacement retains its label. Do not reinterpret that exact
+// placeholder as another assignment when already-redacted text crosses again.
+const CREDENTIAL_ASSIGNMENT = new RegExp(String.raw`(?<![A-Za-z0-9])((["']?)(${CREDENTIAL_LABEL})\2\s*[=:]\s*|\bpassphrase\s+is\s+)((?:"(?:\\[^\r\n]|[^"\\\r\n])*(?:"|\\(?=\r?\n|$)|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|\\(?=\r?\n|$)|(?=\r?\n|$))|(?!\[REDACTED_(?:AUTH_DIGITS|AUTHORIZATION|CREDENTIAL|PHONE_NUMBER)\][.!?]*(?:\s|[,;]|$))[^\s,;]+))`, "gi");
+// Spoken passphrases need not have quotation marks. The unquoted form ends at
+// sentence/list punctuation; quoted values use the escape-aware rule above.
+const SPOKEN_PASSPHRASE = /\bpassphrase(?:\s*[=:]\s*|\s+is\s+)(?![\s"'])[^\s,;.!?][^,;.!?\r\n]*/gi;
+// A line can end midway through a label or before its value. Telegram retains
+// that suffix to EOF rather than releasing a line that later input can redact.
+const STREAMING_REDACTION_CONTEXT = new RegExp(String.raw`(?<![A-Za-z0-9])(?:${CREDENTIAL_LABEL}|code|authorization|bearer|otp|authentication|verification)\b|\b(?:api|client|access)\s*$`, "i");
+// A bare digit run is ambiguous. Require a country prefix or the requested
+// grouping, and reject a match embedded in a longer alphanumeric identifier.
+const PHONE_NUMBER = /(?<![A-Za-z0-9_+-])(?:\+1[ \t.-]*(?:\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:[0-9]{3}[ .-])?[0-9]{3}[ .-][0-9]{4}|[0-9]{10})|\([0-9]{3}\)[ \t]*[0-9]{3}[ -][0-9]{4}|(?:1[ .-])?[0-9]{3}[ .-][0-9]{3}[ .-][0-9]{4})(?![A-Za-z0-9_]|-[0-9])/g;
+// The machine-credential rules below run for every audience. A Telegram bot
+// token (`<bot id>:<35 characters>`) is the one infrastructure secret Jarvis
+// holds whose shape was not listed; it is `TELEGRAM_BOT_TOKEN` in env.
+// `projection_policy.py` in the local agent transcribes these owner rules, and
+// `tests/fixtures/memory-projection-policy.json` holds both runtimes to the
+// same answers.
+const KNOWN_CREDENTIAL = /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}|[0-9]{8,10}:[A-Za-z0-9_-]{35})\b/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*)-----[\s\S]*?(?:-----END \1-----|$)/g;
 
-export type RedactionMarker = "authentication_digits" | "authorization" | "credential";
+export type RedactionMarker = "authentication_digits" | "authorization" | "credential" | "phone_number";
 
 const REPLACEMENT: Readonly<Record<RedactionMarker, string>> = Object.freeze({
   authentication_digits: "[REDACTED_AUTH_DIGITS]",
   authorization: "[REDACTED_AUTHORIZATION]",
   credential: "[REDACTED_CREDENTIAL]",
+  phone_number: "[REDACTED_PHONE_NUMBER]",
 });
+
+export function hasStreamingRedactionContext(text: string): boolean {
+  return STREAMING_REDACTION_CONTEXT.test(text);
+}
 
 export interface OutboundCallCommand {
   commandId: Ulid;
@@ -137,16 +192,19 @@ export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction 
 }
 
 /**
- * Removes secrets before minting an opaque, frozen token; failure values never
- * retain the original input.
+ * Removes what the `audience` must not receive before minting an opaque, frozen
+ * token; failure values never retain the original input. See
+ * `RedactionAudience`: toward Sid only machine credentials go.
  */
 export function sanitizeRedaction(
   text: string,
   fieldMarker?: RedactionMarker,
   structuralUlid = false,
+  audience: RedactionAudience = "external",
 ): RedactionResult {
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
+    if (audience !== "owner" && audience !== "external") return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
     if (structuralUlid && (LOWERCASE_ULID.test(text) || DECISION_CALLBACK_DATA.test(text))) {
       return issueSanitizedRedaction(text, []);
@@ -169,7 +227,39 @@ export function sanitizeRedaction(
       mark("authorization");
       return REPLACEMENT.authorization;
     });
-    redacted = redacted.replace(CREDENTIAL_ASSIGNMENT, () => {
+    if (audience === "owner") {
+      redacted = redacted.replace(KNOWN_CREDENTIAL, () => {
+        mark("credential");
+        return REPLACEMENT.credential;
+      });
+      return issueSanitizedRedaction(redacted.normalize("NFC"), markers);
+    }
+    redacted = redacted.replace(SPOKEN_PASSPHRASE, () => {
+      mark("credential");
+      return REPLACEMENT.credential;
+    });
+    // An unquoted assignment can consume only a phone's country/area prefix.
+    // Match the whole number first so that cannot expose the remaining groups.
+    redacted = redacted.replace(PHONE_NUMBER, () => {
+      mark("phone_number");
+      return REPLACEMENT.phone_number;
+    });
+    redacted = redacted.replace(PROSE_AUTHENTICATION, (_match, prefix: string) => {
+      mark("authentication_digits");
+      return `${prefix}${REPLACEMENT.authentication_digits}`;
+    });
+    redacted = redacted.replace(CODE_ASSIGNMENT, (_match, prefix: string) => {
+      mark("authentication_digits");
+      return `${prefix}${REPLACEMENT.authentication_digits}`;
+    });
+    redacted = redacted.replace(CREDENTIAL_ASSIGNMENT, (_match, prefix: string, _quote: string, label: string | undefined, value: string) => {
+      // Preserve the existing numeric marker and sentence punctuation for PINs
+      // and codes, including lengths the old four/eight-digit rules missed.
+      const digits = /^(\d+)([.!?]*)$/.exec(value);
+      if (/^(?:pin|passcode)$/i.test(label ?? "") && digits !== null) {
+        mark("authentication_digits");
+        return `${prefix}${REPLACEMENT.authentication_digits}${digits[2]}`;
+      }
       mark("credential");
       return REPLACEMENT.credential;
     });

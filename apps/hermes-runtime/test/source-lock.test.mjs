@@ -1824,9 +1824,10 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       const result = await new Promise((resolve, reject) => {
         const program = [
           `$root = '${escapedRoot}'`, `Import-Module '${escapedModule}' -Force`,
+          "$tar = Get-HermesSystemTarPath",
           "New-Item -ItemType Directory -Path (Join-Path $root 'python') | Out-Null", "Set-Content -LiteralPath (Join-Path $root 'python\\safe.txt') -Value safe -NoNewline",
-          "& tar.exe -cf (Join-Path $root 'safe.tar') -C $root python; Assert-SafeCpythonArchive (Join-Path $root 'safe.tar')",
-          "Set-Content -LiteralPath (Join-Path $root 'outside.txt') -Value unsafe -NoNewline; & tar.exe -cf (Join-Path $root 'unexpected-member.tar') -C $root outside.txt; try { Assert-SafeCpythonArchive (Join-Path $root 'unexpected-member.tar'); throw 'tar_unexpected_member_accepted' } catch { if ($_.Exception.Message -match 'tar_unexpected_member_accepted') { throw } }",
+          "& $tar -cf (Join-Path $root 'safe.tar') -C $root python; Assert-SafeCpythonArchive (Join-Path $root 'safe.tar')",
+          "Set-Content -LiteralPath (Join-Path $root 'outside.txt') -Value unsafe -NoNewline; & $tar -cf (Join-Path $root 'unexpected-member.tar') -C $root outside.txt; try { Assert-SafeCpythonArchive (Join-Path $root 'unexpected-member.tar'); throw 'tar_unexpected_member_accepted' } catch { if ($_.Exception.Message -match 'tar_unexpected_member_accepted') { throw } }",
           "Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::Open((Join-Path $root 'extra.zip'),[IO.Compression.ZipArchiveMode]::Create); $e=$z.CreateEntry('uv.exe'); $e.Open().Dispose(); $e=$z.CreateEntry('uvw.exe'); $e.Open().Dispose(); $e=$z.CreateEntry('uvx.exe'); $e.Open().Dispose(); $e=$z.CreateEntry('../escape.exe'); $e.Open().Dispose(); $z.Dispose(); try { Assert-SafeUvArchive (Join-Path $root 'extra.zip'); throw 'zip_extra_accepted' } catch { if ($_.Exception.Message -match 'zip_extra_accepted') { throw } }",
           "'HOSTILE_ARCHIVE_REJECTED'",
         ].join("; ");
@@ -1835,6 +1836,76 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HOSTILE_ARCHIVE_REJECTED"); expect(result.stderr).toBe("");
     } finally { await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
+  });
+
+  it("resolves the tar listing host to the fully qualified system executable", async () => {
+    // The module used to invoke `& tar.exe`, which resolves through PATH. On a
+    // host whose PATH answers with another tar -- Git Bash's /usr/bin/tar, say --
+    // the listing came from a different tar than the one that wrote the archive,
+    // so the hostile-member assertions above failed for a reason that had nothing
+    // to do with the members. `Get-HermesSystemTarPath` pins the host instead.
+    //
+    // A directory holding a real tar.exe is put first on the child's PATH, and the
+    // test asserts the property that matters: a bare name resolves to *that* copy
+    // while the helper returns the system one. So the hostile environment is
+    // observable, not decorative -- if PATH order ever stops being observable the
+    // `shadow_not_on_path` throw fails the test rather than passing it vacuously.
+    const parent = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-tar-host-"));
+    const shadowTar = join(parent, "tar.exe");
+    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
+    const escapedModule = module.replace(/'/g, "''");
+    // Every PATH-like key is removed before the new one is set. Node passes the
+    // environment straight through, and Git Bash spells the variable `PATH` while
+    // PowerShell spells it `Path`; adding a second key next to an inherited one
+    // leaves the child reading the original and makes the prepend inert.
+    const hostileEnvironment = { ...process.env };
+    for (const name of Object.keys(hostileEnvironment)) if (name.toUpperCase() === "PATH") delete hostileEnvironment[name];
+    hostileEnvironment.Path = `${parent}${process.env.Path ? `;${process.env.Path}` : ""}`;
+    try {
+      await copyFile(String.raw`C:\Windows\System32\tar.exe`, shadowTar);
+      await access(shadowTar);
+
+      const program = [
+        // `-EncodedCommand` serialises the module's unapproved-verbs warning onto
+        // the error stream as CLIXML, which would make the empty-stderr assertion
+        // below fail for a reason unrelated to tar.
+        "$WarningPreference = 'SilentlyContinue'",
+        `Import-Module '${escapedModule}' -Force`,
+        "$found = Get-Command tar.exe -ErrorAction SilentlyContinue",
+        "if ($null -eq $found) { throw 'shadow_not_on_path' }",
+        "$shadow = $found.Source",
+        "$resolved = Get-HermesSystemTarPath",
+        "if ($resolved -ieq $shadow) { throw ('tar_host_is_the_shadow_' + $resolved) }",
+        "if ($resolved -ine (Join-Path ([Environment]::SystemDirectory) 'tar.exe')) { throw ('tar_host_not_system_directory_' + $resolved) }",
+        "if ($resolved -ine (Join-Path $env:SystemRoot 'System32\\tar.exe')) { throw ('tar_host_not_env_system_root_' + $resolved) }",
+        "if (-not [IO.Path]::IsPathFullyQualified($resolved)) { throw 'tar_host_not_fully_qualified' }",
+        "if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) { throw 'tar_host_not_a_file' }",
+        "'TAR_HOST_ABSOLUTE'",
+      ].join("; ");
+      const result = await runPowerShellCommand(program, 30_000, hostileEnvironment);
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).toContain("TAR_HOST_ABSOLUTE");
+      expect(result.stderr).toBe("");
+    } finally {
+      await rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    }
+  }, 30_000);
+
+  it("contains no bare tar invocation for PATH to resolve", async () => {
+    // The companion to the test above, and the half that fails when the fix is
+    // reverted. `Get-Command tar.exe` chooses the wrong tar only when the host's
+    // PATH is hostile, which is not true of every machine this runs on, so the
+    // source is asserted directly: the module must reach tar through the resolved
+    // absolute host and never by a name PATH could answer.
+    const source = await readFile(fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)), "utf8");
+    const bare = source.match(/(^|[\s;&(|])tar(\.exe)?\s+-(?!-)/gm) ?? [];
+    expect(bare, `the module invokes tar by a name PATH could resolve: ${bare.join(", ")}`).toHaveLength(0);
+    // And the pinned host is what it uses, so this cannot pass by the listing
+    // being removed altogether.
+    expect(source).toContain("$tar = Get-HermesSystemTarPath");
+    expect(source).toContain("& $tar -tf $Archive");
+    expect(source).toContain("& $tar -tvf $Archive");
   });
 
   it.each([

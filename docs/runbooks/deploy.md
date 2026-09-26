@@ -82,7 +82,8 @@ All other string bindings are optional in `env.ts`, so they stay out of
 | Scheduled jobs and digest | `OWNER_PRINCIPAL_ID`, `DIGEST_TIMEZONE` |
 | Gateway heartbeat | `WATCHDOG_HEARTBEAT_URL`, `WATCHDOG_HEARTBEAT_SECRET` |
 | Private repository polling | `GITHUB_TOKEN` with read-only access to tracked repositories |
-| Calling (set in production) | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
+| Calling (set in production) | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_ACTION_PIN`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
+| Owner-passphrase verifier only (kept, not used by a call) | `OWNER_PASSPHRASE_PEPPER_V1` — the per-call passphrase was removed on 2026-09-24, so this now serves only the `POST /identity/owner-passphrase` verifier routes |
 
 `OWNER_PRINCIPAL_ID` must identify the existing owner. `DIGEST_TIMEZONE`
 is the owner's IANA timezone, and `TELEGRAM_BOT_USERNAME` omits the `@`.

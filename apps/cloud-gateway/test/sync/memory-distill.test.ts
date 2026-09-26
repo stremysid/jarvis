@@ -86,7 +86,8 @@ describe("excerpt validation, before any model call", () => {
 });
 
 describe("proposal validation", () => {
-  it.each(["é".repeat(2049), `Order ${"6".repeat(6)}`])("rejects unprojectable model text", (text) => {
+  // Sid's own codes are projectable; a machine credential is not.
+  it.each(["é".repeat(2049), `Key sk-${"a".repeat(24)}`])("rejects unprojectable model text", (text) => {
     expect(validateProposal({ text, sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"] }, supplied)).toBeNull();
   });
 

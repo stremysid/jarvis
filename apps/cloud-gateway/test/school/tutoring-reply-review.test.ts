@@ -99,15 +99,18 @@ describe("tutoring review regressions", () => {
     "We called the function recursively in this example.",
     "We added a loop to walk through each variable.",
     "We applied the formula to the return value below.",
-  ])("keeps the worked code or essay explanation: %s", (reply) => {
-    expect(guardReplyClaims(reply)).toBe(reply);
+  ])("keeps the worked code or essay explanation the model declares: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
   });
 
+  // Reviewer round 2, finding 2: a worked declaration never exempts the
+  // external-completion guard. "applied ... for you" is external-application
+  // grammar, so these are conservatively replaced. This fails closed.
   it.each(["rule", "law", "formula", "method", "theorem"])(
-    "keeps a worked application of the %s for the owner",
+    "conservatively replaces an applied-for-you %s sentence even when declared worked",
     (topic) => {
       const reply = `I applied the ${topic} for you.`;
-      expect(guardReplyClaims(reply)).toBe(reply);
+      expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
     },
   );
 
@@ -134,19 +137,22 @@ describe("tutoring review regressions", () => {
     },
   );
 
-  it("does not borrow a worked marker from another sentence to excuse an unreceipted save", () => {
+  it("does not borrow a worked declaration from another sentence to excuse an unreceipted save", () => {
     const explanation = "We applied the chain rule.";
-    expect(guardReplyClaims(`${explanation} I saved it.`)).toBe(`${explanation}\n\n${ACTION_REPLACEMENT}`);
+    expect(guardReplyClaims(`${explanation} I saved it.`, { workedExplanations: [explanation] }))
+      .toBe(`${explanation}\n\n${ACTION_REPLACEMENT}`);
   });
 
-  it("limits the applied-for-you exemption to its own sentence", () => {
+  it("replaces every applied-for-you sentence, declared or not", () => {
     const explanation = "Applied the theorem for you.";
-    expect(guardReplyClaims(`${explanation} I applied for you.`)).toBe(`${explanation}\n\n${ACTION_REPLACEMENT}`);
+    expect(guardReplyClaims(`${explanation} I applied for you.`, { workedExplanations: [explanation] }))
+      .toBe(ACTION_REPLACEMENT);
   });
 
-  it("keeps a worked applied-for-you sentence when only the next sentence names a person", () => {
+  it("replaces a declared applied-for-you sentence and keeps the following sentence", () => {
     const reply = "Applied the theorem for you. Your teacher can check the example.";
-    expect(guardReplyClaims(reply)).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: ["Applied the theorem for you."] }))
+      .toBe(`Your teacher can check the example.\n\n${ACTION_REPLACEMENT}`);
   });
 
   it("does not excuse a scholarship application that also mentions an example", () => {
@@ -155,7 +161,7 @@ describe("tutoring review regressions", () => {
 
   it("keeps a worked sentence even when another sentence names a person", () => {
     const reply = "Your teacher set this problem. We added 5 to both sides.";
-    expect(guardReplyClaims(reply)).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: ["We added 5 to both sides."] })).toBe(reply);
   });
 
   it("keeps a person elsewhere in the sentence after recognizing a benign rubric phrase", () => {
@@ -171,7 +177,14 @@ describe("tutoring review regressions", () => {
     expect(guardReplyClaims("I scheduled the example below.")).toBe(ACTION_REPLACEMENT);
   });
 
-  it("tells the owner model that worked explanations need no action receipt", () => {
-    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("Worked explanations, including calculations, applying a rule, and adding an example below, are not actions and need no receipt.");
+  it("tells the owner model to declare worked explanations instead of action claims", () => {
+    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("workedExplanations must list the exact complete sentences in reply that are worked explanations");
+    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("it never excuses an action");
+  });
+
+  it("tells the owner model no tool can execute externally and not to refuse on wording", () => {
+    expect(OWNER_AGENT_SYSTEM_PROMPT).toContain("No tool can email, submit, upload, pay, sign up, or contact anyone");
+    expect(OWNER_AGENT_SYSTEM_PROMPT)
+      .toContain("never treat your own guess about his wording as a reason to refuse the conversation");
   });
 });

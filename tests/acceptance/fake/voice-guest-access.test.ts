@@ -4,7 +4,7 @@ import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
 import { applyCloudMemoryMigration } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { createFakeCallingSystem } from "./voice-call-system.js";
-import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
+import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, pinLeak, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
   // The recalled-memory and separation cases below read model context through
@@ -14,6 +14,32 @@ describe("fake voice guest access", () => {
   // disturbs. Only this file's tests exercise the retriever.
   beforeAll(async () => {
     await applyCloudMemoryMigration();
+  });
+
+  // The leak checks in this file must not fire on a coincidental run of digits
+  // inside a random value. This is the exact false positive CI hit: `4827`
+  // inside a `model_claim_token_hash`. The protection is unchanged — a PIN
+  // stored as its own value still matches.
+  it("treats a PIN as a leaked value, not as digits inside a random identifier", () => {
+    const pin = FAKE_PIN_A();
+    for (const coincidental of [
+      '{"model_claim_token_hash":"a4827f0c9be1"}',
+      '{"turn_id":"01k5j00000000000000004827"}',
+      '{"salt_base64":"Z4Kn4827+/="}',
+      '"+14164827555"',
+      '{"sequence":14827}',
+    ]) {
+      expect(coincidental).not.toMatch(pinLeak(pin));
+    }
+    for (const leaked of [
+      '{"pin":"4827"}',
+      "spoken 4827 now",
+      "the pin is 4827.",
+      '"4827"',
+      "code=4827&",
+    ]) {
+      expect(leaked).toMatch(pinLeak(pin));
+    }
   });
 
   it("closes an evicted guest relay that sends another prompt after three wrong PINs", async () => {
@@ -108,7 +134,8 @@ describe("fake voice guest access", () => {
         JSON.stringify(await rejected.durableStorage()), JSON.stringify(await accepted.durableStorage()),
         JSON.stringify((await env.DB.prepare("SELECT * FROM conversation_turns").all()).results)];
       for (const digits of [FAKE_PIN_A(), FAKE_PIN_B()]) {
-        for (const surface of surfaces) expect(surface).not.toContain(String.fromCharCode(...digits));
+        // A leaked value, not a coincidental run inside a random hash or ULID.
+        for (const surface of surfaces) expect(surface).not.toMatch(pinLeak(digits));
       }
     } finally {
       for (const spy of spies) spy.mockRestore();
@@ -146,8 +173,8 @@ describe("fake voice guest access", () => {
       const artifacts = [twiml, JSON.stringify(call.frames()), JSON.stringify(await call.modelRequests()),
         JSON.stringify((await env.DB.prepare("SELECT envelope_json FROM events").all()).results),
         JSON.stringify((await env.DB.prepare("SELECT * FROM conversation_turns").all()).results)];
-      const syntheticDigits = String.fromCharCode(...FAKE_PIN_A());
-      for (const artifact of artifacts) expect(artifact).not.toContain(syntheticDigits);
+      const syntheticPin = FAKE_PIN_A();
+      for (const artifact of artifacts) expect(artifact).not.toMatch(pinLeak(syntheticPin));
     } finally { await system.cleanup(); }
   }, 15_000);
 

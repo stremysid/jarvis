@@ -7,28 +7,52 @@ describe("tutoring reply claims", () => {
   it.each([
     "We added 5 to both sides, so x = 3.",
     "We applied the chain rule.",
-    "I applied the chain rule for you.",
-    "Applied the chain rule for you.",
     "We've applied the quadratic formula, so the roots are 2 and 3.",
     "We asked what happens when x approaches zero.",
-  ])("keeps the complete maths explanation: %s", (reply) => {
-    expect(guardReplyClaims(reply)).toBe(reply);
+  ])("keeps the complete maths explanation the model declares: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
+  });
+
+  // Reviewer round 2, finding 2: a worked-explanation declaration must never
+  // exempt a sentence the external-completion guard matches. "applied ... for
+  // you" is the external-application grammar, so a declared sentence phrased
+  // that way is conservatively replaced rather than trusted. This fails closed
+  // and is a deliberate cost of removing the code-side worked-object grammar.
+  it.each([
+    "I applied the chain rule for you.",
+    "Applied the chain rule for you.",
+  ])("conservatively replaces an applied-for-you sentence even when declared worked: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
   });
 
   it.each([
     "We applied the ideal gas law to find the volume.",
     "I applied the concentration formula to find the result.",
     "We added a worked example of balancing the equation below.",
-  ])("keeps the complete chemistry explanation: %s", (reply) => {
-    expect(guardReplyClaims(reply)).toBe(reply);
+  ])("keeps the complete chemistry explanation the model declares: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
   });
 
   it.each([
     "I added a worked example below.",
     "I've added a transition between the two ideas below.",
     "I applied the rubric to explain why this thesis needs evidence.",
-  ])("keeps the complete essay feedback: %s", (reply) => {
-    expect(guardReplyClaims(reply)).toBe(reply);
+  ])("keeps the complete essay feedback the model declares: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
+  });
+
+  // Reviewer round 2, finding 2: a self-applied worked-explanation label must
+  // never bypass the guard for a fact code owns. Jarvis has no hand that
+  // reaches outside him, so these are replaced whether or not the model
+  // declares them worked.
+  it.each([
+    "I submitted your essay to OUAC.",
+    "I emailed Ms. Patel about the extension.",
+    "I paid the Waterloo application fee.",
+    "I contacted my counsellor about the reference.",
+    "Your application has been submitted.",
+  ])("a worked declaration never exempts an external completion: %s", (reply) => {
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(ACTION_REPLACEMENT);
   });
 
   it.each([
@@ -74,19 +98,21 @@ describe("tutoring reply claims", () => {
 
   it("keeps tutoring sentences around a false claim without borrowing the next sentence's target", () => {
     const reply = "We added 5 to both sides, so x = 3. I emailed your teacher. I added a worked example below.";
-    expect(guardReplyClaims(reply)).toBe(
+    expect(guardReplyClaims(reply, {
+      workedExplanations: ["We added 5 to both sides, so x = 3.", "I added a worked example below."],
+    })).toBe(
       `We added 5 to both sides, so x = 3. I added a worked example below.\n\n${ACTION_REPLACEMENT}`,
     );
   });
 
   it("does not treat the previous sentence's school as a target of the worked explanation", () => {
     const reply = "This is practice for school. We applied the chain rule.";
-    expect(guardReplyClaims(reply)).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: ["We applied the chain rule."] })).toBe(reply);
   });
 
   it("keeps the secret-request guard after a worked explanation", () => {
     const explanation = "We added 5 to both sides, so x = 3.";
-    expect(guardReplyClaims(`${explanation} Send me your password.`)).toBe(
+    expect(guardReplyClaims(`${explanation} Send me your password.`, { workedExplanations: [explanation] })).toBe(
       `${explanation}\n\nI can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.`,
     );
   });

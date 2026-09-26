@@ -7,8 +7,8 @@ import {
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
 import type { ArchiveManifest, ArchiveState } from "../archive/archive-repository.js";
+import { admitsHistoryEligible } from "../conversation/history-eligibility.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
-import { Redactor } from "../security/redaction.js";
 import type { MemorySourceChannel, MemorySourceLocation } from "./memory-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -26,6 +26,11 @@ const MAX_EVENT_TEXT_BYTES = 32_768;
 const MAX_FTS_TERMS = 16;
 const MAX_FTS_TERM_BYTES = 128;
 const MAX_SEARCH_RESULTS = 8;
+/** Deepest page `searchHistory` serves: 50 pages of the largest page size. */
+const MAX_HISTORY_OFFSET = 400;
+/** Raw events read on each side of an `around` target; the tiered reader's ceiling. */
+const AROUND_SCAN_EVENTS = 48;
+const MAX_AROUND_WINDOW = 10;
 const MAX_EXCERPT_BYTES = 1_024;
 const MAX_INDEX_EVENTS = 16;
 const MAX_INDEX_TEXT_BYTES = 262_144;
@@ -33,7 +38,6 @@ const MAX_JOB_EVENTS = 16;
 const MAX_JOB_TEXT_BYTES = 262_144;
 const TIERED_READ_D1_STATEMENT_CEILING = 6;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
 
 export const LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS = Object.freeze({
   d1Statements: 22,
@@ -60,10 +64,31 @@ export type LiteralHistoryErrorCode =
   | "memory_history_unavailable";
 
 export class LiteralHistoryError extends Error {
-  constructor(readonly code: LiteralHistoryErrorCode) {
+  /**
+   * `reason` names why one history row could not be decoded. The index records
+   * it as that row's `failure_code` and moves on; it is never an outage.
+   */
+  constructor(readonly code: LiteralHistoryErrorCode, readonly reason?: string) {
     super(code);
     this.name = "LiteralHistoryError";
   }
+}
+
+/**
+ * The form of a history message (or a stored search query) that is written to
+ * a search table. The 0016 and 0025 CHECKs on `memory_history_chunks.text` and
+ * `memory_literal_search_jobs.query_text` refuse every character below U+0020,
+ * so a line break or tab is written as a space. FTS5 `unicode61` already splits
+ * on all four, so the same queries match. The mapping is one character for one
+ * character, so offsets and byte lengths are unchanged.
+ *
+ * Only the search copy changes. The message itself stays byte-for-byte in the
+ * event log and R2; excerpts and recalled text are cut from that original, so
+ * Sid gets his line breaks back. A chunk's `content_hash` covers this search
+ * form, which is the text the chunk actually stores.
+ */
+export function historySearchText(text: string): string {
+  return text.replace(/[\n\r\t]/gu, " ");
 }
 
 export interface HistoryArchiveCatalog {
@@ -94,6 +119,45 @@ export interface LiteralHistoryHit {
   readonly excerptHash: Sha256Hex;
 }
 
+/** Who said a history message: Sid ("user") or Jarvis ("assistant"). */
+export type HistorySpeaker = "user" | "assistant";
+
+/** A literal-history hit that also says who spoke, for `history_search`. */
+export interface HistorySearchHit extends LiteralHistoryHit {
+  readonly speaker: HistorySpeaker;
+}
+
+/** One page of `searchHistory`, with the coverage it was answered from. */
+export interface HistorySearchPage {
+  readonly hits: readonly HistorySearchHit[];
+  readonly offset: number;
+  readonly moreResults: boolean;
+  readonly nextOffset: number | null;
+  readonly searchedThroughEventSequence: number;
+  readonly missingRange: MissingHistoryRange | null;
+  /** Why `missingRange` is unsearched; null exactly when it is. */
+  readonly missingReason: MissingHistoryReason | null;
+}
+
+/**
+ * `not_indexed_yet`: the newest events, past the indexer's cursor, including
+ * the current conversation. `being_reindexed`: one older event waiting for a
+ * refresh (a forget, a lift, an archive move, or a call-reply backfill).
+ */
+export type MissingHistoryReason = "not_indexed_yet" | "being_reindexed";
+
+/** One message in the window `readHistoryAround` returns. */
+export interface HistoryContextMessage {
+  readonly eventId: Ulid;
+  readonly eventSequence: number;
+  readonly occurredAt: string;
+  readonly channel: MemorySourceChannel;
+  readonly speaker: HistorySpeaker;
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly isTarget: boolean;
+}
+
 export interface MissingHistoryRange {
   readonly startEventSequence: number;
   readonly endEventSequence: number;
@@ -122,6 +186,8 @@ export interface HistoryIndexStepResult {
   readonly endEventSequence: number | null;
   readonly eventsExamined: number;
   readonly chunksWritten: number;
+  /** Rows that could not be decoded. Each is recorded as a `failed` coverage row with its reason. */
+  readonly rowsSkipped: number;
   readonly refreshed: boolean;
   readonly complete: boolean;
 }
@@ -159,6 +225,7 @@ interface CursorRow {
 interface MaintenanceRow {
   readonly event_sequence: unknown;
   readonly changed_at: unknown;
+  readonly backfill: unknown;
 }
 
 interface ChunkCandidateRow {
@@ -223,7 +290,7 @@ interface HistoryEvent {
   readonly envelopeHash: Sha256Hex;
   readonly occurredAt: string;
   readonly channel: MemorySourceChannel;
-  readonly speaker: "user" | "assistant";
+  readonly speaker: HistorySpeaker;
   readonly text: string;
   readonly textBytes: number;
 }
@@ -269,10 +336,20 @@ function exactRow(value: object, fields: ReadonlySet<string>): void {
     || keys.some((key) => typeof key !== "string" || !fields.has(key))) corrupt();
 }
 
-function rowText(value: unknown, maximumBytes: number): string {
+/**
+ * Newline, carriage return and tab are text, not corruption. The owner types
+ * multi-line messages and the model writes multi-line search queries; treating
+ * them as corrupt threw from the event decode before the cursor advanced, so
+ * indexing stopped permanently at the first message containing a line break
+ * (stuck from 2026-09-18). Every other control character still corrupts.
+ */
+const FORBIDDEN_TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+/** Exported so the line-break allowance can be tested without a database write. */
+export function rowText(value: unknown, maximumBytes: number): string {
   if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
     || value.normalize("NFC") !== value || encoder.encode(value).byteLength > maximumBytes
-    || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)) corrupt();
+    || FORBIDDEN_TEXT_CONTROL.test(value)) corrupt();
   return value;
 }
 
@@ -280,7 +357,7 @@ function inputText(value: unknown, maximumBytes: number): string {
   try {
     if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
       || value.normalize("NFC") !== value || encoder.encode(value).byteLength > maximumBytes
-      || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)) refuse();
+      || FORBIDDEN_TEXT_CONTROL.test(value)) refuse();
     return value;
   } catch (error) {
     if (error instanceof LiteralHistoryError) throw error;
@@ -411,10 +488,34 @@ function exactExcerpt(text: string, span: MatchSpan): string {
   return excerpt;
 }
 
+const OWNER_ONLY: ReadonlySet<HistorySpeaker> = new Set<HistorySpeaker>(["user"]);
+
+function speakerSet(value: readonly HistorySpeaker[]): ReadonlySet<HistorySpeaker> {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 2
+    || value.some((speaker) => speaker !== "user" && speaker !== "assistant")) refuse();
+  return new Set(value);
+}
+
+/** The text cut to `maximumBytes` of UTF-8 at a code-point boundary. */
+function boundedText(text: string, maximumBytes: number): string {
+  if (encoder.encode(text).byteLength <= maximumBytes) return text;
+  let end = Math.min(text.length, maximumBytes);
+  while (end > 0 && encoder.encode(text.slice(0, end)).byteLength > maximumBytes) end -= 1;
+  if (end > 0 && /[\uD800-\uDBFF]/u.test(text[end - 1]!)) end -= 1;
+  return text.slice(0, end);
+}
+
 function sourceChannel(eventType: string, channelCode: unknown): MemorySourceChannel {
   if (eventType === "conversation.assistant_delivered") {
     if (channelCode !== 2) corrupt();
     return "telegram";
+  }
+  // A call reply has no delivery row, so it is never `assistant_delivered`
+  // (0005's transition guard refuses that type without one); `recordVoiceSent`
+  // writes it as `assistant_sent`, and only ever on a call.
+  if (eventType === "conversation.assistant_sent") {
+    if (channelCode !== 1) corrupt();
+    return "voice";
   }
   if (eventType !== "conversation.user_committed") corrupt();
   if (channelCode === 1) return "voice";
@@ -422,24 +523,74 @@ function sourceChannel(eventType: string, channelCode: unknown): MemorySourceCha
   corrupt();
 }
 
+/**
+ * The conversation event types that are history: Sid's messages on either
+ * channel, Jarvis's delivered Telegram replies, and Jarvis's spoken call
+ * replies. Calls and Telegram are one history (Sid's rule 3).
+ */
+const HISTORY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "conversation.user_committed",
+  "conversation.assistant_delivered",
+  "conversation.assistant_sent",
+]);
+
+/**
+ * A call reply's payload may carry `memoryItemIds`: the ids of memories the
+ * reply cited, which a later "yes" on the same call is grounded in (#174). They
+ * are identifiers, not message text, so history reads the reply without them.
+ */
+function withoutMemoryReferences(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+    || !Object.hasOwn(value, "memoryItemIds")) return value;
+  const { memoryItemIds: _references, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
+function badRow(reason: string): never {
+  throw new LiteralHistoryError("memory_history_corrupt", reason);
+}
+
+function rowCheck<T>(reason: string, read: () => T): T {
+  try {
+    return read();
+  } catch {
+    badRow(reason);
+  }
+}
+
+/**
+ * Decodes one stored event into a history row. Every refusal names its reason,
+ * so the index can record that one row as skipped and keep going.
+ *
+ * There is deliberately no redaction check here. The text is Sid's own message
+ * as it was stored. Re-running today's redactor over it and stopping on any
+ * difference froze indexing whenever the redaction rules changed, and nothing
+ * in his own history is hidden from him.
+ */
 async function historyEvent(event: AppendedEvent, principalId: string): Promise<HistoryEvent | null> {
   let envelope: EventEnvelope;
   try {
     envelope = await validateEnvelope(event.envelope);
   } catch {
-    corrupt();
+    badRow("history_row_envelope_invalid");
   }
-  if (envelope.eventSequence !== event.eventSequence) corrupt();
-  if (envelope.subjectId !== principalId
-    || envelope.eventType !== "conversation.user_committed"
-      && envelope.eventType !== "conversation.assistant_delivered") return null;
-  if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") corrupt();
-  const payload = historyPayload(envelope.payload);
-  if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || payload.historyEligible !== true) corrupt();
-  const channel = sourceChannel(envelope.eventType, payload.channelCode);
-  const text = rowText(payload.text, MAX_EVENT_TEXT_BYTES);
-  const checked = redactor.redactText(text);
-  if (!checked.ok || checked.text !== text) corrupt();
+  if (envelope.eventSequence !== event.eventSequence) badRow("history_row_sequence_mismatch");
+  if (envelope.subjectId !== principalId || !HISTORY_EVENT_TYPES.has(envelope.eventType)) return null;
+  if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") {
+    badRow("history_row_producer_invalid");
+  }
+  const payload = rowCheck("history_row_payload_invalid", () => historyPayload(
+    envelope.eventType === "conversation.assistant_sent"
+      ? withoutMemoryReferences(envelope.payload)
+      : envelope.payload,
+  ));
+  // One shared reading of the flag; a call reply's is legacy (history-eligibility.ts).
+  const eligible = admitsHistoryEligible(envelope.eventType, payload.historyEligible);
+  if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || !eligible) {
+    badRow("history_row_not_history_eligible");
+  }
+  const channel = rowCheck("history_row_channel_invalid", () => sourceChannel(envelope.eventType, payload.channelCode));
+  const text = rowCheck("history_row_text_invalid", () => rowText(payload.text, MAX_EVENT_TEXT_BYTES));
   return Object.freeze({
     eventId: envelope.eventId,
     eventSequence: event.eventSequence,
@@ -447,10 +598,40 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
     envelopeHash: await sha256Hex(canonicalJson(envelope)),
     occurredAt: envelope.occurredAt,
     channel,
-    speaker: envelope.eventType === "conversation.assistant_delivered" ? "assistant" : "user",
+    speaker: envelope.eventType === "conversation.user_committed" ? "user" : "assistant",
     text,
     textBytes: encoder.encode(text).byteLength,
   });
+}
+
+interface SkippedHistoryRow {
+  readonly eventSequence: number;
+  readonly reason: string;
+  readonly envelopeHash: Sha256Hex;
+}
+
+/**
+ * The receipt for a row the index could not decode, or null when the stored
+ * envelope names another subject (such a row is not this principal's history,
+ * exactly as a readable one would be passed over).
+ */
+async function skippedHistoryRow(
+  event: AppendedEvent,
+  principalId: string,
+  reason: string,
+): Promise<SkippedHistoryRow | null> {
+  const envelope: unknown = event.envelope;
+  const subject = envelope !== null && typeof envelope === "object"
+    ? (envelope as { subjectId?: unknown }).subjectId
+    : undefined;
+  if (typeof subject === "string" && subject !== principalId) return null;
+  let envelopeHash: Sha256Hex;
+  try {
+    envelopeHash = await sha256Hex(canonicalJson(envelope));
+  } catch {
+    envelopeHash = await sha256Hex(`unreadable-history-row:${event.eventSequence}`);
+  }
+  return Object.freeze({ eventSequence: event.eventSequence, reason, envelopeHash });
 }
 
 async function storedSearchEvent(row: SearchEventRow): Promise<AppendedEvent> {
@@ -476,7 +657,7 @@ async function storedSearchEvent(row: SearchEventRow): Promise<AppendedEvent> {
 }
 
 const CURSOR_FIELDS = new Set(["current_event_sequence", "updated_at"]);
-const MAINTENANCE_FIELDS = new Set(["event_sequence", "changed_at"]);
+const MAINTENANCE_FIELDS = new Set(["event_sequence", "changed_at", "backfill"]);
 const CHUNK_FIELDS = new Set(["event_sequence", "content_hash"]);
 const SUPPRESSION_FIELDS = new Set([
   "target_event_id", "start_event_sequence", "end_event_sequence",
@@ -509,28 +690,35 @@ export class LiteralHistoryService {
         MAX_INDEX_TEXT_BYTES,
       );
       const maintenance = await this.readMaintenance(principalId);
-      if (maintenance !== null) {
-        await this.indexSequences(principalId, maintenance.eventSequence - 1, 1, maxTextBytes, true, maintenance.changedAt);
+      const cursor = await this.readCursor(principalId);
+      const latest = await this.options.events.latestSequence();
+      if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
+      if (cursor.sequence > latest) corrupt();
+      // New messages come before the one-off call-reply backfill: a backlog of
+      // old replies must not hold back indexing what Sid said since. Backfill
+      // runs on steps where the cursor has nothing new to read.
+      if (maintenance !== null && (!maintenance.backfill || cursor.sequence >= latest)) {
+        const refreshed = await this.indexSequences(
+          principalId, maintenance.eventSequence - 1, 1, maxTextBytes, true, maintenance.changedAt,
+        );
         return Object.freeze({
           startEventSequence: maintenance.eventSequence,
           endEventSequence: maintenance.eventSequence,
           eventsExamined: 1,
           chunksWritten: await this.chunkCount(principalId, maintenance.eventSequence),
+          rowsSkipped: refreshed.rowsSkipped,
           refreshed: true,
           complete: false,
         });
       }
 
-      const cursor = await this.readCursor(principalId);
-      const latest = await this.options.events.latestSequence();
-      if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
-      if (cursor.sequence > latest) corrupt();
       if (cursor.sequence >= latest) {
         return Object.freeze({
           startEventSequence: null,
           endEventSequence: null,
           eventsExamined: 0,
           chunksWritten: 0,
+          rowsSkipped: 0,
           refreshed: false,
           complete: true,
         });
@@ -578,7 +766,9 @@ export class LiteralHistoryService {
               SELECT 1 FROM events assistant
               WHERE assistant.subject_id = chunk.principal_id
                 AND assistant.sequence = chunk.start_event_sequence
-                AND assistant.event_type = 'conversation.assistant_delivered'
+                AND assistant.event_type IN (
+                  'conversation.assistant_delivered', 'conversation.assistant_sent'
+                )
             )
           ORDER BY memory_history_fts.rank ASC, chunk.start_event_sequence DESC
           LIMIT ?`).bind(
@@ -599,10 +789,13 @@ export class LiteralHistoryService {
       const candidates = candidateValues as unknown as readonly ChunkCandidateRow[];
       for (const row of candidates) exactRow(row, CHUNK_FIELDS);
       const [hits, coverage] = await Promise.all([
-        this.searchCandidateHits(principalId, candidates, terms),
+        this.searchCandidateHits(principalId, candidates, terms, OWNER_ONLY),
         this.coverageStatus(principalId),
       ]);
-      const retainedHits = Object.freeze(hits.slice(0, maxResults));
+      // The automatic recall path keeps its owner-only, speaker-free hit shape.
+      const retainedHits = Object.freeze(hits.slice(0, maxResults).map(
+        ({ speaker: _speaker, ...hit }) => Object.freeze(hit),
+      ));
       if (coverage.missingRange !== null) {
         return Object.freeze({
           status: "incomplete",
@@ -630,7 +823,8 @@ export class LiteralHistoryService {
     principalId: string,
     candidates: readonly ChunkCandidateRow[],
     terms: SearchTerms,
-  ): Promise<readonly LiteralHistoryHit[]> {
+    speakers: ReadonlySet<HistorySpeaker>,
+  ): Promise<readonly HistorySearchHit[]> {
     if (candidates.length === 0) return Object.freeze([]);
     const values = candidates.map(() => "(?, ?, ?)").join(", ");
     const bindings: unknown[] = [];
@@ -696,12 +890,13 @@ export class LiteralHistoryService {
     }));
     const after = await this.options.archive.readState();
     if (after.circuitState !== "closed" || sealedThrough === null || after.sealedThrough !== sealedThrough) unavailable();
-    const hits: LiteralHistoryHit[] = [];
+    const hits: HistorySearchHit[] = [];
     for (let index = 0; index < result.results.length; index += 1) {
       const row = result.results[index]!;
       const event = await historyEvent(events[index]!, principalId);
-      if (event === null || await sha256Hex(event.text) !== rowHash(row.candidate_content_hash)) corrupt();
-      if (event.speaker === "assistant") continue;
+      if (event === null
+        || await sha256Hex(historySearchText(event.text)) !== rowHash(row.candidate_content_hash)) corrupt();
+      if (!speakers.has(event.speaker)) continue;
       const span = matchSpan(event.text, terms.folded);
       if (span === null) corrupt();
       if (rowInteger(row.suppressed, 0, 1) === 1) continue;
@@ -712,9 +907,183 @@ export class LiteralHistoryService {
         if (rowUlid(row.archived_event_id) !== event.eventId) corrupt();
         provenance = Object.freeze({ sourceLocation: "archived", r2SegmentId: rowHash(row.segment_id) });
       }
-      hits.push(await this.hit(event, provenance, span));
+      hits.push(Object.freeze({ ...await this.hit(event, provenance, span), speaker: event.speaker }));
     }
     return Object.freeze(hits);
+  }
+
+  /**
+   * `history_search`'s find shape: one page of the FTS index over every indexed
+   * history message, Sid's and Jarvis's, on calls and Telegram.
+   *
+   * The query is the model's. Code only splits it into FTS terms (the same
+   * `searchTerms` as `searchLiteral`: letters and digits, each quoted, joined
+   * with OR) -- no stopwords, no minimum length, no acknowledgement list.
+   *
+   * Pages are windows over the ranked candidate list. The speaker filter runs
+   * in SQL for events still live in D1; an event already sealed into R2 has no
+   * type in D1, so it passes the SQL and is filtered after decoding. A page can
+   * therefore hold fewer hits than its size while `moreResults` is still true,
+   * which is why the next page is named by offset and not by count.
+   *
+   * `missingRange` is the part of history this search could not cover:
+   * usually the unindexed tail past the cursor, which holds the newest messages
+   * because the index is built hourly (`missingReason` "not_indexed_yet"), or,
+   * once the cursor has caught up, one older event awaiting a refresh
+   * ("being_reindexed"). It is reported, never hidden, so a miss is never
+   * presented as "never said".
+   */
+  async searchHistory(input: Readonly<{
+    principalId: string;
+    query: string;
+    speakers?: readonly HistorySpeaker[];
+    offset?: number;
+    pageSize?: number;
+  }>): Promise<HistorySearchPage> {
+    return this.safely(async () => {
+      const principalId = inputPrincipal(input.principalId);
+      const query = inputText(input.query, MAX_QUERY_BYTES);
+      const terms = searchTerms(query);
+      const offset = boundedInteger(input.offset ?? 0, 0, MAX_HISTORY_OFFSET);
+      const pageSize = boundedInteger(input.pageSize ?? 5, 1, MAX_SEARCH_RESULTS);
+      const speakers = speakerSet(input.speakers ?? ["user", "assistant"]);
+      // A live event of the excluded speaker is filtered before LIMIT so it does
+      // not spend a page slot; an archived one cannot be typed here.
+      const excluded = speakers.has("user")
+        ? (speakers.has("assistant") ? [] : ["conversation.assistant_delivered", "conversation.assistant_sent"])
+        : ["conversation.user_committed"];
+      const speakerClause = excluded.length === 0 ? "" : `AND NOT EXISTS (
+              SELECT 1 FROM events typed
+              WHERE typed.subject_id = chunk.principal_id
+                AND typed.sequence = chunk.start_event_sequence
+                AND typed.event_type IN (${excluded.map(() => "?").join(", ")})
+            )`;
+      const initial = await this.options.database.batch([
+        this.options.database.prepare(`SELECT 1 AS count FROM principals
+          WHERE principal_id = ? AND principal_type = 'human' AND status = 'active'`)
+          .bind(principalId),
+        this.options.database.prepare(`SELECT chunk.start_event_sequence AS event_sequence,
+            chunk.content_hash
+          FROM memory_history_fts
+          JOIN memory_retrievable_history_chunks chunk
+            ON chunk.chunk_rowid = memory_history_fts.rowid
+          WHERE memory_history_fts MATCH ? AND chunk.principal_id = ?
+            AND chunk.start_event_sequence = chunk.end_event_sequence
+            ${speakerClause}
+          ORDER BY memory_history_fts.rank ASC, chunk.start_event_sequence DESC
+          LIMIT ? OFFSET ?`).bind(
+          terms.ftsQuery,
+          principalId,
+          ...excluded,
+          pageSize + 1,
+          offset,
+        ),
+      ]);
+      if (initial.length !== 2) corrupt();
+      const principalRows = initial[0]?.results;
+      const candidateValues = initial[1]?.results;
+      if (!Array.isArray(principalRows) || !Array.isArray(candidateValues)) corrupt();
+      if (principalRows.length !== 1) refuse();
+      const principal = principalRows[0] as { count: unknown };
+      exactRow(principal, new Set(["count"]));
+      if (rowInteger(principal.count, 1, 1) !== 1) corrupt();
+      if (candidateValues.length > pageSize + 1) corrupt();
+      const candidates = candidateValues as unknown as readonly ChunkCandidateRow[];
+      for (const row of candidates) exactRow(row, CHUNK_FIELDS);
+      const moreResults = candidates.length > pageSize;
+      const [hits, coverage] = await Promise.all([
+        this.searchCandidateHits(principalId, candidates.slice(0, pageSize), terms, speakers),
+        this.coverageStatus(principalId),
+      ]);
+      return Object.freeze({
+        hits,
+        offset,
+        moreResults,
+        nextOffset: moreResults ? offset + pageSize : null,
+        searchedThroughEventSequence: coverage.searchedThrough,
+        missingRange: coverage.missingRange,
+        missingReason: coverage.missingReason,
+      });
+    });
+  }
+
+  /**
+   * `history_search`'s around shape: the history messages just before and after
+   * one message, read from the event stream itself (live D1 or R2), so it works
+   * whether or not the index has reached that message.
+   *
+   * Reads at most `AROUND_SCAN_EVENTS` raw events on each side, because other
+   * event types sit between messages; `window` is how many messages to keep on
+   * each side from those. Forgotten (suppressed) messages are left out, and a
+   * suppressed or non-history target is "not found" rather than a refusal that
+   * would confirm it exists. Each text is bounded, with `truncated` set.
+   */
+  async readHistoryAround(input: Readonly<{
+    principalId: string;
+    eventId: Ulid;
+    window?: number;
+  }>): Promise<readonly HistoryContextMessage[]> {
+    return this.safely(async () => {
+      const principalId = inputPrincipal(input.principalId);
+      await this.requirePrincipal(principalId);
+      const eventId = inputUlid(input.eventId);
+      const window = boundedInteger(input.window ?? 5, 1, MAX_AROUND_WINDOW);
+      const located = await this.options.database.prepare(`SELECT sequence FROM events
+          WHERE event_id = ? AND subject_id = ?
+        UNION
+        SELECT event_sequence AS sequence FROM archive_segment_events WHERE event_id = ?
+        LIMIT 2`).bind(eventId, principalId, eventId).all<{ sequence: unknown }>();
+      if (located.results.length !== 1) throw new LiteralHistoryError("memory_history_not_found");
+      const sequence = rowInteger(located.results[0]!.sequence, 1, Number.MAX_SAFE_INTEGER);
+      const latest = await this.options.events.latestSequence();
+      if (!Number.isSafeInteger(latest) || latest < sequence) corrupt();
+      const beforeStart = Math.max(0, sequence - 1 - AROUND_SCAN_EVENTS);
+      const raw: AppendedEvent[] = [];
+      if (sequence - 1 > beforeStart) {
+        raw.push(...await this.options.events.readRange(beforeStart, sequence - 1 - beforeStart));
+      }
+      const afterCount = Math.min(AROUND_SCAN_EVENTS, latest - sequence);
+      raw.push(...await this.options.events.readRange(sequence - 1, 1 + afterCount));
+      for (let index = 0; index < raw.length; index += 1) {
+        if (raw[index]!.eventSequence !== beforeStart + index + 1) corrupt();
+      }
+      const decoded: HistoryEvent[] = [];
+      for (const event of raw) {
+        let history: HistoryEvent | null;
+        try {
+          history = await historyEvent(event, principalId);
+        } catch (error) {
+          // A neighbour the index would skip is skipped here too; only the
+          // message asked about must decode.
+          if (error instanceof LiteralHistoryError && error.reason !== undefined
+            && event.eventSequence !== sequence) continue;
+          throw error;
+        }
+        if (history !== null) decoded.push(history);
+      }
+      const target = decoded.find((event) => event.eventSequence === sequence);
+      if (target === undefined || target.eventId !== eventId) {
+        throw new LiteralHistoryError("memory_history_not_found");
+      }
+      const suppressions = await this.readSuppressions(principalId, beforeStart + 1, beforeStart + raw.length);
+      if (this.isSuppressed(target, suppressions)) throw new LiteralHistoryError("memory_history_not_found");
+      const visible = decoded.filter((event) => !this.isSuppressed(event, suppressions));
+      const at = visible.indexOf(target);
+      const kept = visible.slice(Math.max(0, at - window), at + window + 1);
+      return Object.freeze(kept.map((event) => {
+        const bounded = boundedText(event.text, MAX_EXCERPT_BYTES);
+        return Object.freeze({
+          eventId: event.eventId,
+          eventSequence: event.eventSequence,
+          occurredAt: event.occurredAt,
+          channel: event.channel,
+          speaker: event.speaker,
+          text: bounded,
+          truncated: bounded !== event.text,
+          isTarget: event === target,
+        });
+      }));
+    });
   }
 
   async createExhaustiveSearch(input: Readonly<{
@@ -728,7 +1097,9 @@ export class LiteralHistoryService {
       await this.requirePrincipal(principalId);
       const jobId = inputUlid(input.jobId);
       const jobKey = inputText(input.jobKey, 128);
-      const query = inputText(input.query, MAX_QUERY_BYTES);
+      // query_text has the same 0025 CHECK as a history chunk, so the job
+      // stores (and hashes) the search form. Its search terms are identical.
+      const query = historySearchText(inputText(input.query, MAX_QUERY_BYTES));
       searchTerms(query);
       const queryHash = await sha256Hex(query);
       const existing = await this.readJobByKey(principalId, jobKey);
@@ -1007,12 +1378,17 @@ export class LiteralHistoryService {
   private async readMaintenance(principalId: string): Promise<{
     eventSequence: number;
     changedAt: string;
+    /** True for a call reply the cursor passed before call replies were history. */
+    backfill: boolean;
   } | null> {
+    // A skipped row's `failed` coverage counts as coverage here, so a row that
+    // is refreshed and still cannot be decoded is settled by its new receipt
+    // instead of being retried on every step ahead of the rest of the index.
     const row = await this.options.database.prepare(`WITH exact_coverage AS (
         SELECT start_event_sequence AS event_sequence, source_location, r2_segment_id,
-          content_hash, indexed_at
+          indexing_outcome, content_hash, indexed_at
         FROM memory_history_coverage
-        WHERE principal_id = ? AND indexing_outcome = 'indexed'
+        WHERE principal_id = ?
           AND start_event_sequence = end_event_sequence
       ), suppression_changes AS (
         SELECT coverage.event_sequence,
@@ -1046,20 +1422,49 @@ export class LiteralHistoryService {
           WHERE archived_coverage.event_sequence = coverage.event_sequence
             AND archived_coverage.source_location = 'archived'
             AND archived_coverage.r2_segment_id = archived.segment_id
-            AND archived_coverage.content_hash = archived.envelope_sha256
+            AND (archived_coverage.indexing_outcome = 'failed'
+              OR archived_coverage.content_hash = archived.envelope_sha256)
         )
+      ), call_reply_backfill AS (
+        -- Call replies the cursor passed before they were history: until
+        -- assistant_sent was admitted, historyEvent returned null for them, so
+        -- the indexer moved on without a coverage row. Each one is indexed once
+        -- here, and its new coverage row takes it out of this list. Only replies
+        -- still live in D1 can be found this way: an archived event has no type
+        -- in D1.
+        SELECT reply.sequence AS event_sequence, cursor_row.updated_at AS changed_at
+        FROM memory_cursors cursor_row
+        JOIN events reply
+          ON reply.event_type = 'conversation.assistant_sent'
+          AND reply.subject_id = cursor_row.principal_id
+          AND reply.sequence <= cursor_row.current_event_sequence
+        WHERE cursor_row.principal_id = ? AND cursor_row.cursor_name = 'fts_history'
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_history_coverage coverage
+            WHERE coverage.principal_id = cursor_row.principal_id
+              AND coverage.start_event_sequence = reply.sequence
+              AND coverage.end_event_sequence = reply.sequence
+              -- A reply that could not be decoded gets a 'failed' coverage row
+              -- and is settled, like any other skipped row, not retried forever.
+          )
       )
-      SELECT event_sequence, changed_at FROM (
-        SELECT event_sequence, changed_at FROM suppression_changes
+      -- A forget, a lift or an archive move changes what indexed rows mean, so
+      -- those refreshes come first; the one-off call-reply backfill comes last,
+      -- and indexNext runs it only once the cursor has caught up.
+      SELECT event_sequence, changed_at, backfill FROM (
+        SELECT event_sequence, changed_at, 0 AS backfill FROM suppression_changes
         UNION ALL
-        SELECT event_sequence, changed_at FROM archive_changes
-      ) ORDER BY event_sequence ASC, changed_at ASC LIMIT 1`)
-      .bind(principalId, principalId).first<MaintenanceRow>();
+        SELECT event_sequence, changed_at, 0 AS backfill FROM archive_changes
+        UNION ALL
+        SELECT event_sequence, changed_at, 1 AS backfill FROM call_reply_backfill
+      ) ORDER BY backfill ASC, event_sequence ASC, changed_at ASC LIMIT 1`)
+      .bind(principalId, principalId, principalId).first<MaintenanceRow>();
     if (row === null) return null;
     exactRow(row, MAINTENANCE_FIELDS);
     return {
       eventSequence: rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER),
       changedAt: rowTimestamp(row.changed_at),
+      backfill: rowInteger(row.backfill, 0, 1) === 1,
     };
   }
 
@@ -1091,10 +1496,24 @@ export class LiteralHistoryService {
     let endSequence = afterSequence;
     let textBytes = 0;
     const decoded: HistoryEvent[] = [];
+    const skipped: SkippedHistoryRow[] = [];
     for (let index = 0; index < rawEvents.length; index += 1) {
       const raw = rawEvents[index]!;
       if (raw.eventSequence !== afterSequence + index + 1) corrupt();
-      const event = await historyEvent(raw, principalId);
+      let event: HistoryEvent | null;
+      try {
+        event = await historyEvent(raw, principalId);
+      } catch (error) {
+        // One row that cannot be decoded must not stop the index. It is
+        // recorded with its reason and the cursor moves past it. Errors with
+        // no row reason (the read, the archive, the database) still stop the
+        // step, because they are not about this row.
+        if (!(error instanceof LiteralHistoryError) || error.reason === undefined) throw error;
+        endSequence = raw.eventSequence;
+        const row = await skippedHistoryRow(raw, principalId, error.reason);
+        if (row !== null) skipped.push(row);
+        continue;
+      }
       const nextBytes = textBytes + (event?.textBytes ?? 0);
       if (endSequence > afterSequence && nextBytes > maxTextBytes) break;
       if (nextBytes > maxTextBytes) corrupt();
@@ -1107,6 +1526,36 @@ export class LiteralHistoryService {
     const timestamp = nowTimestamp(this.options.now, changedAt ?? updatedAtFloor);
     const statements: D1PreparedStatement[] = [];
     let chunksWritten = 0;
+    for (const row of skipped) {
+      const receipt = await this.sourceReceipt(row.eventSequence, before, archivedManifest);
+      statements.push(this.options.database.prepare(`DELETE FROM memory_history_chunks
+        WHERE principal_id = ? AND start_event_sequence = ? AND end_event_sequence = ?`)
+        .bind(principalId, row.eventSequence, row.eventSequence));
+      // A live row is recorded only when the stored event is this principal's;
+      // the coverage guard would refuse anything else and take the batch with it.
+      statements.push(this.options.database.prepare(`INSERT INTO memory_history_coverage (
+        coverage_id, principal_id, source_location, start_event_sequence,
+        end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
+        failure_code, indexed_at
+      ) SELECT ?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?
+        WHERE ? = 'archived' OR EXISTS (
+          SELECT 1 FROM events WHERE sequence = ? AND subject_id = ?
+        )`)
+        .bind(
+          this.options.nextId(),
+          principalId,
+          receipt.sourceLocation,
+          row.eventSequence,
+          row.eventSequence,
+          receipt.r2SegmentId,
+          row.envelopeHash,
+          row.reason,
+          timestamp,
+          receipt.sourceLocation,
+          row.eventSequence,
+          principalId,
+        ));
+    }
     for (const event of decoded) {
       if (event.eventSequence > endSequence) continue;
       const receipt = await this.sourceReceipt(event.eventSequence, before, archivedManifest);
@@ -1139,8 +1588,8 @@ export class LiteralHistoryService {
             principalId,
             event.eventSequence,
             event.eventSequence,
-            event.text,
-            await sha256Hex(event.text),
+            historySearchText(event.text),
+            await sha256Hex(historySearchText(event.text)),
             receipt.sourceLocation,
             receipt.r2SegmentId,
             event.envelopeHash,
@@ -1169,6 +1618,7 @@ export class LiteralHistoryService {
       endEventSequence: endSequence,
       eventsExamined: endSequence - afterSequence,
       chunksWritten,
+      rowsSkipped: skipped.length,
     });
   }
 
@@ -1241,6 +1691,7 @@ export class LiteralHistoryService {
   private async coverageStatus(principalId: string): Promise<{
     searchedThrough: number;
     missingRange: MissingHistoryRange | null;
+    missingReason: MissingHistoryReason | null;
   }> {
     const latest = await this.options.events.latestSequence();
     if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
@@ -1253,6 +1704,7 @@ export class LiteralHistoryService {
           startEventSequence: cursor.sequence + 1,
           endEventSequence: latest,
         }),
+        missingReason: "not_indexed_yet",
       };
     }
     const maintenance = await this.readMaintenance(principalId);
@@ -1263,9 +1715,10 @@ export class LiteralHistoryService {
           startEventSequence: maintenance.eventSequence,
           endEventSequence: maintenance.eventSequence,
         }),
+        missingReason: "being_reindexed",
       };
     }
-    return { searchedThrough: latest, missingRange: null };
+    return { searchedThrough: latest, missingRange: null, missingReason: null };
   }
 
   private async readHistoryEvent(principalId: string, eventSequence: number): Promise<HistoryEvent | null> {
