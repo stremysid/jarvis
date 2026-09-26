@@ -224,6 +224,30 @@ gateway suite runs (239 files, 7,402 tests, about three minutes, measured
 `mutate.ps1` defaults `-GateDir` to an old PR's checkout, so always pass it; the
 spec format and the verdicts are in the script's header.
 
+### Heavy verification runs on CI, not on the owner's PC
+
+This is a public repo, so GitHub Actions is free (standard runners, 20
+concurrent jobs, 6 hours per job) and the PC also hosts builders. **A mutation
+sweep or anything that takes more than a couple of minutes is a builder's job
+for CI, not for Sid's machine.** `.github/workflows/mutation.yml` and
+`.github/workflows/focused-tests.yml` are `workflow_dispatch` jobs a builder
+triggers itself:
+
+```powershell
+gh workflow run mutation.yml -f spec=reviewer-tools/mutation-specs-<name>.json -f ref=<branch>
+gh workflow run focused-tests.yml -f ref=<branch> -f paths="apps/cloud-gateway/test/workspace.test.ts"
+gh run watch
+```
+
+`mutation.yml` runs `mutate.ps1` on `windows-latest` against the given spec
+and `ref`, and fails the job if any mutation SURVIVED, was NOT APPLIED, or
+came back INVALID — a job summary and the full report artifact carry the
+per-mutation verdict. `focused-tests.yml` runs the `pnpm exec vitest` form
+above (plus the gateway test typecheck, advisory) against the given files on
+`ubuntu-latest`. `gh run watch` follows the run from the same shell; pass
+`--exit-status` if the calling script needs the runner's exit code, not just
+the printed log.
+
 ## Conventions
 
 - **pnpm**, Node 24.19.0 or later in the Node 24 line.

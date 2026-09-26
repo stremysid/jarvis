@@ -1,0 +1,120 @@
+name: Mutation sweep
+
+# Runs reviewer-tools/mutate.ps1 on a runner instead of the owner's home PC.
+# A sweep is several full test-suite runs (a baseline plus one run, sometimes
+# two, per mutation) and the PC also hosts builders; GitHub Actions is free
+# for this public repo and idles the rest of the day.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "Path to a reviewer-tools/mutation-specs-*.json file"
+        required: true
+      ref:
+        description: "Branch or SHA to test"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    name: mutate.ps1 (windows)
+    # mutate.ps1 is PowerShell and shells out to npx.cmd / the pnpm/npx
+    # shims, which AGENTS.md and this script's own header say cannot be
+    # invoked from Git Bash on Sid's machine; windows-latest matches how it
+    # is actually run today.
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      # Same toolchain as ci.yml's workspace suite job, so a mutation sweep
+      # measures the same install this repo's other CI already trusts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      # mutate.ps1 refuses a dirty gate directory and checks HEAD itself, so
+      # the checkout above -- already detached at `ref` -- is the gate copy;
+      # no second clone. continue-on-error lets the summary and artifact
+      # steps below run even on SURVIVED/NOT APPLIED/INVALID, and the exit
+      # code is captured for the explicit failing step at the end.
+      - name: Run mutation sweep
+        id: mutate
+        shell: pwsh
+        continue-on-error: true
+        # Read the spec path from an env var rather than interpolating
+        # `${{ inputs.spec }}` straight into the script text, so a spec value
+        # containing quotes or PowerShell metacharacters cannot inject code.
+        env:
+          MUTATION_SPEC: ${{ inputs.spec }}
+        run: |
+          pwsh -File reviewer-tools/mutate.ps1 -Spec "$env:MUTATION_SPEC" -GateDir "${{ github.workspace }}" 2>&1 |
+            Tee-Object -FilePath mutation-report.txt
+          $code = $LASTEXITCODE
+          Write-Host "mutate.ps1 exited $code"
+          "exit_code=$code" >> $env:GITHUB_OUTPUT
+
+      # A verdict table a reviewer can read without downloading the artifact.
+      # mutate.ps1's own summary block is the source of truth; this only
+      # reformats it, so a parsing gap here degrades to a note, never to a
+      # false PASS.
+      - name: Write job summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Mutation sweep results'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+          if (-not (Test-Path -LiteralPath mutation-report.txt)) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '_mutate.ps1 produced no report; setup or install likely failed before it ran._'
+            exit 0
+          }
+          $lines = Get-Content -LiteralPath mutation-report.txt
+          $startIdx = ($lines | Select-String -Pattern '^===== MUTATION SUMMARY =====$' | Select-Object -First 1).LineNumber
+          $endIdx   = ($lines | Select-String -Pattern '^============================$' | Select-Object -First 1).LineNumber
+          if (-not $startIdx -or -not $endIdx -or $endIdx -le $startIdx) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '_No mutation summary block found in the report; see the uploaded artifact._'
+            exit 0
+          }
+          # Select-String line numbers are 1-based; the block runs from the line
+          # after the opening marker to the line before the closing one.
+          $block = $lines[$startIdx..($endIdx - 2)]
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '| mutation | verdict | expected |'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '|---|---|---|'
+          foreach ($line in $block) {
+            if (-not $line.Trim()) { continue }
+            if ($line -match '^\s') { continue }          # killed:/note:/edit: continuation lines
+            if ($line -match '^mutation\s') { continue }   # header row
+            if ($line -match '^killed \d') { continue }    # aggregate counts line
+            if ($line -match '^restore verified') { continue }
+            $cols = [regex]::Split($line.Trim(), '\s{2,}')
+            if ($cols.Count -lt 2) { continue }
+            $name = $cols[0] -replace '\|', '\|'
+            $verdict = $cols[1] -replace '\|', '\|'
+            $expected = if ($cols.Count -ge 3) { $cols[2] -replace '\|', '\|' } else { '' }
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "| $name | $verdict | $expected |"
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-report
+          path: mutation-report.txt
+          if-no-files-found: warn
+
+      # mutate.ps1's own exit codes already say what the sweep found: 0 only
+      # when every mutation KILLED; non-zero for SURVIVED, KILLED/OTHER,
+      # UNCONFIRMED, NOT APPLIED or INVALID. Failing on any non-zero code
+      # covers "SURVIVED, NOT APPLIED or INVALID" without re-deriving the
+      # script's own verdict logic here.
+      - name: Fail if any mutation did not confirm a clean kill
+        if: steps.mutate.outputs.exit_code != '0'
+        shell: pwsh
+        run: |
+          Write-Host "mutate.ps1 exit code: ${{ steps.mutate.outputs.exit_code }}"
+          exit 1

@@ -1,0 +1,53 @@
+name: Focused tests
+
+# A builder's fast local loop -- one file, or a handful -- moved to a runner
+# so it stops competing with builders for the owner's home PC. GitHub Actions
+# is free for this public repo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or SHA to test"
+        required: true
+      paths:
+        description: "Space-separated test file paths (e.g. apps/cloud-gateway/test/workspace.test.ts)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: focused vitest run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      # The verified single-file/multi-file form from AGENTS.md "Commands":
+      # `pnpm --filter @jarvis/cloud-gateway test -- <file>` does NOT run one
+      # file (pnpm swallows the `--` argument and the whole 239-file suite
+      # runs instead), so this uses `pnpm exec vitest` with the root config.
+      # `paths` is read from an env var rather than interpolated straight
+      # into the script text, so a value containing shell metacharacters
+      # cannot inject a command.
+      - name: Run the requested test files
+        env:
+          TEST_PATHS: ${{ inputs.paths }}
+        run: pnpm exec vitest --config vitest.workspace.ts run $TEST_PATHS
+
+      # Red today (143 errors, per AGENTS.md's "gateway's tests were never
+      # typechecked" and `docs/STATE.md`) and not a gate anywhere else in
+      # this repo; run it here for visibility without blocking a builder's
+      # focused-test loop on a pre-existing backlog.
+      - name: Gateway test typecheck (advisory)
+        continue-on-error: true
+        run: pnpm --filter @jarvis/cloud-gateway typecheck:tests
