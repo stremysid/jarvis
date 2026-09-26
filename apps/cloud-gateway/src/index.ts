@@ -668,12 +668,14 @@ export default {
         onAccepted: (accepted) => {
           // Three mechanical commands stay code: the owner's own shadow and
           // quiet-hour switches, and the text-authorized call whose exact
-          // "--confirm" line is the authorization. They are owner-only; every
-          // other message -- including "/status", "/queue" and "/digest" --
-          // reaches the model, which calls the matching tool.
+          // "--confirm" line is the authorization. Every other message --
+          // including "/status", "/queue" and "/digest" -- reaches the model,
+          // which calls the matching tool. `/call` enforces owner authority
+          // itself (`D1TelegramCallCommands`), so no outer gate may decide the
+          // command is not for the owner: dropping it here would send the ask to
+          // the model instead of the explicit reply the owner is owed.
           const parsed = parseCommand(accepted.text, env.TELEGRAM_BOT_USERNAME ?? null);
-          if (parsed.kind === "command" && env.OWNER_PRINCIPAL_ID !== undefined
-            && accepted.principalId === env.OWNER_PRINCIPAL_ID) {
+          if (parsed.kind === "command") {
             ctx.waitUntil(runTelegramCommand(env, accepted, parsed.name, parsed.argument));
             return;
           }
