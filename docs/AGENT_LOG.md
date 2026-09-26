@@ -14,7 +14,7 @@ Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `or
   `SECRET_ADVISORY`/`SECRET_REPLACEMENT` deleted (Sid may be asked for a code); the `repairedPlan`
   minute clamp replaced by a refusal with the bound named (`school_catchup_action_minutes_out_of_range`
   plus `MINUTES_BOUND_REPLY`); the per-day caps deleted in code and in the
-  `school_catchup_actions_planned_cap_insert` trigger (migration `0055`); the seven-day horizon
+  `school_catchup_actions_planned_cap_insert` trigger (migration `0056`); the seven-day horizon
   deleted; the 30-day resolved-fact window deleted.
 - **Not done, named in the register.** Item 2 `BRIGHTSPACE_REFRESH_REQUEST` needs a new model-called
   tool (register row 15 stays). Items 4/5 (`presentsUnsavedSchedule`, `PLAN_SAVE_COMPLETIONS`) need
@@ -22,11 +22,11 @@ Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `or
   brief's own honesty note forbids removing item 4's rewrite without that check, and item 5's path is
   free text with no structured envelope to carry a declaration. Item 10's "with the count" half needs
   a new snapshot/prompt field.
-- **Migration `0055_school_catchup_planned_cap.sql`** drops and recreates the trigger with only the
+- **Migration `0056_school_catchup_planned_cap.sql`** drops and recreates the trigger with only the
   21 cap. `0044` does not redefine it (checked). Registered in the restore list, the school chain, the
   newest chain, the full list in `test/persistence/migration.ts` and the remote-D1 syntax list. Not
-  applied anywhere. Next free number: main tops at `0052`; #201 holds `0053`/`0054` and #207 also
-  holds `0054`.
+  applied anywhere. Next free number: main tops at `0054`; #207 holds `0055`, so this branch took
+  `0056` (one ahead of the open PR, as AGENTS.md requires).
 - **Tests here:** `test/school`+`test/persistence`+`test/backup` 1906/1907 (one backup load flake,
   49/49 alone); `test/channels`+`test/agent`+`test/voice` 844; `test/jobs`+`test/evals`+`test/autonomy`+
   `test/conversation`+`test/memory` 736; gateway `tsc` exit 0; `check-state` passed. Mutation sweep

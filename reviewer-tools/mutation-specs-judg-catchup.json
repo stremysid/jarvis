@@ -49,7 +49,7 @@
   },
   {
     "name": "item8-restores-the-per-day-caps-in-the-trigger",
-    "file": "apps/cloud-gateway/src/persistence/migrations/0055_school_catchup_planned_cap.sql",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0056_school_catchup_planned_cap.sql",
     "find": "  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND status = 'planned'\n  ) >= 21;",
     "replace": "  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND status = 'planned'\n  ) >= 21 OR (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND local_date = NEW.local_date AND status = 'planned'\n  ) >= 3;",
     "testPath": "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
