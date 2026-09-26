@@ -117,6 +117,71 @@ known, and the quiz answer must be inside its window and size bound. Deleted fro
 The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
 they are receipts of a committed write, not a decision about what Sid meant.
 
+## Study-coach signal ranking and selection: registered, not removed (batch 7, 2026-09-25)
+
+Batch 7 of the school/study sweep is the 13 items below. They all feed one
+deterministic decision — which single study check-in to claim — and **none of
+them was removed**, because the removal they need does not exist as a change to
+these two files. This section records the blocker rather than shipping a
+half-removal, in the same spirit as rows 10 and 15.
+
+**The blocker, verified at `193d02b4`:**
+
+1. `deriveStudySignals` scores every candidate and `chooseStudyCheckIn`
+   (`study-coach-signals.ts:297`) picks one: its course, topic, fallback topic
+   name and `low`/`medium`/`high` confidence.
+2. That choice is written straight into `school_study_check_in_claims`
+   (`0030_study_coach_weak_spots.sql`), whose `course_id`, `topic`, `outcome`,
+   `evidence_count` (1–4) and `confidence` columns are all `NOT NULL` with
+   `CHECK`s. A claim *is* one chosen check-in; it cannot hold "the raw evidence
+   set" instead.
+3. The claim happens in the **digest path, where no model runs**:
+   `jobs/digest-job.ts:374` calls `claimStudyCheckIn`, and
+   `digest/digest-composer.ts` states that composition is deliberately
+   deterministic because printing model output into the digest is the
+   prompt-injection shape the plan warns about. `job-table.ts:891` and
+   `index.ts:447` build that source; neither has a model for it.
+4. The batch's own constraints say **no migration** and **`confidence` stays in
+   its `low`/`medium`/`high` enum**. So the chosen values must be produced
+   *before* the claim, and the only missing piece is a model.
+
+So the model cannot choose the check-in until a model is reachable from the
+claim path. Removing the scoring while leaving `chooseStudyCheckIn` in place, or
+removing the 72-hour window while the same scorer still ranks the wider set,
+changes behaviour without moving any judgment to the model — either invisible or
+a regression. That is why nothing here was deleted.
+
+**The proposed surface, for the session that takes this next:**
+
+- `deriveStudySignals` returns bounded **raw evidence** with timestamps — grade
+  percentages with their own `gradeUpdatedAt`, missing-work transitions,
+  practice outcomes, deadline instants, each with `lastSuccessAt`/`lastFailure`
+  as raw values rather than a `current`/`stale` verdict — plus a `droppedCount`
+  for the transport cap. No `score`, no `confidence`, no `order`.
+- A model call in the claim path (a `ModelProvider.completeJson` call, as the
+  memory-distillation job already makes) is handed that evidence and answers with
+  `courseId`, `topic`, `outcome`, `confidence` and the citation `sourceKey`s;
+  code validates the ids against the snapshot and the enums, and writes the
+  claim. `chooseStudyCheckIn` and every score below are then deleted.
+- The digest keeps its determinism: the model's answer is data, validated and
+  bounded, never text echoed into the digest.
+
+| Sweep id | Symbol (as of `193d02b4`) | What code decides |
+|---|---|---|
+| B1 | `STUDY_DEADLINE_ROW_LIMIT = 24` (`deadlines/deadline-repository.ts:48,549`) | How many deadline candidates reach the signals layer. The cap stays as transport; the dropped count is not reported yet |
+| B2 | `STUDY_DEADLINE_NEAR_DUE_HOURS = 72` (`:49,541`) | The near-due window, in SQL |
+| B54 | `SCHOOL_SOURCE_STALE_AFTER_MS` 12 h / `DEADLINE_SOURCE_STALE_AFTER_MS` 3 h (`school/study-coach-signals.ts:14-15`, used `:47-57`) | Whether a source read counts as `current` or `stale` |
+| B55 | `scoreConfidence` (`:67-69`) | `low`/`medium`/`high` from a 90/70 numeric cut |
+| B56 | `evidenceSignals` base scores (`:76-83`) | How much a practice result, owner statement or card fact is worth, plus a `judgement` bonus |
+| B57 | `percentage <= LOW_GRADE_PERCENTAGE_MAXIMUM` (`:16,155`) | Whether a grade is a weak spot, at 70 % |
+| B58 | `FALLING_GRADE_PERCENTAGE_POINT_DROP` (`:17,174`) | Whether a drop counts as falling, at 5 points |
+| B59 | missing-work score `current ? 100 : 62` (`:210`) | How much a derived missing-work row is worth |
+| B60 | `hours < 0 || hours > 72` (`:245`) | Whether a deadline is near due |
+| B61 | `ordered` (`:272-277`) | Ranking by score, then date, course and source key |
+| B62 | `.slice(0, MAX_SIGNALS)` (`:18,294`) | Which signals survive the 64 cap |
+| B63 | `chooseStudyCheckIn` (`:297-338`) | The target, the topic, the `"<course> review"` fallback name and the confidence |
+| B64 | `matchCourse` / `phraseContains` (`:38-45`) | Which course a grade, missing-work row or deadline belongs to, by normalized phrase containment |
+
 ## Voice access and silent drops: removed
 
 Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
@@ -243,7 +308,7 @@ Sid that the decision happened.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. The A55 leftovers PR (2026-09-25) deleted the rest of the slash-command router but deliberately kept `/call` a command: `D1TelegramCallCommands.reconstruct` re-reads the exact `--confirm` line from the durable event as the authorization, so the tool is still the next step. |
 
 Rows 1 and 3–5 are removed; see [Voice access and silent drops: removed](#voice-access-and-silent-drops-removed).
 
@@ -360,6 +425,94 @@ blockers, not silently dropped.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 20 | `FALSE_EXTERNAL_COMPLETIONS`, `PASSIVE_EXTERNAL_COMPLETION`, `PASSIVE_EXTERNAL_DELIVERY`, `PASSIVE_RECEIPT_COMPLETION`, `PASSIVE_ADVICE_CONTEXT` and `hasPassiveExternalCompletion` (`src/school/school-catchup-model.ts`), found in the [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether a sentence claims Jarvis completed an external action, by vocabulary and passive-voice patterns. It is a meaning judgment written as regexes, and it is broader than the declared-claim mechanism #204 built: a passive sentence with no first-person subject is caught here and nowhere else | The model declares the sentences that claim an action, as it already declares `workedExplanations`; code checks each declared sentence against this turn's receipts and nothing else. Until that exists, this is the omission backstop that keeps an undeclared passive completion from being spoken, and it is registered here rather than treated as settled |
+### Telegram command router and the silent argument slice: removed (A55, 2026-09-25)
+
+Removed by the PR titled "Leftovers: slash commands become tools; decisions need
+a rank from the model" (branch `codex/leftovers-judgment-to-ai`, 2026-09-25).
+
+The router in `channels/telegram/telegram-commands.ts` (`COMMAND_PATTERN`,
+`KNOWN_COMMANDS`, `COMMAND_HELP`, the `unknown_command` result and the 256
+character `MAX_ARGUMENT_CHARACTERS` slice) and the handlers in
+`command-handler.ts` decided what a command-shaped message meant before the
+model ran, and answered `/status`, `/queue` and `/digest` from code. That also
+made those three capabilities **Telegram-only**, which is the rule 3 parity gap
+the register named.
+
+Now:
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| A55 | `parseCommand`, `KNOWN_COMMANDS`, `COMMAND_HELP`, `UnknownCommand`, `MAX_ARGUMENT_CHARACTERS` and the `command-handler` `status`/`queue`/`digest`/`vault`/`help` cases (`src/channels/telegram/`) | Which command-shaped text was a command, what `/status`, `/queue` and `/digest` answered, and where an over-long argument was silently cut to 256 characters. | Deleted or reduced. `owner_status`, `decision_queue` and `run_digest` are tools in the shared `OWNER_TOOL_DEFINITIONS`, dispatched by the same core on Telegram and on a call; code reads no wording. Unknown command-shaped text (including `/help`, `/vault`, `/deploy`) reaches the model. Nothing truncates: `requireConfirmation` refuses an over-long call visibly. |
+
+The mechanical `/vault` reply was **not** lost in that deletion. Deleting the
+command removed a Telegram-only hard-coded answer with nothing replacing it, so
+this PR adds `vault_search` to the same shared `OWNER_TOOL_DEFINITIONS`
+(`src/agent/owner-command-tools.ts`). The model decides whether Sid's message is
+about the vault and calls the tool; the tool takes the `query` the model chose
+and returns the owner-only evidence — "The vault lives on your PC. Run:
+jarvis vault search &lt;query&gt;" — as an unactioned tool result. It is classified
+`memory.read` (tier 1) in `tool-capabilities.ts`, so it needs no migration, and
+because it is in the shared catalogue it works on Telegram and on a call alike.
+Code neither recognizes nor answers a `/vault` command.
+
+
+Three commands stay in code, each a purely mechanical owner-authenticated action
+rather than a reading of Sid's words:
+
+- `/shadow on|off` and `/exam on|off` are the owner's own permission and
+  notification switches. They are the escape hatches from shadow mode and quiet
+  hours, so they must work even when the model path is unavailable, and `on`/`off`
+  is a value rather than a judgment.
+- `/call <reason> --confirm` is a confirmed action whose authorization is that
+  exact text: `D1TelegramCallCommands.reconstruct` re-reads the durable event and
+  refuses without `--confirm`, so moving it behind a tool rewrites the calling
+  authorization. It is register row 2 above, and the tool is still the next step.
+
+No pairing or enrollment path uses a slash command (school pairing is a decision
+tap; device and phone enrollment are device-signed HTTP routes), so nothing was
+kept for that reason.
+
+### Decision rank: the model states it, code only validates (A119/B169, 2026-09-25)
+
+`DEFAULT_DECISION_RANK = 100` (`decisions/decision-types.ts`) and
+`const rank = input.rank ?? DEFAULT_DECISION_RANK` (`decisions/decision-service.ts`)
+let code choose the owner's queue priority silently: a caller that supplied no
+rank got 100 and the queue's order was a constant nobody wrote down.
+
+Partly removed, and now honest about the remainder. `RaiseDecisionInput.rank` is
+required and the service validates it, throwing `decision_rank_invalid` for a
+missing or invalid value. The `rank` column default in `0009_decisions.sql` is
+left in place and inert — the service always writes an explicit rank, and a test
+pins the column default without relying on it. No migration.
+
+The one **model-facing** decision raiser left now takes the rank from the model
+as a required tool argument, validated as a whole number ≥ 0:
+
+| Tool | Argument | Behaviour without it |
+|---|---|---|
+| `memory_confirm` (`OwnerAgentCore.confirm`) | `rank` (required in the schema) | The inferred-memory confirmation is **refused** with a visible receipt telling the model to pass a rank; nothing is queued and the memory stays proposed. |
+
+`memory_forget` no longer joins this table: the memory batch landed the row-13
+removal on main, so forgetting several memories happens in the one call and raises
+no decision at all. The tap that used to stand there is gone; the `rank` argument
+that briefly belonged to it went with the decision.
+
+There is no default, no recency heuristic and no code-chosen number on that path.
+A test pins that a model-supplied `rank: 50` reaches the queued decision
+unchanged, and that omitting it refuses rather than queues.
+
+Two ranks still come from code, and this is the register row for them:
+
+| # | Symbol | The decision code is making | Surface it should move to |
+|---|---|---|---|
+| 20 | `TIER3_CONFIRMATION_RANK` (`src/agent/owner-agent-core.ts`) and `SCHOOL_PAIRING_RANK` (`src/school/collector-pairing.ts`) | How urgent a decision is, for the two paths that raise one **without a model turn**: the tier-3 confirmation the system-protection gate raises, and the school collector pairing raised from an authenticated HTTP route. | `TIER3_CONFIRMATION_RANK` is raised by the gate that protects a system path, so there is no model in that loop to ask; if the confirmation ever gains a model turn, the rank becomes that turn's tool argument like `memory_confirm`'s. `SCHOOL_PAIRING_RANK` is an HTTP route with no model turn by construction. Both are named constants — not silent defaults — so the number is visible and can be replaced by a model argument when one exists. |
+
+`memory_confirm` states `rank` as `required` in its tool schema; when a caller
+omits it the argument parser tolerates the absence, but the decision-raising
+branch refuses visibly instead of defaulting. That is the whole point: code never
+picks the priority, and when it cannot ask the model it says so rather than
+inventing one.
+
 ### University tracker status judgments: removed (B116–B129, 2026-09-25)
 
 Removed by the PR titled "University tracker: the model declares status"

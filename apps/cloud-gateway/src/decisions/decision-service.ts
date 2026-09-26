@@ -1,7 +1,6 @@
 import { newUlid } from "../../../../packages/contracts/src/index.js";
 import {
   DECISION_OPTION_KEY,
-  DEFAULT_DECISION_RANK,
   EXPLAIN_OPTION_KEY,
   EXPLAIN_OPTION_LABEL,
   FREE_TEXT_OPTION_KEY,
@@ -137,7 +136,9 @@ export class DecisionService {
 
     const urgency = input.urgency;
     if (urgency !== "urgent" && urgency !== "normal") throw new TypeError("decision_urgency_invalid");
-    const rank = input.rank ?? DEFAULT_DECISION_RANK;
+    // Required, never defaulted. The queue orders by rank, so a missing rank
+    // would let code choose the owner's priority silently; the caller states it.
+    const rank = input.rank;
     if (!Number.isSafeInteger(rank) || rank < 0) throw new TypeError("decision_rank_invalid");
 
     const decisionId = newUlid(now.date);

@@ -68,7 +68,8 @@ it.each([
 ] as const)("validates %s arguments before spending a matching confirmation tap", async (name, capability, args) => {
   const f = await collectorFixture();
   await env.DB.prepare("UPDATE capability_tiers SET tier = 3 WHERE capability = ?").bind(capability).run();
-  const decision = await f.decisions.raise({ principalId: f.owner, origin: TIER3_TOOL_ORIGIN,
+  const decision = await f.decisions.raise({
+    rank: 100, principalId: f.owner, origin: TIER3_TOOL_ORIGIN,
     originReference: confirmationReference(name, capability, await argumentsFingerprint(JSON.stringify(args))), urgency: "normal",
     question: "Confirm the synthetic call?", choices: [{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }] });
   await f.decisions.markDelivered(decision.decisionId);
