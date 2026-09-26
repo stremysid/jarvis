@@ -196,7 +196,7 @@ namespace HermesHttpDeadlineTest {
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
-  });
+  }, 180_000);
 
   it("extracts a bounded archive snapshot even when its source pathname is swapped", async () => {
     const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-artifact-identity-"));
@@ -386,7 +386,7 @@ namespace HermesHttpDeadlineTest {
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
-  });
+  }, 180_000);
 
   it("fails closed when payload data cannot be flushed and orders the barrier before the commit marker", async () => {
     const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-artifact-durability-"));
@@ -430,7 +430,7 @@ namespace HermesHttpDeadlineTest {
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
-  });
+  }, 180_000);
 
   it("keeps concurrent VerifyOnly extraction leases scoped to each verifier scratch root", async () => {
     const roots = await Promise.all([

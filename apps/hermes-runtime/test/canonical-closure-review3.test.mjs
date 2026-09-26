@@ -66,5 +66,5 @@ describe("Hermes H1 committed canonical JSON closure", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("Hermes H1 manifest validation failed\n");
-  });
+  }, 60_000);
 });

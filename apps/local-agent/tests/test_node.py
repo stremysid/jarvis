@@ -745,6 +745,7 @@ def test_built_node_executes_quarantine_retry_on_the_cycle_thread(
         return real_retry(uploader, fact_id)
 
     monkeypatch.setattr(MemoryProjectionUploader, "retry_quarantined", record_retry_thread)
+    monkeypatch.setattr("jarvis_local.node.QUARANTINE_RETRY_WAIT_SECONDS", 1.0)
 
     class RetryControl(FakeControl):
         def __init__(self, server: ControlServer) -> None:
@@ -988,7 +989,10 @@ def test_real_runtime_serves_status_run_once_and_stop_over_its_unix_socket(tmp_p
 
 
 @linux_only
-def test_real_socket_retry_clears_quarantine_without_stopping_the_node(tmp_path: Path) -> None:
+def test_real_socket_retry_clears_quarantine_without_stopping_the_node(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("jarvis_local.node.QUARANTINE_RETRY_WAIT_SECONDS", 1.0)
     root = tmp_path / "private"
     root.mkdir(mode=0o700)
     settings = settings_at(root)

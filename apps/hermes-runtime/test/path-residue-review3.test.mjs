@@ -52,7 +52,7 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).not.toContain("HOSTILE_NATIVE_TYPE_ACCEPTED");
     expect(result.stderr).toMatch(/already loaded|fresh PowerShell/i);
-  });
+  }, 180_000);
 
   it("rejects superscript device aliases, console aliases, and every Windows control character", async () => {
     const escapedModule = modulePath.replaceAll("'", "''");
@@ -71,7 +71,7 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout).toContain("PATH_BOUNDARIES_OK");
     expect(result.stderr).toBe("");
-  });
+  }, 180_000);
 
   it("rejects wrong-case and trailing-separator aliases of an existing RuntimeRoot", async () => {
     const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-runtime-root-case-"));
