@@ -81,7 +81,8 @@ Rows 6–9 and 13 have left the list below.
 
 ## Owner memory wording judgments: removed (2026-09-26, batch 3)
 
-Removed by the PR titled "Memory: code stops reading Sid's words" (branch
+Removed by the PR titled "Memory: code stops reading Sid's words"
+([#219](https://github.com/stremysid/jarvis/pull/219), branch
 `codex/memory-words-to-ai`, from `018b5717`). Sid's rule of 2026-09-25 —
 "any judgment and decisions and thought should be the ai brain remember" —
 puts every one of these in the model. Code keeps only grounding (the excerpt is
