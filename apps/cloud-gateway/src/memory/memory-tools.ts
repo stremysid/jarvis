@@ -36,7 +36,7 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
-      required: ["fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity"],
+      required: ["fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity", "lifetime", "expiresAt"],
       properties: {
         fact: { type: "string", minLength: 1, maxLength: 4096, description: "The fact in Sid's own words, one sentence. Do not tidy or summarise his phrasing." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "The exact words from Sid's current message that carry the fact. Copied, never paraphrased." },
@@ -44,8 +44,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
         previousOfferExcerpt: { type: ["string", "null"], maxLength: 4096, description: "The words of your immediately previous offer, when evidenceClass is confirmed. Pass null otherwise." },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"], description: "What sort of thing it is about Sid: a fact about him, a preference, a plan, a decision he made, or a relationship." },
         sensitivity: { enum: ["normal", "sensitive"], description: "sensitive for anything you would not repeat in front of someone else." },
-        lifetime: { enum: ["durable", "temporary"], description: "durable for something with no end date (\"I hate mornings\"); temporary for something that stops being true, which must carry expiresAt (\"I'm tired today\"). Leave it out and the fact is durable." },
-        expiresAt: { type: ["string", "null"], description: "RFC 3339 UTC, when a temporary fact stops being true. Required with lifetime temporary and null otherwise: a temporary fact with no end never lapses, and a durable one carrying an end is refused." },
+        lifetime: { enum: ["durable", "temporary"], description: "You decide how long this lasts. durable for something with no end date (\"I hate mornings\"); temporary for something that stops being true, which must also carry expiresAt (\"I'm tired today\"). There is no default: state it every time, and if you cannot tell how long it lasts, ask Sid rather than guessing." },
+        expiresAt: { type: ["string", "null"], description: "RFC 3339 UTC, when a temporary fact stops being true; null when lifetime is durable. Required with lifetime temporary and null otherwise: a temporary fact with no end never lapses, and a durable one carrying an end is refused." },
       },
     }),
   }),
@@ -55,37 +55,40 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
-      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"],
+      required: ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity", "lifetime", "expiresAt"],
       properties: {
         itemId: { type: "string", description: "The id of the memory being replaced, from the item ids in your context." },
         newFact: { type: "string", minLength: 1, maxLength: 4096, description: "The new wording, drawn from Sid's current message." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "The exact words from his current message that carry the new wording." },
         kind: { enum: ["fact", "preference", "plan", "decision", "relationship"], description: "What sort of thing it is about Sid." },
         sensitivity: { enum: ["normal", "sensitive"], description: "sensitive for anything you would not repeat in front of someone else." },
+        lifetime: { enum: ["durable", "temporary"], description: "You decide how long the replacement lasts. When the correction changes only the wording, pass the replaced memory's own lifetime and expiresAt; when it changes the timespan too, say so here. There is no default." },
+        expiresAt: { type: ["string", "null"], description: "RFC 3339 UTC, when a temporary replacement stops being true; null when lifetime is durable. Required with lifetime temporary and null otherwise." },
       },
     }),
   }),
   Object.freeze({
     name: "memory_forget",
-    description: "Stop using a memory and hide the conversation it came from. Use it when Sid says to forget something, or says a fact about him is not true and he does not want it kept. If more than one memory could be meant, pass every candidate id and leave the excerpt out: you will be asked to confirm instead of anything changing. Example: \"forget that I hate mornings\" with the id of that memory.",
+    description: "Stop using memories and hide the conversations they came from. Use it when Sid says to forget something, or says a fact about him is not true and he does not want it kept. Pass every id you are sure he meant, and Sid's exact words asking for it: each id is hidden and each gets its own receipt. If you are not sure which memory he meant, do not guess and do not pass several hoping one is right -- ask him which one he means first. Example: \"forget that I hate mornings\" with the id of that memory and his words copied.",
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
-      required: ["itemIds"],
+      required: ["itemIds", "supportingExcerpt"],
       properties: {
-        itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" }, description: "One to eight memory ids from your context. Pass all of them when you are not certain which is meant." },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "Sid's exact words, when one memory is clearly meant. Omit it when you are passing several candidates so he is asked instead." },
+        itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" }, description: "One to eight memory ids from your context, each one a memory you are sure Sid meant. Every id here is forgotten, so do not list candidates you are unsure about." },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "Sid's exact words asking for this, copied from his current message." },
       },
     }),
   }),
   Object.freeze({
     name: "memory_restore",
-    description: "Bring back a memory that was forgotten, when Sid says he wants it used again. Example: \"actually, do remember that I hate mornings\". It comes back as unconfirmed, so it is not treated as settled until he agrees to it again.",
+    description: "Bring back a memory that was forgotten, when Sid says he wants it used again. Example: \"actually, do remember that I hate mornings\". You decide what the restored evidence counts as, with basis: it comes back as unconfirmed unless you can point to Sid confirming the wording himself. Restoring never proves the memory true by itself, so when in doubt use stated or inferred, not confirmed.",
     parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
+      type: "object", additionalProperties: false, required: ["itemId", "basis", "supportingExcerpt"],
       properties: {
         itemId: { type: "string", description: "The id of the forgotten memory, from the item ids in your context." },
-        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact words asking for it back, copied." },
+        basis: { enum: ["stated", "confirmed", "observed", "inferred", "third_party"], description: "What the restored evidence now counts as. confirmed when the stored wording is one Sid himself stated and is now being restored on his instruction, which is required when the original messages are archived and gone; stated when it came from his own words; inferred or third_party only when the original wording was a guess of yours or somebody else's, which must stay uncertain." },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact words asking for it back, copied. Required: the restore is grounded in this turn's words, as every other memory tool's is." },
       },
     }),
   }),
