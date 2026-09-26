@@ -420,7 +420,7 @@ describe("the voice agent adapter", () => {
     const sessionId = `voice:confirm:${serial + 1}`;
     const itemId = await offerProposedMemory(principalId, sessionId);
     const provider = new FakeAgentProvider([
-      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })),
       stopped("Use the decision queue."),
     ]);
     const reply = await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId, sessionId });
@@ -456,7 +456,7 @@ describe("the voice agent adapter", () => {
     const principalId = `principal:voice-confirm-other:${serial + 1}`;
     const itemId = await offerProposedMemory(principalId, `voice:earlier:${serial + 1}`);
     const provider = new FakeAgentProvider([
-      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })), stopped("Nothing changed."),
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })), stopped("Nothing changed."),
     ]);
     await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId,
       context: [memoryContext("I like art", itemId)], sessionId: `voice:later:${serial + 1}` });
@@ -1294,7 +1294,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(31);
+    expect(request?.tools).toHaveLength(32);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([

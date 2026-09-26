@@ -5,6 +5,8 @@ import {
   OWNER_STATUS_TOOL_NAME,
   OWNER_COMMAND_TOOL_DEFINITIONS,
   RUN_DIGEST_TOOL_NAME,
+  VAULT_SEARCH_EVIDENCE,
+  VAULT_SEARCH_TOOL_NAME,
   ownerCommandTool,
 } from "../../src/agent/owner-command-tools.js";
 import { formatOwnerStatus, type OwnerCommandCapabilities } from "../../src/agent/owner-command-capabilities.js";
@@ -142,6 +144,38 @@ describe("the three reporting command tools", () => {
     }));
     expect(result.status).toBe("refused");
     expect(result.content).toContain("D1 unavailable");
+  });
+});
+
+describe("the vault answer", () => {
+  it("is in the shared catalogue and classified, so Telegram and a call both offer it", () => {
+    expect(OWNER_TOOL_DEFINITIONS.map((definition) => definition.name)).toContain(VAULT_SEARCH_TOOL_NAME);
+    expect(OWNER_COMMAND_TOOL_DEFINITIONS.map((definition) => definition.name)).toContain(VAULT_SEARCH_TOOL_NAME);
+    expect(isToolClassified(VAULT_SEARCH_TOOL_NAME)).toBe(true);
+    expect(capabilityForTool(VAULT_SEARCH_TOOL_NAME)).toBe("memory.read");
+  });
+
+  it("returns the one true fact about the vault, with no receipt to claim", async () => {
+    const result = await run(VAULT_SEARCH_TOOL_NAME, capabilities(), { query: "macbeth quotes" });
+    expect(result.status).toBe("completed");
+    expect(result.receiptId).toBeNull();
+    expect(result.content).toBe(VAULT_SEARCH_EVIDENCE);
+    expect(result.content).toContain("jarvis vault search");
+  });
+
+  it("answers even when the deployment has no reporting capabilities wired", async () => {
+    // The sentence is a constant, so it does not depend on env bindings.
+    const result = await run(VAULT_SEARCH_TOOL_NAME, undefined, { query: "macbeth" });
+    expect(result.status).toBe("completed");
+    expect(result.content).toBe(VAULT_SEARCH_EVIDENCE);
+  });
+
+  it("refuses a missing, empty, oversized or unknown query instead of inventing one", async () => {
+    for (const args of [{}, { query: "" }, { query: "x".repeat(257) }, { query: "ok", extra: true }]) {
+      const result = await run(VAULT_SEARCH_TOOL_NAME, capabilities(), args);
+      expect(result.status).toBe("refused");
+      expect(result.content).toContain("Nothing changed");
+    }
   });
 });
 

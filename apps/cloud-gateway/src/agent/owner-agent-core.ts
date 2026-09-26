@@ -120,6 +120,17 @@ const NOT_SAVED_FALLBACK = "I couldn't finish that, and nothing was saved.";
 const DEADLINE_FALLBACK = "I couldn't finish that turn before the deadline. Nothing changed.";
 const TURN_ENDED_REFUSAL = "That turn ended before the action could run, so nothing changed.";
 /**
+ * The queue band a gate-raised tier-3 confirmation uses.
+ *
+ * The model called the tool, but the confirm question is raised by the tier
+ * gate rather than written by the model, and no dispatchable tool carries a
+ * rank argument today. This is a named system band, not a hidden default, and
+ * `docs/CODE-VS-JUDGMENT.md` records it as a remaining code-side choice. The
+ * two memory tools that raise a question on the model's behalf take the rank
+ * from the model's own arguments.
+ */
+const TIER3_CONFIRMATION_RANK = 100;
+/**
  * The least time a turn has left once a held deadline restarts.
  *
  * A turn clock is held while Sid answers a channel question (the spoken PIN),
@@ -625,6 +636,21 @@ function safeItemIds(value: unknown): readonly Ulid[] {
   const ids = value.map(safeUlid);
   if (new Set(ids).size !== ids.length) throw new TypeError("owner_agent_item_id_invalid");
   return Object.freeze(ids);
+}
+
+/**
+ * The model's own queue priority, or null when the call did not state one.
+ *
+ * The rank is the model's judgment about which of Sid's waiting questions
+ * matters most, so code neither invents one nor silently falls back to a
+ * constant: it validates the number and refuses the raise that needed it.
+ */
+function declaredRank(value: unknown): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError("owner_agent_decision_rank_invalid");
+  }
+  return value;
 }
 
 function memoryReceipt(receipt: string, text: string): string {
@@ -1709,9 +1735,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       origin: TIER3_TOOL_ORIGIN,
       originReference: confirmationReference(call.name, decision.evaluation.capability, argumentsHash),
       urgency: "normal",
-      // The caller states the rank now; the service has no default. A tier-3
-      // confirmation sits in the normal band, below an explicitly urgent item.
-      rank: 100,
+      rank: TIER3_CONFIRMATION_RANK,
       question: `Run ${call.name}? ${decision.evaluation.capability} always needs your tap.`,
       detail: `${decision.receipt} Tap Confirm, then ask me again and I will do it.`,
       choices: Object.freeze([{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }]),
@@ -1929,17 +1953,23 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArgumentsWithOptionalExcerpt(call, ["itemIds"]);
+    const fields = optionalArgumentKeys(call, ["itemIds", "supportingExcerpt", "rank"]);
+    if (!fields.includes("itemIds")) throw new TypeError("owner_agent_tool_arguments_invalid");
+    const args = parseArguments(call, fields);
     const itemIds = safeItemIds(args.itemIds);
+    const rank = declaredRank(args.rank);
     const eligible = await this.eligibleItemIds(input, "forget");
     if (itemIds.some((itemId) => !eligible.has(itemId))) throw new TypeError("owner_agent_item_not_eligible");
     if (itemIds.length !== 1) {
+      if (rank === null) {
+        return refusedTool(call, "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.");
+      }
       const decision = await this.dependencies.decisions.raise({
         principalId: input.principalId,
         origin: "telegram-memory-forget",
         originReference: itemIds.join(","),
         urgency: "normal",
-        rank: 100,
+        rank,
         question: `Forget these ${itemIds.length} memories?`,
         detail: "Nothing changes unless Sid taps Confirm forget.",
         choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${itemIds.length}` }]),
@@ -2051,8 +2081,13 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
+    const fields = optionalArgumentKeys(call, ["itemId", "supportingExcerpt", "rank"]);
+    if (!fields.includes("itemId") || !fields.includes("supportingExcerpt")) {
+      throw new TypeError("owner_agent_tool_arguments_invalid");
+    }
+    const args = parseArguments(call, fields);
     const itemId = safeUlid(args.itemId);
+    const rank = declaredRank(args.rank);
     const excerpt = confirmationExcerpt(input, args.supportingExcerpt);
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
@@ -2074,13 +2109,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       throw new TypeError("owner_agent_item_not_eligible");
     }
     if (item.version.origin === "model" && item.version.basis === "inferred") {
+      if (rank === null) {
+        return refusedTool(call, "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.");
+      }
       const question = modelInferenceDecisionQuestion(item.version.text);
       const decision = await this.dependencies.decisions.raise({
         principalId: input.principalId,
         origin: "telegram-memory-confirm",
         originReference: `${itemId}:${item.version.versionId}`,
         urgency: "normal",
-        rank: 100,
+        rank,
         question,
         detail: "Nothing changes unless Sid taps Confirm. Discard leaves the proposal inactive.",
         choices: Object.freeze([

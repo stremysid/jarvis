@@ -11,6 +11,10 @@
  * The results are evidence rather than receipts: `owner_status`,
  * `decision_queue` and `run_digest` change nothing the model may claim it did,
  * so they mint no receipt id and their content is the model's reference data.
+ *
+ * `vault_search` is here for the same reason: the deleted `/vault` handler was
+ * the only place that told Sid his vault is on his own PC, and deleting it left
+ * him with no answer. It returns that one fact on either channel.
  */
 
 import type { DecisionItem } from "../decisions/decision-types.js";
@@ -26,6 +30,18 @@ import type { OwnerCommandCapabilities } from "./owner-command-capabilities.js";
 export const OWNER_STATUS_TOOL_NAME = "owner_status";
 export const DECISION_QUEUE_TOOL_NAME = "decision_queue";
 export const RUN_DIGEST_TOOL_NAME = "run_digest";
+export const VAULT_SEARCH_TOOL_NAME = "vault_search";
+
+/**
+ * The one mechanical fact about the vault.
+ *
+ * The vault is Obsidian notes on Sid's own PC. The cloud cannot reach it, so
+ * the only true answer is the command he runs there. This is the sentence the
+ * deleted `/vault` handler used to return; it is a fact, not a reading of his
+ * words, which is why it survives as a tool the model can call on either
+ * channel rather than as a slash command one channel recognised.
+ */
+export const VAULT_SEARCH_EVIDENCE = "The vault lives on your PC. Run: jarvis vault search <query>";
 
 const EMPTY_ARGUMENTS = Object.freeze({ type: "object", additionalProperties: false, properties: {} });
 
@@ -50,6 +66,18 @@ export const OWNER_COMMAND_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] 
     description: "Assemble today's digest now and return its text, for \"/digest\", \"what's my day look like?\" or \"give me the digest\". It is assembled but not sent, so put its text in your reply instead of saying you sent it.",
     parameters: EMPTY_ARGUMENTS,
   }),
+  Object.freeze({
+    name: VAULT_SEARCH_TOOL_NAME,
+    description: "Answer a question about the owner's personal notes vault, for \"/vault\", \"search my notes\", or \"look in my Obsidian vault\". The vault is a local store on Sid's own PC; Jarvis in the cloud cannot read it, so this returns the exact command Sid runs there. Say that in your own words and give him the command; never claim you searched the notes yourself.",
+    parameters: Object.freeze({
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 256, description: "The words to search the vault for, in Sid's own words." },
+      },
+    }),
+  }),
 ]);
 
 function queueEvidence(items: readonly DecisionItem[]): string {
@@ -70,6 +98,23 @@ export function ownerCommandTool(
   capabilities: OwnerCommandCapabilities | undefined,
   call: ModelFunctionCall,
 ): (() => Promise<ExecutedTool>) | null {
+  // The vault answer is a constant, so it does not need the deployment's
+  // reporting bindings; it is still owner-only, because the core checks
+  // `directOwnerText` and the tier gate before any command tool body runs.
+  if (call.name === VAULT_SEARCH_TOOL_NAME) {
+    return async () => {
+      try {
+        const args = parseArguments(call, ["query"]);
+        if (typeof args.query !== "string" || args.query.length === 0 || args.query.length > 256) {
+          throw new TypeError("vault_search_query_invalid");
+        }
+        return unactionedTool(call, VAULT_SEARCH_EVIDENCE, []);
+      } catch (error) {
+        return refusedTool(call,
+          `That vault request failed: ${error instanceof Error ? error.message : String(error)}. Nothing changed.`);
+      }
+    };
+  }
   if (call.name !== OWNER_STATUS_TOOL_NAME && call.name !== DECISION_QUEUE_TOOL_NAME
     && call.name !== RUN_DIGEST_TOOL_NAME) {
     return null;

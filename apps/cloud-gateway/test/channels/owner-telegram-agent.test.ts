@@ -511,7 +511,7 @@ async function prepareConfirmedForget(label: string): Promise<Readonly<{
     text: "forget both subjects",
     context: rows.map(memoryContext),
     provider: new FakeAgentProvider([
-      called(tool(`${label}-many`, "memory_forget", { itemIds: ids })),
+      called(tool(`${label}-many`, "memory_forget", { itemIds: ids, rank: 50 })),
       stopped("Use the button."),
     ]),
   });
@@ -543,7 +543,7 @@ async function prepareModelConfirmationDecision(label: string): Promise<Readonly
     text: "yes",
     controlTargetIds: [itemId],
     provider: new FakeAgentProvider([
-      called(tool(`${label}-confirm`, "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      called(tool(`${label}-confirm`, "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })),
       stopped("Use Confirm or Discard."),
     ]),
   });
@@ -1155,7 +1155,7 @@ describe("owner Telegram agent", () => {
       provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
     });
     const provider = new FakeAgentProvider([
-      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
+      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right", rank: 50 })),
       stopped("Confirmed.", [{ sentence: "Confirmed.", receiptIds: ["receipt:confirm-1"] }]),
     ]);
 
@@ -1193,6 +1193,8 @@ describe("owner Telegram agent", () => {
       originReference: `${itemId}:${beforeTap.version.versionId}`,
       question: exactPrompt,
       status: "delivered",
+      // The rank is the model's: it passed rank 50 on the memory_confirm call.
+      rank: 50,
     });
     const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
     if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
@@ -1211,6 +1213,43 @@ describe("owner Telegram agent", () => {
           excerpt: 'Confirmed exact stored memory by tap: "I like art"',
         })]),
       });
+  });
+
+  it("refuses to queue a confirmation when the model does not state a rank", async () => {
+    const harness = await ownerHarness("confirm-no-rank");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
+      stopped("I did not change anything."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "yes, that's right",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+      controlTargetIds: [itemId],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.",
+    });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+    const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
+    await expect(decisions.queue(harness.principalId)).resolves.toEqual([]);
   });
 
   it("labels an explanation of an uncertain memory as unconfirmed", async () => {
@@ -2532,7 +2571,7 @@ describe("owner Telegram agent", () => {
     const before = await memoryRows(harness.principalId);
     const ids = before.map((row) => row.item_id);
     const provider = new FakeAgentProvider([
-      called(tool("forget-many", "memory_forget", { itemIds: ids })),
+      called(tool("forget-many", "memory_forget", { itemIds: ids, rank: 50 })),
       stopped("I forgot both memories.", [{
         sentence: "I forgot both memories.",
         receiptIds: ["receipt:forget-many"],
@@ -2560,6 +2599,8 @@ describe("owner Telegram agent", () => {
         origin: "telegram-memory-forget",
         originReference: ids.join(","),
         status: "delivered",
+        // The rank is the model's: it passed rank 50 on the memory_forget call.
+        rank: 50,
       }]);
 
     const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
@@ -2642,7 +2683,7 @@ describe("owner Telegram agent", () => {
       text: "forget both",
       context: before.map(memoryContext),
       provider: new FakeAgentProvider([
-        called(tool("tap-forget-many", "memory_forget", { itemIds: ids })),
+        called(tool("tap-forget-many", "memory_forget", { itemIds: ids, rank: 50 })),
         stopped("Use the button."),
       ]),
     });

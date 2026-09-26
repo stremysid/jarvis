@@ -110,6 +110,11 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   owner_status: "notify.owner",
   decision_queue: "notify.owner",
   run_digest: "notify.owner",
+  // The vault answer is a read of the owner's own stored information, so it
+  // shares `memory.read`'s tier-1 row and needs no migration. It reaches no
+  // other store: the vault itself is on Sid's PC, so the tool only returns the
+  // local command.
+  vault_search: "memory.read",
   university_update: "university.track",
   study_coach: "study.coach",
   // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as
