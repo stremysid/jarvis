@@ -13,7 +13,7 @@ Last regenerated: 2026-09-25, evening (EDT), from `gh pr view` on every open and
 PR, repository history, and the orchestrator's read-only production checks. Production was not
 queried directly by this builder. Order within a section is the order to do them in.
 
-**Nothing has deployed since 2026-09-24 ~9:41 PM EDT** (`a7cd3553`, #189, D1 `0045`). 30 PRs have
+**Nothing has deployed since 2026-09-24 ~9:41 PM EDT** (`a7cd3553`, #189, D1 `0045`). 26 PRs have
 merged since and none of it is running; see [STATE](STATE.md#merged-since-the-deploy-none-of-it-running).
 Migrations `0044`, `0047`–`0054` are on `main`, not applied. `0044` and `0047`–`0052` were
 rehearsed on 2026-09-25 (scratch, [#202](https://github.com/stremysid/jarvis/pull/202));

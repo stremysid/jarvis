@@ -26,8 +26,9 @@ for a public repo. [DeepWiki](https://deepwiki.com/stremysid/jarvis) indexed it 
 
 ## Merged since the deploy, none of it running
 
-30 PRs merged between `a7cd3553` (9:41 PM EDT 24th) and `39b70d61` (#201, 8:48 PM EDT 25th).
-By what they'd change once deployed:
+26 PRs merged since `a7cd3553` (9:41 PM EDT 24th): 24 by `39b70d61` (#201, 8:48 PM EDT 25th),
+plus #206 and #209 shortly after (9:03 and 9:09 PM EDT), while this regeneration was in
+progress. By what they'd change once deployed:
 
 | Area | PRs | What changes |
 |---|---|---|
@@ -43,16 +44,19 @@ By what they'd change once deployed:
 | Reminders | [#168](https://github.com/stremysid/jarvis/pull/168) | `reminder_schedule`/`reminder_list`/cancel tools with fenced delivery; migration `0050` |
 | Tier-3 scope | [#199](https://github.com/stremysid/jarvis/pull/199) | Tier 3 becomes exactly Sid's five actions; migration `0051` |
 | Note-source trigger | [#194](https://github.com/stremysid/jarvis/pull/194) | Drops the Markdown-citation clause from the insert guard; migration `0048` |
+| Memory judgment | [#206](https://github.com/stremysid/jarvis/pull/206) | Removes register rows 6–9, 13 (silent lifetime default, silent text-match merge, restored-basis change, multi-forget tap); rows 6 and 9 keep a named blocker instead of full removal |
+| Projects judgment | [#209](https://github.com/stremysid/jarvis/pull/209) | Rewrites the stalled-project detector as a facts reader; deletes `assessStaleness`/`detectStalledProjects` and their verdict fields |
 | Other merged fixes | [#179](https://github.com/stremysid/jarvis/pull/179), [#180](https://github.com/stremysid/jarvis/pull/180), [#188](https://github.com/stremysid/jarvis/pull/188), [#183](https://github.com/stremysid/jarvis/pull/183), [#191](https://github.com/stremysid/jarvis/pull/191), [#184](https://github.com/stremysid/jarvis/pull/184) | Docs, hermes path fix, redaction gaps (guest/telemetry), D2L extension compatibility, call-session overlap/barge-in fixes |
 | Docs/CI only | [#202](https://github.com/stremysid/jarvis/pull/202), [#203](https://github.com/stremysid/jarvis/pull/203), [#205](https://github.com/stremysid/jarvis/pull/205), [#208](https://github.com/stremysid/jarvis/pull/208), [#211](https://github.com/stremysid/jarvis/pull/211) | Scratch-rehearsal record, the judgment-blocks-merge rule, command docs, two Hermes CI timeout fixes |
+
+**#206 and #209 merged after this regeneration started** (9:03 PM and 9:09 PM EDT); they are
+already folded into the table above rather than double-counted below.
 
 ## Open pull requests
 
 | PR | State | What it would do |
 |---|---|---|
-| [#206](https://github.com/stremysid/jarvis/pull/206) memory judgment | open, built on `679d2b95` | Removes register rows 6–9, 13 (refile rotation, silent lifetime default, silent text-match merge, restored-basis change, multi-forget tap) |
 | [#207](https://github.com/stremysid/jarvis/pull/207) calls judgment | open | Removes `parseOwnerAccessIntent` and `PERMISSION_CAPABILITIES` (rows 1, 3, 4, 5); the model calls an `owner_access` tool |
-| [#209](https://github.com/stremysid/jarvis/pull/209) projects judgment | open | Rewrites the stalled-project detector as a facts reader; deletes `assessStaleness`/`detectStalledProjects` and their verdict fields |
 | [#212](https://github.com/stremysid/jarvis/pull/212) study coach judgment | open | Deletes the practice/preference/observation phrase parsers in `study-coach-model.ts`; the model declares the operation |
 | [#213](https://github.com/stremysid/jarvis/pull/213) university judgment | open | Deletes the status-word grammars (B116–B129); the model declares status plus the owner's message as evidence |
 | [#210](https://github.com/stremysid/jarvis/pull/210) CI offload | open | Adds `workflow_dispatch` jobs for mutation sweeps and focused tests, so they run on Actions instead of Sid's PC |
@@ -68,7 +72,7 @@ Full history, next actions and blockers for each are in [QUEUE](QUEUE.md).
 | Phase | Verdict | Remaining boundary |
 |---|---|---|
 | 1 Nervous system | **shared owner core merged (#174), not deployed; multi-step tool loop merged (#200), not deployed** | Once deployed, both channels share the tool catalogue, prompt core and `history_search` (#198). Production still runs the pre-#174 single-tool-per-turn code |
-| 2 Memory | **shared retrieval code merged, not deployed; judgment removal in progress (#206 open)** | Deployed code still reads the empty local-agent projection on calls. Rows 6–9, 13 removal is open, not merged |
+| 2 Memory | **shared retrieval code merged, not deployed; judgment removal merged (#206), not deployed** | Deployed code still reads the empty local-agent projection on calls. Rows 6–9, 13 are removed/narrowed on `main` but not yet running in production |
 | 3 School | **judgment removal partial (#204 merged, row 10 kept by design); deadlines now model-scheduled (#193, #201)** | Missed-work inference (row 10) stays in a model-less cron job pending a model-write tool and migration; see [CODE-VS-JUDGMENT](CODE-VS-JUDGMENT.md#row-10-persisted-inference-still-in-code-not-removed) |
 | 4 Control | **tier-3 narrowed to Sid's five actions on main (#199, migration `0051`), not deployed** | Until deployed, production still asks for taps outside the five. Known gaps outside the registry are in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25) |
 | 5 Calling | **spoken PIN gate merged (#196), not deployed; owner catalogue parity merged (#174), not deployed** | Production still runs the per-call passphrase gate `0d69556` predates. No live PIN or streaming acceptance run this session |
