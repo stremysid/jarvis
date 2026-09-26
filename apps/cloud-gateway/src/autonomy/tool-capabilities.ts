@@ -82,6 +82,12 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // selects nothing and changes no memory; it records the turn's reference set,
   // so it shares `memory.read`'s tier-1 row and needs no migration.
   declare_memory_references: "memory.read",
+  // Owner-only guest access management. `access.manage` is the capability the
+  // voice access authority already checks; `0055` registers it at tier 1 so the
+  // classification guard can read a real row. It is not one of the five actions
+  // Sid wants a confirmation for, and the model decides whether to read the
+  // number back, so no tap is added here.
+  owner_access: "access.manage",
   // Pinning changes a stored preference rather than an item's existence, so it is
   // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
   // the whole reason these two needed no migration: `0035` already seeds the tier.
@@ -89,6 +95,9 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_unpin: "memory.write",
   school_update: "school.track",
   deadline_record: "school.track",
+  // Reading Sid's own stored deadlines is owner-scoped and changes nothing, so
+  // it shares school.track's tier-1 row and needs no migration.
+  deadline_list: "school.track",
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
@@ -99,6 +108,11 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // It shares school_d2l_status's ungated tier-1 row: it reads Sid's own
   // school store, changes nothing and reaches nobody.
   school_work_evidence: "school.track",
+  // Read-only facts about the tracked repositories: excerpts, commit ages,
+  // dates and poll health. It shares `read.repository`, the tier-1 row
+  // `0008_autonomy.sql` already seeds for polling a repository's status
+  // documents, so classifying it needed no migration. It changes nothing.
+  project_facts: "read.repository",
   school_collector_revoke: "school.collector.revoke",
   reminder_schedule: "notify.owner",
   reminder_list: "notify.owner",

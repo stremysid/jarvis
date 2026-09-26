@@ -210,8 +210,14 @@ export function mapSchoolCourse(batch: SchoolBatch): MappedCourse {
       });
     });
   }
-  const deadlines = items.flatMap((item): RawDeadlineItem[] => item.dueAt === null ? [] : [{
-    externalId: item.id, course: batch.course.name, title: `${item.title} [${item.dateSource}]`, dueAt: item.dueAt,
-  }]);
+  // An item with no due date is still a deadline: it is stored with a null due
+  // date so Jarvis can see it and ask Sid, rather than being dropped here. The
+  // date source is appended only when there is one.
+  const deadlines = items.map((item): RawDeadlineItem => ({
+    externalId: item.id,
+    course: batch.course.name,
+    title: item.dateSource === null ? item.title : `${item.title} [${item.dateSource}]`,
+    dueAt: item.dueAt,
+  }));
   return { items, deadlines, failures, unmapped: [...new Set(unmapped)] };
 }

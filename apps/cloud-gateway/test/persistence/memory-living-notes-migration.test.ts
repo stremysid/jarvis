@@ -199,6 +199,7 @@ async function seedItem(value: Fixture, text: string, notBefore = value.now): Pr
     principalId: value.principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: eventId,
     creationEventSequence: sequence,
     version: {

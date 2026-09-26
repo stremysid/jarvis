@@ -4,9 +4,11 @@
  * ingress authority, consent presentation and delivery-specific evidence.
  */
 
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import type { GuestCapabilityId, Ulid } from "../../../../packages/contracts/src/index.js";
 import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
+import { ProjectRepository } from "../projects/project-repository.js";
+import { projectFacts } from "../projects/project-facts.js";
 import { SchoolObservationRepository } from "../school/school-observation-repository.js";
 import { CLASSROOM_SOURCE_ID } from "../school/classroom-source.js";
 import { SchoolCollectorPairing } from "../school/collector-pairing.js";
@@ -37,6 +39,11 @@ import {
   DECLARE_MEMORY_REFERENCES_TOOL_NAME,
   MAX_DECLARED_REFERENCES,
 } from "./reply-reference-tools.js";
+import {
+  OWNER_ACCESS_TOOL_NAME,
+  type OwnerAccessToolPort,
+  type OwnerAccessToolRequest,
+} from "../voice/owner-access-tool.js";
 
 /**
  * The accepted argument names of the two inbox tools, read from their own
@@ -475,6 +482,14 @@ export interface OwnerAgentCoreDependencies {
    * model, which is a different answer from "the web had nothing".
    */
   readonly web?: WebToolsDependencies;
+  /**
+   * Guest access management, on channels that have it.
+   *
+   * Only a call has a `VoiceCallAuthority` and a PIN question surface, so the
+   * shared `owner_access` tool refuses on a channel without this port rather
+   * than pretending the capability exists there.
+   */
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
   /** Test seam and an explicit cap below the channel's outer allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -580,24 +595,44 @@ function parseArgumentsWithOptionalExcerpt(
 }
 
 /**
- * `memory_remember`'s arguments, with or without the lifetime pair.
+ * `memory_remember`'s arguments, all of them required.
  *
  * `parseArguments` insists on an exact key set, which is what makes a
- * hallucinated argument a refusal rather than a silently dropped field, so an
- * optional field is expressed as a second accepted shape instead of by
- * loosening that check. `lifetime` and `expiresAt` are one shape and not two,
- * because they are coupled: durable carries no end, temporary requires one, so
- * a call sending just one of them is not a call this tool can mean.
+ * hallucinated argument a refusal rather than a silently dropped field. The
+ * lifetime pair is part of that exact set: the model states how long the fact
+ * lasts instead of relying on a code default, because "how long a fact lasts"
+ * is the model's decision and an omission must be refused rather than answered
+ * by guessing.
  */
 function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown> {
-  const required = [
+  return parseArguments(call, [
     "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
-  ];
-  try {
-    return parseArguments(call, required);
-  } catch {
-    return parseArguments(call, [...required, "lifetime", "expiresAt"]);
+    "lifetime", "expiresAt",
+  ]);
+}
+
+/**
+ * The lifetime pair every memory-writing tool asks the model for.
+ *
+ * Shape only: whether the pair is *consistent* -- durable with no end,
+ * temporary with one -- is the capture's call, so that judgment lives in one
+ * place rather than being re-implemented per tool and drifting. The values
+ * themselves are the model's, and there is no default, because a default is
+ * code deciding how long Sid's fact lasts.
+ */
+function memoryLifetimeArguments(
+  args: Record<string, unknown>,
+): Readonly<{ lifetime: "durable" | "temporary"; validTo: string | null }> {
+  const lifetime = args.lifetime;
+  if (lifetime !== "durable" && lifetime !== "temporary") {
+    throw new TypeError("owner_agent_memory_lifetime_invalid");
   }
+  const expiresAt = args.expiresAt;
+  if (expiresAt !== null
+    && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
+    throw new TypeError("owner_agent_memory_expiry_invalid");
+  }
+  return Object.freeze({ lifetime, validTo: expiresAt });
 }
 
 /**
@@ -803,6 +838,24 @@ export function unactionedTool(
     receipt: null,
     receiptId: null,
     referencedItemIds,
+  });
+}
+
+/**
+ * A tool that changed something, whose outcome the model speaks itself.
+ *
+ * It mints a receipt id, so a reply sentence about the change is provable and
+ * survives the honesty guard, but it carries no code-authored sentence: the
+ * structured result is the model's evidence, and how to say it is the model's
+ * judgment (the batch that removed the owner-access result sentences).
+ */
+function modelStatedReceiptTool(call: ModelFunctionCall, evidence: string): ExecutedTool {
+  const receiptId = `receipt:${call.id}`;
+  return Object.freeze({
+    providerResult: toolResult(call, "completed", receiptId, evidence, Object.freeze([])),
+    receipt: null,
+    receiptId,
+    referencedItemIds: Object.freeze([]),
   });
 }
 
@@ -1460,6 +1513,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);
       return this.declareMemoryReferences(input, port, call, touchedItemIds);
     }
+    if (call.name === OWNER_ACCESS_TOOL_NAME) {
+      if (this.dependencies.ownerAccessTool === null || this.dependencies.ownerAccessTool === undefined) {
+        return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+      }
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return this.ownerAccess(input, call);
+    }
     if (GUIDED_ASSIGNMENT_TOOL_DEFINITIONS.some((definition) => definition.name === call.name)) {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
       await port.memoryOwnerTurn(input, null);
@@ -1576,6 +1637,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         .status(args);
       return unactionedTool(call, JSON.stringify(evidence), []);
     }
+    if (call.name === "project_facts") {
+      parseArguments(call, []);
+      // A read of Sid's own tracked repositories: no action authority spent,
+      // no receipt. The model judges what needs attention from these facts.
+      const statuses = await new ProjectRepository(this.dependencies.database).readActiveProjectStatuses();
+      const facts = projectFacts(statuses, { now: this.dependencies.now ?? (() => new Date()) });
+      return unactionedTool(call, JSON.stringify(facts), Object.freeze([]));
+    }
     if (call.name === "school_work_evidence") {
       const args = parseArguments(call, ["cursor", "seenSinceDays", "limit"]);
       const cursor = args.cursor;
@@ -1659,6 +1728,51 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     port.recordReferences(input.correlationId, Object.freeze([...itemIds]));
     return unactionedTool(call, `Recorded ${itemIds.length === 1 ? "one memory reference" : `${itemIds.length} memory references`} for this reply.`, Object.freeze([]));
+  }
+
+  /**
+   * `owner_access`: the model names the operation, target, capabilities and PIN
+   * choice; the call's port validates and applies it. The requested text of each
+   * field is the tool description's job, and code keeps only the shape check
+   * here plus the service's own E.164, capability and authority validation.
+   */
+  private async ownerAccess(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool> {
+    const tool = this.dependencies.ownerAccessTool;
+    if (tool === null || tool === undefined) {
+      return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+    }
+    let args: Record<string, unknown>;
+    try {
+      args = parseArguments(call, ["operation", "phone", "capabilities", "pin"]);
+    } catch {
+      return refusedTool(call, "I did not change caller access because the tool call was malformed. Nothing changed.");
+    }
+    const operation = args.operation;
+    if (operation !== "add" && operation !== "replace_permissions" && operation !== "rotate_pin"
+      && operation !== "revoke" && operation !== "list") {
+      return refusedTool(call, "I did not change caller access because the operation was not one I can do. Nothing changed.");
+    }
+    if (args.phone !== null && typeof args.phone !== "string") {
+      return refusedTool(call, "I did not change caller access because the phone number was not a number or null. Nothing changed.");
+    }
+    if (args.pin !== "default" && args.pin !== "digits") {
+      return refusedTool(call, "I did not change caller access because the PIN choice was not default or digits. Nothing changed.");
+    }
+    if (!Array.isArray(args.capabilities)
+      || args.capabilities.some((value) => typeof value !== "string")) {
+      return refusedTool(call, "I did not change caller access because the capabilities were not a list of capability ids. Nothing changed.");
+    }
+    const request: OwnerAccessToolRequest = Object.freeze({
+      operation,
+      providerE164: args.phone,
+      capabilityIds: Object.freeze([...args.capabilities] as GuestCapabilityId[]),
+      pin: args.pin,
+    });
+    const result = await tool.run(request, input.signal);
+    return modelStatedReceiptTool(call, JSON.stringify({ status: "completed", ...result }));
   }
 
   private controls(): MemoryOwnerControlsService {
@@ -1919,16 +2033,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     // Shape only. Whether the pair is *consistent* -- durable with no end,
     // temporary with one -- is the capture's call, so that judgment lives in one
-    // place rather than being re-implemented here and drifting from it.
-    const lifetime = args.lifetime === undefined ? "durable" : args.lifetime;
-    if (lifetime !== "durable" && lifetime !== "temporary") {
-      throw new TypeError("owner_agent_memory_lifetime_invalid");
-    }
-    const expiresAt = args.expiresAt === undefined ? null : args.expiresAt;
-    if (expiresAt !== null
-      && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
-      throw new TypeError("owner_agent_memory_expiry_invalid");
-    }
+    // place rather than being re-implemented here and drifting from it. The
+    // value itself is the model's: there is no default, because a default is
+    // code deciding how long Sid's fact lasts.
+    const { lifetime, validTo: expiresAt } = memoryLifetimeArguments(args);
     const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
     const result = await this.controls().remember({
       ownerTurn: await this.memoryOwnerTurn(input, port, "remember") as never,
@@ -1953,45 +2061,33 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const fields = optionalArgumentKeys(call, ["itemIds", "supportingExcerpt", "rank"]);
-    if (!fields.includes("itemIds")) throw new TypeError("owner_agent_tool_arguments_invalid");
-    const args = parseArguments(call, fields);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemIds"]);
     const itemIds = safeItemIds(args.itemIds);
-    const rank = declaredRank(args.rank);
     const eligible = await this.eligibleItemIds(input, "forget");
     if (itemIds.some((itemId) => !eligible.has(itemId))) throw new TypeError("owner_agent_item_not_eligible");
-    if (itemIds.length !== 1) {
-      if (rank === null) {
-        return refusedTool(call, "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.");
-      }
-      const decision = await this.dependencies.decisions.raise({
-        principalId: input.principalId,
-        origin: "telegram-memory-forget",
-        originReference: itemIds.join(","),
-        urgency: "normal",
-        rank,
-        question: `Forget these ${itemIds.length} memories?`,
-        detail: "Nothing changes unless Sid taps Confirm forget.",
-        choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${itemIds.length}` }]),
-      });
-      port.recordDecision(input, decision);
-      return informationalTool(
-        call,
-        `Nothing changed. Tap Confirm forget ${itemIds.length} to hide those exact memories.`,
-        itemIds,
-      );
-    }
     groundedExcerpt(input, args.supportingExcerpt);
     // "don't forget the memory about X" is a request to keep it. The model
     // usually reads that correctly; this guard is what holds when it does not.
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
-    const item = await new MemoryRepository(this.dependencies.database)
-      .readCurrentItem(input.principalId, itemIds[0]!);
-    const result = await this.controls().forget({
+    // No confirmation tap. Forgetting is not one of the five actions Sid asked
+    // to be confirmed, and the tap that used to stand here existed only because
+    // the ledger allowed one mutation per owner turn. Each target now carries
+    // its own command and its own receipt, so one call can hide several.
+    const repository = new MemoryRepository(this.dependencies.database);
+    const items = await Promise.all(
+      itemIds.map((itemId) => repository.readCurrentItem(input.principalId, itemId)),
+    );
+    const results = await this.controls().forget({
       ownerTurn: await this.memoryOwnerTurn(input, port, "forget") as never,
       candidateItemIds: itemIds,
     });
-    return successfulTool(call, memoryReceipt(result.receipt, item.version.text), itemIds);
+    if (results.length !== itemIds.length) throw new TypeError("owner_agent_memory_arguments_invalid");
+    return successfulTool(
+      call,
+      results.map((result, index) =>
+        memoryReceipt(result.receipt, items[index]!.version.text)).join("\n"),
+      itemIds,
+    );
   }
 
   private async correct(
@@ -1999,7 +2095,9 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"]);
+    const args = parseArguments(call, [
+      "itemId", "newFact", "supportingExcerpt", "kind", "sensitivity", "lifetime", "expiresAt",
+    ]);
     const itemId = safeUlid(args.itemId);
     const newFact = safeText(args.newFact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
@@ -2008,6 +2106,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
       throw new TypeError("owner_agent_memory_arguments_invalid");
     }
+    const { lifetime, validTo } = memoryLifetimeArguments(args);
     await this.requireEligibleItem(input, "correct", itemId);
     const grounding = rememberGrounding(input, newFact, excerpt, null);
     const result = await this.controls().correct({
@@ -2018,6 +2117,8 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       normalizedFromSource: grounding.authoritative,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
+      lifetime,
+      validTo,
     });
     // The receipt already names both wordings, so it is not given a second
     // "Memory:" suffix the way the single-wording mutations are.
@@ -2029,8 +2130,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId", "basis"]);
     const itemId = safeUlid(args.itemId);
+    // What the restored evidence now counts as is the model's call: code used to
+    // set `confirmed` on its own whenever the origin was first-person and every
+    // source was archive-only. Only the enum is checked here.
+    const bases = new Set<string>(["stated", "confirmed", "observed", "inferred", "third_party"]);
+    if (typeof args.basis !== "string" || !bases.has(args.basis)) {
+      throw new TypeError("owner_agent_memory_basis_invalid");
+    }
+    const basis = args.basis as "stated" | "confirmed" | "observed" | "inferred" | "third_party";
     groundedExcerpt(input, args.supportingExcerpt);
     // "I don't want to use that memory again" is not a restore request.
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
@@ -2039,6 +2148,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const result = await this.controls().lift({
       ownerTurn: await this.memoryOwnerTurn(input, port, "lift") as never,
       candidateItemIds: Object.freeze([itemId]),
+      basis,
     });
     return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
   }

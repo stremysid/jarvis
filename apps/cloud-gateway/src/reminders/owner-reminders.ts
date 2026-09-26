@@ -19,7 +19,7 @@ export class OwnerReminderWriteUnconfirmedError extends Error {
 export class OwnerReminderRepository {
   constructor(private readonly database: D1Database) {}
 
-  async schedule(principal: string, turnId: string, at: unknown, text: unknown): Promise<OwnerReminder> {
+  async schedule(principal: string, turnId: string | null, at: unknown, text: unknown): Promise<OwnerReminder> {
     const dueAt = requireInstant(at, "owner_reminder_at");
     const message = requireText(text, "owner_reminder_text", 4096);
     const id = newUlid();

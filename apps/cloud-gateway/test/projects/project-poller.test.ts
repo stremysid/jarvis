@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { GitHubClient } from "../../src/projects/github-client.js";
 import { ProjectRepository } from "../../src/projects/project-repository.js";
-import { ProjectPoller, attentionChanges } from "../../src/projects/project-poller.js";
+import { ProjectPoller } from "../../src/projects/project-poller.js";
 import { MAX_EXCERPT_CHARACTERS, codePointLength } from "../../src/projects/project-types.js";
 import type { GitHubRoutes } from "./project-fixture.js";
 import {
@@ -195,13 +195,40 @@ describe("ProjectPoller", () => {
       previousHash: await sha256Hex(DOCUMENTS["KNOWN_ISSUES.md"]),
       currentHash: await sha256Hex(knownIssues),
     }]);
-    expect(attentionChanges(changedPoll.changes)).toHaveLength(1);
 
     clock.advanceDays(1);
     const unchangedPoll = await poller.pollProject(project);
     if (unchangedPoll.status !== "observed") throw new Error("expected an observation");
     expect(unchangedPoll.changes).toEqual([]);
-    expect(attentionChanges(unchangedPoll.changes)).toEqual([]);
+  });
+
+  it("reports every changed document rather than only the ones code used to single out", async () => {
+    await track("project:jarvis", "jarvis");
+    const clock = clockFrom("2026-09-01T00:00:00.000Z");
+    let nextSteps = DOCUMENTS["NEXT_STEPS.md"];
+    let changelog = DOCUMENTS["CHANGELOG.md"];
+    const poller = pollerFor({
+      head: () => commitsResponse(FIXTURE_SHA, "2026-08-31T12:00:00Z"),
+      file: (path: string) => fileResponse(path === "NEXT_STEPS.md"
+        ? nextSteps
+        : path === "CHANGELOG.md"
+          ? changelog
+          : DOCUMENTS[path as keyof typeof DOCUMENTS]),
+    }, clock.now);
+
+    const project = (await new ProjectRepository(env.DB).listActiveProjects())[0];
+    await poller.pollProject(project);
+
+    clock.advanceDays(1);
+    nextSteps = "# Next steps\n- Keep going\n";
+    changelog = "# Changelog\n- One more entry\n";
+    const changedPoll = await poller.pollProject(project);
+    if (changedPoll.status !== "observed") throw new Error("expected an observation");
+    // NEXT_STEPS.md and CHANGELOG.md are not "attention" documents to code any
+    // more: which change matters is the model's judgment, so every change is
+    // reported.
+    expect(changedPoll.changes.map((change) => change.path).sort())
+      .toEqual(["CHANGELOG.md", "NEXT_STEPS.md"]);
   });
 
   it("reports a document deleted from the repository as a change rather than as an absence", async () => {

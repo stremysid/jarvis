@@ -32,7 +32,7 @@ import type {
 } from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
 import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
-import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
+import { projectFacts as projectFactsOf, type ProjectFacts } from "../projects/project-facts.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 import type { D2lStatus } from "../school/collector-repository.js";
 
@@ -108,14 +108,13 @@ export interface DigestJobDependencies {
   /**
    * Injected only so the failure path below can be exercised.
    *
-   * The detector's one documented throw is a non-finite clock, which also
-   * stops the composer dead -- so with `assessStaleness` imported directly
-   * there is no way to reach the guard around it, and an unreachable guard
-   * is indistinguishable from a broken one. The detector is not code this
-   * file owns, and a later throw added to it should degrade the digest
-   * rather than delete it.
+   * `projectFacts` has one documented throw, a non-finite clock, which also
+   * stops the composer dead -- so with it imported directly there is no way to
+   * reach the guard around it, and an unreachable guard is indistinguishable
+   * from a broken one. The facts reader is not code this file owns, and a
+   * later throw added to it should degrade the digest rather than delete it.
    */
-  readonly assess?: typeof assessStaleness;
+  readonly projectFacts?: typeof projectFactsOf;
 }
 
 export function unconfiguredDeadlineSources(
@@ -292,44 +291,24 @@ function localSchedule(instant: Date, timeZone: string): { readonly weekday: num
   return { weekday, minuteOfDay: hour * 60 + minute };
 }
 
-/**
- * Why this project is being escalated, in one line.
- *
- * The detector's `reasons` are codes; this turns them into something the
- * owner reads at 07:30. It reports every reason rather than the first,
- * because "stale and we also cannot see it" is a different situation from
- * either half alone.
- */
-function stalledReason(report: ProjectStalenessReport): string | null {
-  if (!report.escalate) return null;
-  const days = report.daysSinceLastCommit;
-  const age = days === null ? "no readable commit date" : `${Math.floor(days)}d since a commit`;
-  return `${age} (${report.reasons.join(", ")})`;
-}
-
 function toDigestProject(
   status: ProjectStatus,
-  report: ProjectStalenessReport | undefined,
+  facts: ProjectFacts | undefined,
 ): DigestProject {
   const nextSteps = documentAt(status, "NEXT_STEPS.md");
   return {
     projectId: status.project.projectId,
     displayName: status.project.displayName,
     lastCommitAt: status.latestSuccess?.lastCommitAt ?? null,
+    daysSinceLastCommit: facts?.daysSinceLastCommit ?? null,
     nextStepsExcerpt: nextSteps?.excerpt ?? null,
-    stalledReason: report === undefined ? null : stalledReason(report),
+    nextStepsDates: facts?.nextStepsDates ?? Object.freeze([]),
+    nextStepsUnreadable: facts?.nextStepsUnreadable ?? Object.freeze([]),
+    nextStepsTruncated: facts?.nextStepsTruncated ?? false,
     // The most recent observation failing is what the owner needs to see. A
     // project whose last SUCCESS looks healthy while every poll since has
     // failed is exactly the case that must not read as calm.
     pollFailure: status.latestObservation?.failure ?? null,
-    // Deliberately empty. Which documents changed is a comparison between the
-    // last two successful observations, and the repository stores the current
-    // one rather than a diff. The poller already reports changes as they
-    // happen, which is when a KNOWN_ISSUES edit is worth knowing about --
-    // repeating it in the morning digest would be a worse version of a ping
-    // the owner already had. Populating this from a stored diff is the change
-    // to make if that judgement turns out wrong.
-    changedDocuments: [],
   };
 }
 
@@ -353,7 +332,6 @@ function toDigestDeadline(deadline: Deadline, sources: readonly DeadlineSource[]
     course: deadline.course,
     title: deadline.title,
     dueAt: deadline.dueAt,
-    effort: deadline.effort,
     ...(label === undefined ? {} : { source: label }),
   };
 }
@@ -477,19 +455,20 @@ export async function assembleDigest(
     }
   }
 
-  // Staleness is derived here rather than stored, because "stale" is a
-  // statement about now and a stored flag would be a statement about whenever
-  // it was last written.
-  const reports = new Map<string, ProjectStalenessReport>();
+  // The facts are read here rather than stored, because a commit age is a
+  // statement about now and a stored age would be a statement about whenever
+  // it was last written. Whether the facts mean a project needs attention is
+  // the model's judgment; this only carries them into the digest.
+  const facts = new Map<string, ProjectFacts>();
   try {
-    const assess = dependencies.assess ?? assessStaleness;
-    for (const report of assess(projects, observedClock)) {
-      reports.set(report.projectId, report);
+    const read = dependencies.projectFacts ?? projectFactsOf;
+    for (const entry of read(projects, observedClock)) {
+      facts.set(entry.projectId, entry);
     }
   } catch (error) {
-    // The projects themselves still read fine; only the judgement about them
-    // failed. Reporting the projects without it beats dropping both.
-    gaps.push({ source: "Stalled-project detector", detail: describe(error) });
+    // The projects themselves still read fine; only the facts read failed.
+    // Reporting the projects without them beats dropping both.
+    gaps.push({ source: "Project facts", detail: describe(error) });
   }
 
   const input: DigestInput = {
@@ -543,7 +522,7 @@ export async function assembleDigest(
       lastSeenAt: item.lastSeenAt,
     })),
     missingWorkOmitted: schoolSnapshot?.missingWorkOmitted ?? 0,
-    projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
+    projects: projects.map((status) => toDigestProject(status, facts.get(status.project.projectId))),
     decisions: decisions.map((item) => ({
       decisionId: item.decisionId,
       question: item.question,

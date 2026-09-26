@@ -36,8 +36,6 @@ async function fixture(suffix: string): Promise<Fixture> {
     course: "Calculus",
     title: "Limits quiz",
     dueAt: "2026-09-15T11:00:00.000Z",
-    effort: "quiz",
-    leadMinutes: 60,
     now: NOW,
   });
   return { principalId, sourceId, courseId, deadlineExternalId };
@@ -228,8 +226,6 @@ describe("runClassroomObservationSync", () => {
       course: "Physics",
       title: "Motion quiz",
       dueAt: "2026-09-15T11:00:00.000Z",
-      effort: "quiz",
-      leadMinutes: 60,
       now: NOW,
     });
     const calls: string[] = [];
@@ -288,8 +284,6 @@ describe("runClassroomObservationSync", () => {
           course: `Course ${courseIndex + 1}`,
           title: `Practice ${index}`,
           dueAt: "2026-09-15T11:00:00.000Z",
-          effort: "quiz",
-          leadMinutes: 60,
           now: NOW,
         });
       }
