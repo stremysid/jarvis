@@ -1,0 +1,90 @@
+[
+  {
+    "name": "Worked declaration exempts a first-person claim",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "if (worked.has(sentence.text.trim())) continue;",
+    "replace": "if (false) continue;",
+    "expect": "keeps the complete maths explanation the model declares: We added 5 to both sides",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts"
+  },
+  {
+    "name": "A worked declaration never exempts an external completion",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "submitted|uploaded|sent\\s+in|turned\\s+in|forwarded|filed|registered|purchased|paid(?:\\s+for)?|emailed|messaged|contacted|notified|texted|mailed|reached\\s+out\\s+to|signed\\s+up|reserved|cancelled|canceled|handed\\s+in|bought",
+    "replace": "submitted",
+    "expect": "a worked declaration never exempts an external completion",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-guard.test.ts"
+  },
+  {
+    "name": "Voice worked marker exempts its sentence",
+    "file": "apps/cloud-gateway/src/agent/voice-reply.ts",
+    "find": "if (workedStart < end && workedEnd > start) worked = true;",
+    "replace": "if (workedStart < end && workedEnd > start) worked = false;",
+    "expect": "delivers every sentence of a worked explanation the model declares",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts"
+  },
+  {
+    "name": "Row 12 prompt says no tool can execute externally",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "No tool can email, submit, upload, pay, sign up, or contact anyone",
+    "replace": "Some tools can email, submit, upload, pay, sign up, or contact anyone",
+    "expect": "tells the owner model no tool can execute externally and not to refuse on wording",
+    "testPath": "apps/cloud-gateway/test/school/tutoring-reply-review.test.ts"
+  },
+  {
+    "name": "Work evidence reports a bounded page overflow",
+    "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+    "find": "const hasMore = found.length > limit;",
+    "replace": "const hasMore = false;",
+    "expect": "bounds the evidence page and reports that more matches exist",
+    "testPath": "apps/cloud-gateway/test/school/school-observation-repository.test.ts"
+  },
+  {
+    "name": "Work evidence passes the source submission state through",
+    "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+    "find": "submissionState: row.submission_state === null\n          ? null\n          : state(row.submission_state),",
+    "replace": "submissionState: null,",
+    "expect": "reads raw submission evidence for the model without writing a missing-work judgment",
+    "testPath": "apps/cloud-gateway/test/school/school-observation-repository.test.ts"
+  },
+  {
+    "name": "A deadline with no observation is returned",
+    "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+    "find": "AND (o.last_seen_at IS NULL OR o.last_seen_at >= ?4)",
+    "replace": "AND o.last_seen_at >= ?4",
+    "expect": "returns a deadline with no observation so the model can see the read gap",
+    "testPath": "apps/cloud-gateway/test/school/school-observation-repository.test.ts"
+  },
+  {
+    "name": "The evidence tool names the model's judgment",
+    "file": "apps/cloud-gateway/src/school/school-work-tools.ts",
+    "find": "You decide whether work is missed; code does not.",
+    "replace": "Code decides whether work is missed.",
+    "expect": "hands the model raw Classroom work evidence without an action receipt",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts"
+  },
+  {
+    "name": "parseReply refuses a declaration absent from the reply",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "if (!reply.includes(sentence)) throw new TypeError(\"owner_agent_reply_invalid\");",
+    "replace": "if (false) throw new TypeError(\"owner_agent_reply_invalid\");",
+    "expect": "refuses a declaration that names text the reply does not contain",
+    "testPath": "apps/cloud-gateway/test/agent/reply-worked-explanations.test.ts"
+  },
+  {
+    "name": "The school structured reply threads the declaration",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "reply: guardSchoolReply(item.reply, redactor, worked),",
+    "replace": "reply: guardSchoolReply(item.reply, redactor, []),",
+    "expect": "keeps a worked sentence the school structured reply declares",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-model.test.ts"
+  },
+  {
+    "name": "The evidence window has an upper bound",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "|| seenSinceDays < 1 || seenSinceDays > 90",
+    "replace": "|| seenSinceDays < 1",
+    "expect": "refuses an out-of-range evidence window",
+    "testPath": "apps/cloud-gateway/test/school/collector-wiring.test.ts"
+  }
+]

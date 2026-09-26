@@ -166,17 +166,20 @@ After the command returns a response:
 4. Continue only when the fixed result is `owner phone enrollment is active`.
    This result is produced after a fresh database read confirms both the active
    verified voice identity and the singleton binding.
-5. Immediately remove or redirect the Twilio voice webhook. Do not leave the
-   caller-ID-only inbound path open while owner passphrase step-up is unbuilt.
+5. Immediately remove or redirect the Twilio voice webhook once the enrollment
+   window is over. An unenrolled caller cannot reach Jarvis, but leaving an
+   unused inbound path open is still an unnecessary surface.
 6. Run `uv run --project apps/local-agent jarvis enroll-phone --status` again
    after closing the webhook and leave the attended window only when the fixed
    result is still `owner phone enrollment is active`. This is a read-only
    check and does not require the inbound webhook.
 
-The phone must be active before the later R1 live smoke. Inbound may reopen only
-after owner passphrase step-up is deployed and a generated phrase passes one
-attended spoken verification. Enrollment itself is not live-smoke evidence and
-does not satisfy the release gate.
+The phone must be active before the later R1 live smoke. Inbound may reopen as
+soon as the enrolled identity is active: the per-call owner passphrase step-up
+this step used to wait for was removed on 2026-09-24 (Sid: an ordinary owner
+call goes straight to Jarvis), and the only credential a call asks for is the
+four digit PIN at a sensitive action. Enrollment itself is not live-smoke
+evidence and does not satisfy the release gate.
 
 ## Failure and rollback
 

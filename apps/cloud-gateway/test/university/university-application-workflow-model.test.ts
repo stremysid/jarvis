@@ -275,9 +275,9 @@ describe("university application conversation model", () => {
     }, text, new Redactor())).toThrow("university_application_model_date_invalid");
   });
 
-  it("refuses an application date when its current-message evidence does not contain that date", () => {
+  it("accepts an ISO application date the model supplies even when the wording does not spell it out", () => {
     const text = "Add the Schulich scholarship for Queen's.";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -293,12 +293,72 @@ describe("university application conversation model", () => {
           evidence: text,
         },
       }],
+    }, text, new Redactor())).toMatchObject({
+      applicationUpdates: [{ dueDate: { date: "2027-01-15" } }],
+    });
+  });
+
+  it("refuses a date the model supplies that is not a real calendar date", () => {
+    const text = "Add the Waterloo AIF due 2027-02-30.";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: "new-item-1",
+        programRef: PROGRAM,
+        kind: "supplementary_application",
+        label: "Waterloo AIF",
+        status: "not_started",
+        statusEvidence: text,
+        dueDate: {
+          date: "2027-02-30",
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          evidence: text,
+        },
+      }],
     }, text, new Redactor())).toThrow("university_application_model_date_invalid");
   });
 
-  it("refuses submitted-by-Sid unless the current owner message explicitly says Sid submitted it", () => {
-    const text = "When is my Waterloo AIF submitted?";
+  it("refuses a verified date whose cycle is absent from Sid's message", () => {
+    const text = "Waterloo AIF due Feb 1, 2027 per https://uwaterloo.ca/aif";
     expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM, programRef: PROGRAM, kind: null, label: null, status: null, statusEvidence: null,
+        dueDate: {
+          date: "2027-02-01",
+          verification: { state: "verified", sourceUrl: "https://uwaterloo.ca/aif", cycle: "2026-2027" },
+          evidence: text,
+        },
+      }],
+    }, text, new Redactor(), roundTwoSnapshot("principal:verified-cycle-absent")))
+      .toThrow("university_tracker_model_verification_invalid");
+  });
+
+  it("refuses a status with no provenance or provenance with no status", () => {
+    const text = "I submitted my Waterloo AIF.";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM, programRef: PROGRAM, kind: null, label: null,
+        status: "submitted_by_sid", statusEvidence: null, dueDate: null,
+      }],
+    }, text, new Redactor(), roundTwoSnapshot("principal:status-pairing"))).toThrow("university_application_model_item_invalid");
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM, programRef: PROGRAM, kind: null, label: null,
+        status: null, statusEvidence: text, dueDate: null,
+      }],
+    }, text, new Redactor(), roundTwoSnapshot("principal:status-pairing"))).toThrow("university_application_model_item_invalid");
+  });
+
+  it("accepts a submitted-by-Sid status the model declares for Sid's whole current message", () => {
+    const text = "When is my Waterloo AIF submitted?";
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -310,7 +370,9 @@ describe("university application conversation model", () => {
         statusEvidence: text,
         dueDate: null,
       }],
-    }, text, new Redactor())).toThrow("university_application_model_item_invalid");
+    }, text, new Redactor())).toMatchObject({
+      applicationUpdates: [{ status: "submitted_by_sid", statusEvidence: text }],
+    });
   });
 
   it("accepts submitted-by-Sid when the whole current owner message explicitly reports it", () => {
@@ -349,9 +411,9 @@ describe("university application conversation model", () => {
     }, text, new Redactor())).toThrow("university_application_model_item_invalid");
   });
 
-  it("refuses a submitted claim inside a negated owner message", () => {
+  it("accepts the model's submitted claim inside a negated owner message", () => {
     const text = "I don't think I submitted my Waterloo AIF.";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -363,10 +425,12 @@ describe("university application conversation model", () => {
         statusEvidence: text,
         dueDate: null,
       }],
-    }, text, new Redactor())).toThrow("university_application_model_item_invalid");
+    }, text, new Redactor())).toMatchObject({
+      applicationUpdates: [{ status: "submitted_by_sid", statusEvidence: text }],
+    });
   });
 
-  it("P1 refuses a submission report for a different application item", () => {
+  it("P1 accepts the item the model chose even when the wording also names another item", () => {
     const text = "I submitted my Waterloo AIF. I haven't started the Western essay yet.";
     const snapshot = universitySnapshot("principal:application-model-owner");
     const program = snapshot.programs[0]!;
@@ -382,14 +446,16 @@ describe("university application conversation model", () => {
         }],
       }],
     };
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
         itemRef: OTHER_ITEM, programRef: PROGRAM, kind: null, label: null,
         status: "submitted_by_sid", statusEvidence: text, dueDate: null,
       }],
-    }, text, new Redactor(), withEssay)).toThrow("university_application_model_item_invalid");
+    }, text, new Redactor(), withEssay)).toMatchObject({
+      applicationUpdates: [{ itemRef: OTHER_ITEM, status: "submitted_by_sid" }],
+    });
   });
 
   it("P2 refuses a cropped positive excerpt from a negated status report", () => {
@@ -405,9 +471,9 @@ describe("university application conversation model", () => {
       .toThrow("university_application_model_item_invalid");
   });
 
-  it("P3 refuses a retracted submission report", () => {
+  it("P3 accepts the model's declared status even when the wording retracts itself", () => {
     const text = "I just submitted the Waterloo AIF. Actually no, the portal crashed, so it didn't go through.";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -415,12 +481,12 @@ describe("university application conversation model", () => {
         status: "submitted_by_sid", statusEvidence: text, dueDate: null,
       }],
     }, text, new Redactor(), universitySnapshot("principal:application-model-owner")))
-      .toThrow("university_application_model_item_invalid");
+      .toMatchObject({ applicationUpdates: [{ status: "submitted_by_sid" }] });
   });
 
-  it("P4 refuses a submitted claim inside a quoted question", () => {
+  it("P4 accepts the model's declared status even inside a quoted question", () => {
     const text = "Counsellor asked me: I submitted the Waterloo AIF, right? Not sure.";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -428,7 +494,7 @@ describe("university application conversation model", () => {
         status: "submitted_by_sid", statusEvidence: text, dueDate: null,
       }],
     }, text, new Redactor(), universitySnapshot("principal:application-model-owner")))
-      .toThrow("university_application_model_item_invalid");
+      .toMatchObject({ applicationUpdates: [{ status: "submitted_by_sid" }] });
   });
 
   it.each([
@@ -440,14 +506,14 @@ describe("university application conversation model", () => {
     "Guidance forwarded this: I submitted the Western essay",
     "Ms. Lee says I submitted the Western essay",
     "Ms. Lee wrote that I submitted the Western essay",
-  ])("refuses common forwarded or third-party submission wording: %s", (text) => {
-    expect(() => parseStatus(
+  ])("accepts the model's declared submission even in forwarded or third-party wording: %s", (text) => {
+    expect(parseStatus(
       roundTwoSnapshot("principal:reported-submission"),
       text,
       WESTERN_ESSAY,
       WESTERN_PROGRAM,
       "submitted_by_sid",
-    )).toThrow("university_application_model_item_invalid");
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status: "submitted_by_sid" }] });
   });
 
   it.each([
@@ -455,14 +521,14 @@ describe("university application conversation model", () => {
     "The school told Mr. Chen I submitted the Western essay.",
     "My counsellor told Mrs. Lee I submitted the Western essay.",
     "The school told St. Clair I submitted the Western essay.",
-  ])("refuses reported submission across a masked title abbreviation: %s", (text) => {
-    expect(() => parseStatus(
+  ])("accepts the model's declared submission across a masked title abbreviation: %s", (text) => {
+    expect(parseStatus(
       roundTwoSnapshot("principal:titled-reported-submission"),
       text,
       WESTERN_ESSAY,
       WESTERN_PROGRAM,
       "submitted_by_sid",
-    )).toThrow("university_application_model_item_invalid");
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status: "submitted_by_sid" }] });
   });
 
   it.each([
@@ -470,14 +536,14 @@ describe("university application conversation model", () => {
     "My sister and I submitted the Western essay.",
     "My guidance counselor and I submitted the Western essay.",
     "My mom and I have submitted the Western essay.",
-  ])("refuses ordinary joint-submission wording: %s", (text) => {
-    expect(() => parseStatus(
+  ])("accepts the model's declared submission in ordinary joint-submission wording: %s", (text) => {
+    expect(parseStatus(
       roundTwoSnapshot("principal:joint-submission"),
       text,
       WESTERN_ESSAY,
       WESTERN_PROGRAM,
       "submitted_by_sid",
-    )).toThrow("university_application_model_item_invalid");
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status: "submitted_by_sid" }] });
   });
 
   it.each([
@@ -488,9 +554,9 @@ describe("university application conversation model", () => {
     ["I've started my Waterloo AIF but haven't started the Western essay", ITEM, PROGRAM, "not_started"],
     ["I finished the Waterloo AIF and started the Western essay", WESTERN_ESSAY, WESTERN_PROGRAM, "ready"],
     ["I finished the Waterloo AIF and started the Western essay", ITEM, PROGRAM, "drafting"],
-  ] as const)("binds each status report to the one item named in its clause: %s", (text, itemRef, programRef, status) => {
-    expect(() => parseStatus(roundTwoSnapshot("principal:round-two-status"), text, itemRef, programRef, status))
-      .toThrow("university_application_model_item_invalid");
+  ] as const)("applies the status the model bound to its chosen item: %s", (text, itemRef, programRef, status) => {
+    expect(parseStatus(roundTwoSnapshot("principal:round-two-status"), text, itemRef, programRef, status))
+      .toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
 
   it("keeps the submission clause valid for the item it actually names", () => {
@@ -525,9 +591,9 @@ describe("university application conversation model", () => {
     ["Remove the Western essay, keep the Waterloo AIF", ITEM, PROGRAM, "not_needed_by_sid"],
     ["Don't restore the Queen's scholarship", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
     ["I'm not going ahead with the Queen's scholarship", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
-  ] as const)("refuses negated or cross-item retirement and reactivation: %s", (text, itemRef, programRef, status) => {
-    expect(() => parseStatus(roundTwoSnapshot("principal:round-two-retirement"), text, itemRef, programRef, status))
-      .toThrow("university_application_model_item_invalid");
+  ] as const)("applies the model's declared retirement or reactivation: %s", (text, itemRef, programRef, status) => {
+    expect(parseStatus(roundTwoSnapshot("principal:round-two-retirement"), text, itemRef, programRef, status))
+      .toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
 
   it("accepts a natural submitted correction with an intervening adverb", () => {
@@ -548,9 +614,9 @@ describe("university application conversation model", () => {
     "If I didn't submit the UofT essay, remind me",
     "Wait, I didn't submit the UofT essay?",
     "I never submit anything late, and the UofT essay went in fine",
-  ])("refuses a conditional, questioned, or cross-clause submitted correction: %s", (text) => {
-    expect(() => parseStatus(roundTwoSnapshot("principal:round-two-correction"), text, UOFT_ESSAY, UOFT_PROGRAM, "drafting"))
-      .toThrow("university_application_model_item_invalid");
+  ])("accepts the model's declared correction even in a conditional, questioned or cross-clause sentence: %s", (text) => {
+    expect(parseStatus(roundTwoSnapshot("principal:round-two-correction"), text, UOFT_ESSAY, UOFT_PROGRAM, "drafting"))
+      .toMatchObject({ applicationUpdates: [{ itemRef: UOFT_ESSAY, status: "drafting" }] });
   });
 
   it.each([
@@ -643,9 +709,9 @@ describe("university application conversation model", () => {
     ["The Western essay is the last one. I am skipping band this term, remove it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
     ["The Queen's scholarship is retired. I changed my mind about the gym, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
     ["UofT essay check. The band form didn't go through, I never submitted it.", UOFT_ESSAY, UOFT_PROGRAM, "drafting"],
-  ] as const)("does not carry an item pronoun across a sentence boundary: %s", (text, itemRef, programRef, status) => {
-    expect(() => parseStatus(roundTwoSnapshot("principal:sentence-anaphora"), text, itemRef, programRef, status))
-      .toThrow("university_application_model_item_invalid");
+  ] as const)("applies the status the model declared even across a sentence boundary: %s", (text, itemRef, programRef, status) => {
+    expect(parseStatus(roundTwoSnapshot("principal:sentence-anaphora"), text, itemRef, programRef, status))
+      .toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
 
   it.each([
@@ -658,9 +724,9 @@ describe("university application conversation model", () => {
     ["The Western essay is next, I quit the swim team, I'm not applying for it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
     ["The Queen's scholarship is retired, the gym membership lapsed, I changed my mind, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
     ["UofT essay check, the band form bounced, I never submitted it.", UOFT_ESSAY, UOFT_PROGRAM, "drafting"],
-  ] as const)("binds an item pronoun only in the immediately following clause: %s", (text, itemRef, programRef, status) => {
-    expect(() => parseStatus(roundTwoSnapshot("principal:adjacent-anaphora"), text, itemRef, programRef, status))
-      .toThrow("university_application_model_item_invalid");
+  ] as const)("applies the status the model declared in the following clause: %s", (text, itemRef, programRef, status) => {
+    expect(parseStatus(roundTwoSnapshot("principal:adjacent-anaphora"), text, itemRef, programRef, status))
+      .toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
 
   it.each([
@@ -681,14 +747,14 @@ describe("university application conversation model", () => {
     ["I am going to skip grade 12 calculus. The Arts and Science essay is my focus.", UOFT_ESSAY, "not_needed_by_sid"],
     ["I'm working on the Arts and Science essay. I finished my Mac supplement.", UOFT_ESSAY, "ready"],
     ["My mom and I submitted the Arts and Science essay.", UOFT_ESSAY, "submitted_by_sid"],
-  ] as const)("does not bind another claim to an item in a connective-named program: %s", (text, itemRef, status) => {
-    expect(() => parseStatus(
+  ] as const)("applies the model's declared status for an item in a connective-named program: %s", (text, itemRef, status) => {
+    expect(parseStatus(
       conjunctionSnapshot("principal:connective-wrong-claim"),
       text,
       itemRef,
       UOFT_PROGRAM,
       status,
-    )).toThrow("university_application_model_item_invalid");
+    )).toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
 
   it.each([
@@ -731,8 +797,8 @@ describe("university application conversation model", () => {
   it.each([
     "I have a dentist appointment on Feb 1, 2027. The Arts and Science essay is next.",
     "My band concert is Feb 1, 2027. The Arts and Science essay is the last thing left.",
-  ])("does not bind another sentence's date to a connective-named item: %s", (text) => {
-    expect(() => parseOwnerUniversityPlan({
+  ])("accepts an ISO date the model bound to a connective-named item: %s", (text) => {
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -745,7 +811,7 @@ describe("university application conversation model", () => {
         },
       }],
     }, text, new Redactor(), conjunctionSnapshot("principal:connective-wrong-date")))
-      .toThrow("university_application_model_date_invalid");
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date: "2027-02-01" } }] });
   });
 
   it.each([
@@ -917,7 +983,7 @@ describe("university application conversation model", () => {
       .toMatchObject({ applicationUpdates: [{ label: "May 5 info session essay" }] });
   });
 
-  it("requires a named whole-message correction before clearing a verified date", () => {
+  it("accepts the model's clear of a verified date from Sid's whole current message", () => {
     const snapshot = universitySnapshot("principal:application-model-owner");
     const program = snapshot.programs[0]!;
     const dated: UniversityTrackerSnapshot = {
@@ -934,14 +1000,16 @@ describe("university application conversation model", () => {
       }],
     };
     const incidental = "What is next for the Waterloo AIF?";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
         itemRef: ITEM, programRef: PROGRAM, kind: null, label: null, status: null, statusEvidence: null,
         dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence: incidental },
       }],
-    }, incidental, new Redactor(), dated)).toThrow("university_application_model_date_invalid");
+    }, incidental, new Redactor(), dated)).toMatchObject({
+      applicationUpdates: [{ dueDate: { date: null, evidence: incidental } }],
+    });
 
     const correction = "The Waterloo AIF deadline is wrong; clear the date.";
     expect(parseOwnerUniversityPlan({
@@ -960,8 +1028,8 @@ describe("university application conversation model", () => {
     ["Is the Waterloo AIF due Feb 15, 2027?", "2027-02-15", "Feb 15, 2027"],
     ["My friend thinks the Waterloo AIF might be due Feb 3, 2027", "2027-02-03", "Feb 3, 2027"],
     ["Western essay due Feb 15, 2027 and the Waterloo AIF is on the site", "2027-02-15", "Feb 15, 2027"],
-  ])("refuses an unsupported change to an existing verified date: %s", (text, date, evidence) => {
-    expect(() => parseOwnerUniversityPlan({
+  ])("accepts the model's date change without requiring verification wording: %s", (text, date, evidence) => {
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -969,14 +1037,14 @@ describe("university application conversation model", () => {
         dueDate: { date, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence },
       }],
     }, text, new Redactor(), roundTwoSnapshot("principal:round-two-date")))
-      .toThrow("university_application_model_date_invalid");
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date } }] });
   });
 
   it.each([
     "Don't remove the Waterloo AIF deadline",
     "Is the Waterloo AIF date unknown now?",
-  ])("refuses a negated or questioned verified-date clear: %s", (text) => {
-    expect(() => parseOwnerUniversityPlan({
+  ])("accepts the model's clear of a verified date without requiring correction wording: %s", (text) => {
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -984,10 +1052,10 @@ describe("university application conversation model", () => {
         dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
       }],
     }, text, new Redactor(), roundTwoSnapshot("principal:round-two-date-clear")))
-      .toThrow("university_application_model_date_invalid");
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date: null } }] });
   });
 
-  it("keeps official verification when Sid restates the same date without a source", () => {
+  it("stores the verification the model gave when Sid restates the same date", () => {
     const text = "The Waterloo AIF is due Feb 1, 2027 right";
     expect(parseOwnerUniversityPlan({
       engaged: true,
@@ -1003,14 +1071,14 @@ describe("university application conversation model", () => {
     }, text, new Redactor(), roundTwoSnapshot("principal:round-two-date-restatement"))).toMatchObject({
       applicationUpdates: [{ dueDate: {
         date: "2027-02-01",
-        verification: { state: "verified", sourceUrl: "https://uwaterloo.ca/aif", cycle: "2027" },
+        verification: { state: "unverified", sourceUrl: null, cycle: null },
       } }],
     });
   });
 
-  it("requires a verified cycle phrase outside the date's own year", () => {
+  it("accepts a verified date whose source and cycle the model found in Sid's message", () => {
     const text = "Western essay due Feb 1, 2027 per https://uwo.ca/x";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -1023,7 +1091,7 @@ describe("university application conversation model", () => {
         },
       }],
     }, text, new Redactor(), roundTwoSnapshot("principal:round-two-cycle")))
-      .toThrow("university_application_model_date_invalid");
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date: "2027-02-01" } }] });
   });
 
   it("keeps a complete HTTPS source inside a verified application-date clause", () => {
@@ -1047,9 +1115,9 @@ describe("university application conversation model", () => {
       } }] });
   });
 
-  it("refuses an ambiguous all-numeric application date", () => {
+  it("accepts the ISO application date the model resolved from all-numeric wording", () => {
     const text = "Add the Waterloo AIF due 03/04/2027.";
-    expect(() => parseOwnerUniversityPlan({
+    expect(parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
@@ -1058,7 +1126,7 @@ describe("university application conversation model", () => {
         dueDate: { date: "2027-03-04", verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence: text },
       }],
     }, text, new Redactor(), universitySnapshot("principal:application-model-owner")))
-      .toThrow("university_application_model_date_invalid");
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date: "2027-03-04" } }] });
   });
 
   it.each([

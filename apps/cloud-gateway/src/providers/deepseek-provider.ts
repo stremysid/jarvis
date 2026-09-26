@@ -20,6 +20,7 @@ import {
   type ModelAgentStreamChunk,
   type ModelCompleteJsonInput,
   type ModelFunctionCall,
+  type ModelFunctionResult,
   type ModelProvider,
 } from "./provider-types.js";
 
@@ -65,7 +66,7 @@ export interface DeepSeekAdapterOptions {
   readonly fetchImplementation?: typeof fetch;
   readonly baseUrl?: string;
   readonly model?: string;
-  /** Limits the Telegram-only wire policy to adapters composed for live chat turns. */
+  /** Selects the owner-turn wire policy on either channel. The option name predates channel parity. */
   readonly telegramTurn?: boolean;
   readonly telegramThinking?: string;
 }
@@ -181,7 +182,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     const messages = buildMessages(input);
-    const body = JSON.stringify(this.#telegramThinking !== null && input.channel === "telegram"
+    const body = JSON.stringify(this.#telegramThinking !== null
       ? {
         model: this.#model, messages, stream: true,
         thinking: { type: this.#telegramThinking }, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
@@ -289,7 +290,10 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 const AGENT_RESPONSE_BYTES = 262_144;
 const AGENT_MAX_OUTPUT_TOKENS = 8_192;
-const AGENT_MAX_TOOLS = 16;
+// A sanity bound, not a budget: the shared owner catalogue must always fit,
+// because a cap below a catalogue silently fails every owner turn before fetch.
+// The serialized request byte limit still bounds the body.
+export const AGENT_MAX_TOOLS = 64;
 const AGENT_MAX_TOOL_CALLS = 16;
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
 const AGENT_CALL_ID = /^[A-Za-z0-9_-]{1,192}$/u;
@@ -320,36 +324,64 @@ function agentMessages(input: ModelAgentCompletionInput): readonly AgentChatMess
   messages.push(Object.freeze({ role: "user" as const, content: input.userText }));
   const previous = input.previousToolCalls ?? [];
   const results = input.toolResults ?? [];
-  if (previous.length > 0 || results.length > 0) {
-    if (previous.length === 0 || previous.length !== results.length) {
-      throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
-    }
-    const resultById = new Map(results.map((result) => [result.toolCallId, result]));
-    if (resultById.size !== results.length) {
-      throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
-    }
-    messages.push(Object.freeze({
-      role: "assistant" as const,
-      content: null,
-      tool_calls: Object.freeze(previous.map((call) => Object.freeze({
-        id: call.id,
-        type: "function" as const,
-        function: Object.freeze({ name: call.name, arguments: call.arguments }),
-      }))),
-    }));
-    for (const call of previous) {
-      const result = resultById.get(call.id);
-      if (result === undefined || result.name !== call.name) {
-        throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
-      }
-      messages.push(Object.freeze({
-        role: "tool" as const,
-        tool_call_id: result.toolCallId,
-        content: result.content,
-      }));
-    }
+  const earlier = input.earlierToolRounds ?? [];
+  if (!Array.isArray(earlier) || earlier.length > 0 && previous.length === 0) {
+    throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
   }
+  // A call id answers exactly one tool message, so an id reused in a later
+  // round would make the provider pair a result with the wrong call.
+  const seenCallIds = new Set<string>();
+  for (const round of earlier) appendToolRound(messages, round.calls, round.results, seenCallIds);
+  if (previous.length > 0 || results.length > 0) appendToolRound(messages, previous, results, seenCallIds);
   return Object.freeze(messages);
+}
+
+/**
+ * The provider's own check on a turn's tool history, exposed so an injected
+ * provider in a test cannot accept a history this provider would refuse before
+ * the request leaves the gateway. `agentMessages` is the one builder, so this
+ * cannot drift from the wire shape it guards.
+ */
+export function assertAgentToolHistory(input: ModelAgentCompletionInput): void {
+  agentMessages(input);
+}
+
+/** One assistant tool_calls message, then one tool message per call, in call order. */
+function appendToolRound(
+  messages: AgentChatMessage[],
+  calls: readonly ModelFunctionCall[],
+  results: readonly ModelFunctionResult[],
+  seenCallIds: Set<string>,
+): void {
+  if (!Array.isArray(calls) || !Array.isArray(results)
+    || calls.length === 0 || calls.length !== results.length) {
+    throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
+  }
+  const resultById = new Map(results.map((result) => [result.toolCallId, result]));
+  if (resultById.size !== results.length) {
+    throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
+  }
+  messages.push(Object.freeze({
+    role: "assistant" as const,
+    content: null,
+    tool_calls: Object.freeze(calls.map((call) => Object.freeze({
+      id: call.id,
+      type: "function" as const,
+      function: Object.freeze({ name: call.name, arguments: call.arguments }),
+    }))),
+  }));
+  for (const call of calls) {
+    const result = resultById.get(call.id);
+    if (result === undefined || result.name !== call.name || seenCallIds.has(call.id)) {
+      throw new DeepSeekAdapterError("input_invalid", "agent_tool_history_invalid");
+    }
+    seenCallIds.add(call.id);
+    messages.push(Object.freeze({
+      role: "tool" as const,
+      tool_call_id: result.toolCallId,
+      content: result.content,
+    }));
+  }
 }
 
 function agentToolCalls(value: unknown): readonly ModelFunctionCall[] {

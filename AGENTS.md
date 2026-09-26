@@ -12,12 +12,25 @@ has already had.
 
 **Before you write a condition, read
 [docs/CODE-VS-JUDGMENT.md](docs/CODE-VS-JUDGMENT.md).** The roadmap's core rule
-is *"Code builds tools. Jarvis makes every decision."* That file is the register
-of every place in this codebase where a judgment got written in code instead,
-with the surface each one should move to. An `if` that decides how many results,
-what counts as relevant, or whether to act at all is a decision, not plumbing.
-The list is **partial** — say so on the page if you find another, and add it in
-the same pull request that you find it in.
+is *"Code builds tools. Jarvis makes every decision."* Code never decides
+meaning, relevance, how many, which, how long, or whether to act. The model
+decides, through tool arguments and its prompt, and asks Sid when it is unsure
+(Sid, 2026-09-25: "any judgment and decisions and thought should be the ai brain").
+
+- **A pull request that adds a code-side judgment does not merge.** Reviewers
+  treat it as a blocking finding. Writing it into the register does not make it
+  acceptable; that is how thirteen rows stayed on main.
+- **A judgment found in existing code** is removed in that pull request if it is
+  small. Otherwise it gets a row in the register **and** a removal item in
+  [docs/QUEUE.md](docs/QUEUE.md), in the same pull request.
+- **What code may still decide**, each named as such where it appears:
+  permissions (guest isolation, and Sid's five confirmed actions: spend money,
+  send email, make a call, submit school work, text or call someone); validation
+  that an id exists and is Sid's; and system-protection limits (sizes, timeouts,
+  runaway caps).
+
+The register is **partial**; a limit that quietly decides "how many" is a
+judgment, not a system-protection limit.
 
 **Two sessions build this project and they cannot talk to each other.**
 Whatever one needs the other to know goes in
@@ -57,8 +70,10 @@ the PC for everything else. **Do not default to the cloud because the PC sleeps.
 
 ### The Linux node is a planning-session decision, not his
 
-`jarvis node` refuses to start on anything but Linux
-(`jarvis_local/node.py`, as of `0611803`) because a deleted plan assumed "one small
+`jarvis node` remains a Linux-only command, but **`jarvis serve` is the Windows
+launcher** added by #145. `apps/local-agent/jarvis_local/node.py` now accepts Windows
+in `NodeSettings.from_config` and binds `NamedPipeServer` through `run_serve`;
+`_serve` still refuses the `node` command on Windows. The deleted plan assumed "one small
 Linux server", attributed to Sid and never provisioned. Sid says he never asked for
 it and told the original planning chat he is on Windows. The requirement behind it
 is real and is his — memory must work from the phone with every PC off — but it is
@@ -123,7 +138,7 @@ characters. Use the file-writing tool for anything containing escapes.
 ### The gateway's tests were never typechecked
 
 `tsconfig.json` covers only `src/**`. `tsconfig.test.json` covers the tests
-and reports 144 pre-existing errors (see `docs/STATE.md`), so it is not yet a CI gate. New code
+and reports 143 as measured on 2026-09-24 by the builders (see `docs/STATE.md`), so it is not yet a CI gate. New code
 should keep its own directory clean:
 
 ```bash
@@ -173,6 +188,82 @@ git merge-tree --write-tree origin/main HEAD              # simulate, name confl
 Measured 2026-09-20: a reviewer read a tip-versus-tip diff as a pending revert
 of another PR and sent a builder to fix a problem that did not exist. The
 collision set from the merge base was one file.
+
+## Commands
+
+PowerShell, from the repository root unless a line says otherwise. **Focused tests
+locally, full suites on CI** — the PC also runs builders, and GitHub Actions has
+the minutes. Checked against `package.json` and `.github/workflows/ci.yml` on
+2026-09-25; [TESTING.md](TESTING.md) says what each one covers.
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm lint; pnpm typecheck; pnpm test          # the CI "workspace suite" job
+
+# One gateway test file, or one directory. Use exec with the root config:
+pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/workspace.test.ts
+pnpm --filter @jarvis/cloud-gateway typecheck:tests   # red; not a CI gate
+
+pnpm test:watchdog                             # its own config, not in pnpm test
+pnpm test:runtime                              # hermes-runtime, every file; CI skips two
+node --test apps/d2l-extension/test/*.test.js
+pnpm run check:state                           # state carriers and docs/FACTS.md
+
+Push-Location apps/local-agent                 # local agent, always through uv
+uv sync --locked; uv run ruff check .; uv run mypy --platform win32 jarvis_local; uv run pytest -q
+Pop-Location
+
+pwsh -NoProfile -File reviewer-tools/mutate.ps1 -Spec <spec.json> -GateDir <worktree>
+```
+
+**`pnpm --filter @jarvis/cloud-gateway test -- <file>` does not run one file.**
+pnpm passes the `--` through, Vitest ignores everything after it, and the whole
+gateway suite runs (239 files, 7,402 tests, about three minutes, measured
+2026-09-25). Use the `pnpm exec vitest` line above.
+
+`mutate.ps1` defaults `-GateDir` to an old PR's checkout, so always pass it; the
+spec format and the verdicts are in the script's header.
+
+### Heavy verification runs on CI, not on the owner's PC
+
+This is a public repo, so GitHub Actions is free (standard runners, 20
+concurrent jobs, 6 hours per job) and the PC also hosts builders. **A mutation
+sweep or anything that takes more than a couple of minutes is a builder's job
+for CI, not for Sid's machine.** `.github/workflows/mutation.yml` and
+`.github/workflows/focused-tests.yml` are `workflow_dispatch` jobs a builder
+triggers itself:
+
+```powershell
+gh workflow run mutation.yml -f spec=reviewer-tools/mutation-specs-<name>.json -f ref=<branch>
+gh workflow run focused-tests.yml -f ref=<branch> -f paths="apps/cloud-gateway/test/workspace.test.ts"
+gh run watch <run-id> --exit-status
+```
+
+**Both are `workflow_dispatch`, so they can only be dispatched once the file
+exists on the default branch.** Until a PR that adds or changes one merges,
+`gh workflow run` resolves against `main` and reports "could not find any
+workflows named"; that is the ordering, not a broken workflow. `--ref` chooses
+the code the run checks out, not where the workflow file is found.
+
+`mutation.yml` runs `mutate.ps1` on `windows-latest` against the given spec
+and `ref`, and fails the job if any mutation SURVIVED, was NOT APPLIED, or
+came back INVALID — a job summary and the full report artifact carry the
+per-mutation verdict. The sweep's output is redirected to a file rather than
+piped, because a pipeline between the native call and the `$LASTEXITCODE` read
+can leave the code at 0 and report a bad sweep green; `ci.yml`'s
+`mutation-verdict-selftest` job runs
+`reviewer-tools/test/verdict-selftest.ps1`, which proves the failure path on
+synthetic SURVIVED / NOT APPLIED / INVALID reports and asserts that workflow
+shape. `focused-tests.yml` runs the `pnpm exec vitest` form above (plus the
+gateway test typecheck, advisory) against the given file on `ubuntu-latest`; it
+takes exactly one file, because Vitest reads a second positional as a filename
+filter against the first, and a path outside the `default` project's includes
+(`apps/cloud-gateway/test`, `packages/contracts/test`, `tests/acceptance`)
+fails as "No test files found". **Watch the run by id** — `gh run watch` with no
+argument follows the newest run for the whole repo, which with two dispatches in
+flight may not be the one just started; `gh workflow run --json` prints the new
+run's id. Pass `--exit-status` if the calling script needs the runner's exit
+code, not just the printed log.
 
 ## Conventions
 

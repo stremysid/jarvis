@@ -481,30 +481,35 @@ describe("UniversityTrackerRepository application workflow", () => {
     expect(saved.applicationItems).toHaveLength(1);
   });
 
-  it("keeps the D1 item drafting when submission evidence skips an intervening clause", async () => {
+  it("applies a model-declared submission even when the wording skips an intervening clause", async () => {
     const principalId = "principal:application-repository-adjacent-evidence";
     const seeded = await seedApplicationItem({
       principalId, label: "Western essay", kind: "essay", status: "drafting",
     });
     const evidence = "The Western essay is next, the Common App is done and I submitted it.";
+    const now = new Date("2026-09-15T19:00:00.000Z");
+    const turnId = newUlid(now);
+    await seedTurn(principalId, turnId, evidence, now);
     const snapshot = await seeded.repository.readSnapshot(principalId);
-    expect(() => parseOwnerUniversityPlan({
+    // Code no longer reads which clause names which item; the model picked the
+    // item and named Sid's whole message as the status evidence.
+    const plan = parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
         itemRef: seeded.itemId, programRef: seeded.programId, kind: null, label: null,
         status: "submitted_by_sid", statusEvidence: evidence, dueDate: null,
       }],
-    }, evidence, new Redactor(), snapshot)).toThrow("university_application_model_item_invalid");
-    await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
-      programs: [{ applicationItems: [{ itemId: seeded.itemId, status: "drafting", submittedAt: null }] }],
+    }, evidence, new Redactor(), snapshot);
+    await seeded.repository.applyOwnerPlan({
+      principalId, turnId, responseHash: "a".repeat(64), now, plan,
     });
-    await expect(seeded.repository.listApplicationItemsByDueDate(principalId)).resolves.toMatchObject([
-      { itemId: seeded.itemId, status: "drafting" },
-    ]);
+    await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{ itemId: seeded.itemId, status: "submitted_by_sid" }] }],
+    });
   });
 
-  it("remaps a retired response-local duplicate only when its evidence proves reactivation", async () => {
+  it("remaps a retired response-local duplicate whenever the model declares a status", async () => {
     const principalId = "principal:application-repository-retired-duplicate";
     const seeded = await seedApplicationItem({
       principalId, label: "Western reference", kind: "reference", status: "not_started",
@@ -524,21 +529,23 @@ describe("UniversityTrackerRepository application workflow", () => {
       },
     });
 
-    const unsafeNow = new Date("2026-09-15T19:25:00.000Z");
-    const unsafeTurn = newUlid(unsafeNow);
-    const unsafe = "Add the Western reference and mark it submitted.";
-    await seedTurn(principalId, unsafeTurn, unsafe, unsafeNow);
+    // A new-item declaration for a retired row with no status and no evidence
+    // has nothing to remap.
+    const blankNow = new Date("2026-09-15T19:25:00.000Z");
+    const blankTurn = newUlid(blankNow);
+    const blank = "Add the Western reference.";
+    await seedTurn(principalId, blankTurn, blank, blankNow);
     await expect(seeded.repository.applyOwnerPlan({
-      principalId, turnId: unsafeTurn, responseHash: "3".repeat(64), now: unsafeNow,
+      principalId, turnId: blankTurn, responseHash: "3".repeat(64), now: blankNow,
       plan: {
         engaged: true, programUpdates: [],
         applicationUpdates: [{
           itemRef: "new-item-1", programRef: seeded.programId, kind: "reference",
-          label: "Western reference", status: "submitted_by_sid", statusEvidence: unsafe,
+          label: "Western reference", status: "not_started", statusEvidence: null,
           dueDate: {
             date: null,
             verification: { state: "unverified", sourceUrl: null, cycle: null },
-            evidence: unsafe,
+            evidence: blank,
           },
         }],
       },
@@ -549,41 +556,24 @@ describe("UniversityTrackerRepository application workflow", () => {
       }] }],
     });
 
-    const bareNow = new Date("2026-09-15T19:26:00.000Z");
-    const bareTurn = newUlid(bareNow);
-    const bare = "Add the Western reference.";
-    await seedTurn(principalId, bareTurn, bare, bareNow);
+    // The same rediscovery is reused once the model declares a status carrying
+    // Sid's own message as evidence; code reads no wording to decide
+    // reactivation.
+    const reuseNow = new Date("2026-09-15T19:26:00.000Z");
+    const reuseTurn = newUlid(reuseNow);
+    const reuse = "Add the Western reference back, I need it after all.";
+    await seedTurn(principalId, reuseTurn, reuse, reuseNow);
     await expect(seeded.repository.applyOwnerPlan({
-      principalId, turnId: bareTurn, responseHash: "4".repeat(64), now: bareNow,
+      principalId, turnId: reuseTurn, responseHash: "4".repeat(64), now: reuseNow,
       plan: {
         engaged: true, programUpdates: [],
         applicationUpdates: [{
           itemRef: "new-item-1", programRef: seeded.programId, kind: "reference",
-          label: "Western reference", status: "not_started", statusEvidence: bare,
+          label: "Western reference", status: "not_started", statusEvidence: reuse,
           dueDate: {
             date: null,
             verification: { state: "unverified", sourceUrl: null, cycle: null },
-            evidence: bare,
-          },
-        }],
-      },
-    })).rejects.toThrow("university_application_item_exists");
-
-    const restoreNow = new Date("2026-09-15T19:27:00.000Z");
-    const restoreTurn = newUlid(restoreNow);
-    const restore = "Add the Western reference back, I need it after all.";
-    await seedTurn(principalId, restoreTurn, restore, restoreNow);
-    await expect(seeded.repository.applyOwnerPlan({
-      principalId, turnId: restoreTurn, responseHash: "5".repeat(64), now: restoreNow,
-      plan: {
-        engaged: true, programUpdates: [],
-        applicationUpdates: [{
-          itemRef: "new-item-1", programRef: seeded.programId, kind: "reference",
-          label: "Western reference", status: "not_started", statusEvidence: restore,
-          dueDate: {
-            date: null,
-            verification: { state: "unverified", sourceUrl: null, cycle: null },
-            evidence: restore,
+            evidence: reuse,
           },
         }],
       },
@@ -624,7 +614,7 @@ describe("UniversityTrackerRepository application workflow", () => {
     expect(items[0]).toMatchObject({ itemId: seeded.itemId, label: "Queen's Commerce reference" });
   });
 
-  it("keeps a drafting item unchanged when a later sentence submits something else", async () => {
+  it("applies the model's declared submission even when a later sentence names another item", async () => {
     const principalId = "principal:application-repository-sentence-binding";
     const seeded = await seedApplicationItem({
       principalId, label: "Western essay", kind: "essay", status: "drafting",
@@ -634,16 +624,20 @@ describe("UniversityTrackerRepository application workflow", () => {
     const turnId = newUlid(later);
     await seedTurn(principalId, turnId, message, later);
     const snapshot = await seeded.repository.readSnapshot(principalId);
-    expect(() => parseOwnerUniversityPlan({
+    // The model, not a clause walk, bound the submission to the Western essay.
+    const plan = parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],
       applicationUpdates: [{
         itemRef: seeded.itemId, programRef: seeded.programId, kind: null, label: null,
         status: "submitted_by_sid", statusEvidence: message, dueDate: null,
       }],
-    }, message, new Redactor(), snapshot)).toThrow("university_application_model_item_invalid");
+    }, message, new Redactor(), snapshot);
+    await seeded.repository.applyOwnerPlan({
+      principalId, turnId, responseHash: "5".repeat(64), now: later, plan,
+    });
     await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
-      programs: [{ applicationItems: [{ itemId: seeded.itemId, status: "drafting", submittedAt: null }] }],
+      programs: [{ applicationItems: [{ itemId: seeded.itemId, status: "submitted_by_sid" }] }],
     });
   });
 

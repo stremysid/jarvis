@@ -13,13 +13,7 @@ import {
   snapshotUrl,
 } from "../security/trusted-public-origin.js";
 import { renderConversationRelayTwiML } from "./twiml.js";
-import {
-  classifyOwnerAttestation,
-  classifyOwnerCallerIdPolicy,
-  ownerStepUpRequirement,
-  type OwnerStepUpAlertSink,
-  type OwnerCallStepUpService,
-} from "./owner-call-step-up.js";
+import type { OwnerCallAdmissionAlertSink } from "./owner-call-alerts.js";
 
 export interface InboundVoiceDependencies {
   twilio: TwilioRequestVerifier;
@@ -28,9 +22,7 @@ export interface InboundVoiceDependencies {
   expectedInboundE164: string;
   ownerIdentityId: string;
   currentChallengeHmacKeyVersion: string;
-  ownerCallerIdPolicy: unknown;
-  ownerStepUp: Pick<OwnerCallStepUpService, "bind">;
-  ownerStepUpAlerts: Pick<OwnerStepUpAlertSink, "alert">;
+  ownerCallAlerts: Pick<OwnerCallAdmissionAlertSink, "alert">;
   sessions: {
     getOrCreateInboundSession(input: {
       callSid: string;
@@ -74,7 +66,7 @@ const BINDING_FIELDS = new Set([
 ]);
 const DEPENDENCY_FIELDS = new Set([
   "twilio", "exactInboundWebhookUrl", "publicOrigin", "expectedInboundE164",
-  "ownerIdentityId", "currentChallengeHmacKeyVersion", "ownerCallerIdPolicy", "ownerStepUp", "ownerStepUpAlerts",
+  "ownerIdentityId", "currentChallengeHmacKeyVersion", "ownerCallAlerts",
   "sessions", "initializeSession", "now",
 ]);
 
@@ -271,18 +263,15 @@ export async function handleInboundVoiceWebhook(
   let expectedInboundE164: string;
   let ownerIdentityId: string;
   let currentChallengeHmacKeyVersion: string;
-  let bindOwnerStepUp: OwnerCallStepUpService["bind"];
-  let ownerStepUpThis: Pick<OwnerCallStepUpService, "bind">;
-  let alertOwnerStepUp: OwnerStepUpAlertSink["alert"];
-  let ownerStepUpAlertsThis: Pick<OwnerStepUpAlertSink, "alert">;
+  let alertOwnerCall: OwnerCallAdmissionAlertSink["alert"];
+  let ownerCallAlertsThis: Pick<OwnerCallAdmissionAlertSink, "alert">;
   let now: () => Date;
   let trustedOrigin: ReturnType<typeof snapshotTrustedPublicOrigin>;
   const captured = snapshotDependencies(deps);
   if (captured === null) return neutral("unavailable", 503);
   const verifier = snapshotMethod(captured.twilio, "verifyWebhook");
   const sessionRepository = snapshotMethod(captured.sessions, "getOrCreateInboundSession");
-  const ownerStepUp = snapshotMethod(captured.ownerStepUp, "bind");
-  const ownerStepUpAlerts = snapshotMethod(captured.ownerStepUpAlerts, "alert");
+  const ownerCallAlerts = snapshotMethod(captured.ownerCallAlerts, "alert");
   verifierThis = verifier?.receiver as TwilioRequestVerifier;
   verifyWebhook = verifier?.method as TwilioRequestVerifier["verifyWebhook"];
   sessionsThis = sessionRepository?.receiver as InboundVoiceDependencies["sessions"];
@@ -292,10 +281,8 @@ export async function handleInboundVoiceWebhook(
   expectedInboundE164 = captured.expectedInboundE164 as string;
   ownerIdentityId = captured.ownerIdentityId as string;
   currentChallengeHmacKeyVersion = captured.currentChallengeHmacKeyVersion as string;
-  ownerStepUpThis = ownerStepUp?.receiver as Pick<OwnerCallStepUpService, "bind">;
-  bindOwnerStepUp = ownerStepUp?.method as OwnerCallStepUpService["bind"];
-  ownerStepUpAlertsThis = ownerStepUpAlerts?.receiver as Pick<OwnerStepUpAlertSink, "alert">;
-  alertOwnerStepUp = ownerStepUpAlerts?.method as OwnerStepUpAlertSink["alert"];
+  ownerCallAlertsThis = ownerCallAlerts?.receiver as Pick<OwnerCallAdmissionAlertSink, "alert">;
+  alertOwnerCall = ownerCallAlerts?.method as OwnerCallAdmissionAlertSink["alert"];
   now = (captured.now ?? (() => new Date())) as () => Date;
   trustedOrigin = snapshotTrustedPublicOrigin(captured.publicOrigin);
   let inboundUrl: ReturnType<typeof snapshotUrl> = null;
@@ -309,8 +296,7 @@ export async function handleInboundVoiceWebhook(
     typeof verifyWebhook !== "function"
     || typeof getOrCreateInboundSession !== "function"
     || typeof initializeSession !== "function"
-    || typeof bindOwnerStepUp !== "function"
-    || typeof alertOwnerStepUp !== "function"
+    || typeof alertOwnerCall !== "function"
     || typeof now !== "function"
     || trustedOrigin === null
     || !isTrustedFixedUrl(inboundUrl, trustedOrigin, "https:", "/voice/inbound")
@@ -341,7 +327,6 @@ export async function handleInboundVoiceWebhook(
   const callerE164 = fromValues[0];
   const calledE164 = toValues[0];
   const callSid = callSidValues[0];
-  const attestation = classifyOwnerAttestation(values("StirVerstat"));
   if (
     fromValues.length !== 1
     || toValues.length !== 1
@@ -353,7 +338,6 @@ export async function handleInboundVoiceWebhook(
     || !E164.test(calledE164)
     || calledE164 !== expectedInboundE164
     || !CALL_SID.test(callSid)
-    || attestation === null
   ) {
     return neutral("forbidden", 403);
   }
@@ -374,11 +358,9 @@ export async function handleInboundVoiceWebhook(
     if (admission?.code === "call_session_capacity" && admission.accessKind === "owner"
       && admission.principalId !== null) {
       try {
-        await alertOwnerStepUp.call(ownerStepUpAlertsThis, {
+        await alertOwnerCall.call(ownerCallAlertsThis, {
           ownerPrincipalId: admission.principalId,
-          alertClass: "admission_refused",
           direction: "inbound",
-          attestationClass: attestation,
           now: observedAt,
         });
       } catch {
@@ -391,25 +373,6 @@ export async function handleInboundVoiceWebhook(
   }
   const session = snapshotSession(stored, callSid, observedAt.toISOString());
   if (session === null) return neutral("unavailable", 503);
-
-  const policy = classifyOwnerCallerIdPolicy(captured.ownerCallerIdPolicy);
-  const applicable = !session.binding.activationOnly && session.binding.accessKind === "owner";
-  try {
-    await bindOwnerStepUp.call(ownerStepUpThis, Object.freeze({
-      sessionId: session.sessionId,
-      callSid: session.callSid,
-      ownerPrincipalId: session.binding.principalId,
-      ownerIdentityId: session.binding.identityId,
-      direction: "inbound" as const,
-      lifecycleGeneration: 1 as const,
-      requirement: applicable ? ownerStepUpRequirement("inbound", policy, attestation) : "not_applicable" as const,
-      attestationClass: applicable ? attestation : "not_applicable" as const,
-      policy: applicable ? policy : "not_applicable" as const,
-      createdAt: session.createdAt,
-    }));
-  } catch {
-    return neutral("unavailable", 503);
-  }
 
   let body: string;
   try {

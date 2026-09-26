@@ -63,16 +63,20 @@ test("It bounds serialized queue bytes and exposes every eviction in the popup."
   assert.ok(Buffer.byteLength(JSON.stringify(await store.get("queue"))) <= QUEUE_MAX_BYTES);
 });
 
-test("It retains held Durham evidence when a mixed queue delivers an LDSB batch.", async () => {
-  const store = measuredStore(await active()); const calls = [];
-  const client = delivery({ store, clock, send: async (_, body) => { calls.push(JSON.parse(body).host); return { batchId: "synthetic", outcome: "good" }; } });
-  const held = await client.enqueue(courseBatch(1, "durham.elearningontario.ca"));
-  await client.enqueue(courseBatch(1));
+test("It sends a Durham board batch and a news and quizzes batch instead of holding them.", async () => {
+  const store = measuredStore(await active()); const hosts = []; const routes = [];
+  const client = delivery({ store, clock, send: async (_, body) => { const value = JSON.parse(body); hosts.push(value.host);
+    routes.push(value.routes.map((route) => route.route)); return { batchId: "synthetic", outcome: "good" }; } });
+  const durham = await client.enqueue(courseBatch(1, "durham.elearningontario.ca"));
+  const tools = await client.enqueue({ ...courseBatch(2), routes: [...courseBatch(2).routes,
+    { ...courseBatch(2).routes[0], route: "/d2l/api/le/1.82/2/news/" },
+    { ...courseBatch(2).routes[0], route: "/d2l/api/le/1.82/2/quizzes/" }] });
+  assert.equal(durham.error, null); assert.equal(tools.error, null);
   const result = await client.flush();
-  assert.deepEqual(calls, ["ldsb.elearningontario.ca"]);
-  assert.equal(result.queued, 1); assert.equal(result.evicted, 0);
-  assert.equal(result.error, "receiver-contract-incompatible");
-  assert.equal((await store.get("queue"))[0].body, held.body);
+  assert.deepEqual(hosts, ["durham.elearningontario.ca", "ldsb.elearningontario.ca"]);
+  assert.deepEqual(routes[1].slice(-2), ["/d2l/api/le/1.82/2/news/", "/d2l/api/le/1.82/2/quizzes/"]);
+  assert.equal(result.queued, 0); assert.equal(result.evicted, 0); assert.equal(result.error, null);
+  assert.deepEqual(await store.get("queue"), []);
   assert.equal(store.writes.length, 1);
 });
 

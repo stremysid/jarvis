@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DecisionRepository } from "../../src/decisions/decision-repository.js";
 import { DecisionService } from "../../src/decisions/decision-service.js";
 import {
-  DEFAULT_DECISION_RANK,
   EXPLAIN_OPTION_KEY,
   EXPLAIN_OPTION_LABEL,
   FREE_TEXT_OPTION_KEY,
@@ -32,6 +31,7 @@ describe("the decision queue", () => {
     const owner = await createDecisionPrincipal();
 
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "jarvis",
       urgency: "normal",
@@ -48,6 +48,7 @@ describe("the decision queue", () => {
     const owner = await createDecisionPrincipal();
 
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "normal",
@@ -69,6 +70,7 @@ describe("the decision queue", () => {
       const owner = await createDecisionPrincipal();
 
       await expect(service.raise({
+        rank: 100,
         principalId: owner.principalId,
         origin: "dev-session",
         urgency: "normal",
@@ -82,6 +84,7 @@ describe("the decision queue", () => {
     const owner = await createDecisionPrincipal();
 
     await expect(service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "normal",
@@ -96,6 +99,7 @@ describe("the decision queue", () => {
       const owner = await createDecisionPrincipal();
 
       await expect(service.raise({
+        rank: 100,
         principalId: owner.principalId,
         origin: "dev-session",
         urgency: "normal",
@@ -110,6 +114,7 @@ describe("the decision queue", () => {
     const choices = Array.from({ length: 9 }, (_unused, index) => ({ key: `k${index}`, label: `Choice ${index}` }));
 
     await expect(service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "normal",
@@ -159,22 +164,20 @@ describe("the decision queue", () => {
     ]);
   });
 
-  it("ranks an unranked question at the rank the column itself defaults to", async () => {
+  it("refuses a question with no rank rather than choosing the owner's priority", async () => {
     const owner = await createDecisionPrincipal();
 
-    const item = await service.raise({
+    await expect(service.raise({
       principalId: owner.principalId,
       origin: "jarvis",
       urgency: "normal",
       question: "Anything to add to the shopping list?",
-    });
+    } as unknown as Parameters<typeof service.raise>[0])).rejects.toThrow("decision_rank_invalid");
 
-    // The service writes the rank rather than leaving it to the column, so the
-    // two constants have to be compared against each other; a drift would
-    // reorder the queue with nothing else to show for it.
-    expect(item.rank).toBe(DEFAULT_DECISION_RANK);
+    // The column default is inert. The service never writes it and no caller
+    // relies on it, but it stays pinned so a schema change is still visible.
     await expect(env.DB.prepare("SELECT dflt_value FROM pragma_table_info('decision_items') WHERE name = 'rank'")
-      .first<{ dflt_value: string }>()).resolves.toEqual({ dflt_value: String(DEFAULT_DECISION_RANK) });
+      .first<{ dflt_value: string }>()).resolves.toEqual({ dflt_value: "100" });
   });
 
   it("puts urgent items ahead of normal ones, then orders by rank, then oldest first", async () => {
@@ -203,6 +206,7 @@ describe("the decision queue", () => {
   it("drops an item from the queue once its own deadline has passed", async () => {
     const owner = await createDecisionPrincipal();
     const expiring = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "deadlines",
       urgency: "normal",
@@ -210,6 +214,7 @@ describe("the decision queue", () => {
       expiresAt: new Date(clock.getTime() + 60_000).toISOString(),
     });
     const standing = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "deadlines",
       urgency: "normal",
@@ -227,11 +232,13 @@ describe("the decision queue", () => {
   it("carries each item's own options through the queue rather than sharing one set", async () => {
     const owner = await createDecisionPrincipal();
     const first = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "urgent", question: "Pay the invoice?",
       choices: [{ key: "pay", label: "Pay it" }],
     });
     tick(60);
     const second = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Reorder stock?",
       choices: [{ key: "reorder", label: "Reorder" }, { key: "wait", label: "Wait a week" }],
     });
@@ -248,6 +255,7 @@ describe("the decision queue", () => {
   it("marks an item delivered once, and reports that a second delivery changed nothing", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Ready to file?",
     });
 
@@ -265,6 +273,7 @@ describe("the decision queue", () => {
   it("records the answer, resolves the item, and returns what the origin needs to route it back", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       originReference: "session:42",
@@ -305,6 +314,7 @@ describe("the decision queue", () => {
   it("records what the owner typed alongside the escape they tapped to type it", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "jarvis",
       urgency: "normal",
@@ -338,6 +348,7 @@ describe("the decision queue", () => {
   it("refuses a second answer to a question already answered", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "urgent",
@@ -376,6 +387,7 @@ describe("the decision queue", () => {
     const owner = await createDecisionPrincipal();
     const stranger = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "urgent",
@@ -398,6 +410,7 @@ describe("the decision queue", () => {
   it("refuses an answer from an identity that does not exist at all", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Ready to file?",
     });
     await service.markDelivered(item.decisionId);
@@ -417,6 +430,7 @@ describe("the decision queue", () => {
     const owner = await createDecisionPrincipal();
     const stranger = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "dev-session",
       urgency: "urgent",
@@ -440,6 +454,7 @@ describe("the decision queue", () => {
   it("refuses an answer to a question the owner was never shown, and writes nothing", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId,
       origin: "jarvis",
       urgency: "normal",
@@ -463,10 +478,12 @@ describe("the decision queue", () => {
   it("refuses an option that belongs to a different question", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Reorder stock?",
       choices: [{ key: "reorder", label: "Reorder" }],
     });
     const elsewhere = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Pay the invoice?",
       choices: [{ key: "pay", label: "Pay it" }],
     });
@@ -496,6 +513,7 @@ describe("the decision queue", () => {
   it("refuses an answer that was neither tapped nor typed", async () => {
     const owner = await createDecisionPrincipal();
     const item = await service.raise({
+      rank: 100,
       principalId: owner.principalId, origin: "jarvis", urgency: "normal", question: "Ready to file?",
     });
 

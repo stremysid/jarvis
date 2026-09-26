@@ -1,0 +1,42 @@
+[
+  {
+    "name": "C1 an overlapping utterance is dropped again instead of queued",
+    "file": "apps/cloud-gateway/src/voice/call-session-do.ts",
+    "find": "    this.#queuedPrompt = event;\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "expect": "queues an overlapping final prompt and runs it as the next turn"
+  },
+  {
+    "name": "C2 the voice retrieval failure stops telling the model memory could not be read",
+    "file": "apps/cloud-gateway/src/conversation/conversation-service.ts",
+    "find": "      text: `[Memory could not be read this turn (${reason}). Do not answer from memory as if it were checked; say the lookup failed and ask Sid to repeat it if it matters.]`,\n",
+    "replace": "      text: \"\",\n",
+    "testPath": "apps/cloud-gateway/test/conversation/conversation-service.test.ts",
+    "expect": "starts a voice model with recorded empty context at the hard 750 millisecond retrieval deadline"
+  },
+  {
+    "name": "C3 a pin digits request no longer asks the call for digits",
+    "file": "apps/cloud-gateway/src/voice/owner-access-tool.ts",
+    "find": "      if (!pending.settled) await this.#speak(OWNER_ACCESS_PIN_PROMPT);\n",
+    "replace": "      if (false) await this.#speak(OWNER_ACCESS_PIN_PROMPT);\n",
+    "testPath": "apps/cloud-gateway/test/voice/owner-access-tool.test.ts",
+    "expect": "asks the call for four digits only when the model chose pin digits"
+  },
+  {
+    "name": "C4 the owner agent stops dispatching owner_access to the call",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    const result = await tool.run(request, input.signal);\n",
+    "replace": "    const result = Object.freeze({ outcome: \"listed\" as const, operation: \"list\" as const, maskedTarget: null, noticeUnconfirmed: false });\n",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "dispatches owner_access with the model's arguments"
+  },
+  {
+    "name": "C5 the model's pin choice is ignored in favour of the default",
+    "file": "apps/cloud-gateway/src/voice/owner-access-tool.ts",
+    "find": "      pinSelection = request.pin === \"default\"\n        ? Object.freeze({ kind: \"default\" })\n        : await this.#requestPin(session, signal);\n",
+    "replace": "      pinSelection = Object.freeze({ kind: \"default\" });\n",
+    "testPath": "apps/cloud-gateway/test/voice/owner-access-tool.test.ts",
+    "expect": "asks the call for four digits only when the model chose pin digits"
+  }
+]

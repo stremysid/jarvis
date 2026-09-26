@@ -105,23 +105,31 @@ describe("model-declared voice claims", () => {
     expect(heard).toEqual([]);
   });
 
-  it("redacts the original prose before replacing a claim that contains a credential introducer", () => {
-    const raw = 'I saved password = "alpha. bravo charlie" in your file. You can ask later.';
+  it("says Sid's own PIN back to him exactly as it is", () => {
+    const raw = "Your PIN is 4821. Your code is 123456.";
     const reply = new VoiceReplyStream([], new Set());
     const heard = [...raw].flatMap((character) => reply.push(character)).concat([...reply.finish()])
       .map((part) => part.text).join("");
-    expect(heard).not.toContain("bravo charlie");
+    expect(heard).toBe(raw);
+  });
+
+  it("redacts a machine credential in the original prose before replacing a claim that contains it", () => {
+    const raw = "I saved Bearer alpha.bravo-charlie0123 in your file. You can ask later.";
+    const reply = new VoiceReplyStream([], new Set());
+    const heard = [...raw].flatMap((character) => reply.push(character)).concat([...reply.finish()])
+      .map((part) => part.text).join("");
+    expect(heard).not.toContain("bravo-charlie0123");
     expect(heard).toContain(UNRECEIPTED_VOICE_ACTION);
     expect(heard).toContain("You can ask later.");
   });
 
   it("keeps annotation offsets aligned after redaction changes an earlier sentence", () => {
-    const raw = 'The value password = "alpha. bravo charlie" is private. ' + tagged("I've logged that.");
-    expect(render(raw, [receipt()])).toBe("The value [REDACTED_CREDENTIAL] is private. I've logged that.");
+    const raw = "The value Bearer alpha.bravo-charlie0123 is private. " + tagged("I've logged that.");
+    expect(render(raw, [receipt()])).toBe("The value [REDACTED_AUTHORIZATION] is private. I've logged that.");
   });
 
   it("refuses annotation offsets that do not survive as redacted prefixes", () => {
-    expect(() => render("The value token = " + tagged("opaque.") + " stays private.", [receipt()]))
+    expect(() => render("The value Bearer " + tagged("opaque0123456789.") + " stays private.", [receipt()]))
       .toThrow("voice_claim_redaction_overlap");
   });
 

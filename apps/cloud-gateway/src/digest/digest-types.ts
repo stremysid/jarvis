@@ -18,8 +18,8 @@ export interface DigestDeadline {
   readonly deadlineId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: "quiz" | "test" | "exam" | "essay" | "project" | "other";
+  /** Null when the source states no due date. The digest says so rather than guessing. */
+  readonly dueAt: string | null;
   /** Fixed adapter label. Optional only for older fixture callers. */
   readonly source?: "Google Classroom" | "Brightspace calendar" | "D2L email" | "Manual" | "Brightspace";
 }
@@ -29,14 +29,18 @@ export interface DigestProject {
   readonly displayName: string;
   /** ISO instant of the most recent commit, or null when the poll failed. */
   readonly lastCommitAt: string | null;
+  /** Fractional days since the last readable commit; null when there is none. */
+  readonly daysSinceLastCommit: number | null;
   /** First lines of NEXT_STEPS.md. Untrusted repository text -- see below. */
   readonly nextStepsExcerpt: string | null;
-  /** Set when the project is stalled, saying why. */
-  readonly stalledReason: string | null;
+  /** ISO days the NEXT_STEPS.md excerpt names, in the order the document wrote them. */
+  readonly nextStepsDates: readonly string[];
+  /** Date-shaped text in NEXT_STEPS.md this reader will not interpret. */
+  readonly nextStepsUnreadable: readonly string[];
+  /** The stored NEXT_STEPS.md excerpt is at its bound and may continue. */
+  readonly nextStepsTruncated: boolean;
   /** Set when the most recent poll failed rather than succeeded. */
   readonly pollFailure: string | null;
-  /** Documents whose content changed since the previous successful poll. */
-  readonly changedDocuments: readonly string[];
 }
 
 export interface DigestDecision {

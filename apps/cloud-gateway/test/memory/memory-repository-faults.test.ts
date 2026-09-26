@@ -82,6 +82,7 @@ async function inputFor(
     principalId,
     itemId: newUlid(),
     kind: "preference" as const,
+    lifetime: "durable",
     creationEventId: source.eventId,
     creationEventSequence: source.sequence,
     version: Object.freeze({

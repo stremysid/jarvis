@@ -98,3 +98,39 @@ export interface SchoolObservationStudySnapshot {
   readonly grades: readonly SchoolStudyGradeObservation[];
   readonly missingWork: readonly SchoolStudyMissingWork[];
 }
+
+/**
+ * One deadline's raw Classroom submission evidence, for the model to judge.
+ *
+ * This is a `senses` read. `submissionState` is what Classroom reported;
+ * `lastDerivedState` is only the last label a previous code derivation wrote,
+ * so the model can see the history without treating it as authority. Code does
+ * not decide here whether the work is missed.
+ */
+export interface SchoolWorkEvidence {
+  readonly deadlineId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly dueAt: string;
+  readonly deadlineStatus: string;
+  /** Null when Classroom has no observation for this deadline yet. */
+  readonly submissionState: SchoolSubmissionState | null;
+  readonly late: boolean | null;
+  readonly assignedGrade: number | null;
+  readonly maxPoints: number | null;
+  readonly sourceUpdatedAt: string | null;
+  /** When Classroom was actually read as showing this state; null if unread. */
+  readonly lastSeenAt: string | null;
+  readonly lastDerivedState: DerivedMissingWorkState | null;
+  readonly lastDerivedAt: string | null;
+}
+
+export interface SchoolWorkEvidenceSnapshot {
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+  readonly observations: readonly SchoolWorkEvidence[];
+  /** True when the bounded page did not hold every matching observation. */
+  readonly hasMore: boolean;
+  /** Pass as `afterDeadlineId` to read the next page; null on the last page. */
+  readonly nextAfterDeadlineId: string | null;
+}

@@ -93,6 +93,12 @@ export interface ModelFunctionResult {
   readonly content: string;
 }
 
+/** One step of a turn's tool loop: the calls the model made together and what each returned. */
+export interface ModelToolRound {
+  readonly calls: readonly ModelFunctionCall[];
+  readonly results: readonly ModelFunctionResult[];
+}
+
 export interface ModelAgentCompletionInput {
   readonly correlationId: string;
   readonly principalId: string;
@@ -100,6 +106,15 @@ export interface ModelAgentCompletionInput {
   readonly userText: string;
   readonly context: readonly ModelContextItem[];
   readonly tools: readonly ModelFunctionDefinition[];
+  /**
+   * The tool rounds before the latest one, oldest first.
+   *
+   * The latest round stays in `previousToolCalls`/`toolResults` so a one-round
+   * turn reads exactly as it always has. Without the earlier rounds the model
+   * would see only the last step of a chain -- the read, say, but not the
+   * search that found what to read -- and could not reason across them.
+   */
+  readonly earlierToolRounds?: readonly ModelToolRound[];
   readonly previousToolCalls?: readonly ModelFunctionCall[];
   readonly toolResults?: readonly ModelFunctionResult[];
   readonly toolChoice: "auto" | "none";

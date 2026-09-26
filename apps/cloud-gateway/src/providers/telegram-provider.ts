@@ -127,7 +127,10 @@ export class TelegramRestProvider implements TelegramProvider {
       }
       if (controller.signal.aborted) throw ProviderFailure.transient("timeout");
 
-      if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
+      if (!response.ok) throw failureFor(response.status);
+      // A malformed 2xx cannot prove non-delivery. Treating it like an explicit
+      // 400 would let the reminder sender falsely report that nothing arrived.
+      if (parsed.ok !== true) throw ProviderFailure.transient("temporarily_unavailable");
 
       const providerMessageId = messageIdOf(parsed.result);
       // Telegram reported success but gave us nothing to record. Treated as

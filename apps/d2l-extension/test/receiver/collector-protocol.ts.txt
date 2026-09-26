@@ -4,6 +4,8 @@ import { requireInstant, requireText } from "../deadlines/deadline-types.js";
 
 export const SCHOOL_AUDIENCE = "jarvis-school-collector";
 export const SCHOOL_HOST = "ldsb.elearningontario.ca";
+export const SCHOOL_HOSTS = [SCHOOL_HOST, "durham.elearningontario.ca"] as const;
+export type SchoolHost = typeof SCHOOL_HOSTS[number];
 export const SCHOOL_BODY_LIMIT = 65_536;
 export const SCHOOL_PAIR_ORIGIN = "school-collector-pair";
 export const SCHOOL_PAIR_TTL_MS = 10 * 60_000;
@@ -35,7 +37,7 @@ export interface RouteEvidence {
 
 export interface SchoolBatch {
   readonly schemaVersion: "1.0";
-  readonly host: typeof SCHOOL_HOST;
+  readonly host: SchoolHost;
   readonly readId: string;
   readonly startedAt: string;
   readonly courseIds: readonly string[];
@@ -44,26 +46,46 @@ export interface SchoolBatch {
   readonly routes: readonly RouteEvidence[];
 }
 
-export function parseSchoolBatch(value: unknown, now: Date): SchoolBatch {
+export interface SchoolHostFailureBatch extends Omit<SchoolBatch, "course" | "courseIds" | "enrollmentComplete"> {
+  readonly course: null;
+  readonly courseIds: readonly [];
+  readonly enrollmentComplete: false;
+}
+export type SchoolObservationBatch = SchoolBatch | SchoolHostFailureBatch;
+
+export function parseSchoolBatch(value: unknown, now: Date): SchoolObservationBatch {
   const root = exact(value, ["schemaVersion", "host", "readId", "startedAt", "courseIds", "enrollmentComplete", "course", "routes"]);
-  if (root.schemaVersion !== "1.0" || root.host !== SCHOOL_HOST) throw new Error("school_source_invalid");
+  if (root.schemaVersion !== "1.0" || !SCHOOL_HOSTS.includes(root.host as SchoolHost)) throw new Error("school_source_invalid");
   identifier(root.readId);
   const startedAt = requireInstant(root.startedAt as string, "school_started_at");
   if (Date.parse(startedAt) > now.getTime()) throw new Error("school_time_future");
-  const course = exact(root.course, ["id", "name"]);
-  const courseId = identifier(course.id);
-  requireText(course.name, "school_course_name", 512);
-  if (!Array.isArray(root.courseIds) || root.courseIds.length === 0 || root.courseIds.length > 128
+  const hostFailure = root.course === null;
+  const course = hostFailure ? null : exact(root.course, ["id", "name"]);
+  const courseId = course === null ? null : identifier(course.id);
+  if (course !== null) requireText(course.name, "school_course_name", 512);
+  if (!Array.isArray(root.courseIds) || root.courseIds.length > 128
     || root.courseIds.some((id) => identifier(id) !== id) || new Set(root.courseIds).size !== root.courseIds.length
-    || !root.courseIds.includes(courseId) || typeof root.enrollmentComplete !== "boolean") throw new Error("school_manifest_invalid");
-  if (!Array.isArray(root.routes) || root.routes.length > 256) throw new Error("school_routes_invalid");
+    || (hostFailure ? root.courseIds.length !== 0 || root.enrollmentComplete !== false : !root.courseIds.includes(courseId))
+    || typeof root.enrollmentComplete !== "boolean") throw new Error("school_manifest_invalid");
+  if (!Array.isArray(root.routes) || root.routes.length > 256 || hostFailure && root.routes.length === 0) throw new Error("school_routes_invalid");
   const prefix = `/d2l/api/le/1.82/${courseId}/`;
   const myItemsRoute = `/d2l/api/le/1.82/content/myItems/?orgUnitIdsCSV=${courseId}`;
   const seen = new Set<string>();
   for (const value of root.routes) {
     const route = exact(value, ["route", "status", "fetchedAt", "complete", "body"]);
-    if (typeof route.route !== "string" || !(route.route === myItemsRoute || route.route.startsWith(prefix)
-      && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/(mysubmissions\/)?|content\/toc|grades\/values\/myGradeValues\/)$/.test(route.route.slice(prefix.length)))
+    if (typeof route.route !== "string" || !route.route.startsWith("/d2l/api/") || route.route.includes("#")) throw new Error("school_route_invalid");
+    const url = new URL(route.route, `https://${root.host}`);
+    const orgUnitIds = url.searchParams.getAll("orgUnitIdsCSV");
+    const isMyItems = url.pathname === myItemsRoute.split("?")[0] && orgUnitIds.length === 1 && orgUnitIds[0] === courseId;
+    const isQuizzes = url.pathname === prefix + "quizzes/";
+    const isEnrollments = url.pathname === "/d2l/api/lp/1.43/enrollments/myenrollments/";
+    const isEnrollmentBookmark = hostFailure && isEnrollments && url.searchParams.size === 1 && url.searchParams.has("bookmark");
+    const allowed = hostFailure
+      ? ["/d2l/api/versions/", "/d2l/api/lp/1.43/enrollments/myenrollments/"].includes(url.pathname)
+      : isMyItems
+        || url.pathname.startsWith(prefix)
+          && /^(dropbox\/folders\/|dropbox\/folders\/[a-zA-Z0-9_-]+\/submissions\/mysubmissions\/|content\/toc|grades\/values\/myGradeValues\/|news\/|quizzes\/)$/.test(url.pathname.slice(prefix.length));
+    if (route.route !== url.pathname + url.search || !allowed || (url.search !== "" && !isMyItems && !isQuizzes && !isEnrollmentBookmark)
       || seen.has(route.route)) throw new Error("school_route_invalid");
     seen.add(route.route);
     if (!Number.isInteger(route.status) || !(route.status === 0 || Number(route.status) >= 100 && Number(route.status) <= 599)
@@ -71,7 +93,7 @@ export function parseSchoolBatch(value: unknown, now: Date): SchoolBatch {
     const at = requireInstant(route.fetchedAt as string, "school_fetched_at");
     if (at < startedAt || Date.parse(at) > now.getTime()) throw new Error("school_time_invalid");
   }
-  return value as SchoolBatch;
+  return value as SchoolObservationBatch;
 }
 
 export interface CollectorKey {

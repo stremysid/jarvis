@@ -1,3 +1,4 @@
+import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 /**
  * The guard that keeps every dispatchable tool classified AND its capability
  * registered.
@@ -12,7 +13,7 @@
  * suite.
  *
  * `memory_correct` is the case that happened. It is in
- * `OWNER_TELEGRAM_TOOL_DEFINITIONS` and in the dispatch chain in
+ * `OWNER_TOOL_DEFINITIONS` and in the dispatch chain in
  * `owner-telegram-agent.ts`, and it had no entry in the map, so correcting a
  * memory stopped working. The test below is the missing half: classification
  * is a property of the pair, so it is asserted over the pair rather than over
@@ -28,11 +29,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { applyAutonomyToolCapabilitiesMigration } from "../persistence/migration.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { capabilityForTool, isToolClassified } from "../../src/autonomy/tool-capabilities.js";
-import { OWNER_TELEGRAM_TOOL_DEFINITIONS } from "../../src/channels/telegram/owner-telegram-agent.js";
+
 
 /** Every tool the model is offered, and therefore every tool it can dispatch. */
 const DISPATCHABLE_TOOL_NAMES: readonly string[] = Object.freeze(
-  OWNER_TELEGRAM_TOOL_DEFINITIONS.map((definition) => definition.name),
+  OWNER_TOOL_DEFINITIONS.map((definition) => definition.name),
 );
 
 /**

@@ -478,8 +478,6 @@ describe("StudyCoachRepository", () => {
       course: "Chemistry",
       title: "Untrusted assignment title",
       dueAt: "2026-09-16T13:30:00.000Z",
-      effort: "other",
-      leadMinutes: 60,
       now: NOW,
     });
     const repository = new StudyCoachRepository(env.DB);

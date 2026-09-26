@@ -1,7 +1,17 @@
 """Projection limits and a refusal check matching contracts/src/calls.ts.
 
 Refuse rather than rewrite a fact: changing text would change its identity and
-the claim the owner confirmed. Keep these patterns aligned with sanitizeRedaction.
+the claim the owner confirmed. Keep these patterns aligned with the OWNER
+audience of sanitizeRedaction.
+
+A projected fact is Sid's own memory going from his own PC to his own cloud
+store, so its reader is Sid. Sid, 2026-09-24: "there should be nothing between
+Jarvis and I interms of what he knows and I know". His codes, PINs, phone
+numbers and passphrases are therefore projected as they are. The only text
+refused is a machine credential -- a private key, an Authorization header, a
+bearer token or a known API-key/bot-token shape -- because that is what
+Jarvis's own infrastructure secrets look like, and the cloud treats stored
+memory as a fixed point of the owner redactor.
 """
 
 import re
@@ -17,34 +27,23 @@ _FACT_CONTROLS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def _js_whitespace_pattern(pattern: str) -> re.Pattern[str]:
-    # Expand the one negated whitespace class before replacing standalone atoms.
-    pattern = pattern.replace(r"[^\s,;]", f"[^{_JS_WHITESPACE},;]")
     return re.compile(pattern.replace(r"\s", f"[{_JS_WHITESPACE}]"), re.I | re.ASCII)
 
 
-# AUTHENTICATION_WORD in calls.ts. Both contextual rules share it there, so they
-# share it here. The four-digit rule is the owner PIN, and it is gated on the
-# word because a bare four-digit rule would refuse every fact holding a year.
-_AUTHENTICATION_WORD = (
-    r"\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)"
-    r"(?:\s+is)?\s*[=:]?\s*"
-)
-
 _REDACTED_PATTERNS = (
-    re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{8}(?![0-9])"),
-    _js_whitespace_pattern(_AUTHENTICATION_WORD + r"[0-9]{4}(?![0-9])"),
-    _js_whitespace_pattern(r"\bauthorization\s*:\s*[^\r\n]*"),
     _js_whitespace_pattern(
-        r"(?<![A-Za-z0-9])([\"']?)(?:api(?:[_-]|\s+)?key|password|client(?:[_-]|\s+)?secret|access(?:[_-]|\s+)?token|token|secret)\1\s*[=:]\s*(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*(?:\"|(?=\r?\n|$))|'(?:\\[^\r\n]|[^'\\\r\n])*(?:'|(?=\r?\n|$))|[^\s,;]+)",
+        r"\bauthorization\s*:\s*(?:bearer[ \t\r\n]+[A-Za-z0-9._~+/=-]+[^\r\n]*|[^\r\n]*)"
     ),
     re.compile(
-        r"\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,})\b",
+        r"\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+        r"xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|"
+        r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}|"
+        r"[0-9]{8,10}:[A-Za-z0-9_-]{35})\b",
         re.ASCII,
     ),
     re.compile(r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*)-----"),
 )
-_BEARER = re.compile(r"\bbearer[ \t]+([A-Za-z0-9._~+/=-]{8,})", re.I | re.ASCII)
+_BEARER = re.compile(r"\bbearer[ \t\r\n]+([A-Za-z0-9._~+/=-]{8,})", re.I | re.ASCII)
 
 
 def redaction_would_change(text: str) -> bool:

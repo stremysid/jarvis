@@ -1,0 +1,98 @@
+[
+  {
+    "name": "D1 ingestion refuses a deadline with no due date instead of storing it",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-ingestion.ts",
+    "find": "  let dueAt: string | null = null;",
+    "replace": "  let dueAt: string | null = null;\n  if (item.dueAt === null) return { ok: false, rejection: { externalId, reason: \"invalid_due_at\" } };",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts",
+    "expect": "stores an assignment with no due date as null rather than skipping it"
+  },
+  {
+    "name": "D2 the repository reads the legacy placeholder column instead of the real date",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-repository.ts",
+    "find": "    dueAt: row.due_date,\n    status: requireStatus(row.status),",
+    "replace": "    dueAt: row.due_at,\n    status: requireStatus(row.status),",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "stores a deadline with no due date and says so in the receipt"
+  },
+  {
+    "name": "D3 an omitted dueAt clears the stored date instead of keeping it",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "    const due: ResolvedDue = args.dueAt === undefined\n      ? { dueAt: match?.due_date ?? null, dateOnlyZone: null }\n      : resolveDue(args.dueAt, timeZone);",
+    "replace": "    const due: ResolvedDue = resolveDue(args.dueAt, timeZone);",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "moves a deadline from no due date to a stated one, and a stated one cannot be unset by omission"
+  },
+  {
+    "name": "D4 the receipt stops saying a deadline has no due date",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-tool.ts",
+    "find": "      ? \"no due date\"\n      : `due ${local(result.deadline.dueAt)} (${ownerZone})`;",
+    "replace": "      ? \"due date not stated\"\n      : `due ${local(result.deadline.dueAt)} (${ownerZone})`;",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-tool.test.ts",
+    "expect": "stores a deadline with no due date and says so in the receipt"
+  },
+  {
+    "name": "D5 the list tool stops marking a stored row as having no due date",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-list-tool.ts",
+    "find": "  const due = deadline.dueAt === null ? \"no due date\" : `due ${deadline.dueAt}`;",
+    "replace": "  const due = `due ${deadline.dueAt ?? \"\"}`;",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-list-tool.test.ts",
+    "expect": "shows the stored effort-free row: title, course, due or no due date, status and source"
+  },
+  {
+    "name": "D6 the list tool stops asking Sid for a missing due date",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-list-tool.ts",
+    "find": "ask Sid for those dates and store them with deadline_record",
+    "replace": "treat those rows as undated",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-list-tool.test.ts",
+    "expect": "asks the model to get a missing due date from Sid rather than guessing one"
+  },
+  {
+    "name": "D7 the review listing stops including undated deadlines",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-repository.ts",
+    "find": "         AND (due_date IS NULL OR (due_date >= ? AND due_date < ?))",
+    "replace": "         AND (due_date >= ? AND due_date < ?)",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-list-tool.test.ts",
+    "expect": "does not list a dated deadline outside the window but still lists an undated one"
+  },
+  {
+    "name": "D8 collector mapping drops an assignment with no due date again",
+    "file": "apps/cloud-gateway/src/school/collector-mapping.ts",
+    "find": "  const deadlines = items.map((item): RawDeadlineItem => ({",
+    "replace": "  const deadlines = items.filter((item) => item.dueAt !== null).map((item): RawDeadlineItem => ({",
+    "testPath": "apps/cloud-gateway/test/school/collector-ingest.test.ts",
+    "expect": "maps the observed null DueDate through its linked module and retains undated work"
+  },
+  {
+    "name": "D9 the review pass never delivers the model's own message",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-review-job.ts",
+    "find": "    if (text.length > 0) {\n      await dependencies.delivery.send(text);",
+    "replace": "    if (false) {\n      await dependencies.delivery.send(text);",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-review-job.test.ts",
+    "expect": "delivers the model's own question about a deadline with no due date"
+  },
+  {
+    "name": "D10 the review pass executes a tool it does not offer",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-review-job.ts",
+    "find": "        if (call.name !== \"reminder_schedule\" && call.name !== \"reminder_list\" && call.name !== \"reminder_cancel\") {",
+    "replace": "        if (false) {",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-review-job.test.ts",
+    "expect": "refuses a tool the review pass does not offer instead of executing it"
+  },
+  {
+    "name": "D11 the review pass calls the model even with nothing to review",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-review-job.ts",
+    "find": "    if (deadlines.length === 0) {\n      return { outcome: \"nothing_to_review\"",
+    "replace": "    if (false) {\n      return { outcome: \"nothing_to_review\"",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-review-job.test.ts",
+    "expect": "does not call the model when there is nothing to review"
+  },
+  {
+    "name": "D12 a review reminder is bound to a turn that does not exist",
+    "file": "apps/cloud-gateway/src/deadlines/deadline-review-job.ts",
+    "find": "    const identity = { principalId: dependencies.ownerPrincipalId, correlationId: null };",
+    "replace": "    const identity = { principalId: dependencies.ownerPrincipalId, correlationId };",
+    "testPath": "apps/cloud-gateway/test/deadlines/deadline-review-job.test.ts",
+    "expect": "shows the model the stored deadlines and lets it schedule its own warning"
+  }
+]

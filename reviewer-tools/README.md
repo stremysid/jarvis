@@ -39,3 +39,13 @@ Each probe asserts the bug **exists**, so it passes on the buggy head and must F
   - the `vals*.json` files;
   - every test and mutation run output.
 - **Page sources:** `jarvis-status-board.html` is Sid's status page (https://claude.ai/artifact/XjrTCjXg4o6rBEzi7t89f5, also https://claude.ai/code/artifact/f8eddfb6-11ab-4e9e-99d7-906d993eb888). `jarvis-memory-plan.html` is the Memory Plan (https://claude.ai/artifact/CiyukSCFtUpHe9J4Uc3PZo). Republish either with the Artifact tool, passing its `url`.
+
+## Merging reviewer-cleared PRs (Git Bash)
+- **`merge-chain.sh`** merges PRs one at a time: `bash reviewer-tools/merge-chain.sh <pr> <full-head-sha> <branch> [<pr> <sha> <branch> …]`.
+  - For each PR it brings the head up to date with `origin/main` (through `merge-main-into.sh`, in a `C:\w` worktree), waits for CI on that exact head, then runs `gh pr merge --squash --match-head-commit`.
+  - It stops at the first problem: a code conflict, red CI, or a head that moved.
+  - The shell does the CI waiting, so no model tokens are spent polling. Don't give that loop to an agent: on 2026-09-25 an agent doing the same job used about 240k tokens.
+- **`merge-main-into.sh <head> <branch>`** merges `origin/main` into a PR branch.
+  - It resolves only `docs/AGENT_LOG.md` itself, keeping both sides. Any other conflict aborts and is named.
+  - It checks that no line either side added since the merge-base was dropped, then pushes.
+  - When it aborts on a doc (CODE-VS-JUDGMENT, QUEUE, ARCHITECTURE…), resolve that by hand and re-run the chain. A code conflict goes back to the PR's builder.

@@ -10,9 +10,10 @@
  * binds the tool name, capability and a canonical hash of the arguments:
  *
  *  - tool name, so tools that share a capability cannot spend each other's tap.
- *  - capability, so confirming "warm up the car" cannot authorize "unlock the
- *    car" -- `vehicle.precondition` and `vehicle.unlock` are different tiers
- *    and a steered model must not be able to slide from one to the other.
+ *  - capability, so a tap given for one capability cannot authorize another --
+ *    confirming "text my teacher" (`contact.third_party`) must not authorize
+ *    "email my teacher" (`send.email`), and a steered model must not slide
+ *    from one to the other.
  *  - arguments hash, so confirming the email Sid just read cannot authorize a
  *    different one composed after he tapped. The model re-issues the call on
  *    the following turn, and it must re-issue the SAME call. Wording that

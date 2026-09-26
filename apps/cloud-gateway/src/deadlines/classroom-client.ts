@@ -480,10 +480,11 @@ export class ClassroomClient {
       for (const work of await this.listCourseWork(course.id)) {
         courseWorkMaxPoints.set(`${course.id}:${work.id}`, work.maxPoints);
         const dueAt = classroomDueInstant(work, this.#dueOptions);
-        if (dueAt === null) {
-          undatedExternalIds.push(`${course.id}:${work.id}`);
-          continue;
-        }
+        // An assignment Classroom publishes without a due date is still stored,
+        // with a null due date, so Jarvis sees it and asks Sid. It is also
+        // listed in `undatedExternalIds`, which the grade/submission sync uses
+        // to skip a due-date-based derivation it cannot make.
+        if (dueAt === null) undatedExternalIds.push(`${course.id}:${work.id}`);
         items.push(Object.freeze({
           externalId: `${course.id}:${work.id}`,
           course: course.name,

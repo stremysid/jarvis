@@ -32,6 +32,7 @@ import {
   type MemoryRepository,
 } from "./memory-repository.js";
 import {
+  MEMORY_FILING_CONFIDENCE_THRESHOLD,
   MemoryRepositoryError,
   type AutomaticInboxRefilingResult,
   type CommitInitialMemoryInput,
@@ -110,12 +111,13 @@ const STEP_PER_PROPOSAL_D1_STATEMENT_CEILING = CANONICAL_ITEM_COMMIT_D1_STATEMEN
   + AUTOMATIC_COMMIT_PREPARATION_D1_STATEMENT_CEILING * AUTOMATIC_COMMIT_WRITE_ATTEMPT_LIMIT
   + MAX_NARROWING_ATTEMPTS;
 const POLICY_VERSION = "automatic-distillation-v1";
-const FILING_CONFIDENCE_THRESHOLD = 0.6;
+const FILING_CONFIDENCE_THRESHOLD = MEMORY_FILING_CONFIDENCE_THRESHOLD;
 const AUTOMATIC_TOPIC_CREATION_LIMIT = 6;
 const MAX_TOPIC_PATH_DEPTH = 4;
 const MAX_TOPIC_PATH_JSON_BYTES = 320;
 const encoder = new TextEncoder();
-const redactor = new Redactor();
+// Sid's memory: his reader.
+const redactor = new Redactor("owner");
 
 export const AUTOMATIC_DISTILLATION_STEP_LIMITS = Object.freeze({
   d1Statements: STEP_FIXED_D1_STATEMENT_CEILING

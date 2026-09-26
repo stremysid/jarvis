@@ -6,11 +6,26 @@
  * makes tier 3 a backstop rather than another thing a persuasive prompt can
  * talk its way past.
  *
+ * What each tier means, since `0051` (Sid, 2026-09-24: only his five
+ * actions get a "just to be sure"):
+ *
+ *  - Tier 1: runs without asking, in either mode.
+ *  - Tier 2: not one of the five. Runs without asking once shadow mode is off
+ *    (`/shadow off`), and is reported instead of run while it is on. It no
+ *    longer means "reversible": `delete.data` and `write.production` are
+ *    tier 2 because Sid did not name them.
+ *  - Tier 3: exactly Sid's five -- spending money, sending an email, making a
+ *    call, submitting school work, texting or calling someone for him. Always
+ *    asks: a Telegram tap, or the PIN on a call.
+ *
+ * Every tier writes an audit row, so an action that does not ask is still
+ * receipted.
+ *
  * Shadow mode is a second, independent axis. A tier-2 capability is permitted
  * in principle and shadow mode says the system is still proving itself, so it
  * reports what it would have done instead of doing it. Keeping the two apart
  * is the point: if leaving shadow mode were the same act as granting tier 2,
- * the end of a trial period would silently unlock every reversible action at
+ * the end of a trial period would silently unlock every tier-2 action at
  * once, and there would be no way to run live with only some of them enabled.
  */
 

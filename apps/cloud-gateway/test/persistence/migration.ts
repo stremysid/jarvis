@@ -39,7 +39,17 @@ import memoryLifetimeAndPinsSql from "../../src/persistence/migrations/0038_memo
 import toolConfirmationConsumptionsSql from "../../src/persistence/migrations/0039_tool_confirmation_consumptions.sql?raw";
 import schoolCollectorSql from "../../src/persistence/migrations/0040_school_collector_keys.sql?raw";
 import guidedAssignmentSql from "../../src/persistence/migrations/0043_guided_assignment.sql?raw";
+import ownerChannelParitySql from "../../src/persistence/migrations/0044_owner_channel_parity.sql?raw";
 import schoolCollectorHostsSql from "../../src/persistence/migrations/0045_school_collector_hosts.sql?raw";
+import callPinAndOwnerAuthoritySql from "../../src/persistence/migrations/0047_call_pin_and_owner_authority.sql?raw";
+import noteSourcesWithoutMarkdownCitationSql from "../../src/persistence/migrations/0048_note_sources_without_markdown_citation.sql?raw";
+import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw";
+import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
+import confirmOnlyFiveActionsSql from "../../src/persistence/migrations/0051_confirm_only_five_actions.sql?raw";
+import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
+import deadlinesStoreFactsSql from "../../src/persistence/migrations/0053_deadlines_store_facts.sql?raw";
+import ownerRemindersScheduledSql from "../../src/persistence/migrations/0054_owner_reminders_scheduled.sql?raw";
+import ownerAccessToolSql from "../../src/persistence/migrations/0055_owner_access_tool.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -103,6 +113,10 @@ export function applyFoundationMigration(): Promise<void> {
     ...voiceAccessBaseMigrations,
     voiceAccessBoundariesMigration,
     ...assistantMigrations,
+    // 0053 alters `deadlines` (from 0011), and every fixture that reads a
+    // deadline column needs it. It lives here rather than in a later chain so a
+    // fixture that stops at the foundation still builds the current row shape.
+    { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
   ]);
   return migrated;
 }
@@ -143,6 +157,27 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     },
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    // 0044 replaces triggers owned by the school, university and study schemas
+    // (0020, 0022, 0023, 0024, 0029 and 0030). This deliberately narrow memory
+    // fixture has not installed those tables or triggers, so applying 0044 here
+    // would make its first DROP fail rather than exercise memory ingress. The
+    // current-schema and full-schema fixtures below both apply 0044.
+    { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+    // 0051 is deliberately NOT here. It UPDATEs the collector row 0040 seeds,
+    // and this chain runs before the newest chain applies 0040: recorded here
+    // first, 0051 would be skipped there and leave the revoke at tier 3. The
+    // list-parity guard's memory-chain case is met by 0052, which this chain
+    // owns: it passes run alone (-t "memory fixture chain"), not only after the
+    // terminal-chain case has left the newest receipt.
+    { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    // 0054 relaxes owner_reminders.created_turn_id so the scheduled deadline
+    // review can schedule a warning without inventing a conversation turn.
+    // It belongs after 0050, so it is deliberately not in the foundation chain.
+    { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    // 0055 is an INSERT OR IGNORE into capability_tiers, whose table `0008`
+    // creates, so it is safe on this chain too and keeps the newest file on
+    // disk reachable from the memory fixtures.
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -156,14 +191,29 @@ export async function applyOwnerPassphraseMigration(): Promise<void> {
   await ownerPassphraseMigrated;
 }
 
-/** Applies the durable owner-call step-up schema and authority boundary. */
+/**
+ * Applies the durable owner-call schema and its current authority boundary.
+ *
+ * `0047` supersedes the owner-authority guard `0018` installs, so it belongs in
+ * this same step: an owner call now mints its authority from relay setup with
+ * no step-up row, and 0018's guard aborts every such insert. A fixture that
+ * applied only `0018` would build a database in which no owner call can leave
+ * `pre_auth`, which is not a state production can be in.
+ */
 export async function applyOwnerCallStepUpMigration(): Promise<void> {
   await applyOwnerPassphraseMigration();
   ownerCallStepUpMigrated ??= applyD1Migrations(env.DB, [
     { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
   ]);
   await ownerCallStepUpMigrated;
 }
+
+/** Alias kept for the call PIN gate's focused tests. */
+export const applySensitiveActionPinMigration = applyOwnerCallStepUpMigration;
 
 /** Applies durable refusal completion and guest-notice delivery after current main. */
 export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
@@ -285,6 +335,14 @@ export async function applyMemoryLivingNotesMigration(): Promise<void> {
   await applyMemoryBackupMigration();
   memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
     { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+    // 0048 rewrites a trigger 0032 creates, so it belongs beside it: a fixture
+    // that stops at 0032 still carries the markdown-citation clause the product
+    // removed, and its notes would be refused by the database, not by any code
+    // under test. It is also in every full-chain list below.
+    {
+      name: "0048_note_sources_without_markdown_citation.sql",
+      queries: splitMigration(noteSourcesWithoutMarkdownCitationSql),
+    },
   ]);
   await memoryLivingNotesMigrated;
 }
@@ -312,7 +370,17 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
     { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
     { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+    { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
     { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+    {
+      name: "0047_call_pin_and_owner_authority.sql",
+      queries: splitMigration(callPinAndOwnerAuthoritySql),
+    },
+    { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+    { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
+    { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -364,7 +432,20 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0039_tool_confirmation_consumptions.sql", queries: splitMigration(toolConfirmationConsumptionsSql) },
   { name: "0040_school_collector_keys.sql", queries: splitMigration(schoolCollectorSql) },
   { name: "0043_guided_assignment.sql", queries: splitMigration(guidedAssignmentSql) },
+  { name: "0044_owner_channel_parity.sql", queries: splitMigration(ownerChannelParitySql) },
   { name: "0045_school_collector_hosts.sql", queries: splitMigration(schoolCollectorHostsSql) },
+  {
+    name: "0047_call_pin_and_owner_authority.sql",
+    queries: splitMigration(callPinAndOwnerAuthoritySql),
+  },
+  { name: "0048_note_sources_without_markdown_citation.sql", queries: splitMigration(noteSourcesWithoutMarkdownCitationSql) },
+  { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
+  { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
+  { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
+  { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+  { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
+  { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+  { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
 ]);
 
 /**
@@ -482,6 +563,26 @@ export async function clearGuestGrantNoticeDrainStateForTest(): Promise<void> {
     ) VALUES (1, 'ready', NULL, NULL, NULL, NULL, '1970-01-01T00:00:00.000Z', NULL)`).run();
   } finally {
     for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+}
+
+/**
+ * Test-only reset for the wrong-PIN ledger.
+ *
+ * The rows are append-only in production, so the delete guard has to come off
+ * for a fixture to be repeatable. It is restored immediately.
+ */
+export async function clearSensitiveActionPinDataForTest(): Promise<void> {
+  await applySensitiveActionPinMigration();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS sensitive_action_pin_attempts_reject_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM sensitive_action_pin_attempts").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER sensitive_action_pin_attempts_reject_delete
+      BEFORE DELETE ON sensitive_action_pin_attempts
+      BEGIN
+        SELECT RAISE(ABORT, 'sensitive_action_pin_attempt_delete_forbidden');
+      END`).run();
   }
 }
 
@@ -669,3 +770,4 @@ export async function clearConversationDataForTest(): Promise<void> {
       END`).run();
   }
 }
+

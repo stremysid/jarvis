@@ -216,7 +216,7 @@ export function validateExtractionProposal(
   if (typeof text !== "string" || text.trim().length === 0) return null;
   if (new TextEncoder().encode(text).byteLength > MAX_MEMORY_FACT_BYTES) return null;
   if (hasFactTextControls(text)) return null;
-  const checked = sanitizeRedaction(text);
+  const checked = sanitizeRedaction(text, undefined, false, "owner");
   if (!checked.ok || checked.text !== text) return null;
 
   if (!Array.isArray(sourceEventIds)

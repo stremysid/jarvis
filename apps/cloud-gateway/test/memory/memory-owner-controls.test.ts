@@ -9,6 +9,7 @@ import {
 import {
   MemoryOwnerControlsService,
   type CorrectMemoryInput,
+  type LiftMemoryInput,
   type RememberMemoryInput,
 } from "../../src/memory/memory-owner-controls.js";
 import {
@@ -132,6 +133,10 @@ function rememberInput(turn: SeededTurn, text: string): RememberMemoryInput {
     text,
     kind: "preference",
     sensitivity: "normal",
+    // Required now that the model decides a fact's lifetime. Durable with no
+    // end is what these fixtures meant before the repository default existed.
+    lifetime: "durable",
+    validTo: null,
   });
 }
 
@@ -145,6 +150,8 @@ function correctInput(
     sourceExcerpt?: string;
     normalizedFromSource?: boolean;
     ownerTurn?: MemoryOwnerTurnInput;
+    lifetime?: "durable" | "temporary";
+    validTo?: string | null;
   }> = {},
 ): CorrectMemoryInput {
   return Object.freeze({
@@ -157,6 +164,21 @@ function correctInput(
     ...(options.normalizedFromSource === undefined
       ? {}
       : { normalizedFromSource: options.normalizedFromSource }),
+    lifetime: options.lifetime ?? "durable",
+    validTo: options.validTo ?? null,
+  });
+}
+
+/** A restore, which now carries the basis the model chose for the evidence. */
+function liftInput(
+  turn: SeededTurn,
+  itemId: Ulid,
+  basis: LiftMemoryInput["basis"] = "stated",
+): LiftMemoryInput {
+  return Object.freeze({
+    ownerTurn: turn.input,
+    candidateItemIds: Object.freeze([itemId]),
+    basis,
   });
 }
 
@@ -262,6 +284,7 @@ async function commitItemFromTurn(
     principalId: OWNER_ID,
     itemId: newUlid(),
     kind: "preference",
+    lifetime: "durable",
     creationEventId: turn.input.eventId,
     creationEventSequence: turn.input.eventSequence,
     version: {
@@ -902,7 +925,7 @@ describe("MemoryOwnerControlsService", () => {
     expect(await commandCount()).toBe(before);
   });
 
-  it("refuses a second different mutation authorized by one owner event", async () => {
+  it("keys each mutation to its operation and target so one owner event can forget after remembering", async () => {
     const turn = await seedTurn("Remember that I prefer one mutation per turn.");
     const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const remembered = await service.remember(
@@ -910,16 +933,21 @@ describe("MemoryOwnerControlsService", () => {
     );
     const before = await commandCount();
 
-    await expectCode(service.forget({
+    // Every mutation used to share one `<event>:mutation` key, so a second one
+    // on the same owner event was refused — that shared key is what forced the
+    // multi-forget confirmation tap. Forgetting now keys on the target, so the
+    // ledger records its own command and the memory is hidden.
+    const forgotten = await service.forget({
       ownerTurn: { ...turn.input, memoryIntent: "forget" },
       candidateItemIds: [remembered.item.itemId],
-    }), "memory_refused");
+    });
 
-    expect(await commandCount()).toBe(before);
+    expect(forgotten).toMatchObject([{ itemId: remembered.item.itemId, state: "forgotten" }]);
+    expect(await commandCount()).toBe(before + 1);
     expect((await new MemoryRepository(env.DB).readCurrentItem(
       OWNER_ID,
       remembered.item.itemId,
-    )).lifecycle.state).toBe("active");
+    )).lifecycle.state).toBe("forgotten");
   });
 
   it("refuses model-marked turns and non-owner principals before command ingress", async () => {
@@ -940,7 +968,7 @@ describe("MemoryOwnerControlsService", () => {
     expect(await commandCount()).toBe(before);
   });
 
-  it("refuses an ambiguous target before recording a command or changing memory", async () => {
+  it("refuses a forget batch that names an id that does not exist without changing anything", async () => {
     const rememberedTurn = await seedTurn("Remember that I prefer deterministic tests.");
     const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(rememberedTurn, "I prefer deterministic tests."),
@@ -951,10 +979,12 @@ describe("MemoryOwnerControlsService", () => {
     );
     const before = await commandCount();
 
+    // Every target is validated before any command is written or any memory
+    // changes, so the valid first id is not forgotten on the way to the bad one.
     await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId, newUlid()],
-    }), "memory_ambiguous");
+    }), "memory_not_found");
 
     expect(await commandCount()).toBe(before);
     const current = await new MemoryRepository(env.DB).readCurrentItem(
@@ -962,6 +992,105 @@ describe("MemoryOwnerControlsService", () => {
       remembered.item.itemId,
     );
     expect(current.lifecycle.state).toBe("active");
+  });
+
+  it("forgets every memory Sid named in one call, each with its own receipt", async () => {
+    const sharedTurn = await seedTurn("Remember that I prefer dark mode. I prefer compact menus.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    // Two separate memories from one owner event, committed directly: this test
+    // is about the forget batch, not about what remember accepts from a turn.
+    const dark = await commitItemFromTurn(sharedTurn, "I prefer dark mode.");
+    const compact = await commitItemFromTurn(sharedTurn, "I prefer compact menus.");
+    const forgetTurn = await seedTurn(
+      "Forget my dark mode and compact menus preferences.",
+      { memoryIntent: "forget" },
+    );
+
+    // The engine this replaces raised a "Confirm forget" tap for anything but a
+    // single id. Forgetting is not one of Sid's five confirmed actions, so one
+    // call now hides both, and each memory still carries its own receipt.
+    const receipts = await service.forget({
+      ownerTurn: forgetTurn.input,
+      candidateItemIds: [dark.itemId, compact.itemId],
+    });
+
+    expect(receipts.map((entry) => entry.itemId)).toEqual([dark.itemId, compact.itemId]);
+    expect(receipts.every((entry) => entry.state === "forgotten")).toBe(true);
+    expect(receipts.every((entry) => entry.receipt.startsWith("Forgot 1 memory"))).toBe(true);
+    expect((await new MemoryRepository(env.DB).readCurrentItem(OWNER_ID, dark.itemId))
+      .lifecycle.state).toBe("forgotten");
+    expect((await new MemoryRepository(env.DB).readCurrentItem(OWNER_ID, compact.itemId))
+      .lifecycle.state).toBe("forgotten");
+  });
+
+  it("refuses a restore whose basis cannot be stored, and stores the basis when it can", async () => {
+    const sourceTurn = await seedTurn("Remember that I prefer archived restore bases.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "I prefer archived restore bases."),
+    );
+    await archiveAndPurgeTurn(sourceTurn);
+    const forgetTurn = await seedTurn(
+      "Forget the archived restore preference.",
+      { memoryIntent: "forget" },
+    );
+    await service.forget({
+      ownerTurn: forgetTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+    });
+    const liftTurn = await seedTurn(
+      "Restore the archived restore preference.",
+      { memoryIntent: "lift" },
+    );
+
+    // A `0016` trigger still requires `confirmed` for archived-only
+    // first-person evidence, so a different basis is refused by name rather
+    // than silently rewritten.
+    await expectCode(service.lift({
+      ownerTurn: liftTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+      basis: "stated",
+    }), "memory_refused");
+
+    // A refused restore leaves no effect, so a later turn can still restore it.
+    const confirmTurn = await seedTurn(
+      "Restore the archived restore preference properly.",
+      { memoryIntent: "lift" },
+    );
+    const restored = await service.lift({
+      ownerTurn: confirmTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+      basis: "confirmed",
+    });
+    expect(restored.item.version.basis).toBe("confirmed");
+  });
+
+  it("stores the basis the model chose for a restore whose sources are still live", async () => {
+    const sourceTurn = await seedTurn("Remember that I prefer live restore bases.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "I prefer live restore bases."),
+    );
+    const forgetTurn = await seedTurn(
+      "Forget the live restore preference.",
+      { memoryIntent: "forget" },
+    );
+    await service.forget({
+      ownerTurn: forgetTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+    });
+    const liftTurn = await seedTurn(
+      "Restore the live restore preference.",
+      { memoryIntent: "lift" },
+    );
+    const restored = await service.lift({
+      ownerTurn: liftTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+      // Not `confirmed`, and code does not override it: the model decides.
+      basis: "stated",
+    });
+
+    expect(restored.item.version.basis).toBe("stated");
   });
 
   it("refuses to lift a memory that is not forgotten before recording a command", async () => {
@@ -979,35 +1108,118 @@ describe("MemoryOwnerControlsService", () => {
     await expectCode(service.lift({
       ownerTurn: liftTurn.input,
       candidateItemIds: [remembered.item.itemId],
+      basis: "stated",
     }), "memory_refused");
 
     expect(await commandCount()).toBe(before);
   });
 
-  it("atomically accepts at most one concurrent mutation for one owner event", async () => {
+  it("refuses a remember that states no lifetime, rather than defaulting it to durable", async () => {
+    const turn = await seedTurn("Remember that I prefer explicit lifetimes.");
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(OWNER_ID);
+    const itemId = newUlid();
+    const before = await commandCount();
+
+    // The model decides how long a fact lasts, so an absent lifetime is refused
+    // rather than assumed. This used to be silently stored as durable.
+    await expectCode(repository.commitInitialItem({
+      principalId: OWNER_ID,
+      itemId,
+      kind: "preference",
+      lifetime: undefined as never,
+      creationEventId: turn.input.eventId,
+      creationEventSequence: turn.input.eventSequence,
+      version: {
+        versionId: newUlid(),
+        text: "I prefer explicit lifetimes.",
+        textHash: await sha256Hex("I prefer explicit lifetimes."),
+        basis: "stated",
+        origin: "authenticated_first_person",
+        uncertain: false,
+        sensitivity: "normal",
+        validFrom: null,
+        validTo: null,
+        extractorVersion: "memory-owner-controls-test-v1",
+        extractorModelId: null,
+      },
+      sources: [{
+        sourceId: newUlid(),
+        eventId: turn.input.eventId,
+        eventSequence: turn.input.eventSequence,
+        sourceLocation: "live",
+        r2SegmentId: null,
+        excerpt: "I prefer explicit lifetimes.",
+        excerptHash: await sha256Hex("I prefer explicit lifetimes."),
+        channel: turn.input.channel,
+        occurredAt: turn.input.occurredAt,
+      }],
+      transition: {
+        transitionId: newUlid(),
+        lifecycleState: "active",
+        reason: "memory owner controls test",
+        policyVersion: "memory-owner-controls-test-v1",
+      },
+      placement: {
+        placementId: newUlid(),
+        placementEventId: newUlid(),
+        topicId: topics.inbox.topicId,
+        filingSource: "rule",
+        confidence: 0.4,
+        reason: "memory owner controls test",
+      },
+    }), "memory_refused");
+
+    expect(await commandCount()).toBe(before);
+    await expect(repository.readCurrentItem(OWNER_ID, itemId)).rejects
+      .toBeInstanceOf(MemoryRepositoryError);
+  });
+
+  it("stores a restatement as its own memory and names the similar stored wording", async () => {
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const firstTurn = await seedTurn("Remember that my essay needs a clear thesis.");
+    const first = await service.remember(
+      rememberInput(firstTurn, "my essay needs a clear thesis."),
+    );
+    const secondTurn = await seedTurn("Remember that my essay needs a clear thesis.");
+    const second = await service.remember(
+      rememberInput(secondTurn, "my ESSAY needs a clear thesis!"),
+    );
+
+    // No silent merge: the new wording is its own memory, and the receipt names
+    // the similar stored memory so the model can correct it if it is the same
+    // fact. The old shape merged the wording into `first` and wrote no item.
+    expect(second.item.itemId).not.toBe(first.item.itemId);
+    expect(second.receipt).toContain("Similar stored memory");
+    expect(second.receipt).toContain(first.item.itemId);
+    const repository = new MemoryRepository(env.DB);
+    await expect(repository.readCurrentItem(OWNER_ID, first.item.itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "active" } });
+    await expect(repository.readCurrentItem(OWNER_ID, second.item.itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "active" } });
+  });
+
+  it("applies one command per target when the same forget is issued twice concurrently", async () => {
     const existingTurn = await seedTurn("Remember that I prefer existing controls.");
     const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const existing = await service.remember(
       rememberInput(existingTurn, "I prefer existing controls."),
     );
-    const sharedTurn = await seedTurn("Remember that I prefer raced controls.");
+    const forgetTurn = await seedTurn(
+      "Forget my existing controls preference.",
+      { memoryIntent: "forget" },
+    );
     const before = await commandCount();
 
-    const attempts = await Promise.allSettled([
-      service.remember(rememberInput(sharedTurn, "I prefer raced controls.")),
-      service.forget({
-        ownerTurn: { ...sharedTurn.input, memoryIntent: "forget" },
-        candidateItemIds: [existing.item.itemId],
-      }),
+    // Two concurrent calls for the same target share `<event>:forget:<itemId>`,
+    // so the ledger records one command and both callers see the same result.
+    const attempts = await Promise.all([
+      service.forget({ ownerTurn: forgetTurn.input, candidateItemIds: [existing.item.itemId] }),
+      service.forget({ ownerTurn: forgetTurn.input, candidateItemIds: [existing.item.itemId] }),
     ]);
 
-    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
-    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
-    const rejected = attempts.find((attempt) => attempt.status === "rejected");
-    expect(rejected).toMatchObject({
-      status: "rejected",
-      reason: { code: "memory_refused" },
-    });
+    expect(attempts[0]).toMatchObject([{ itemId: existing.item.itemId, state: "forgotten" }]);
+    expect(attempts[1]).toMatchObject([{ itemId: existing.item.itemId, state: "forgotten" }]);
     expect(await commandCount()).toBe(before + 1);
   });
 
@@ -1068,16 +1280,16 @@ describe("MemoryOwnerControlsService", () => {
       candidateItemIds: [remembered.item.itemId],
     });
 
-    expect(forgotten).toMatchObject({
+    expect(forgotten).toMatchObject([{
       newlyHiddenTurnCount: 1,
       totalCoveredTurnCount: 1,
       replayed: false,
       itemId: remembered.item.itemId,
       state: "forgotten",
-    });
+    }]);
     expect(JSON.stringify(forgotten)).not.toContain("reports without tables");
-    expect(forgetReplay.replayed).toBe(true);
-    expect(forgotten.receipt).not.toContain("reports without tables");
+    expect(forgetReplay).toMatchObject([{ replayed: true }]);
+    expect(forgotten[0]!.receipt).not.toContain("reports without tables");
     const visible = await env.DB.prepare(
       "SELECT count(*) AS count FROM memory_visible_recent_events WHERE event_id = ?",
     ).bind(sourceTurn.input.eventId).first<{ count: number }>();
@@ -1108,10 +1320,12 @@ describe("MemoryOwnerControlsService", () => {
     const restored = await service.lift({
       ownerTurn: liftTurn.input,
       candidateItemIds: [remembered.item.itemId],
+      basis: "stated",
     });
     const liftReplay = await service.lift({
       ownerTurn: liftTurn.input,
       candidateItemIds: [remembered.item.itemId],
+      basis: "stated",
     });
     expect(restored).toMatchObject({
       liftedSuppressionCount: 1,
@@ -1152,8 +1366,8 @@ describe("MemoryOwnerControlsService", () => {
       candidateItemIds: [first.item.itemId],
     });
 
-    expect(forgotFirst.hiddenSiblingItemCount).toBe(1);
-    expect(forgotFirst.receipt).toContain("also hid 1 other active memory");
+    expect(forgotFirst[0]!.hiddenSiblingItemCount).toBe(1);
+    expect(forgotFirst[0]!.receipt).toContain("also hid 1 other active memory");
     const explainSiblingTurn = await seedTurn(
       "Why do you remember my compact menu preference?",
       { memoryIntent: "explain" },
@@ -1197,6 +1411,7 @@ describe("MemoryOwnerControlsService", () => {
     const restored = await service.lift({
       ownerTurn: liftFirstTurn.input,
       candidateItemIds: [first.item.itemId],
+      basis: "stated",
     });
 
     expect(restored.retrievable).toBe(false);
@@ -1235,6 +1450,9 @@ describe("MemoryOwnerControlsService", () => {
     const restored = await service.lift({
       ownerTurn: liftTurn.input,
       candidateItemIds: [proposed.itemId],
+      // A model-origin item must stay inferred; the model may not promote its
+      // own guess by restoring it.
+      basis: "inferred",
     });
 
     expect(restored).toMatchObject({
@@ -1279,7 +1497,7 @@ describe("MemoryOwnerControlsService", () => {
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId],
     });
-    expect(recovered).toMatchObject({ replayed: true, newlyHiddenTurnCount: 1 });
+    expect(recovered).toMatchObject([{ replayed: true, newlyHiddenTurnCount: 1 }]);
   });
 
   it("forgets and lifts a memory after its source turn is archived and purged through the default repository", async () => {
@@ -1299,15 +1517,18 @@ describe("MemoryOwnerControlsService", () => {
     await expect(service.forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId],
-    })).resolves.toMatchObject({ state: "forgotten", newlyHiddenTurnCount: 1 });
+    })).resolves.toMatchObject([{ state: "forgotten", newlyHiddenTurnCount: 1 }]);
 
     const liftTurn = await seedTurn(
       "Restore the archived owner-control preference.",
       { memoryIntent: "lift" },
     );
+    // The model decides what the restored archived evidence counts as; this
+    // pins that its chosen basis is the one stored, with no code override.
     await expect(service.lift({
       ownerTurn: liftTurn.input,
       candidateItemIds: [remembered.item.itemId],
+      basis: "confirmed",
     })).resolves.toMatchObject({
       item: { lifecycle: { state: "active" }, version: { basis: "confirmed" } },
     });
@@ -1479,6 +1700,8 @@ describe("MemoryOwnerControlsService", () => {
       text: "my portal answer is a phrase.",
       kind: "fact",
       sensitivity: "sensitive",
+      lifetime: "durable",
+      validTo: null,
     }));
     const correctionTurn = await seedTurn(
       "my portal answer is a different phrase",
@@ -1502,6 +1725,8 @@ describe("MemoryOwnerControlsService", () => {
       text: "my portal answer is a phrase.",
       kind: "fact",
       sensitivity: "sensitive",
+      lifetime: "durable",
+      validTo: null,
     }));
     const correctionTurn = await seedTurn(
       "my portal answer is a different phrase",
@@ -1527,6 +1752,8 @@ describe("MemoryOwnerControlsService", () => {
       kind: "preference",
       sensitivity: "normal",
       sourceExcerpt: "I prefer dark mode.",
+      lifetime: "durable",
+      validTo: null,
     }));
     const sibling = await commitItemFromTurn(sharedTurn, "I prefer compact menus.");
     const forgetTurn = await seedTurn(

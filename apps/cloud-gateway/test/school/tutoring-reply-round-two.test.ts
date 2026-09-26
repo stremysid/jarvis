@@ -48,9 +48,9 @@ describe("The second adversarial tutoring review", () => {
     expect(guardReplyClaims(reply)).toBe(REFUSAL);
   });
 
-  it("keeps a numeric substitution with an explicit variable", () => {
+  it("keeps a numeric substitution with an explicit variable the model declares", () => {
     const reply = "I put in 4 for x and got 20.";
-    expect(guardReplyClaims(reply)).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: [reply] })).toBe(reply);
   });
 
   it.each([
@@ -127,7 +127,7 @@ describe("The second adversarial tutoring review", () => {
   it("checks context in the same sentence even when the object is locally safe", () => {
     expect(guardReplyClaims("At 2 pm, I added an example.")).toBe(REFUSAL);
     const reply = "The appointment is at 2 pm. I added an example.";
-    expect(guardReplyClaims(reply)).toBe(reply);
+    expect(guardReplyClaims(reply, { workedExplanations: ["I added an example."] })).toBe(reply);
   });
 
   it("keeps passive advice and owner reports separate from completion claims", () => {

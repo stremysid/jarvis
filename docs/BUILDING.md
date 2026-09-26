@@ -38,6 +38,13 @@ stop.
 **Never let the same model build and review the same work.** Nothing merges on
 a single model's own sign-off.
 
+**A new code-side judgment is a blocking finding.** If the diff adds code that
+decides meaning, relevance, how many, which, how long, or whether to act, the PR
+does not merge until that decision moves to the model (a tool argument or the
+prompt). Registering it in [CODE-VS-JUDGMENT](CODE-VS-JUDGMENT.md) does not
+clear it. Permissions, id validation and named system-protection limits are not
+judgments; see [AGENTS.md](../AGENTS.md).
+
 Two kinds of change are reviewed at max rather than the default, because a
 quiet mistake there is expensive and hard to notice:
 

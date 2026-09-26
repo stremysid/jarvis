@@ -36,19 +36,6 @@ export const PROJECT_DOCUMENT_PATHS = [
 
 export type ProjectDocumentPath = (typeof PROJECT_DOCUMENT_PATHS)[number];
 
-/**
- * The two files whose change means something needs attention.
- *
- * A CHANGELOG entry is work already finished and a NEXT_STEPS edit is routine
- * planning, but a new known issue or a new decision is the project telling you
- * something you did not know. Pinging on all four would train the owner to
- * ignore the ping.
- */
-export const ATTENTION_DOCUMENT_PATHS: readonly ProjectDocumentPath[] = Object.freeze([
-  "KNOWN_ISSUES.md",
-  "DECISIONS.md",
-]);
-
 /** Mirrors the CHECK on `project_documents.excerpt`. */
 export const MAX_EXCERPT_CHARACTERS = 4096;
 
@@ -60,7 +47,15 @@ export interface TrackedProject {
   readonly owner: string;
   readonly repository: string;
   readonly displayName: string;
-  /** Days without a commit before the project counts as stale. */
+  /**
+   * The stored `stale_after_days` column, carried through unchanged.
+   *
+   * It is inert: the model, not code, decides whether a commit age means a
+   * project needs attention, so nothing reads this to escalate. The column
+   * stays because the schema has it and a table rebuild is not worth a
+   * threshold nobody consults; `0010_projects.sql`'s `DEFAULT 7` is likewise
+   * left as written because the repository always supplies the value.
+   */
   readonly staleAfterDays: number;
   readonly active: boolean;
   readonly createdAt: string;

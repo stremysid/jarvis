@@ -2,7 +2,6 @@ import { newUlid, sha256Hex, type Sha256Hex } from "../../../../packages/contrac
 import { GitHubFailure, type GitHubCommit, type GitHubFileRead } from "./github-client.js";
 import type { ProjectRepository, RecordedDocument } from "./project-repository.js";
 import {
-  ATTENTION_DOCUMENT_PATHS,
   MAX_FAILURE_CHARACTERS,
   PROJECT_DOCUMENT_PATHS,
   boundedExcerpt,
@@ -84,11 +83,6 @@ export function diffDocuments(
     changes.push(Object.freeze({ path, kind, previousHash: before, currentHash: after }));
   }
   return Object.freeze(changes);
-}
-
-/** The changes worth pinging about: a new known issue or a new decision. */
-export function attentionChanges(changes: readonly DocumentChange[]): readonly DocumentChange[] {
-  return Object.freeze(changes.filter((change) => ATTENTION_DOCUMENT_PATHS.includes(change.path)));
 }
 
 export class ProjectPoller {

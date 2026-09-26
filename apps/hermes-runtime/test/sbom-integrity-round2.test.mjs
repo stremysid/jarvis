@@ -221,6 +221,18 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("--source-root failed the complete locked source VerifyOnly boundary\n");
+    // The real generator starts the trusted PowerShell host and the real
+    // verifier, which measured 2.8 s on this PC and 5.0 s on the Windows CI
+    // runner -- over Vitest's 5 s default, so the run was killed mid-flight.
+    // The bound is on the process pair, not on any assertion: every expectation
+    // above is unchanged.
+    //
+    // 180 s, not 30 s: runGenerator runs the real generate-sbom.mjs, which runs
+    // the locked-source verifier with sourceVerifierDeadlineMs = 120_000, and
+    // runGenerator has no deadline of its own. A test bound below 120 s fires
+    // before the product's own deadline and so never exercises it, which is the
+    // rule this batch exists to establish. This is the same margin the
+    // 120-second runPowerShell helpers use.
   }, 180_000);
 
   it("closes PowerShell module discovery inside the real locked-source verifier child", async () => {
@@ -260,6 +272,12 @@ exit 23
     expect(appData.toLowerCase(), "closed verifier child retained user APPDATA").toBe(closedHostDirectory.toLowerCase());
     expect(localAppData.toLowerCase(), "closed verifier child retained user LOCALAPPDATA").toBe(closedHostDirectory.toLowerCase());
     expect(closedHostEntriesAfter, "closed verifier startup left module-analysis or profile residue in its bounded host directory").toEqual(closedHostEntriesBefore);
+    // Same real-generator cost as the test above: the copy of the runtime tree
+    // plus the trusted PowerShell host. Measured 1.5 s here; the Windows CI
+    // runner is slower and shared, so the default 5 s is not a real bound.
+    // 180 s for the same reason: it wraps runGenerator's 120 s verifier
+    // deadline, and a shorter bound would pre-empt the deadline instead of
+    // letting it fire.
   }, 180_000);
 
   it("uses the uv-compatible CPython 3.11 Windows wheel for charset-normalizer", async () => {

@@ -188,7 +188,10 @@ describe("D2L notification email", () => {
     expect(row?.count).toBe(1);
   });
 
-  it("quarantines a forged From domain before it can create a deadline, grade, or memory", async () => {
+  it("treats an unpinned From domain as outside the D2L scope before it can create a deadline, grade, or memory", async () => {
+    // Was "quarantines a forged From domain". The inbox now stores every
+    // delivery first, so a message whose visible sender is not a pinned D2L
+    // domain is simply not this consumer's mail: no receipt, no failure count.
     const raw = withMessageId(fixture("assignment_due"), "forged-from")
       .replaceAll(PINNED_DOMAIN, "attacker.example");
     const beforeDeadlines = await env.DB.prepare("SELECT COUNT(*) AS count FROM deadlines")
@@ -196,7 +199,8 @@ describe("D2L notification email", () => {
     const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
     });
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
+    expect(result).toMatchObject({ outcome: "outside_d2l_scope", outsideScopeReason: "from_domain_unpinned" });
+    expect(await messageCount("provider_message_id = '<forged-from@attacker.example>'")).toBe(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM deadlines").first<{ count: number }>())?.count)
       .toBe(beforeDeadlines?.count);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM d2l_email_grade_observations")
@@ -211,7 +215,7 @@ describe("D2L notification email", () => {
     const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
       now: () => NOW, logHeaderNames: () => undefined,
     });
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
+    expect(result).toMatchObject({ outcome: "outside_d2l_scope", outsideScopeReason: "from_domain_unpinned" });
   });
 
   it("rejects a guessable school address before reading or trusting the message", async () => {
@@ -464,12 +468,13 @@ describe("D2L notification email", () => {
     expect(sent[0]).not.toContain("sender-domain pins");
   });
 
-  it("quarantines delivery for any recipient other than the configured capability", async () => {
+  it("treats delivery for any recipient other than the configured capability as outside the D2L scope", async () => {
     const raw = withMessageId(fixture("assignment_due"), "wrong-recipient");
     const result = await handleD2lNotificationEmail(emailMessage(raw, {
       to: "school-wrongcapability1234@onesid.ca",
     }).message, configuredEnv(), { now: () => NOW, logHeaderNames: () => undefined });
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "recipient_mismatch" });
+    expect(result).toMatchObject({ outcome: "outside_d2l_scope", outsideScopeReason: "recipient_mismatch" });
+    expect(await messageCount("provider_message_id = '<wrong-recipient@notifications.minds-online.example>'")).toBe(0);
   });
 
   it("refuses a forged notification that carries no authentication evidence at all", async () => {
@@ -759,26 +764,69 @@ describe("D2L notification email", () => {
     expect(receipt).toEqual({ supplied: 0 });
   });
 
-  it("retains no raw MIME for a message refused on its visible sender", async () => {
-    const raw = `From: stranger <someone@evil.example>\r\nSubject: hello\r\n`
-      + "Message-ID: <no-raw-retention@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n";
-    const result = await handleD2lNotificationEmail(
-      emailMessage(raw, { authenticationResults: null }).message,
-      configuredEnv(),
-      { now: () => NOW, logHeaderNames: () => undefined },
-    );
-    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "from_domain_unpinned" });
-    const receipt = await env.DB.prepare(`SELECT length(raw_mime_base64) AS retained, length(raw_sha256) AS hashed
-      FROM d2l_email_messages WHERE provider_message_id = ?`)
-      .bind("<no-raw-retention@evil.example>").first<{ retained: number; hashed: number }>();
-    expect(receipt).toEqual({ retained: 0, hashed: 64 });
+  it("writes no D2L receipt and counts no D2L failure for mail outside the D2L scope, however it fails", async () => {
+    // Review F1 on PR #190. The inbox stores every delivery before this
+    // consumer runs, so a message that is not addressed to it must leave no
+    // trace here: no receipt, no source failure for the digest, no refusal
+    // streak and no owner notice. Each case below used to be counted: a
+    // stranger's plain note (from_domain_unpinned), one whose DMARC failed
+    // (authentication_failed ran before the sender check), one too large to
+    // read (message_too_large ran before it), and one with no From at all.
+    const owner = await isolatedEnv("outside-scope");
+    const sent: string[] = [];
+    const cases = [
+      emailMessage("From: stranger <someone@evil.example>\r\nSubject: hello\r\n"
+        + "Message-ID: <outside-plain@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n",
+      { authenticationResults: null }),
+      emailMessage("From: stranger <someone@evil.example>\r\nSubject: failing\r\n"
+        + "Message-ID: <outside-dmarc@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding\r\n",
+      { authenticationResults: "mx.cloudflare.net; spf=fail; dkim=fail; dmarc=fail" }),
+      emailMessage("From: stranger <someone@evil.example>\r\nSubject: large\r\n"
+        + `Message-ID: <outside-large@evil.example>\r\nContent-Type: text/plain\r\n\r\n${"x".repeat(MAXIMUM_D2L_EMAIL_BYTES)}`),
+      emailMessage("Subject: no sender\r\nMessage-ID: <outside-nofrom@evil.example>\r\n"
+        + "Content-Type: text/plain\r\n\r\npadding\r\n"),
+    ];
+    const sourceBefore = await env.DB.prepare("SELECT last_failure, last_failure_at FROM deadline_sources WHERE source_id = ?")
+      .bind(D2L_EMAIL_SOURCE_ID).first();
+    const outcomes: unknown[] = [];
+    for (const [index, input] of cases.entries()) {
+      outcomes.push(await handleD2lNotificationEmail(input.message, owner, {
+        now: () => new Date(NOW.getTime() + index * 1_000),
+        sendOwnerText: async (text) => { sent.push(text); },
+        logHeaderNames: () => undefined,
+      }));
+    }
+    expect(outcomes).toEqual([
+      expect.objectContaining({ outcome: "outside_d2l_scope", outsideScopeReason: "from_domain_unpinned" }),
+      expect.objectContaining({ outcome: "outside_d2l_scope", outsideScopeReason: "from_domain_unpinned" }),
+      expect.objectContaining({ outcome: "outside_d2l_scope", outsideScopeReason: "from_domain_unpinned" }),
+      expect.objectContaining({ outcome: "outside_d2l_scope", outsideScopeReason: "from_missing" }),
+    ]);
+    expect(sent).toEqual([]);
+    expect(await messageCount("principal_id = 'principal:d2l-email-outside-scope'")).toBe(0);
+    expect(await env.DB.prepare("SELECT last_failure, last_failure_at FROM deadline_sources WHERE source_id = ?")
+      .bind(D2L_EMAIL_SOURCE_ID).first()).toEqual(sourceBefore);
+  });
+
+  it("still quarantines an oversized message whose visible sender is a pinned D2L domain", async () => {
+    // The oversized body is never parsed, so its sender is read from the
+    // delivered header block; a pinned sender keeps the old refusal.
+    const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: Oversized pinned\r\n`
+      + `Message-ID: <oversized-pinned@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\n${"x".repeat(MAXIMUM_D2L_EMAIL_BYTES)}`;
+    const result = await handleD2lNotificationEmail(emailMessage(raw).message, configuredEnv(), {
+      now: () => NOW, logHeaderNames: () => undefined,
+    });
+    expect(result).toMatchObject({ outcome: "quarantined", quarantineReason: "message_too_large" });
   });
 
   it("keeps only a bounded number of quarantined receipts for one owner", async () => {
     const owner = await isolatedEnv("flood-cap");
     for (let index = 0; index < 8; index += 1) {
-      const raw = `From: stranger <someone@evil.example>\r\nSubject: flood ${index}\r\n`
-        + `Message-ID: <flood-${index}@evil.example>\r\nContent-Type: text/plain\r\n\r\npadding ${index}\r\n`;
+      // A pinned sender with no authentication evidence: mail outside the D2L
+      // scope writes no receipt at all, so only a refused in-scope message
+      // still grows the quarantine this cap bounds.
+      const raw = `From: D2L <no-reply@${PINNED_DOMAIN}>\r\nSubject: flood ${index}\r\n`
+        + `Message-ID: <flood-${index}@${PINNED_DOMAIN}>\r\nContent-Type: text/plain\r\n\r\npadding ${index}\r\n`;
       await handleD2lNotificationEmail(
         emailMessage(raw, { authenticationResults: null }).message,
         owner,

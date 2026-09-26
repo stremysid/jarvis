@@ -193,14 +193,16 @@ describe("fake Telegram self-call acceptance", () => {
     } finally { await system.cleanup(); }
   });
 
-  it("uses the stored chat representation for both dispatch and origin when redaction changes a chat id", async () => {
+  it("stores Sid's six-digit chat id as it is and uses that stored form for both dispatch and origin", async () => {
+    // Toward Sid nothing is redacted, so a six-digit chat id is no longer
+    // rewritten; the stored and dispatched representations still agree.
     const system = await createFakeTelegramCallingSystem();
     try {
       await system.ingest("/call check in --confirm", { chatId: 123456 });
       const accepted = system.accepted[0];
       if (accepted === undefined) throw new Error("fixture_accepted_missing");
       const command = await system.commands().commandFor(accepted);
-      expect(command.idempotencyKey).not.toContain(accepted.chatId);
+      expect(command.idempotencyKey).toContain(String(accepted.chatId));
       expect(system.twilio.requests).toHaveLength(1);
       expect(await system.commands().authenticatedOrigin(command.commandId)).toMatchObject({
         commandHash: await sha256Hex(canonicalJson(command)),

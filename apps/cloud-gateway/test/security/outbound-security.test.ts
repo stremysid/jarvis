@@ -114,8 +114,7 @@ describe("outbound TwiML claim security boundary", () => {
   let observedAt: Date;
   let initializeSession: ReturnType<typeof vi.fn>;
   let resolveActiveVerifiedVoiceIdentityId: ReturnType<typeof vi.fn>;
-  let ownerStepUpBind: ReturnType<typeof vi.fn>;
-  let ownerStepUpAlert: ReturnType<typeof vi.fn>;
+  let ownerCallAlert: ReturnType<typeof vi.fn>;
   let dependencies: OutboundTwiMLDependencies;
 
   beforeEach(async () => {
@@ -126,16 +125,14 @@ describe("outbound TwiML claim security boundary", () => {
     await seedAttempt(repository);
     initializeSession = vi.fn(async () => undefined);
     resolveActiveVerifiedVoiceIdentityId = vi.fn(async () => "identity:voice");
-    ownerStepUpBind = vi.fn(async (input) => input);
-    ownerStepUpAlert = vi.fn(async () => undefined);
+    ownerCallAlert = vi.fn(async () => undefined);
     dependencies = {
       twilio: new TwilioSignatureVerifier({ authToken: AUTH_TOKEN }),
       publicOrigin: PUBLIC_ORIGIN,
       ownerIdentityId: "identity:voice",
       recipients: { resolveActiveVerifiedVoiceIdentityId },
       calls: repository,
-      ownerStepUp: { bind: ownerStepUpBind },
-      ownerStepUpAlerts: { alert: ownerStepUpAlert },
+      ownerCallAlerts: { alert: ownerCallAlert },
       initializeSession,
       now: () => observedAt,
     };
@@ -164,9 +161,10 @@ describe("outbound TwiML claim security boundary", () => {
     expect(await retry.text()).toBe(await first.clone().text());
     expect(await first.text()).toContain(`name="relayNonce" value="${NONCE}"`);
     expect(initializeSession).toHaveBeenCalledTimes(2);
-    expect(ownerStepUpBind.mock.calls.map(([binding]) => binding.createdAt)).toEqual([
-      NOW.toISOString(), NOW.toISOString(),
-    ]);
+    // No credential is bound at claim time any more: the per-call passphrase
+    // step-up was removed, and a call's only credential is the PIN asked at a
+    // sensitive action. What the replay must still do is initialize the same
+    // session twice with the same neutral pre-authentication contract.
     expect(initializeSession).toHaveBeenLastCalledWith(expect.objectContaining({
       sessionId: ATTEMPT_ID,
       relaySetupExpiresAt: null,
@@ -234,15 +232,13 @@ describe("outbound TwiML claim security boundary", () => {
     const response = await claimOutboundTwiML(await signedRequest(), ATTEMPT_ID, dependencies);
 
     expect(response.status).toBe(403);
-    expect(ownerStepUpAlert).toHaveBeenCalledOnce();
-    expect(ownerStepUpAlert).toHaveBeenCalledWith({
+    expect(ownerCallAlert).toHaveBeenCalledOnce();
+    expect(ownerCallAlert).toHaveBeenCalledWith({
       ownerPrincipalId: "principal:owner",
-      alertClass: "admission_refused",
       direction: "outbound",
-      attestationClass: "not_applicable",
       now: NOW,
     });
-    expect(JSON.stringify(ownerStepUpAlert.mock.calls)).not.toContain(DESTINATION);
+    expect(JSON.stringify(ownerCallAlert.mock.calls)).not.toContain(DESTINATION);
     expect(initializeSession).not.toHaveBeenCalled();
   });
 
