@@ -229,9 +229,14 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
     //
     // 180 s, not 30 s: runGenerator runs the real generate-sbom.mjs, which runs
     // the locked-source verifier with sourceVerifierDeadlineMs = 120_000, and
-    // runGenerator has no deadline of its own. A test bound below 120 s fires
-    // before the product's own deadline and so never exercises it, which is the
-    // rule this batch exists to establish. This is the same margin the
+    // runGenerator has no deadline of its own. A bound below 120 s pre-empts the
+    // verifier's own deadline, so a hang surfaces as a generic Vitest timeout and
+    // may orphan the child. At 180 s the verifier's deadline stops it at 120 s,
+    // the failure names the real error, and nothing is left running. The cost is
+    // that a genuine hang takes about three minutes to fail instead of thirty
+    // seconds. Neither test exercises the deadline at either value -- they finish
+    // in 2.8-5 s and neither checks for a deadline failure -- so this is about
+    // diagnostics and cleanup, not coverage. This is the same margin the
     // 120-second runPowerShell helpers use.
   }, 180_000);
 
@@ -275,9 +280,10 @@ exit 23
     // Same real-generator cost as the test above: the copy of the runtime tree
     // plus the trusted PowerShell host. Measured 1.5 s here; the Windows CI
     // runner is slower and shared, so the default 5 s is not a real bound.
-    // 180 s for the same reason: it wraps runGenerator's 120 s verifier
-    // deadline, and a shorter bound would pre-empt the deadline instead of
-    // letting it fire.
+    // 180 s for the same reason as the test above: it wraps runGenerator's 120 s
+    // verifier deadline. A bound below 120 s pre-empts that deadline, so a hang
+    // surfaces as a generic Vitest timeout and may orphan the child; at 180 s the
+    // verifier stops it at 120 s with the real error and leaves nothing running.
   }, 180_000);
 
   it("uses the uv-compatible CPython 3.11 Windows wheel for charset-normalizer", async () => {

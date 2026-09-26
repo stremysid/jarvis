@@ -4294,11 +4294,20 @@ them. `rejects a fabricated release-shaped source root through the real generato
 before reading lock inputs` and `closes PowerShell module discovery inside the real
 locked-source verifier child` both call `runGenerator`, which runs the real
 `generate-sbom.mjs`; that script runs the locked-source verifier with
-`deadlineMs = 120_000` and `runGenerator` has no deadline of its own. A 60s Vitest
-timeout therefore fires **before** the product's own 120s deadline, which breaks
-this change's whole rule. Both are now `180_000`, the same margin used for the
-120-second `runPowerShell` helpers elsewhere in this batch. The other two stay at
-60s: neither calls `runGenerator`. No production code changed.
+`deadlineMs = 120_000` and `runGenerator` has no deadline of its own. **A bound
+below 120 s pre-empts the verifier's own deadline, so a hang surfaces as a generic
+Vitest timeout and may orphan the child.** At `180_000` the verifier's deadline
+stops it at 120 s, the failure names the real error, and nothing is left running;
+the cost is that a genuine hang takes about three minutes to fail instead of
+thirty seconds. Both are now `180_000`, the same margin used for the 120-second
+`runPowerShell` helpers elsewhere in this batch. The other two stay at 60s:
+neither calls `runGenerator`.
+
+The independent review corrected the reasoning I first wrote here. Neither test
+exercises the deadline at either value — they finish in 2.8–5 s and neither checks
+for a deadline failure — so the larger bound is about diagnostics and cleanup after
+a hang, not about coverage. Pinning the deadline itself would need a test that
+passes a small `deadlineMs`, not a bigger timeout. No production code changed.
 
 The remaining default-5-second search hits are `powershell-host.test.mjs`'s
 mocked `spawn` tests and `sbom-integrity-round2.test.mjs`'s `runs the locked
