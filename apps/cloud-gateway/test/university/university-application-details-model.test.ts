@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import {
-  isUniversityExecutionRequest,
   SchoolCatchupModelAdapter,
 } from "../../src/school/school-catchup-model.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -1251,6 +1250,9 @@ describe("university application detail model", () => {
     }) }));
   });
 
+  // Row 12: code no longer refuses an external-execution request before the
+  // model sees it. Each of these reaches the model, which decides what Sid
+  // asked and says plainly that it cannot perform the action itself.
   it.each([
     "I got my Waterloo offer. Can you accept it for me?",
     "Hey Jarvis, can you order my transcript for Western?",
@@ -1275,29 +1277,22 @@ describe("university application detail model", () => {
     "Can you text my counsellor?",
     "Can you let my counsellor know I'm applying?",
     "Go ahead and order it.",
-  ])("refuses execution in code before invoking the model: %s", async (text) => {
-    expect(isUniversityExecutionRequest(text)).toBe(true);
-    const model = new CountingModel();
-    const adapter = new SchoolCatchupModelAdapter({
-      model,
-      repository: { readSnapshot: async () => ({ principalId: "principal:workflow-model", courses: [] }),
-        applyOwnerPlan: async () => undefined },
-      universityRepository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
-      redactor: new Redactor(),
-      timeZone: "America/Toronto",
-      ownerPrincipalId: "principal:workflow-model",
-      now: () => NOW,
-    });
-    await expect(collect(adapter.stream(input(text)))).resolves.toContain("you must send, upload, submit, pay");
-    expect(model.stream).not.toHaveBeenCalled();
+  ])("sends an external-execution request to the model instead of refusing it in code: %s", async (text) => {
+    const model = new SequenceModel([combinedResponse()]);
+    await collect(adapterWith(model).stream(input(text)));
+    // The model is always consulted now; what it may say is still bounded by
+    // the reply guard, and no external action has a hand to run in this path.
+    expect(model.requests).toHaveLength(1);
   });
 
   it.each([
     "Help me submit my Western application.",
     "Draft an email to my teacher about the Western reference.",
     "Give me a checklist for accepting my Western offer.",
-  ])("keeps preparation requests available to the model: %s", (text) => {
-    expect(isUniversityExecutionRequest(text)).toBe(false);
+  ])("keeps preparation requests available to the model: %s", async (text) => {
+    const model = new SequenceModel([combinedResponse()]);
+    await expect(collect(adapterWith(model).stream(input(text)))).resolves.toBe("Model reached.");
+    expect(model.requests).toHaveLength(1);
   });
 
   it.each([
@@ -1334,7 +1329,6 @@ describe("university application detail model", () => {
     "Pay attention, my Waterloo AIF is due Friday.",
     "Submit button on OUAC is greyed out, what should I check?",
   ])("S3 lets ordinary school information and self-directed requests reach the real adapter: %s", async (text) => {
-    expect(isUniversityExecutionRequest(text)).toBe(false);
     const model = new SequenceModel([combinedResponse()]);
     await expect(collect(adapterWith(model).stream(input(text)))).resolves.toBe("Model reached.");
     expect(model.requests).toHaveLength(1);

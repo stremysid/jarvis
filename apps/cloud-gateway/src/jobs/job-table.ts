@@ -23,6 +23,7 @@ import {
 import { DeadlineIngestion, type DeadlineIngestionReport } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { SchoolCollectorRepository } from "../school/collector-repository.js";
+import { CLASSROOM_SOURCE_ID } from "../school/classroom-source.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
@@ -129,7 +130,9 @@ function notMeasured(detail: string): JobOutcome {
   return { notMeasured: true, detail };
 }
 
-export const CLASSROOM_SOURCE_ID = "google-classroom";
+// Re-exported so every existing `CLASSROOM_SOURCE_ID` import keeps working;
+// the agent core imports the same module directly instead of this heavier one.
+export { CLASSROOM_SOURCE_ID };
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
 const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;

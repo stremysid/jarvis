@@ -157,6 +157,87 @@ rules 1 and 8. No merge, deploy, database query or migration.
 - **Not verified:** no deploy, no live D1, no production read. The `courseEffort`
   option has no production caller (tests only); it is kept as an explicit
   caller-supplied override, not a title guess. The register stays partial.
+## 2026-09-25 — DeepSeek builder: PR #204 round 2 (merge #200; worked labels no longer bypass a receipt)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/school-judgment-to-ai`,
+PR [#204](https://github.com/stremysid/jarvis/pull/204), from main `679d2b95`. Touches
+Sid's rules 1, 2, 8, 9. No migration.
+
+- **Merge.** Normal merge of `679d2b95` (#200's multi-step tool loop and
+  `declare_memory_references`). Both prompt sides kept: #200's "call several tools and keep
+  calling them" and the `declare_memory_references` sentence, plus the branch's
+  `workedExplanations` and "no tool can email, submit, upload, pay, sign up or contact
+  anyone". The loop's abort/complete paths stay #200's; `workedExplanations` threads through
+  the final reply and the fallbacks. Voice catalogue count 27 to 28.
+- **Finding 2, fixed.** `blankDeclaredWorked` is deleted, so a `workedExplanations` /
+  `[[worked]]` declaration exempts only `unsafeFirstPersonRanges`, the omission backstop.
+  `FALSE_EXTERNAL_COMPLETIONS` and the passive patterns now read the reply unchanged, and a
+  first-person external completion that used to be caught only by the backstop
+  (`I submitted…`, `I paid…`, `I emailed…`, `I filed…`, `I mailed…`) is caught
+  unconditionally. `booked`, `called` and bare `sent` stay with the backstop, where a
+  negation, a code call or a delivery to Sid is not over-refused. A declaration can no
+  longer exempt a claim; the prompt says so on both channels.
+- **Finding 3:** QUEUE.md's school-batch row now records rows 11–12 done and row 10's
+  write half open on its migration.
+- **Finding 4:** `readWorkEvidence` LEFT JOINs observations, so a deadline Classroom never
+  reported is returned with a null `submissionState`/`lastSeenAt`; the page is keyed by
+  `deadline_id` with a `nextAfterDeadlineId` cursor and a `cursor` tool argument.
+- **Finding 5:** `OWNER_ACKNOWLEDGEMENT` and `isBrightspaceRefreshRequest` are registered
+  as rows 14 and 15 and queued, not removed in this round.
+- **Findings 6–8:** deleted the committed `.mutate.txt`; rewrote KNOWN_ISSUES L5 for the
+  deleted `WORKED_APPLIED_FOR_YOU` mask and the deliberate fail-closed "applied … for you"
+  replacement; added tests for the `parseReply` membership refusal, the school structured
+  plan threading, the Telegram external-claim refusal and the `seenSinceDays` upper bound.
+- **Deliberate cost:** a declared worked sentence phrased "I applied the X rule for you" is
+  conservatively replaced. Narrowing the external-application pattern would reintroduce the
+  deleted worked-object grammar, so it stays fail-closed and is recorded in KNOWN_ISSUES L5.
+- **Evidence:** focused school/university/voice/agent/channels 63 files / 2848 tests pass;
+  gateway `tsc` exit 0. Mutation sweep extended in
+  `reviewer-tools/mutation-specs-school-judgment.json`. Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: school judgments to the AI (CODE-VS-JUDGMENT rows 10–12, PR #204)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/school-judgment-to-ai` from
+`e2af1aa2`, PR [#204](https://github.com/stremysid/jarvis/pull/204). Touches Sid's rules
+1, 2, 8, 9. No migration.
+
+- **Row 12, removed.** `isUniversityExecutionRequest` and its regex engine
+  (`REQUESTED_ACTION`, `REQUEST_PARTY`, `REQUEST_EXTERNAL_OBJECT`, `DECISION_OBJECT`,
+  `TRANSACTION_VERB`, `COMMUNICATION_VERB`, `DECISION_VERB`, `COURTESY_MARKER`,
+  `DIRECTIVE_PREFIX`, `PREPARATION_START`, `SCHOOL_NAMES`) are deleted, along with the
+  pre-model refusal in `streamOwnerTool`. Every scope now reaches the model.
+  `OWNER_AGENT_COMMON_PROMPT` says no tool can email, submit, upload, pay, sign up or
+  contact anyone and that Jarvis must not refuse on a guess about wording. Enforcement was
+  never in the regex: `university_update`/`school_update` only store plans, and the reply
+  guards plus `claimedActions` still bound what is said. The old tests that pinned the
+  refusal now assert the model is consulted (`university-application-details-model`,
+  `university-application-round4-corpus`, `school-paste`).
+- **Row 11, removed.** The `WORKED_*` grammar and `isWorkedExplanation` are deleted. The
+  model now declares its worked explanations: `workedExplanations` in the structured reply
+  (`ParsedReply.workedExplanations`, accepted with or without the key so an old adapter
+  stays conservative), threaded through the school/university structured reply and the study
+  practice JSON; voice wraps one sentence in `[[worked]]…[[/worked]]`.
+  `unsafeFirstPersonRanges` exempts by membership and keeps the omission backstop for an
+  undeclared claim; `blankDeclaredWorked` gates `FALSE_EXTERNAL_COMPLETIONS` and the passive
+  patterns the same way. A first full removal of the first-person backstop was reverted after
+  it failed 714 tests, including broad external-action claims the fallback must keep catching.
+- **Row 10, evidence half only.** `SchoolObservationRepository.readWorkEvidence` and the
+  read-only `school_work_evidence` tool (tier 1 `school.track`, unactioned) now hand Jarvis
+  the raw Classroom state, due dates and read coverage. The persisted `deriveMissingWorkPage`
+  inference is **not removed**: it runs in a model-less cron, and the register's write half
+  needs a tool plus a migration (0027 admits only `classification = 'derived'`). Deleting it
+  without that would silently drop the digest missed-work alerts and study signals. Recorded
+  in CODE-VS-JUDGMENT as a named blocker.
+- **Scribe accommodation, checked and unchanged.** `guided_assignment_save` stores the raw
+  received text verbatim and the model's `scribed` text; `guided_assignment_draft` joins
+  stored scribed answers. No code authors or rewrites Sid's work — the only checks are size
+  and structure (a permission/storage bound), and "never write assignment content for him"
+  is a prompt instruction. Nothing to move.
+- **Verified here:** school/university/voice/agent/channels/conversation focused suites
+  green (school+university+voice 50 files / 2488 tests; channels+agent 12 / 334;
+  conversation included in the 17-file run). Gateway `tsc` exit 0. Mutation sweep in
+  `reviewer-tools/mutation-specs-school-judgment.json`. Full suites on CI. Not merged or
+  deployed.
 
 ## 2026-09-25 — DeepSeek builder: #200 round 4 (model-declared reply references)
 
