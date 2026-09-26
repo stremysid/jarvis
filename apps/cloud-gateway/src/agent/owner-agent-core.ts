@@ -58,6 +58,7 @@ import {
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
 import type {
+  MemoryBasis,
   MemoryControlIntent,
   MemoryKind,
   MemorySensitivity,
@@ -190,26 +191,6 @@ class TurnDeadline {
     }, this.#remainingMs);
   }
 }
-const NEGATION = /\b(?:no|not|never|cannot|can't|don't|doesn't|didn't|won't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't)\b|n['’]t\b/iu;
-const CONTENT_WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
-const CONTENT_STOP_WORDS = new Set([
-  "a", "am", "an", "and", "are", "as", "at", "be", "been", "but", "by", "did", "do", "does",
-  "for", "from", "had", "has", "have", "he", "her", "hers", "him", "his", "i", "in", "is", "it",
-  "its", "me", "mine", "my", "of", "on", "or", "our", "ours", "she", "that", "the", "their",
-  "sid", "subject", "theirs", "them", "they", "this", "to", "was", "we", "were", "what", "which", "who", "with",
-  "you", "your", "yours",
-]);
-const NORMALISATION_ALLOWLIST = new Set(["sid", "favourite"]);
-/**
- * Confirmation is the one memory control that still needs its own words. It
- * promotes uncertain or model-inferred material into confirmed recall, so code
- * requires affirmative language rather than trusting the inferred intent.
- * Forget, restore, explain and correct act on memories Sid already stated;
- * their intent is the model's to infer, and code keeps the authority check
- * (his literal current words) plus the negation guard instead.
- */
-const CONFIRMATION_LANGUAGE = /\b(?:yes|confirm|correct|keep\s+it|that(?:['’]s|\s+is)\s+right)\b/iu;
-
 /** Telegram's turn budget, anchored on webhook arrival. */
 export function ownerAgentTurnTimeoutMs(receivedAt: string, now = new Date()): number {
   const arrival = Date.parse(receivedAt);
@@ -325,11 +306,6 @@ interface PreviousAssistantReference {
   readonly text: string;
   readonly eventId: Ulid;
   readonly itemIds: readonly Ulid[];
-}
-
-interface RememberGrounding {
-  readonly authoritative: boolean;
-  readonly excerpt: string;
 }
 
 /**
@@ -575,9 +551,30 @@ function parseArgumentsWithOptionalExcerpt(
  */
 function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown> {
   return parseArguments(call, [
-    "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
+    "fact", "supportingExcerpt", "basis", "filingConfidence", "kind", "sensitivity",
     "lifetime", "expiresAt",
   ]);
+}
+
+const MEMORY_BASES = new Set<string>(["stated", "confirmed", "observed", "inferred", "third_party"]);
+
+/** What the model says the evidence for this memory counts as. */
+function memoryBasisArgument(args: Record<string, unknown>): MemoryBasis {
+  const basis = args.basis;
+  if (typeof basis !== "string" || !MEMORY_BASES.has(basis)) {
+    throw new TypeError("owner_agent_memory_basis_invalid");
+  }
+  return basis as MemoryBasis;
+}
+
+/** The model's own filing confidence, required so code never defaults it. */
+function memoryFilingConfidenceArgument(args: Record<string, unknown>): number {
+  const confidence = args.filingConfidence;
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)
+    || confidence < 0 || confidence > 1) {
+    throw new TypeError("owner_agent_memory_filing_confidence_invalid");
+  }
+  return confidence;
 }
 
 /**
@@ -869,97 +866,12 @@ export function groundedExcerpt(input: Readonly<ModelAdapterStreamInput>, value:
   return excerpt;
 }
 
-function normalizedContentWord(value: string): string {
-  let word = value.toLocaleLowerCase("en-CA").replace(/[’]/gu, "'");
-  if (word.endsWith("'s")) word = word.slice(0, -2);
-  if (word === "fav" || word === "favorite") return "favourite";
-  if (word === "likes") return "like";
-  return word;
-}
-
-function contentWords(value: string): readonly string[] {
-  const words = value.match(CONTENT_WORD) ?? [];
-  return Object.freeze(words.map(normalizedContentWord).filter((word) =>
-    word.length > 1 && !CONTENT_STOP_WORDS.has(word) && !NEGATION.test(word)));
-}
-
-function rememberGrounding(input: Readonly<ModelAdapterStreamInput>, fact: string, excerpt: string,
-  confirmation: string | null): RememberGrounding {
-  const meaningful = contentWords(excerpt).length >= 2 || excerpt.trim() === input.userText.trim();
-  const sameNegation = NEGATION.test(input.userText) === NEGATION.test(fact);
-  const vocabularyMatches = factVocabularyMatches(fact, excerpt, confirmation ?? "");
-  return Object.freeze({
-    authoritative: meaningful && sameNegation && vocabularyMatches,
-    excerpt,
-  });
-}
-
-function factVocabularyMatches(fact: string, ...sources: readonly string[]): boolean {
-  const sourceWords = new Set(contentWords(sources.join(" ")));
-  return contentWords(fact).every((word) =>
-    sourceWords.has(word) || NORMALISATION_ALLOWLIST.has(word));
-}
-
-function isQuestionSentence(previous: string, excerpt: string): boolean {
-  if (excerpt !== excerpt.trim() || !excerpt.endsWith("?") || !/[\p{L}\p{N}]/u.test(excerpt)) return false;
-  const start = previous.indexOf(excerpt);
-  if (start < 0 || previous.indexOf(excerpt, start + excerpt.length) >= 0) return false;
-  const before = previous.slice(0, start);
-  const after = previous.slice(start + excerpt.length).trimStart();
-  // Receipts end in a quoted fact, then a paragraph break before Jarvis's question.
-  return (before.trim().length === 0 || /[.!?\n]\s*$/u.test(before))
-    && (after.length === 0 || /^[\p{Lu}\d]/u.test(after));
-}
-
-function isMemoryOfferOrGroundedQuestion(question: string, fact: string): boolean {
-  if (/\b(?:remember|note|save|store|keep)\b/iu.test(question)) return true;
-  const factWords = new Set(contentWords(fact));
-  return contentWords(question).some((word) => factWords.has(word));
-}
-
-function exactStoredFactQuestion(previous: string, fact: string): string | null {
-  const quotedFact = /"([^"\r\n]+)"|“([^”\r\n]+)”/gu;
-  for (const match of previous.matchAll(quotedFact)) {
-    if ((match[1] ?? match[2]) !== fact) continue;
-    const start = Math.max(
-      previous.lastIndexOf(".", match.index - 1),
-      previous.lastIndexOf("!", match.index - 1),
-      previous.lastIndexOf("?", match.index - 1),
-      previous.lastIndexOf("\n", match.index - 1),
-    ) + 1;
-    const afterQuote = match.index + match[0].length;
-    const endings = [
-      previous.indexOf(".", afterQuote),
-      previous.indexOf("!", afterQuote),
-      previous.indexOf("?", afterQuote),
-      previous.indexOf("\n", afterQuote),
-    ].filter((index) => index >= 0);
-    if (endings.length === 0) continue;
-    const end = Math.min(...endings);
-    if (previous[end] !== "?") continue;
-    const question = previous.slice(start, end + 1).trim();
-    if (isQuestionSentence(previous, question) && isMemoryOfferOrGroundedQuestion(question, fact)) {
-      return question;
-    }
-  }
-  return null;
-}
-
 function modelInferenceDecisionQuestion(fact: string): string {
   const question = `Confirm or discard this exact model-inferred memory:\n\n${JSON.stringify(fact)}`;
   // The queue and Telegram must both be able to show the whole stored wording.
   // Refusing an oversized decision is safer than presenting a truncated fact.
   if (question.length > 2_048) throw new TypeError("owner_agent_memory_decision_too_large");
   return question;
-}
-
-function confirmationExcerpt(
-  input: Readonly<ModelAdapterStreamInput>,
-  value: unknown,
-): string {
-  const excerpt = groundedExcerpt(input, value);
-  if (!CONFIRMATION_LANGUAGE.test(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
-  return excerpt;
 }
 
 /**
@@ -1745,13 +1657,6 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     return port.memoryOwnerTurn(input, intent, allowNonDirectIngress);
   }
 
-  private async previousAssistantText(
-    input: Readonly<ModelAdapterStreamInput>,
-    port: OwnerAgentChannelPort,
-  ): Promise<string | null> {
-    return (await port.previousAssistant(input))?.text ?? null;
-  }
-
   private async previousReplyIsVisible(
     principalId: string,
     reply: PreviousAssistantReference,
@@ -1883,22 +1788,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const checkedFact = sanitizeRedaction(fact, undefined, false, "owner");
     if (!checkedFact.ok || checkedFact.text !== fact) throw new TypeError("owner_agent_memory_redaction_required");
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
-    const evidenceClass = args.evidenceClass;
-    let confirmedQuestion: string | null = null;
-    if (evidenceClass !== "stated" && evidenceClass !== "confirmed") {
-      throw new TypeError("owner_agent_memory_grounding_invalid");
-    }
-    if (evidenceClass === "stated") {
-      if (args.previousOfferExcerpt !== null) throw new TypeError("owner_agent_memory_grounding_invalid");
-    } else {
-      const offer = safeText(args.previousOfferExcerpt, 4_096);
-      const previousText = await this.previousAssistantText(input, port);
-      if (previousText === null || !isQuestionSentence(previousText, offer)
-        || !isMemoryOfferOrGroundedQuestion(offer, fact)) {
-        throw new TypeError("owner_agent_memory_grounding_invalid");
-      }
-      confirmedQuestion = offer;
-    }
+    // The model decides what the evidence counts as, stated in `basis`. Code
+    // checks only that the excerpt is a literal substring of this turn.
+    const basis = memoryBasisArgument(args);
+    const filingConfidence = memoryFilingConfidenceArgument(args);
     const kinds = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
     const sensitivities = new Set<MemorySensitivity>(["normal", "sensitive"]);
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
@@ -1910,13 +1803,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     // value itself is the model's: there is no default, because a default is
     // code deciding how long Sid's fact lasts.
     const { lifetime, validTo: expiresAt } = memoryLifetimeArguments(args);
-    const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
+    const modelInferred = basis === "inferred";
     const result = await this.controls().remember({
       ownerTurn: await this.memoryOwnerTurn(input, port, "remember") as never,
       text: fact,
       sourceExcerpt: excerpt,
-      basis: grounding.authoritative ? evidenceClass : "inferred",
-      normalizedFromSource: grounding.authoritative,
+      basis,
+      // A non-inferred basis means the model states the wording is Sid's; the
+      // capture checks the excerpt is his words, not the wording's vocabulary.
+      normalizedFromSource: !modelInferred,
+      filingConfidence,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
       lifetime,
@@ -1924,7 +1820,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     });
     return successfulTool(
       call,
-      memoryReceipt(result.receipt, grounding.authoritative ? fact : excerpt),
+      memoryReceipt(result.receipt, modelInferred ? excerpt : fact),
       Object.freeze([result.item.itemId]),
     );
   }
@@ -1939,9 +1835,6 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const eligible = await this.eligibleItemIds(input, "forget");
     if (itemIds.some((itemId) => !eligible.has(itemId))) throw new TypeError("owner_agent_item_not_eligible");
     groundedExcerpt(input, args.supportingExcerpt);
-    // "don't forget the memory about X" is a request to keep it. The model
-    // usually reads that correctly; this guard is what holds when it does not.
-    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     // No confirmation tap. Forgetting is not one of the five actions Sid asked
     // to be confirmed, and the tap that used to stand here existed only because
     // the ledger allowed one mutation per owner turn. Each target now carries
@@ -1969,11 +1862,17 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
     const args = parseArguments(call, [
-      "itemId", "newFact", "supportingExcerpt", "kind", "sensitivity", "lifetime", "expiresAt",
+      "itemId", "newFact", "supportingExcerpt", "basis", "filingConfidence",
+      "kind", "sensitivity", "lifetime", "expiresAt",
     ]);
     const itemId = safeUlid(args.itemId);
     const newFact = safeText(args.newFact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
+    // The model decides what the corrected wording counts as and how confident
+    // its filing is. Code checks only the enum and the 0..1 range; it never
+    // inspects the wording's vocabulary to guess either one.
+    const basis = memoryBasisArgument(args);
+    const filingConfidence = memoryFilingConfidenceArgument(args);
     const kinds = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
     const sensitivities = new Set<MemorySensitivity>(["normal", "sensitive"]);
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
@@ -1981,13 +1880,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     const { lifetime, validTo } = memoryLifetimeArguments(args);
     await this.requireEligibleItem(input, "correct", itemId);
-    const grounding = rememberGrounding(input, newFact, excerpt, null);
     const result = await this.controls().correct({
       ownerTurn: await this.memoryOwnerTurn(input, port, "correct") as never,
       candidateItemIds: Object.freeze([itemId]),
       text: newFact,
       sourceExcerpt: excerpt,
-      normalizedFromSource: grounding.authoritative,
+      basis,
+      // A non-inferred basis means the model states the wording is Sid's; the
+      // capture checks the excerpt is his words, not the wording's vocabulary.
+      normalizedFromSource: basis !== "inferred",
+      filingConfidence,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
       lifetime,
@@ -2014,8 +1916,6 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     const basis = args.basis as "stated" | "confirmed" | "observed" | "inferred" | "third_party";
     groundedExcerpt(input, args.supportingExcerpt);
-    // "I don't want to use that memory again" is not a restore request.
-    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     await this.requireEligibleItem(input, "lift", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const result = await this.controls().lift({
@@ -2066,8 +1966,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
   ): Promise<ExecutedTool> {
     const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
     const itemId = safeUlid(args.itemId);
-    const excerpt = confirmationExcerpt(input, args.supportingExcerpt);
-    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
+    const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const stagedTargets = await this.dependencies.targets.findControlTargets({
       principalId: input.principalId,
@@ -2075,15 +1974,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       query: null,
       turnId: input.correlationId,
     });
-    if (!new Set([...contextItemIds(input), ...stagedTargets]).has(itemId)) {
-      throw new TypeError("owner_agent_item_not_eligible");
-    }
-    const previousText = await this.previousAssistantText(input, port);
-    if (!factVocabularyMatches(item.version.text, excerpt, previousText ?? "")) {
-      throw new TypeError("owner_agent_memory_grounding_invalid");
-    }
-    if (!stagedTargets.includes(itemId) || previousText === null
-      || exactStoredFactQuestion(previousText, item.version.text) === null) {
+    // Only a target this turn actually staged can be confirmed. The excerpt is
+    // grounded by `groundedExcerpt` above; what "confirm" means beyond that is
+    // the model's call.
+    if (!stagedTargets.includes(itemId)) {
       throw new TypeError("owner_agent_item_not_eligible");
     }
     if (item.version.origin === "model" && item.version.basis === "inferred") {

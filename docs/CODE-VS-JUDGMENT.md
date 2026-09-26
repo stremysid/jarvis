@@ -79,6 +79,45 @@ what replaced it; the full diff is in the PR.
 
 Rows 6–9 and 13 have left the list below.
 
+## Owner memory wording judgments: removed (2026-09-26, batch 3)
+
+Removed by the PR titled "Memory: code stops reading Sid's words" (branch
+`codex/memory-words-to-ai`, from `018b5717`). Sid's rule of 2026-09-25 —
+"any judgment and decisions and thought should be the ai brain remember" —
+puts every one of these in the model. Code keeps only grounding (the excerpt is
+literally in this turn), the id/ownership/state gates, redaction, and the
+ledger's own thresholds; the model states what a memory counts as and how sure
+it is of the filing. No migration was needed.
+
+| Symbol (as of `018b5717`) | What it decided | Now |
+|---|---|---|
+| `NEGATION` and its three `if (NEGATION.test(input.userText))` guards in `owner-agent-core.ts` (`forget`, `restore`, `confirm`) | Whether "don't forget X" / "I don't want to use that again" was a request to **keep** the memory. The model usually read it correctly; the guard held when it did not | Deleted. A tool the model should not have called is a refusal the model makes by not calling it; the tool descriptions carry the rule |
+| `CONTENT_WORD`, `CONTENT_STOP_WORDS`, `normalizedContentWord`, `contentWords`, `factVocabularyMatches` (`owner-agent-core.ts`) | Whether the stored wording's vocabulary matched Sid's excerpt, which decided if a model-declared "stated" memory was really his | Deleted. `basis` is a required argument and `remember` uses it directly |
+| `NORMALISATION_ALLOWLIST`, `RememberGrounding`, `rememberGrounding` (`owner-agent-core.ts`) | How much of Sid's sentence had to survive normalisation before his wording counted as stated rather than confirmed | Deleted. The model states `basis` (`stated`, `confirmed`, `observed`, `inferred`, `third_party`); code checks only the enum |
+| `CONFIRMATION_LANGUAGE`, `confirmationExcerpt`, `isQuestionSentence`, `isMemoryOfferOrGroundedQuestion`, `exactStoredFactQuestion`, and the `previousOfferExcerpt`/`evidenceClass` tool fields | Whether Jarvis's previous reply was an offer and Sid's current words were an answer to it | Deleted. `memory_confirm` checks that the item was staged this turn and that the excerpt is in Sid's message; the model decides whether the words are affirmative |
+| `OwnerAgentCore.previousAssistantText` and `remember`'s previous-reply grounding | Whether a "confirmed" memory was grounded in Jarvis's own last message | Deleted. A model-declared `basis` no longer needs code to re-read the previous reply |
+| `findLastReferencedTarget`'s `referenced.length !== 1` narrowing (`memory-control-targets.ts`) | Which of the memories named in the previous reply Sid could mean: code offered a target only when exactly one was referenced | Returns every referenced id in the operation's accepted states. Naming the id is the model's judgment; the state filter and the ownership check are the ledger's |
+| `confidence: 0.4` in `MemoryOwnerControlsService.remember`/`correct`, and the `?? "stated"` / `?? 0` defaults | How sure the memory was that it belonged in the topic it filed under | `filingConfidence` is a required `memory_remember`/`memory_correct` argument, checked only for a 0..1 number and stored as the placement's confidence |
+| `validateExtractionProposal`'s `confidence === undefined ? 1` and `sensitivity ?? "normal"` (`extraction-policy.ts`) | How certain an extracted fact was, and whether it was sensitive. A missing rating became maximum certainty; a missing sensitivity silently downgraded a sensitive fact to normal | Both are required; `sensitivity` is a closed `normal`/`sensitive` enum. An omission is refused, and the shared vector file pins the refusals |
+| `validate_extraction_proposal`'s `raw.get("confidence", 1)` and defaulted sensitivity (`jarvis_local/memory/distillation.py`) | The same two decisions on the Python local-agent path | Required and closed, matching the gateway |
+| `automatic-distillation.ts`'s `filingConfidence: 0` default and its absence from `REQUIRED_PROPOSAL_FIELDS` | The filing rating of an hourly distilled proposal | `filingConfidence` is required, guard-checked 0..1, and named in the extraction schema's `required` list |
+
+Nine further symbols were dead once the model-facing path was the only one:
+`TelegramMemoryControlModelAdapter` and its receipt/kind helpers
+(`memoryKind`, `mutationReceipt`, `memoryName`, `namedReceipt`,
+`evidenceReceipt`, `failureReceipt`, `referencedItemIds`, `plainLine`),
+`parseTelegramMemoryControl` with `TelegramMemoryControl`, `REMEMBER_PREFIXES`,
+`rememberWord` and `target` (`telegram-memory-language.ts`),
+`TelegramMemoryRetrieverOptions.controlAuthority` and the retrieve guard it fed,
+the control-target keyword arm (`controlFtsQuery`, its `CONTROL_STOPWORDS`,
+`selectControlTargets`, `candidateRows`, and the finder's `archive` option),
+`REMEMBER_CONTROL_PREFIXES` and `rememberRemainder`
+(`memory-owner-controls.ts`), and the tests that only drove the deleted adapter
+(`test/memory/control-target-suppression.test.ts` and the adapter cases in
+`test/memory/telegram-memory.test.ts`, `test/channels/owner-telegram-agent.test.ts`
+and `test/voice/voice-agent.test.ts`). `parseTelegramMemoryAreaQuestion` stays:
+it is live and batch 12 owns it.
+
 ## Owner deadline proof contract: removed
 
 Removed by the PR titled "fix(deadlines): let the AI decide deadlines; remove the code

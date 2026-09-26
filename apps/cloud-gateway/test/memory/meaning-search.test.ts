@@ -265,6 +265,9 @@ async function remember(text: string): Promise<MemoryFixture> {
     text,
     kind: "preference",
     sensitivity: "normal",
+    sourceExcerpt: text,
+    basis: "stated",
+    filingConfidence: 0.4,
     lifetime: "durable",
     validTo: null,
   });
@@ -283,6 +286,9 @@ async function rememberAnother(
     text,
     kind: "preference",
     sensitivity: "normal",
+    sourceExcerpt: text,
+    basis: "stated",
+    filingConfidence: 0.4,
     lifetime: "durable",
     validTo: null,
   });

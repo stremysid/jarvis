@@ -213,7 +213,11 @@ async function remember(
     sensitivity: "normal",
     // The model now decides how long a fact lasts; a test that does not care
     // says durable with no end, which is the same value the removed default
-    // would have produced.
+    // would have produced. It also supplies the excerpt, basis and filing
+    // confidence the model would send.
+    sourceExcerpt: text,
+    basis: "stated",
+    filingConfidence: 0.4,
     lifetime: "durable",
     validTo: null,
   });
@@ -307,6 +311,9 @@ async function rememberUntil(
     text,
     kind: "preference",
     sensitivity: "normal",
+    sourceExcerpt: text,
+    basis: "stated",
+    filingConfidence: 0.4,
     lifetime: "temporary",
     validTo,
   });
@@ -407,7 +414,9 @@ describe("memory search cannot return what Sid has forgotten or what has expired
       kind: "preference",
       sensitivity: "normal",
       sourceExcerpt: "Actually my report needs a clear thesis",
+      basis: "stated",
       normalizedFromSource: true,
+      filingConfidence: 0.4,
       lifetime: "durable",
       validTo: null,
     });

@@ -61,4 +61,30 @@ describe("memory tool schemas", () => {
       expect(definition.parameters.required).toContain("expiresAt");
     }
   });
+
+  it("requires the model's basis and filing confidence on every writing tool", () => {
+    // The model decides what the evidence counts as and how sure it is of the
+    // filing. Code refuses an omission rather than choosing either one, and the
+    // schema is where the model learns that.
+    for (const name of ["memory_remember", "memory_correct"] as const) {
+      const definition = byName.get(name);
+      if (definition === undefined) throw new Error(`memory_tool_definition_missing:${name}`);
+      expect(definition.parameters.required).toContain("basis");
+      expect(definition.parameters.required).toContain("filingConfidence");
+      const properties = definition.parameters.properties as Record<string, { enum?: readonly string[] }>;
+      expect(properties.basis?.enum).toEqual([
+        "stated", "confirmed", "observed", "inferred", "third_party",
+      ]);
+    }
+  });
+
+  it("no longer advertises the removed evidence-class fields", () => {
+    for (const name of ["memory_remember", "memory_correct"] as const) {
+      const definition = byName.get(name);
+      if (definition === undefined) throw new Error(`memory_tool_definition_missing:${name}`);
+      const properties = definition.parameters.properties as Record<string, unknown>;
+      expect(properties).not.toHaveProperty("evidenceClass");
+      expect(properties).not.toHaveProperty("previousOfferExcerpt");
+    }
+  });
 });

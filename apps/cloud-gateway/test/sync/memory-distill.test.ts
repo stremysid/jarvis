@@ -97,6 +97,8 @@ describe("proposal validation", () => {
     expect(validateProposal({
       text: "é".repeat(policyVectors.maxFactBytes / 2),
       sourceEventIds: sources.slice(0, policyVectors.maxFactSources),
+      confidence: 1,
+      sensitivity: "normal",
     }, allowed)).toEqual({
       text: "é".repeat(policyVectors.maxFactBytes / 2),
       sourceEventIds: sources.slice(0, policyVectors.maxFactSources),
@@ -109,7 +111,12 @@ describe("proposal validation", () => {
 
   it("accepts a proposal citing submitted sources", () => {
     expect(
-      validateProposal({ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.9 }, supplied),
+      validateProposal({
+        text: "Likes coffee",
+        sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+        confidence: 0.9,
+        sensitivity: "normal",
+      }, supplied),
     ).toEqual({
       text: "Likes coffee",
       sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
@@ -154,10 +161,27 @@ describe("proposal validation", () => {
     },
   );
 
-  it("defaults a missing confidence rather than rejecting", () => {
+  it("rejects a missing confidence rather than defaulting it", () => {
     expect(
-      validateProposal({ text: "x", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"] }, supplied)?.confidence,
-    ).toBe(1);
+      validateProposal({
+        text: "x",
+        sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+        sensitivity: "normal",
+      }, supplied),
+    ).toBeNull();
+  });
+
+  it("rejects a missing or unknown sensitivity rather than defaulting it", () => {
+    for (const sensitivity of [undefined, "restricted", 1] as const) {
+      expect(
+        validateProposal({
+          text: "x",
+          sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+          confidence: 0.9,
+          ...(sensitivity === undefined ? {} : { sensitivity }),
+        }, supplied),
+      ).toBeNull();
+    }
   });
 });
 
@@ -174,7 +198,12 @@ describe("distillation", () => {
 
   it("returns the proposals a well-behaved model produces", async () => {
     const model = modelReturning(
-      JSON.stringify([{ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.8 }]),
+      JSON.stringify([{
+        text: "Likes coffee",
+        sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+        confidence: 0.8,
+        sensitivity: "normal",
+      }]),
     );
     const result = await distil(EXCERPTS, deps(model), new AbortController().signal);
     expect(result).toEqual([{
@@ -188,7 +217,7 @@ describe("distillation", () => {
 
   it("extracts the array even when the model wraps it in prose", async () => {
     const model = modelReturning(
-      'Here you go:\n[{"text":"Likes coffee","sourceEventIds":["01m1hh9h1yxaeyjgbhfzm4nnth"]}]\nHope that helps.',
+      'Here you go:\n[{"text":"Likes coffee","sourceEventIds":["01m1hh9h1yxaeyjgbhfzm4nnth"],"confidence":0.8,"sensitivity":"normal"}]\nHope that helps.',
     );
     const result = await distil(EXCERPTS, deps(model), new AbortController().signal);
     expect(result).toHaveLength(1);
@@ -204,9 +233,9 @@ describe("distillation", () => {
     // checkable, so one bad element does not discard them.
     const model = modelReturning(
       JSON.stringify([
-        { text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"] },
+        { text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.9, sensitivity: "normal" },
         { text: "Invented", sourceEventIds: ["event-999"] },
-        { text: "Works Tuesdays", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nntz"] },
+        { text: "Works Tuesdays", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nntz"], confidence: 0.9, sensitivity: "normal" },
       ]),
     );
     const result = await distil(EXCERPTS, deps(model), new AbortController().signal);

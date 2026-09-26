@@ -314,7 +314,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     database: input.agentDatabase ?? env.DB,
     archive: env.ARCHIVE,
     ownerPrincipalId: input.ownerPrincipalId ?? OWNER,
-    targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
+    targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB }),
     ...(input.memorySearch === undefined ? {} : { memorySearch: input.memorySearch }),
     directOwnerText: true,
     ...createOwnerPipelineModels(env, { async *stream() { throw new Error("unexpected_pipeline"); } }, new Redactor(), input.ownerPrincipalId ?? OWNER, true, () => NOW),
@@ -421,8 +421,8 @@ describe("the voice agent adapter", () => {
   async function offerProposedMemory(principalId: string, sessionId: string): Promise<Ulid> {
     const provider = new FakeAgentProvider([
       called(tool("propose", "memory_remember", {
-        fact: "I like art", supportingExcerpt: "I draw sometimes", evidenceClass: "stated",
-        previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        fact: "I like art", supportingExcerpt: "I draw sometimes", basis: "inferred",
+        filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
       })),
       // The write's item id does not exist until it ran, so the model reads it
       // from the result and declares it, exactly as a real model would.
@@ -460,22 +460,6 @@ describe("the voice agent adapter", () => {
     await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId)).resolves.toMatchObject({
       lifecycle: { state: "proposed" }, version: { basis: "inferred", origin: "model", uncertain: true },
     });
-  });
-
-  it("refuses non-affirmative wording as confirmation on the same call", async () => {
-    const principalId = `principal:voice-confirm-wording:${serial + 1}`;
-    const sessionId = `voice:confirm-wording:${serial + 1}`;
-    const itemId = await offerProposedMemory(principalId, sessionId);
-    const provider = new FakeAgentProvider([
-      called(tool("confirm-wording", "memory_confirm", { itemId, supportingExcerpt: "maybe later" })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runVoiceTurn({ text: "maybe later", provider, ownerPrincipalId: principalId, sessionId });
-
-    expect(JSON.parse(provider.requests[1]!.toolResults![0]!.content)).toMatchObject({ status: "refused" });
-    await expect(new MemoryRepository(env.DB).readCurrentItem(principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
   });
 
   it("refuses a spoken yes on another call even when the proposed memory is in context", async () => {
@@ -810,8 +794,8 @@ describe("the voice agent adapter", () => {
       called(tool("guest-memory", "memory_remember", {
         fact: "The guest likes green tea.",
         supportingExcerpt: "I like green tea.",
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "preference",
         sensitivity: "normal",
       })),
@@ -884,7 +868,7 @@ describe("the voice agent adapter", () => {
     const principalId = `principal:voice-stream-save:${serial + 1}`;
     const heard: string[] = [];
     const fact = "I take my coffee black.";
-    const args = JSON.stringify({ fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal", lifetime: "durable", expiresAt: null });
+    const args = JSON.stringify({ fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal", lifetime: "durable", expiresAt: null });
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(agentResponse([
         agentFrame({ content: "I've sa" }), agentFrame({ content: "ved that. Here is some context." }),
@@ -913,7 +897,7 @@ describe("the voice agent adapter", () => {
     const principalId = `principal:voice-stream-failure:${serial + 1}`;
     const fact = "I take my coffee black.";
     const provider = new FakeAgentProvider([
-      called(tool("save-before-failure", "memory_remember", { fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal" })),
+      called(tool("save-before-failure", "memory_remember", { fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal" })),
       new Error("synthetic_followup_failure"),
     ]);
     const spoken = await runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider });
@@ -928,7 +912,7 @@ describe("the voice agent adapter", () => {
     const fact = "I take my coffee black.";
     const provider = new FakeAgentProvider([
       called(tool("first-action", "memory_remember", {
-        fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+        fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal",
       })),
       called(tool("second-action", "school_d2l_status", { cursor: "", limit: 10, staleAfterMs: 60_000 })),
       stopped("Okay."),
@@ -1031,7 +1015,7 @@ describe("the voice agent adapter", () => {
     const provider = new FakeAgentProvider([]);
     provider.streamAgent = async function* () {
       try { yield { type: "completed", completion: called(tool("cancelled-action", "memory_remember", {
-        fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+        fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal",
       })) }; } finally { controller.abort(); }
     };
     await expect(runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider, signal: controller.signal }))
@@ -1044,7 +1028,7 @@ describe("the voice agent adapter", () => {
     const controller = new AbortController();
     const fact = "I take my coffee black.";
     const provider = new FakeAgentProvider([called(tool("saved-before-cancel", "memory_remember", {
-      fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+      fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal",
     })), stopped("This must not start.")]);
     await expect(runVoiceTurn({ text: fact, ownerPrincipalId: principalId, provider, signal: controller.signal,
       onToken: (text) => { if (text.includes("Memory:")) controller.abort(); },
@@ -1169,7 +1153,7 @@ describe("the voice agent adapter", () => {
       const results = input.toolResults ?? [];
       if (results.length === 0) {
         yield { type: "completed", completion: called(tool("marked-save", "memory_remember", {
-          fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal",
+          fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4, kind: "fact", sensitivity: "normal",
         })) };
         return;
       }
@@ -1320,7 +1304,7 @@ describe("the voice agent adapter", () => {
     const adapter = new OwnerTelegramAgentAdapter({
       provider: telegramProvider, database: env.DB, archive: env.ARCHIVE,
       ownerPrincipalId: principalId, directOwnerText: true, authorityText: "hello",
-      targets: new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
+      targets: new D1MemoryControlTargetFinder({ database: env.DB }),
       decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
       autonomy: new ToolAutonomyGate(new AutonomyService({ repository: new AutonomyRepository(env.DB) }), new D1ToolConfirmationStore(env.DB)),
       ...createOwnerPipelineModels(env, { async *stream() {} }, new Redactor(), principalId, true, () => NOW),
@@ -1378,36 +1362,6 @@ describe("the voice agent adapter", () => {
     });
   });
 
-  it("can be built without a previous assistant turn, which the confirmation tools then refuse on", async () => {
-    const principalId = `principal:voice-no-previous:${serial + 1}`;
-    await seedPrincipal(principalId);
-    const provider = new FakeAgentProvider([
-      called(tool("remember-1", "memory_remember", {
-        fact: "I take my coffee black.",
-        supportingExcerpt: "I take my coffee black",
-        evidenceClass: "confirmed",
-        previousOfferExcerpt: "Do you want me to note that?",
-        kind: "fact",
-        sensitivity: "normal",
-      })),
-      stopped("I could not do that."),
-    ]);
-
-    await runVoiceTurn({
-      text: "yes, I take my coffee black",
-      provider,
-      ownerPrincipalId: principalId,
-      context: Object.freeze([]),
-    });
-
-    // No previous voice turn exists in this session, so the grounding cannot be
-    // proven and the tool refuses rather than writing an ungrounded memory.
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
-      status: "refused",
-      receipt: "I could not safely apply that tool call, so nothing changed.",
-    });
-  });
-
   describe("a yes to an offer to note something", () => {
     const OFFER = "Do you want me to note that you take your coffee black?";
 
@@ -1424,8 +1378,8 @@ describe("the voice agent adapter", () => {
         called(tool("remember-yes", "memory_remember", {
           fact: "I take my coffee black.",
           supportingExcerpt: "I take my coffee black",
-          evidenceClass: "confirmed",
-          previousOfferExcerpt: OFFER,
+          basis: "confirmed",
+          filingConfidence: 0.4,
           kind: "fact",
           sensitivity: "normal",
         })),
@@ -1455,23 +1409,5 @@ describe("the voice agent adapter", () => {
       expect(saved).toBe(1);
     });
 
-    it("does not save it when the offer was made at the end of an earlier call", async () => {
-      // Jarvis offers to note something as call A ends; Sid says "yes" on call B.
-      // That yes answers nothing Jarvis said on call B, so it cannot ground a
-      // confirmed memory -- the offer it would ground on belongs to another call.
-      const principalId = `principal:voice-yes-other-call:${serial + 1}`;
-
-      const { toolResult, saved } = await offerThenYes(
-        principalId,
-        `voice:call:a:${serial + 1}`,
-        `voice:call:b:${serial + 1}`,
-      );
-
-      expect(toolResult).toMatchObject({
-        status: "refused",
-        receipt: "I could not safely apply that tool call, so nothing changed.",
-      });
-      expect(saved).toBe(0);
-    });
   });
 });

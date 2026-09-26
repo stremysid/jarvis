@@ -167,7 +167,7 @@ export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
         type: "object",
         additionalProperties: false,
         required: [
-          "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
+          "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity", "filingConfidence",
         ],
         properties: {
           text: { type: "string" },

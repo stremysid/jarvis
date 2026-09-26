@@ -51,7 +51,7 @@ const PROPOSAL_FIELDS = new Set([
   "topicPath", "filingConfidence",
 ]);
 const REQUIRED_PROPOSAL_FIELDS = new Set([
-  "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
+  "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity", "filingConfidence",
 ]);
 const SOURCE_EXCERPT_FIELDS = new Set(["sourceEventId", "excerpt"]);
 const STORED_EVENT_FIELDS = new Set(["eventSequence", "envelope", "replayed"]);
@@ -571,7 +571,7 @@ function providerPrompt(
       MEMORY_EXTRACTION_JSON_CONTRACT,
       "sourceExcerpts contains one exact verbatim supporting excerpt for each cited source id.",
       "topicPath, when present, contains 1 to 4 area names from general to specific, without the Memory root; each name is at most 64 UTF-8 bytes.",
-      "filingConfidence, when present, rates only the proposed topic path, not whether the fact is true.",
+      "filingConfidence is required and rates only the proposed topic path, not whether the fact is true.",
       `Return at most ${proposalCap} proposals.`,
       "sensitivity is normal or sensitive. Return an empty proposals array when nothing is durable.",
     ],
@@ -617,11 +617,13 @@ async function validateProviderProposal(
   const record = value as Record<string, unknown>;
   if (record.sensitivity !== "normal" && record.sensitivity !== "sensitive") return null;
   if (typeof record.confidence !== "number") return null;
-  const filingConfidence = typeof record.filingConfidence === "number"
-    && Number.isFinite(record.filingConfidence)
-    && record.filingConfidence >= 0 && record.filingConfidence <= 1
-    ? record.filingConfidence
-    : 0;
+  // Required, not defaulted. A missing filing confidence used to become 0,
+  // which forced every such fact into the inbox: code was making the model's
+  // filing call for it. The proposal is refused so the model states its own.
+  const filingConfidence = record.filingConfidence;
+  if (typeof filingConfidence !== "number"
+    || !Number.isFinite(filingConfidence)
+    || filingConfidence < 0 || filingConfidence > 1) return null;
   const topicPath = validatedTopicPath(record.topicPath);
   const rawSourceIds = exactArray(record.sourceEventIds, 8);
   const rawExcerpts = exactArray(record.sourceExcerpts, 8);

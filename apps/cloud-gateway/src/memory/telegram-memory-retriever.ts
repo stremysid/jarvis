@@ -45,7 +45,6 @@ import {
 } from "./memory-types.js";
 import {
   parseTelegramMemoryAreaQuestion,
-  parseTelegramMemoryControl,
 } from "./telegram-memory-language.js";
 import { CANDIDATE_SUPPRESSION_CLAUSES, NOTE_SOURCE_SUPPRESSION_CLAUSES } from "./suppression-clauses.js";
 
@@ -151,7 +150,6 @@ export interface TelegramMemoryRetrieverOptions {
   readonly archive: ArchiveBucket;
   readonly now?: () => Date;
   readonly nextId?: () => Ulid;
-  readonly controlAuthority?: Readonly<{ principalId: string; text: string }> | null;
   readonly baseContext?: ContextRetriever;
   readonly retrievalTimeoutMs?: number;
   readonly baseRetrievalTimeoutMs?: number;
@@ -817,7 +815,6 @@ async function timedOutcome<T>(
 export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemoryTargetFinder {
   private readonly now: () => Date;
   private readonly nextId: () => Ulid;
-  private readonly controlAuthority: Readonly<{ principalId: string; text: string }> | null;
   private readonly baseContext: ContextRetriever | null;
   private readonly retrievalTimeoutMs: number;
   private readonly baseRetrievalTimeoutMs: number;
@@ -834,7 +831,6 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
   constructor(private readonly options: TelegramMemoryRetrieverOptions) {
     this.controlTargets = new D1MemoryControlTargetFinder({
       database: options.database,
-      archive: options.archive,
     });
     this.now = options.now ?? (() => new Date());
     this.nextId = options.nextId ?? (() => newUlid(this.now()));
@@ -866,20 +862,10 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       || this.meaningSearchTimeoutMs > MAX_OPTIONAL_SEARCH_TIMEOUT_MS) {
       throw new TypeError("telegram_memory_meaning_timeout_invalid");
     }
-    const authority = options.controlAuthority ?? null;
-    this.controlAuthority = authority === null ? null : Object.freeze({
-      principalId: safePrincipal(authority.principalId),
-      text: safeText(authority.text, MAX_QUERY_BYTES, "telegram_memory_query_invalid"),
-    });
   }
 
   async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
     const captured = captureInput(input);
-    // The owner-control adapter consumes these before a provider call. Avoid
-    // retrieving memory into a request that must never reach that provider.
-    if (parseTelegramMemoryControl(captured.query) !== null
-      && this.controlAuthority?.principalId === captured.principalId
-      && this.controlAuthority.text === captured.query) return Object.freeze([]);
 
     const memoryLimit = Math.max(1, Math.floor(captured.maxTokens / 4));
     const baseLimit = Math.max(1, captured.maxTokens - memoryLimit);

@@ -68,21 +68,20 @@ function called(...toolCalls: readonly ModelFunctionCall[]): ModelAgentCompletio
 /**
  * Fills in the memory tools' model-decided fields.
  *
- * `memory_remember` now requires a lifetime/`expiresAt` pair and
- * `memory_restore` a basis, because the model decides those rather than the
- * repository defaulting. A fixture testing something else should not have to
- * restate them, so the default a model would usually send lives here. A test
- * that needs the omission builds the call with a raw JSON string instead, which
- * this leaves untouched.
+ * `memory_remember` and `memory_correct` now require a lifetime/`expiresAt`
+ * pair, a `basis` and a `filingConfidence`, and `memory_restore` a basis,
+ * because the model decides those rather than the repository defaulting. A
+ * fixture testing something else should not have to restate them, so the
+ * default a model would usually send lives here. A test that needs the omission
+ * builds the call with a raw JSON string instead, which this leaves untouched.
  */
 function withMemoryDefaults(name: string, args: unknown): unknown {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return args;
   const record = args as Record<string, unknown>;
-  if (name === "memory_remember" && !("lifetime" in record)) {
-    return { ...record, lifetime: "durable", expiresAt: null };
-  }
-  if (name === "memory_correct" && !("lifetime" in record)) {
-    return { ...record, lifetime: "durable", expiresAt: null };
+  if (name === "memory_remember" || name === "memory_correct") {
+    const lifetime = "lifetime" in record ? record : { ...record, lifetime: "durable", expiresAt: null };
+    const basis = "basis" in lifetime ? lifetime : { ...lifetime, basis: "stated" };
+    return "filingConfidence" in basis ? basis : { ...basis, filingConfidence: 0.4 };
   }
   if (name === "memory_restore" && !("basis" in record)) {
     return { ...record, basis: "stated" };
@@ -534,7 +533,7 @@ async function prepareConfirmedForget(label: string): Promise<Readonly<{
       text: `remember ${fact}`,
       provider: new FakeAgentProvider([
         called(tool(`${label}-seed-${index}`, "memory_remember", {
-          fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null,
+          fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4,
           kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: [`receipt:${label}-seed-${index}`] }]),
@@ -692,8 +691,8 @@ describe("owner Telegram agent", () => {
       called(tool("remember-1", "memory_remember", {
         fact: "Sid's favourite subject is math",
         supportingExcerpt: "my fav subject is math",
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "preference",
         sensitivity: "normal",
       })),
@@ -713,33 +712,6 @@ describe("owner Telegram agent", () => {
   });
 
   it.each([
-    ["negation mismatch", "remember I don't like math", "Sid likes math", "like math"],
-    ["one-word unrelated evidence", "ok", "Sid's locker combination is 12-34-56", "ok"],
-  ] as const)("stores failed grounding as uncertain model inference with Sid's exact excerpt: %s", async (
-    label, text, fact, excerpt,
-  ) => {
-    const harness = await ownerHarness(`uncertain-${label.replaceAll(" ", "-")}`);
-    const provider = new FakeAgentProvider([
-      called(tool(`uncertain-${label}`, "memory_remember", {
-        fact, supportingExcerpt: excerpt, evidenceClass: "stated", previousOfferExcerpt: null,
-        kind: "fact", sensitivity: "normal",
-      })),
-      stopped("Noted.", [{ sentence: "Noted.", receiptIds: [`receipt:uncertain-${label}`] }]),
-    ]);
-
-    const reply = await runTurn({ harness, text, provider });
-
-    await expect(memoryRows(harness.principalId)).resolves.toMatchObject([{
-      text: fact,
-      basis: "inferred",
-      lifecycle_state: "proposed",
-      excerpt,
-    }]);
-    expect(reply).toContain(JSON.stringify(excerpt));
-    expect(reply).not.toContain(`Memory: ${JSON.stringify(fact)}`);
-  });
-
-  it.each([
     ["typo", "remmber my go-to snack is mango", "my go-to snack is mango"],
     ["slang", "yo keep this in ur head: blue folder has receipts", "blue folder has receipts"],
   ] as const)("grounds a %s memory tool call in Sid's exact current words", async (label, message, excerpt) => {
@@ -748,8 +720,8 @@ describe("owner Telegram agent", () => {
       called(tool(`grounded-${label}`, "memory_remember", {
         fact: excerpt,
         supportingExcerpt: excerpt,
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "fact",
         sensitivity: "normal",
       })),
@@ -777,8 +749,8 @@ describe("owner Telegram agent", () => {
       called(tool("remember-2", "memory_remember", {
         fact: "Sid's favourite subject is math",
         supportingExcerpt: "Math",
-        evidenceClass: "confirmed",
-        previousOfferExcerpt: "Want me to note it?",
+        basis: "confirmed",
+        filingConfidence: 0.4,
         kind: "preference",
         sensitivity: "normal",
       })),
@@ -796,64 +768,6 @@ describe("owner Telegram agent", () => {
     expect(school.inputs).toHaveLength(0);
   });
 
-  it("requires a complete question sentence from the immediately previous delivered reply for confirmed evidence", async () => {
-    const harness = await ownerHarness("confirmed-question");
-    await runTurn({ harness, text: "hey", provider: new FakeAgentProvider([stopped("Hey Sid, what's up?")]) });
-    const provider = new FakeAgentProvider([
-      called(tool("bad-confirmed", "memory_remember", {
-        fact: "Sid's favourite subject is math",
-        supportingExcerpt: "Math",
-        evidenceClass: "confirmed",
-        previousOfferExcerpt: "e",
-        kind: "preference",
-        sensitivity: "normal",
-      })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({ harness, text: "Math", provider });
-
-    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-  });
-
-  it.each([
-    ["question ending (R13)", "Want me to note it.", "Want me to note it."],
-    ["sentence boundary (R14)", "Prefix Want me to note it? suffix", "Want me to note it?"],
-    ["question uniqueness (R15)", "Want me to note it? Want me to note it?", "Want me to note it?"],
-  ] as const)("rejects confirmed evidence when the previous offer violates %s", async (_label, previous, excerpt) => {
-    const harness = await ownerHarness(`confirmed-shape-${serial}`);
-    await runTurn({ harness, text: "hello", provider: new FakeAgentProvider([stopped(previous)]) });
-    const provider = new FakeAgentProvider([
-      called(tool(`confirmed-shape-${serial}`, "memory_remember", {
-        fact: "Sid's favourite subject is math", supportingExcerpt: "Math", evidenceClass: "confirmed",
-        previousOfferExcerpt: excerpt, kind: "preference", sensitivity: "normal",
-      })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({ harness, text: "Math", provider });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
-  });
-
-  it("requires stated evidence to omit previousOfferExcerpt (R41)", async () => {
-    const harness = await ownerHarness("stated-no-offer");
-    const provider = new FakeAgentProvider([
-      called(tool("stated-no-offer", "memory_remember", {
-        fact: "I like math", supportingExcerpt: "I like math", evidenceClass: "stated",
-        previousOfferExcerpt: "Want me to note it?", kind: "preference", sensitivity: "normal",
-      })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({ harness, text: "remember I like math", provider });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
-  });
-
   it.each([
     [1_001, true],
     [999, false],
@@ -864,8 +778,8 @@ describe("owner Telegram agent", () => {
     await runTurn({ harness, text: "hello", provider: new FakeAgentProvider([stopped("Want me to note it?")]) });
     const provider = new FakeAgentProvider([
       called(tool(`swipe-target-${replyToBotMessageId}`, "memory_remember", {
-        fact: "Sid's favourite subject is math", supportingExcerpt: "Math", evidenceClass: "confirmed",
-        previousOfferExcerpt: "Want me to note it?", kind: "preference", sensitivity: "normal",
+        fact: "Sid's favourite subject is math", supportingExcerpt: "Math", basis: "confirmed",
+        filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
       })),
       stopped(accepted ? "Saved." : "Nothing changed.", accepted
         ? [{ sentence: "Saved.", receiptIds: [`receipt:swipe-target-${replyToBotMessageId}`] }]
@@ -1007,8 +921,8 @@ describe("owner Telegram agent", () => {
       called(tool("remember-refused", "memory_remember", {
         fact: "my code is 12",
         supportingExcerpt: "my code is 12",
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "fact",
         sensitivity: "sensitive",
       })),
@@ -1037,8 +951,8 @@ describe("owner Telegram agent", () => {
       called(tool("credential-refused", "memory_remember", {
         fact: "my key is sk-aaaaaaaaaaaaaaaaaaaaaaaa",
         supportingExcerpt,
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "fact",
         sensitivity: "sensitive",
       })),
@@ -1066,8 +980,8 @@ describe("owner Telegram agent", () => {
       called(tool("owner-code-remember", "memory_remember", {
         fact,
         supportingExcerpt: fact,
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "fact",
         sensitivity: "sensitive",
       })),
@@ -1095,8 +1009,8 @@ describe("owner Telegram agent", () => {
       called(tool("different-authority", "memory_remember", {
         fact: "my code is 12",
         supportingExcerpt: "my code is 12",
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "fact",
         sensitivity: "sensitive",
       })),
@@ -1117,8 +1031,8 @@ describe("owner Telegram agent", () => {
 
   it.each([
     ["memory", "memory_remember", {
-      fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-      previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+      fact: "I like calculus", supportingExcerpt: "I like calculus", basis: "stated",
+      filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
     }],
     ["pipeline", "school_update", {}],
   ] as const)("rechecks the durable current owner turn before a %s tool executes", async (label, name, args) => {
@@ -1162,8 +1076,8 @@ describe("owner Telegram agent", () => {
       called(tool("guest-refused", "memory_remember", {
         fact: "I like calculus",
         supportingExcerpt: "I like calculus",
-        evidenceClass: "stated",
-        previousOfferExcerpt: null,
+        basis: "stated",
+        filingConfidence: 0.4,
         kind: "preference",
         sensitivity: "normal",
       })),
@@ -1453,43 +1367,6 @@ describe("owner Telegram agent", () => {
     )).resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
   });
 
-  it("keeps the exact quoted-question guard on owner-worded free-text confirmation", async () => {
-    const harness = await ownerHarness("confirm-unrelated-question");
-    const itemId = await proposedOwnerMemory(harness);
-    await runTurn({
-      harness,
-      text: "what uncertain memory do you have?",
-      provider: new FakeAgentProvider([
-        stopped('I have this stored as "I like art". Separately, should we plan chemistry?'),
-      ]),
-    });
-    const provider = new FakeAgentProvider([
-      called(tool("confirm-unrelated-question", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({
-      harness,
-      text: "yes",
-      provider,
-      context: [memoryContext({
-        item_id: itemId,
-        text: "I like art",
-        basis: "inferred",
-        lifecycle_state: "proposed",
-        excerpt: "maybe I like art",
-      })],
-      controlTargetIds: [itemId],
-    });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({
-        lifecycle: { state: "proposed" },
-        version: { origin: "authenticated_first_person" },
-      });
-  });
-
   it("keeps the staged-target guard on owner-worded free-text confirmation", async () => {
     const harness = await ownerHarness("confirm-not-staged");
     const itemId = await proposedOwnerMemory(harness);
@@ -1522,114 +1399,6 @@ describe("owner Telegram agent", () => {
         lifecycle: { state: "proposed" },
         version: { origin: "authenticated_first_person" },
       });
-  });
-
-  it("keeps the negation guard on owner-worded free-text confirmation", async () => {
-    const harness = await ownerHarness("confirm-rejected");
-    const itemId = await proposedOwnerMemory(harness);
-    await runTurn({
-      harness,
-      text: "what uncertain memory do you have?",
-      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
-    });
-    const provider = new FakeAgentProvider([
-      called(tool("confirm-rejected", "memory_confirm", { itemId, supportingExcerpt: "correct it" })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({
-      harness,
-      text: "no, that's not right, correct it",
-      provider,
-      context: [memoryContext({
-        item_id: itemId,
-        text: "I like art",
-        basis: "inferred",
-        lifecycle_state: "proposed",
-        excerpt: "maybe I like art",
-      })],
-      controlTargetIds: [itemId],
-    });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({
-        lifecycle: { state: "proposed" },
-        version: { origin: "authenticated_first_person" },
-      });
-  });
-
-  it("keeps the exact stored-text guard on owner-worded free-text confirmation", async () => {
-    const harness = await ownerHarness("confirm-exact-quote");
-    const itemId = await proposedOwnerMemory(harness);
-    await runTurn({
-      harness,
-      text: "what uncertain memory do you have?",
-      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art history"?')]),
-    });
-    const provider = new FakeAgentProvider([
-      called(tool("confirm-exact-quote", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({
-      harness,
-      text: "yes",
-      provider,
-      context: [memoryContext({
-        item_id: itemId,
-        text: "I like art",
-        basis: "inferred",
-        lifecycle_state: "proposed",
-        excerpt: "maybe I like art",
-      })],
-      controlTargetIds: [itemId],
-    });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({
-        lifecycle: { state: "proposed" },
-        version: { origin: "authenticated_first_person" },
-      });
-  });
-
-  it.each([
-    ["a bare acknowledgement", "ok", "ok"],
-    ["a substring without word boundaries", "yesterday was fine", "yes"],
-  ] as const)("keeps the word-boundary confirm-intent guard for %s", async (_label, text, excerpt) => {
-    const harness = await ownerHarness(`confirm-negative-${excerpt}`);
-    const itemId = await proposedOwnerMemory(harness);
-    await runTurn({
-      harness,
-      text: "what uncertain memory do you have?",
-      provider: new FakeAgentProvider([stopped('I have an uncertain memory: "I like art". Is that correct?')]),
-    });
-    const provider = new FakeAgentProvider([
-      called(tool(`confirm-negative-${excerpt}`, "memory_confirm", {
-        itemId,
-        supportingExcerpt: excerpt,
-      })),
-      stopped("Nothing changed."),
-    ]);
-
-    await runTurn({
-      harness,
-      text,
-      provider,
-      context: [memoryContext({
-        item_id: itemId,
-        text: "I like art",
-        basis: "inferred",
-        lifecycle_state: "proposed",
-        excerpt: "maybe I like art",
-      })],
-      controlTargetIds: [itemId],
-    });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
-    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
   });
 
   it("does not let retrieved context replace the staged-target and quoted-question guards", async () => {
@@ -1668,8 +1437,8 @@ describe("owner Telegram agent", () => {
       text: "remember I like calculus",
       provider: new FakeAgentProvider([
         called(tool("control-grounding-seed", "memory_remember", {
-          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "I like calculus", supportingExcerpt: "I like calculus", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:control-grounding-seed"] }]),
       ]),
@@ -1716,8 +1485,8 @@ describe("owner Telegram agent", () => {
         called(tool("inferred-forget-seed", "memory_remember", {
           fact: "my spare key is under the mat",
           supportingExcerpt: "my spare key is under the mat",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "fact",
           sensitivity: "normal",
         })),
@@ -1752,8 +1521,8 @@ describe("owner Telegram agent", () => {
         called(tool("forget-next-seed", "memory_remember", {
           fact,
           supportingExcerpt: fact,
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "fact",
           sensitivity: "normal",
         })),
@@ -1868,79 +1637,6 @@ describe("owner Telegram agent", () => {
     expect(provider.requests[0]?.systemPrompt).not.toContain(itemId);
   });
 
-  it("does not forget a memory when Sid says not to forget it", async () => {
-    const harness = await ownerHarness("negated-forget");
-    await runTurn({
-      harness,
-      text: "remember my spare key is under the mat",
-      provider: new FakeAgentProvider([
-        called(tool("negated-forget-seed", "memory_remember", {
-          fact: "my spare key is under the mat",
-          supportingExcerpt: "my spare key is under the mat",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
-          kind: "fact",
-          sensitivity: "normal",
-        })),
-        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:negated-forget-seed"] }]),
-      ]),
-    });
-    const row = (await memoryRows(harness.principalId))[0]!;
-    const text = "don't forget the memory about the spare key";
-
-    const provider = new FakeAgentProvider([
-      called(tool("negated-forget", "memory_forget", {
-        itemIds: [row.item_id], supportingExcerpt: text,
-      })),
-      stopped("Okay.", []),
-    ]);
-    await runTurn({ harness, text, context: [memoryContext(row)], provider });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
-      .toMatchObject({ status: "refused" });
-    expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("active");
-  });
-
-  it("does not restore a memory when Sid says he does not want it used again", async () => {
-    const harness = await ownerHarness("negated-restore");
-    await runTurn({
-      harness,
-      text: "remember I like calculus",
-      provider: new FakeAgentProvider([
-        called(tool("negated-restore-seed", "memory_remember", {
-          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
-        })),
-        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:negated-restore-seed"] }]),
-      ]),
-    });
-    const row = (await memoryRows(harness.principalId))[0]!;
-    await runTurn({
-      harness,
-      text: "forget that",
-      context: [memoryContext(row)],
-      provider: new FakeAgentProvider([
-        called(tool("negated-restore-forget", "memory_forget", {
-          itemIds: [row.item_id], supportingExcerpt: "forget that",
-        })),
-        stopped("Forgot.", [{ sentence: "Forgot.", receiptIds: ["receipt:negated-restore-forget"] }]),
-      ]),
-    });
-    const text = "I don't want to use that memory again";
-
-    const provider = new FakeAgentProvider([
-      called(tool("negated-restore", "memory_restore", {
-        itemId: row.item_id, supportingExcerpt: text,
-      })),
-      stopped("Okay.", []),
-    ]);
-    await runTurn({ harness, text, context: [memoryContext(row)], provider });
-
-    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
-      .toMatchObject({ status: "refused" });
-    expect((await memoryRows(harness.principalId))[0]!.lifecycle_state).toBe("forgotten");
-  });
-
   it("replaces one memory when Sid plainly states a new version, and recalls only the new wording", async () => {
     const harness = await ownerHarness("memory-correction");
     await runTurn({
@@ -1950,8 +1646,8 @@ describe("owner Telegram agent", () => {
         called(tool("correction-seed", "memory_remember", {
           fact: "my fav subject is math",
           supportingExcerpt: "my fav subject is math",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -1999,8 +1695,8 @@ describe("owner Telegram agent", () => {
         called(tool("correction-authority-seed", "memory_remember", {
           fact: "my fav subject is math",
           supportingExcerpt: "my fav subject is math",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -2035,29 +1731,9 @@ describe("owner Telegram agent", () => {
         .toMatchObject({ status: "refused" });
     }
 
-    // A model-authored wording Sid's sentence does not support is refused by
-    // the control service rather than promoted, because a correction carries
-    // no confirmation step that could catch it later.
-    const invented = new FakeAgentProvider([
-      called(tool("correction-invented", "memory_correct", {
-        itemId: row.item_id,
-        newFact: "my fav subject is chemistry",
-        supportingExcerpt: "my fav subject is now science",
-        kind: "preference",
-        sensitivity: "normal",
-      })),
-      stopped("Okay.", []),
-    ]);
-    await runTurn({
-      harness,
-      text: "my fav subject is now science",
-      context: [memoryContext(row)],
-      provider: invented,
-    });
-    expect(JSON.parse(invented.requests[1]?.toolResults?.[0]?.content ?? "{}"))
-      .toMatchObject({ status: "refused" });
-    expect((await memoryRows(harness.principalId)).map((entry) => [entry.text, entry.lifecycle_state]))
-      .toEqual([["my fav subject is math", "active"]]);
+    // What the corrected wording counts as is the model's `basis`, not a
+    // vocabulary check here; a correction still has to be grounded in Sid's
+    // current turn, which the forwarded case above refuses.
   });
 
   it("refuses agent-level memory confirmation when its excerpt is absent from Sid's current text", async () => {
@@ -2098,8 +1774,8 @@ describe("owner Telegram agent", () => {
         called(tool("cycle-seed", "memory_remember", {
           fact: "I like calculus",
           supportingExcerpt: "I like calculus",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -2154,8 +1830,8 @@ describe("owner Telegram agent", () => {
       text: "remember I like calculus",
       provider: new FakeAgentProvider([
         called(tool("grounding-seed", "memory_remember", {
-          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "I like calculus", supportingExcerpt: "I like calculus", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:grounding-seed"] }]),
       ]),
@@ -2183,8 +1859,8 @@ describe("owner Telegram agent", () => {
       text: "remember I like calculus",
       provider: new FakeAgentProvider([
         called(tool("forget-word-boundary-seed", "memory_remember", {
-          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "I like calculus", supportingExcerpt: "I like calculus", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forget-word-boundary-seed"] }]),
       ]),
@@ -2210,8 +1886,8 @@ describe("owner Telegram agent", () => {
       text: "remember I like calculus",
       provider: new FakeAgentProvider([
         called(tool("restore-grounding-seed", "memory_remember", {
-          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "I like calculus", supportingExcerpt: "I like calculus", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:restore-grounding-seed"] }]),
       ]),
@@ -2249,8 +1925,8 @@ describe("owner Telegram agent", () => {
       text: "remember Sid likes chemistry",
       provider: new FakeAgentProvider([
         called(tool("forgotten-dedupe-seed", "memory_remember", {
-          fact: "Sid likes chemistry", supportingExcerpt: "Sid likes chemistry", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "Sid likes chemistry", supportingExcerpt: "Sid likes chemistry", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forgotten-dedupe-seed"] }]),
       ]),
@@ -2273,8 +1949,8 @@ describe("owner Telegram agent", () => {
       text: "remember SID LIKES CHEMISTRY!",
       provider: new FakeAgentProvider([
         called(tool("forgotten-dedupe-new", "memory_remember", {
-          fact: "SID LIKES CHEMISTRY!", supportingExcerpt: "SID LIKES CHEMISTRY!", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "fact", sensitivity: "sensitive",
+          fact: "SID LIKES CHEMISTRY!", supportingExcerpt: "SID LIKES CHEMISTRY!", basis: "stated",
+          filingConfidence: 0.4, kind: "fact", sensitivity: "sensitive",
         })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forgotten-dedupe-new"] }]),
       ]),
@@ -2288,8 +1964,8 @@ describe("owner Telegram agent", () => {
   it("delivers the saved receipt when the follow-up fails and a restatement is stored with a hint", async () => {
     const harness = await ownerHarness("post-commit-fallback");
     const args = {
-      fact: "I like chemistry", supportingExcerpt: "I like chemistry", evidenceClass: "stated",
-      previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+      fact: "I like chemistry", supportingExcerpt: "I like chemistry", basis: "stated",
+      filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
     } as const;
 
     const first = await runTurn({
@@ -2335,8 +2011,8 @@ describe("owner Telegram agent", () => {
       text: "remember I like chemistry",
       provider: new FakeAgentProvider([
         called(tool("repair-fallback", "memory_remember", {
-          fact: "I like chemistry", supportingExcerpt: "I like chemistry", evidenceClass: "stated",
-          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+          fact: "I like chemistry", supportingExcerpt: "I like chemistry", basis: "stated",
+          filingConfidence: 0.4, kind: "preference", sensitivity: "normal",
         })),
         stopped(claim, [{ sentence: claim, receiptIds: [] }]),
         new Error("repair unavailable"),
@@ -2523,8 +2199,8 @@ describe("owner Telegram agent", () => {
         called(tool("id-seed", "memory_remember", {
           fact: "I like geometry",
           supportingExcerpt: "I like geometry",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -2560,8 +2236,8 @@ describe("owner Telegram agent", () => {
           called(tool(`seed-${index}`, "memory_remember", {
             fact,
             supportingExcerpt: fact,
-            evidenceClass: "stated",
-            previousOfferExcerpt: null,
+            basis: "stated",
+            filingConfidence: 0.4,
             kind: "preference",
             sensitivity: "normal",
           })),
@@ -2609,7 +2285,7 @@ describe("owner Telegram agent", () => {
         text: `remember ${fact}`,
         provider: new FakeAgentProvider([
           called(tool(`tap-seed-${index}`, "memory_remember", {
-            fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null,
+            fact, supportingExcerpt: fact, basis: "stated", filingConfidence: 0.4,
             kind: "preference", sensitivity: "normal",
           })),
           stopped("Saved.", [{ sentence: "Saved.", receiptIds: [`receipt:tap-seed-${index}`] }]),
@@ -2812,8 +2488,8 @@ describe("owner Telegram agent", () => {
         called(tool("pin-seed", "memory_remember", {
           fact: "I hate mornings",
           supportingExcerpt: "I hate mornings",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -2852,8 +2528,8 @@ describe("owner Telegram agent", () => {
         called(tool("temp-1", "memory_remember", {
           fact: "I'm tired today",
           supportingExcerpt: "I'm tired today",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "fact",
           sensitivity: "normal",
           lifetime: "temporary",
@@ -2883,8 +2559,8 @@ describe("owner Telegram agent", () => {
         called(tool("dur-1", "memory_remember", JSON.stringify({
           fact: "I hate mornings",
           supportingExcerpt: "I hate mornings",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         }))),
@@ -2909,8 +2585,8 @@ describe("owner Telegram agent", () => {
         called(tool("core-profile-seed", "memory_remember", {
           fact: "I hate mornings",
           supportingExcerpt: "I hate mornings",
-          evidenceClass: "stated",
-          previousOfferExcerpt: null,
+          basis: "stated",
+          filingConfidence: 0.4,
           kind: "preference",
           sensitivity: "normal",
         })),
@@ -2939,8 +2615,8 @@ describe("owner Telegram agent", () => {
     const args = {
       fact: "one fact",
       supportingExcerpt: "one fact",
-      evidenceClass: "stated",
-      previousOfferExcerpt: null,
+      basis: "stated",
+      filingConfidence: 0.4,
       kind: "fact",
       sensitivity: "normal",
     };
@@ -2966,8 +2642,8 @@ describe("owner Telegram agent", () => {
     const args = {
       fact: "one fact",
       supportingExcerpt: "one fact",
-      evidenceClass: "stated",
-      previousOfferExcerpt: null,
+      basis: "stated",
+      filingConfidence: 0.4,
       kind: "fact",
       sensitivity: "normal",
     };
@@ -2995,8 +2671,8 @@ describe("owner Telegram agent", () => {
     const args = {
       fact: "one fact",
       supportingExcerpt: "one fact",
-      evidenceClass: "stated",
-      previousOfferExcerpt: null,
+      basis: "stated",
+      filingConfidence: 0.4,
       kind: "fact",
       sensitivity: "normal",
     };

@@ -1,0 +1,67 @@
+[
+  {
+    "name": "mem3-remember-schema-drops-filing-confidence",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "      required: [\"fact\", \"supportingExcerpt\", \"basis\", \"filingConfidence\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "replace": "      required: [\"fact\", \"supportingExcerpt\", \"basis\", \"kind\", \"sensitivity\", \"lifetime\", \"expiresAt\"],",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "requires the model's basis and filing confidence on every writing tool"
+  },
+  {
+    "name": "mem3-correct-schema-readvertises-evidence-class",
+    "file": "apps/cloud-gateway/src/memory/memory-tools.ts",
+    "find": "        filingConfidence: { type: \"number\", minimum: 0, maximum: 1, description: \"0 to 1: how sure you are that the corrected memory belongs where you are filing it, not whether it is true. Required every time; there is no default.\" },",
+    "replace": "        filingConfidence: { type: \"number\", minimum: 0, maximum: 1, description: \"0 to 1: how sure you are that the corrected memory belongs where you are filing it, not whether it is true. Required every time; there is no default.\" },\n        evidenceClass: { enum: [\"stated\", \"confirmed\"], description: \"mutation\" },",
+    "testPath": "apps/cloud-gateway/test/memory/memory-tools.test.ts",
+    "expect": "no longer advertises the removed evidence-class fields"
+  },
+  {
+    "name": "mem3-extraction-confidence-defaulted-again",
+    "file": "apps/cloud-gateway/src/memory/extraction-policy.ts",
+    "find": "  const { text, sourceEventIds, confidence, sensitivity } = value;",
+    "replace": "  const { text, sourceEventIds, sensitivity } = value;\n  const confidence: unknown = (value as { confidence?: unknown }).confidence ?? 1;",
+    "testPath": "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "expect": "rejects a proposal that omits confidence"
+  },
+  {
+    "name": "mem3-extraction-sensitivity-defaulted-again",
+    "edits": [
+      {
+        "file": "apps/cloud-gateway/src/memory/extraction-policy.ts",
+        "find": "  if (sensitivity !== \"normal\" && sensitivity !== \"sensitive\") return null;",
+        "replace": "  // mutation: an unknown sensitivity stops being refused here"
+      },
+      {
+        "file": "apps/cloud-gateway/src/memory/extraction-policy.ts",
+        "find": "    text: text.trim(),\n    sourceEventIds: Object.freeze([...(sourceEventIds as string[])]),\n    confidence,\n    sensitivity,\n    origin: \"model\",",
+        "replace": "    text: text.trim(),\n    sourceEventIds: Object.freeze([...(sourceEventIds as string[])]),\n    confidence,\n    sensitivity: (sensitivity === \"normal\" || sensitivity === \"sensitive\" ? sensitivity : \"normal\") as typeof sensitivity,\n    origin: \"model\","
+      }
+    ],
+    "testPath": "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "expect": "rejects a proposal with an unknown sensitivity"
+  },
+  {
+    "name": "mem3-hourly-filing-confidence-defaulted-again",
+    "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+    "find": "  const filingConfidence = record.filingConfidence;\n  if (typeof filingConfidence !== \"number\"\n    || !Number.isFinite(filingConfidence)\n    || filingConfidence < 0 || filingConfidence > 1) return null;",
+    "replace": "  const filingConfidence = typeof record.filingConfidence === \"number\"\n    && Number.isFinite(record.filingConfidence)\n    && record.filingConfidence >= 0 && record.filingConfidence <= 1\n    ? record.filingConfidence : 0;",
+    "testPath": "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "expect": "rejects a proposal whose filingConfidence is missing or out of range rather than defaulting it"
+  },
+  {
+    "name": "mem3-agent-basis-ignores-what-the-model-chose",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "  const basis = args.basis;\n  if (typeof basis !== \"string\" || !MEMORY_BASES.has(basis)) {\n    throw new TypeError(\"owner_agent_memory_basis_invalid\");\n  }\n  return basis as MemoryBasis;",
+    "replace": "  return \"stated\";",
+    "testPath": "apps/cloud-gateway/test/voice/voice-agent.test.ts",
+    "expect": "refuses a spoken yes on another call even when the proposed memory is in context"
+  },
+  {
+    "name": "mem3-confirm-drops-the-staged-target-guard",
+    "file": "apps/cloud-gateway/src/agent/owner-agent-core.ts",
+    "find": "    if (!stagedTargets.includes(itemId)) {\n      throw new TypeError(\"owner_agent_item_not_eligible\");\n    }\n    if (item.version.origin === \"model\" && item.version.basis === \"inferred\") {",
+    "replace": "    if (item.version.origin === \"model\" && item.version.basis === \"inferred\") {",
+    "testPath": "apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts",
+    "expect": "keeps the staged-target guard on owner-worded free-text confirmation"
+  }
+]

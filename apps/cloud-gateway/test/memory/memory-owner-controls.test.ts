@@ -26,6 +26,7 @@ import {
   type CanonicalMemoryItem,
   type MemoryControlIntent,
   type MemoryKind,
+  type MemoryBasis,
   type MemoryOwnerTurnInput,
   type MemoryRepositoryErrorCode,
 } from "../../src/memory/memory-types.js";
@@ -127,7 +128,7 @@ async function seedTurn(
   };
 }
 
-function rememberInput(turn: SeededTurn, text: string): RememberMemoryInput {
+function rememberInput(turn: SeededTurn, text: string, sourceExcerpt = text): RememberMemoryInput {
   return Object.freeze({
     ownerTurn: turn.input,
     text,
@@ -137,6 +138,12 @@ function rememberInput(turn: SeededTurn, text: string): RememberMemoryInput {
     // end is what these fixtures meant before the repository default existed.
     lifetime: "durable",
     validTo: null,
+    // The model states the excerpt, the basis and its filing confidence; these
+    // fixtures supply what a model would usually send.
+    sourceExcerpt,
+    basis: "stated",
+    normalizedFromSource: true,
+    filingConfidence: 0.4,
   });
 }
 
@@ -148,6 +155,8 @@ function correctInput(
     kind?: MemoryKind;
     sensitivity?: "normal" | "sensitive";
     sourceExcerpt?: string;
+    basis?: MemoryBasis;
+    filingConfidence?: number;
     normalizedFromSource?: boolean;
     ownerTurn?: MemoryOwnerTurnInput;
     lifetime?: "durable" | "temporary";
@@ -160,7 +169,9 @@ function correctInput(
     text,
     kind: options.kind ?? "preference",
     sensitivity: options.sensitivity ?? "normal",
-    ...(options.sourceExcerpt === undefined ? {} : { sourceExcerpt: options.sourceExcerpt }),
+    sourceExcerpt: options.sourceExcerpt ?? text,
+    basis: options.basis ?? "stated",
+    filingConfidence: options.filingConfidence ?? 0.4,
     ...(options.normalizedFromSource === undefined
       ? {}
       : { normalizedFromSource: options.normalizedFromSource }),
@@ -664,40 +675,23 @@ describe("MemoryOwnerControlsService", () => {
   });
 
   it.each([
-    ["a meaning-flipping negation fragment", "Remember I don't want to move to Boston.", "want to move to Boston"],
-    ["a reported-speech fragment", "Remember my brother said Sid failed calculus.", "Sid failed calculus."],
-    ["a conditional fragment", "Remember if I get into Waterloo I will move.", "I will move."],
-    ["a mid-word fragment", "Remember I prefer teal.", "I prefer tea"],
-    ["a condition changed by the preceding sentence", "Remember my plan if Waterloo rejects me. I'll take a gap year.", "I'll take a gap year."],
-    ["reported speech changed by the preceding sentence", "Remember what Sam texted me. I'm quitting the team.", "I'm quitting the team."],
-    ["a claim retracted by the following sentence", "Remember I failed calculus. Jk.", "I failed calculus."],
-  ])("refuses %s before recording a command", async (_label, ownerText, requestedText) => {
-    const turn = await seedTurn(ownerText);
-    const before = await commandCount();
-
-    await expectCode(
-      new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(rememberInput(turn, requestedText)),
-      "memory_refused",
-    );
-
-    expect(await commandCount()).toBe(before);
-    expect(await env.DB.prepare(
-      "SELECT count(*) AS count FROM memory_items WHERE creation_event_id = ?",
-    ).bind(turn.input.eventId).first()).toEqual({ count: 0 });
-  });
-
-  it.each([
     ["an apostrophe lookalike", "Remember, I donʼt use tables.", "I don't use tables."],
     ["a zero-width character", "Remember, I prefer\u200b concise notes.", "I prefer concise notes."],
   ])("normalizes %s only for whole-remainder comparison", async (_label, ownerText, text) => {
     const turn = await seedTurn(ownerText);
+    const remainder = ownerText.replace(/^Remember,[ ]?/u, "");
 
     const result = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE)
-      .remember(rememberInput(turn, text));
+      .remember(Object.freeze({
+        ...rememberInput(turn, text, remainder),
+        // The model had not claimed the wording was Sid's, so the mechanical
+        // normalization is the only thing making the two equal.
+        normalizedFromSource: false,
+      }));
 
     expect(result.item.version.text).toBe(text);
     expect(result.item.lifecycle.actor).toBe("owner");
-    expect(result.item.sources[0]?.excerpt).toBe(ownerText.replace(/^Remember,[ ]?/u, ""));
+    expect(result.item.sources[0]?.excerpt).toBe(remainder);
   });
 
   it("does not complete an accepted remember command after its source turn is suppressed", async () => {
@@ -1183,7 +1177,7 @@ describe("MemoryOwnerControlsService", () => {
     );
     const secondTurn = await seedTurn("Remember that my essay needs a clear thesis.");
     const second = await service.remember(
-      rememberInput(secondTurn, "my ESSAY needs a clear thesis!"),
+      rememberInput(secondTurn, "my ESSAY needs a clear thesis!", "my essay needs a clear thesis."),
     );
 
     // No silent merge: the new wording is its own memory, and the receipt names
@@ -1700,6 +1694,9 @@ describe("MemoryOwnerControlsService", () => {
       text: "my portal answer is a phrase.",
       kind: "fact",
       sensitivity: "sensitive",
+      sourceExcerpt: "my portal answer is a phrase.",
+      basis: "stated",
+      filingConfidence: 0.4,
       lifetime: "durable",
       validTo: null,
     }));
@@ -1725,6 +1722,9 @@ describe("MemoryOwnerControlsService", () => {
       text: "my portal answer is a phrase.",
       kind: "fact",
       sensitivity: "sensitive",
+      sourceExcerpt: "my portal answer is a phrase.",
+      basis: "stated",
+      filingConfidence: 0.4,
       lifetime: "durable",
       validTo: null,
     }));
@@ -1752,6 +1752,8 @@ describe("MemoryOwnerControlsService", () => {
       kind: "preference",
       sensitivity: "normal",
       sourceExcerpt: "I prefer dark mode.",
+      basis: "stated",
+      filingConfidence: 0.4,
       lifetime: "durable",
       validTo: null,
     }));

@@ -198,14 +198,21 @@ def validate_extraction_proposal(
     if not set(sources) <= set(supplied):
         return None
 
-    confidence = raw.get("confidence", 1.0)
+    # Required, not defaulted. A missing confidence used to become 1.0, maximum
+    # certainty, which is code inventing the model's own judgment.
+    confidence = raw.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         return None
     if not 0.0 <= float(confidence) <= 1.0:
         return None
 
+    # Required and closed, as with confidence. A missing or unknown sensitivity
+    # used to become normal, which silently downgraded a sensitive fact.
+    sensitivity_value = raw.get("sensitivity")
+    if sensitivity_value not in ("normal", "sensitive"):
+        return None
     sensitivity = (
-        Sensitivity.SENSITIVE if raw.get("sensitivity") == "sensitive" else Sensitivity.NORMAL
+        Sensitivity.SENSITIVE if sensitivity_value == "sensitive" else Sensitivity.NORMAL
     )
     return FactProposal(
         principal_id=principal_id,

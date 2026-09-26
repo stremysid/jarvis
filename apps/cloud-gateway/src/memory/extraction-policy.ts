@@ -212,7 +212,7 @@ export function validateExtractionProposal(
   if (!isPlainObject(value)) return null;
   if (Object.keys(value).some((key) => FORBIDDEN_PROPOSAL_KEYS.has(key))) return null;
 
-  const { text, sourceEventIds, confidence } = value;
+  const { text, sourceEventIds, confidence, sensitivity } = value;
   if (typeof text !== "string" || text.trim().length === 0) return null;
   if (new TextEncoder().encode(text).byteLength > MAX_MEMORY_FACT_BYTES) return null;
   if (hasFactTextControls(text)) return null;
@@ -224,17 +224,23 @@ export function validateExtractionProposal(
     || sourceEventIds.length > MAX_MEMORY_FACT_SOURCES) return null;
   if (sourceEventIds.some((id) => typeof id !== "string" || !supplied.has(id))) return null;
 
-  const score = confidence === undefined ? 1 : confidence;
-  if (typeof score !== "number"
-    || !Number.isFinite(score)
-    || score < 0
-    || score > 1) return null;
+  // Required, not defaulted. A missing confidence used to become 1, maximum
+  // certainty, which is code inventing the model's own judgment. The proposal is
+  // refused so the model states it.
+  if (typeof confidence !== "number"
+    || !Number.isFinite(confidence)
+    || confidence < 0
+    || confidence > 1) return null;
+
+  // Required and closed, as with confidence. A missing or unknown sensitivity
+  // used to become "normal", which silently downgraded a sensitive fact.
+  if (sensitivity !== "normal" && sensitivity !== "sensitive") return null;
 
   return Object.freeze({
     text: text.trim(),
     sourceEventIds: Object.freeze([...(sourceEventIds as string[])]),
-    confidence: score,
-    sensitivity: value.sensitivity === "sensitive" ? "sensitive" : "normal",
+    confidence,
+    sensitivity,
     origin: "model",
     uncertain: true,
   });

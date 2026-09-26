@@ -3,35 +3,17 @@ import {
   type EventEnvelope,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
-import type { ArchiveBucket } from "../archive/archival-service.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
   CONVERSATION_EVENT_SOURCE,
 } from "../conversation/conversation-repository.js";
-import {
-  snapshotTelegramModelAdapterStreamInput,
-  type ModelAdapter,
-  type ModelAdapterStreamInput,
-  type ModelToken,
-} from "../model/model-adapter.js";
+import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { Redactor } from "../security/redaction.js";
-import {
-  MemoryOwnerControlsService,
-  type MemoryExplanation,
-} from "./memory-owner-controls.js";
 import {
   MemoryRepositoryError,
   type MemoryControlIntent,
-  type MemoryKind,
   type MemoryOwnerTurnInput,
 } from "./memory-types.js";
-import { MemoryRepository } from "./memory-repository.js";
-import { recordPendingTelegramMemoryReferences } from "./telegram-memory-reference.js";
-import {
-  parseTelegramMemoryControl,
-  type TelegramMemoryControl,
-} from "./telegram-memory-language.js";
-import type { TelegramMemoryTargetFinder } from "./telegram-memory-retriever.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -47,14 +29,6 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   ...HISTORY_PAYLOAD_FIELDS,
   "directOwnerText",
 ]);
-const HIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
-// Kept in step by hand with the copy in owner-telegram-agent.ts: both decide
-// which recalled envelopes the model may name, and both missed the uncertain
-// form until the recall envelope became reachable.
-const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?[Mm]emory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
-const MEMORY_CITATION_ITEM = /\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu;
-const MAX_RECORDED_REFERENCES = 8;
-const encoder = new TextEncoder();
 // Sid's memory: his reader.
 const redactor = new Redactor("owner");
 
@@ -72,22 +46,6 @@ interface OwnerTurnRow {
   readonly occurred_at: unknown;
   readonly content_hash: unknown;
   readonly envelope_json: unknown;
-}
-
-export interface TelegramMemoryControlAuthority {
-  readonly principalId: string;
-  readonly text: string;
-  /** False for Telegram-forwarded or externally borrowed text. */
-  readonly isDirectText: boolean;
-}
-
-export interface TelegramMemoryControlModelOptions {
-  readonly database: D1Database;
-  readonly archive: ArchiveBucket;
-  readonly fallbackModel: ModelAdapter;
-  readonly ownerPrincipalId: string;
-  readonly authority: TelegramMemoryControlAuthority;
-  readonly targets: TelegramMemoryTargetFinder;
 }
 
 function exactRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
@@ -163,93 +121,6 @@ function safeTimestamp(value: unknown, error: string): string {
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.valueOf()) || parsed.toISOString() !== value) throw new TypeError(error);
   return value;
-}
-
-function plainLine(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
-    || value !== value.normalize("NFC") || HIDDEN_TEXT.test(value)
-    || encoder.encode(value).byteLength > 4_096) {
-    return "I could not safely apply that memory request, so I changed nothing.";
-  }
-  return value;
-}
-
-function memoryKind(text: string): MemoryKind {
-  if (/\b(?:decided|decision)\b/iu.test(text)) return "decision";
-  if (/\b(?:plan|intend|going[ \t]+to|will)\b/iu.test(text)) return "plan";
-  if (/\b(?:prefer|preference|favourite|favorite)\b/iu.test(text)) return "preference";
-  if (/\b(?:mother|father|parent|sister|brother|partner|friend|teacher)\b/iu.test(text)) return "relationship";
-  return "fact";
-}
-
-function memoryName(text: string): string {
-  const scalars = Array.from(text);
-  return scalars.length <= 160 ? text : `${scalars.slice(0, 159).join("")}…`;
-}
-
-function namedReceipt(receipt: string, text: string): string {
-  return plainLine(`${receipt} Memory: ${JSON.stringify(memoryName(text))}`);
-}
-
-function evidenceReceipt(explanation: MemoryExplanation, text: string): string {
-  const sources = explanation.sources.map((source) => (
-    `${source.channel} event ${source.eventId} at ${source.occurredAt}`
-  )).join(", ");
-  const area = explanation.topicPath.at(-1) ?? "hidden area";
-  // Matches the agent's explanation receipt: an uncertain memory is recalled and
-  // explained as unconfirmed, never presented as a settled fact.
-  const subject = explanation.uncertain ? "1 unconfirmed memory" : "1 memory";
-  return namedReceipt(`Evidence for ${subject} in ${area}: ${sources}; nothing changed.`, text);
-}
-
-function mutationReceipt(intent: "remember" | "forget" | "lift", receipt: string): string {
-  const line = plainLine(receipt);
-  if (intent === "remember" && !/\bforget it\b/iu.test(line)) {
-    return `${line} You can ask in ordinary language to forget it.`;
-  }
-  if (intent === "forget" && !/\buse it again\b/iu.test(line)) {
-    return `${line} You can ask in ordinary language to use it again.`;
-  }
-  if (intent === "lift" && !/\bforget it again\b/iu.test(line)) {
-    return `${line} You can ask in ordinary language to forget it again.`;
-  }
-  return line;
-}
-
-function failureReceipt(error: unknown): string {
-  if (error instanceof MemoryRepositoryError) {
-    if (error.code === "memory_ambiguous") {
-      return "Which memory do you mean? Tell me a few words from it; I changed nothing.";
-    }
-    if (error.code === "memory_not_found") {
-      return "I could not find that memory. Tell me a few words from it; I changed nothing.";
-    }
-    if (error.code === "memory_refused") {
-      return "I could not apply that memory request from this message. Please ask again in your own words.";
-    }
-  }
-  return "I could not safely access memory just now, so I changed nothing.";
-}
-
-function referencedItemIds(
-  input: Readonly<ModelAdapterStreamInput>,
-  outputText: string,
-): readonly Ulid[] {
-  const itemIds: Ulid[] = [];
-  const seen = new Set<string>();
-  const add = (value: string | undefined): void => {
-    if (value === undefined || seen.has(value) || itemIds.length === MAX_RECORDED_REFERENCES) return;
-    seen.add(value);
-    itemIds.push(value as Ulid);
-  };
-  for (const context of input.context) add(MEMORY_CONTEXT_ITEM.exec(context.text)?.[1]);
-  for (const match of outputText.matchAll(MEMORY_CITATION_ITEM)) add(match[1]);
-  return Object.freeze(itemIds);
-}
-
-interface AppliedControl {
-  readonly receipt: string;
-  readonly itemIds: readonly Ulid[];
 }
 
 /** Reconstructs permission authority from the durable current owner turn. */
@@ -343,145 +214,4 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
   requireDirectOwnerText?: boolean;
 }>): Promise<MemoryOwnerTurnInput> {
   return readMemoryOwnerTurnEvidence({ ...input, channelCode: 2 });
-}
-
-/**
- * Intercepts an exact trusted Telegram owner turn after it is durably committed
- * but before the provider model. A handled control emits one token at index 0;
- * an ordinary turn delegates without adding a token or changing its indexes.
- */
-export class TelegramMemoryControlModelAdapter implements ModelAdapter {
-  private readonly authority: Readonly<TelegramMemoryControlAuthority>;
-
-  constructor(private readonly options: TelegramMemoryControlModelOptions) {
-    this.authority = Object.freeze({
-      principalId: safeAtom(options.authority.principalId, "telegram_memory_authority_invalid"),
-      text: safeText(options.authority.text, 65_536, "telegram_memory_authority_invalid"),
-      isDirectText: options.authority.isDirectText,
-    });
-    safeAtom(options.ownerPrincipalId, "telegram_memory_owner_invalid");
-    if (typeof options.authority.isDirectText !== "boolean") {
-      throw new TypeError("telegram_memory_authority_invalid");
-    }
-  }
-
-  stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    return this.streamCaptured(snapshotTelegramModelAdapterStreamInput(input));
-  }
-
-  private async *streamCaptured(input: Readonly<ModelAdapterStreamInput>): AsyncIterable<ModelToken> {
-    const control = parseTelegramMemoryControl(input.userText);
-    const authoritative = input.channel === "telegram"
-      && input.principalId === this.options.ownerPrincipalId
-      && this.authority.principalId === input.principalId
-      && this.authority.text === input.userText
-      && this.authority.isDirectText;
-    if (control === null || !authoritative) {
-      let outputText = "";
-      for await (const token of this.options.fallbackModel.stream(input)) {
-        if (typeof token.text === "string") outputText += token.text;
-        yield token;
-      }
-      recordPendingTelegramMemoryReferences(
-        input.correlationId,
-        referencedItemIds(input, outputText),
-      );
-      return;
-    }
-
-    let applied: AppliedControl;
-    try {
-      applied = await this.applyControl(input, control);
-    } catch (error) {
-      applied = Object.freeze({ receipt: failureReceipt(error), itemIds: Object.freeze([]) });
-    }
-    recordPendingTelegramMemoryReferences(input.correlationId, applied.itemIds);
-    yield Object.freeze({ index: 0, text: plainLine(applied.receipt) });
-  }
-
-  private async applyControl(
-    input: Readonly<ModelAdapterStreamInput>,
-    control: TelegramMemoryControl,
-  ): Promise<AppliedControl> {
-    const ownerTurn = await this.readOwnerTurn(input, control.intent);
-    const controls = new MemoryOwnerControlsService(this.options.database, this.options.archive);
-    if (control.intent === "remember") {
-      const result = await controls.remember({
-        ownerTurn,
-        text: control.memoryText,
-        kind: memoryKind(control.memoryText),
-        sensitivity: "normal",
-        // This deterministic adapter has no model to ask, so it states the
-        // durable/no-end pair explicitly instead of leaning on a repository
-        // default. It is not composed in the production gateway; the model
-        // tools are what set lifetime in a live turn, and they refuse an
-        // omission rather than assuming one.
-        lifetime: "durable",
-        validTo: null,
-      });
-      return Object.freeze({
-        receipt: namedReceipt(mutationReceipt("remember", result.receipt), control.memoryText),
-        itemIds: Object.freeze([result.item.itemId]),
-      });
-    }
-
-    const candidates = await this.options.targets.findControlTargets({
-      principalId: input.principalId,
-      operation: control.intent,
-      query: control.targetQuery,
-      turnId: input.correlationId,
-    });
-    if (candidates.length !== 1) {
-      return Object.freeze({
-        receipt: "Which memory do you mean? Tell me a few words from it; I changed nothing.",
-        itemIds: Object.freeze([]),
-      });
-    }
-    const item = await new MemoryRepository(this.options.database)
-      .readCurrentItem(input.principalId, candidates[0]!);
-    const itemIds = Object.freeze([item.itemId]);
-    if (control.intent === "forget") {
-      // One target: `findControlTargets` above already required exactly one.
-      const forgotten = await controls.forget({ ownerTurn, candidateItemIds: candidates });
-      if (forgotten.length !== 1) throw new TypeError("tel_memory_control_target_invalid");
-      return Object.freeze({
-        receipt: namedReceipt(mutationReceipt("forget", forgotten[0]!.receipt), item.version.text),
-        itemIds,
-      });
-    }
-    if (control.intent === "lift") {
-      return Object.freeze({
-        receipt: namedReceipt(mutationReceipt(
-          "lift",
-          (await controls.lift({
-            ownerTurn,
-            candidateItemIds: candidates,
-            // Same reason as `remember` above: a deterministic typed command
-            // has no model turn to decide the restored evidence's basis, so it
-            // states the first-person basis that the stored wording came from.
-            basis: "stated",
-          })).receipt,
-        ), item.version.text),
-        itemIds,
-      });
-    }
-    return Object.freeze({
-      receipt: evidenceReceipt(
-        await controls.explain({ ownerTurn, candidateItemIds: candidates }),
-        item.version.text,
-      ),
-      itemIds,
-    });
-  }
-
-  private async readOwnerTurn(
-    input: Readonly<ModelAdapterStreamInput>,
-    memoryIntent: MemoryControlIntent,
-  ): Promise<MemoryOwnerTurnInput> {
-    return readTelegramMemoryOwnerTurn({
-      database: this.options.database,
-      modelInput: input,
-      memoryIntent,
-    });
-  }
 }

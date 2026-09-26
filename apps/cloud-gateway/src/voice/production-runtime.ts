@@ -153,7 +153,7 @@ export function createProductionCallSessionCore(
   // because this is the half the voice path was missing entirely: without it
   // every memory tool taking an `itemId` has nothing to resolve one from, so
   // the tools this adapter now dispatches would all refuse.
-  const targets = new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE });
+  const targets = new D1MemoryControlTargetFinder({ database: env.DB });
   const meaningSearch = env.AI === undefined || env.MEMORY_VECTORS === undefined
     ? undefined
     : new MemoryMeaningService({

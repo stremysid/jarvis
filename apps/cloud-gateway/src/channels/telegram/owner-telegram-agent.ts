@@ -196,9 +196,8 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
   }
 
   /**
-   * Jarvis's own previous delivered message on this channel, for the two tools
-   * that are grounded in what it actually said: `memory_remember` with
-   * `evidenceClass: "confirmed"`, and `memory_confirm`.
+   * Jarvis's own previous delivered message on this channel, the reference data
+   * a turn's memory tools and `previousReplyIsVisible` are grounded in.
    *
    * Scoped to `channel = 'telegram'` because a swipe reply is a Telegram
    * gesture and the provider message id it points at is Telegram's. Voice reads
