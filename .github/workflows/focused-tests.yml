@@ -1,8 +1,8 @@
 name: Focused tests
 
-# A builder's fast local loop -- one file, or a handful -- moved to a runner
-# so it stops competing with builders for the owner's home PC. GitHub Actions
-# is free for this public repo.
+# A builder's fast local loop -- one file -- moved to a runner so it stops
+# competing with builders for the owner's home PC. GitHub Actions is free for
+# this public repo.
 
 on:
   workflow_dispatch:
@@ -11,11 +11,20 @@ on:
         description: "Branch or SHA to test"
         required: true
       paths:
-        description: "Space-separated test file paths (e.g. apps/cloud-gateway/test/workspace.test.ts)"
+        # Vitest takes ONE positional filter. A second path is a filename
+        # filter against the first, so a space-separated list either runs
+        # nothing from the second file or exits "No test files found"; the
+        # running step below refuses more than one path rather than pretend.
+        description: "One test file path (e.g. apps/cloud-gateway/test/workspace.test.ts). A path outside the default project's includes (apps/cloud-gateway/test, packages/contracts/test, tests/acceptance) fails as 'No test files found'."
         required: true
 
 permissions:
   contents: read
+
+# One focused run per ref. A second dispatch for the same ref waits.
+concurrency:
+  group: focused-tests-${{ inputs.ref }}
+  cancel-in-progress: false
 
 jobs:
   focused:
@@ -32,17 +41,26 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
 
-      # The verified single-file/multi-file form from AGENTS.md "Commands":
+      # The verified single-file form from AGENTS.md "Commands":
       # `pnpm --filter @jarvis/cloud-gateway test -- <file>` does NOT run one
       # file (pnpm swallows the `--` argument and the whole 239-file suite
       # runs instead), so this uses `pnpm exec vitest` with the root config.
       # `paths` is read from an env var rather than interpolated straight
       # into the script text, so a value containing shell metacharacters
       # cannot inject a command.
-      - name: Run the requested test files
+      - name: Check the requested path count
         env:
           TEST_PATHS: ${{ inputs.paths }}
-        run: pnpm exec vitest --config vitest.workspace.ts run $TEST_PATHS
+        run: |
+          if [ "$(printf '%s' "$TEST_PATHS" | wc -w)" -ne 1 ]; then
+            echo "::error::paths must name exactly one test file; Vitest takes one positional filter and would silently ignore or run nothing from the rest: $TEST_PATHS"
+            exit 1
+          fi
+
+      - name: Run the requested test file
+        env:
+          TEST_PATHS: ${{ inputs.paths }}
+        run: pnpm exec vitest --config vitest.workspace.ts run "$TEST_PATHS"
 
       # Red today (143 errors, per AGENTS.md's "gateway's tests were never
       # typechecked" and `docs/STATE.md`) and not a gate anywhere else in

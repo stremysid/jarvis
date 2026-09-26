@@ -236,17 +236,34 @@ triggers itself:
 ```powershell
 gh workflow run mutation.yml -f spec=reviewer-tools/mutation-specs-<name>.json -f ref=<branch>
 gh workflow run focused-tests.yml -f ref=<branch> -f paths="apps/cloud-gateway/test/workspace.test.ts"
-gh run watch
+gh run watch <run-id> --exit-status
 ```
+
+**Both are `workflow_dispatch`, so they can only be dispatched once the file
+exists on the default branch.** Until a PR that adds or changes one merges,
+`gh workflow run` resolves against `main` and reports "could not find any
+workflows named"; that is the ordering, not a broken workflow. `--ref` chooses
+the code the run checks out, not where the workflow file is found.
 
 `mutation.yml` runs `mutate.ps1` on `windows-latest` against the given spec
 and `ref`, and fails the job if any mutation SURVIVED, was NOT APPLIED, or
 came back INVALID — a job summary and the full report artifact carry the
-per-mutation verdict. `focused-tests.yml` runs the `pnpm exec vitest` form
-above (plus the gateway test typecheck, advisory) against the given files on
-`ubuntu-latest`. `gh run watch` follows the run from the same shell; pass
-`--exit-status` if the calling script needs the runner's exit code, not just
-the printed log.
+per-mutation verdict. The sweep's output is redirected to a file rather than
+piped, because a pipeline between the native call and the `$LASTEXITCODE` read
+can leave the code at 0 and report a bad sweep green; `ci.yml`'s
+`mutation-verdict-selftest` job runs
+`reviewer-tools/test/verdict-selftest.ps1`, which proves the failure path on
+synthetic SURVIVED / NOT APPLIED / INVALID reports and asserts that workflow
+shape. `focused-tests.yml` runs the `pnpm exec vitest` form above (plus the
+gateway test typecheck, advisory) against the given file on `ubuntu-latest`; it
+takes exactly one file, because Vitest reads a second positional as a filename
+filter against the first, and a path outside the `default` project's includes
+(`apps/cloud-gateway/test`, `packages/contracts/test`, `tests/acceptance`)
+fails as "No test files found". **Watch the run by id** — `gh run watch` with no
+argument follows the newest run for the whole repo, which with two dispatches in
+flight may not be the one just started; `gh workflow run --json` prints the new
+run's id. Pass `--exit-status` if the calling script needs the runner's exit
+code, not just the printed log.
 
 ## Conventions
 
