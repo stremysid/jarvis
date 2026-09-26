@@ -56,7 +56,7 @@ import {
   type PreparedMemoryExtractionPrice,
 } from "../memory/memory-extraction-budget.js";
 import { EventRepository } from "../persistence/event-repository.js";
-import type { ModelProvider } from "../providers/provider-types.js";
+import type { ModelAgentProvider, ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
@@ -76,6 +76,7 @@ import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, expectedPushSources, unconfiguredDeadlineSources, type DigestDelivery } from "./digest-job.js";
 import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
 import { OwnerReminderSender } from "../reminders/reminder-sender.js";
+import { runDeadlineReview } from "../deadlines/deadline-review-job.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -99,6 +100,17 @@ export interface JobEnvironment {
   readonly memoryMeaningFactory?: () => Readonly<{
     runIndexStep(principalId: string): Promise<MemoryMeaningIndexOutcome>;
   }>;
+  /**
+   * The model pass that reviews stored deadlines and schedules its own warnings
+   * through the reminder tools. It runs from the daily digest. Absent when no
+   * model key is configured.
+   */
+  readonly deadlineReview?: Readonly<{
+    provider: ModelAgentProvider;
+    ownerPrincipalId: string;
+    ownerZone: string;
+  }>;
+  readonly deadlineReviewFactory?: () => NonNullable<JobEnvironment["deadlineReview"]>;
 }
 
 function describe(error: unknown): string {
@@ -259,13 +271,15 @@ export function selectBrightspaceWindow(
   now: Date,
 ): SelectedBrightspaceWindow {
   const at = now.getTime();
-  const inside = (dueAt: string): boolean => {
+  const inside = (dueAt: string | null): boolean => {
+    if (dueAt === null) return false;
     const due = Date.parse(dueAt);
     return Number.isFinite(due)
       && due >= at - BRIGHTSPACE_PAST_WINDOW_MS
       && due < at + BRIGHTSPACE_FUTURE_WINDOW_MS;
   };
-  const inWindowItems = result.items.filter((item) => inside(item.dueAt));
+  // `inside` rejects a null due date, so everything left has one.
+  const inWindowItems = result.items.filter((item): item is typeof item & { dueAt: string } => inside(item.dueAt));
   const items = [...inWindowItems]
     .sort((left, right) => {
       const leftDue = Date.parse(left.dueAt);
@@ -911,7 +925,39 @@ async function digest(
     expectedPushSources: expectedPushSources(context.env),
   });
 
-  return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };
+  // The model's own look at the stored deadlines, after the digest. Code does
+  // not decide which deadlines matter or when to warn about them; this hands
+  // the model the rows and the reminder tools, and delivers whatever it writes
+  // (usually nothing, sometimes a question about a missing due date).
+  const review = await reviewDeadlines(context);
+  return { ok: true, detail: `${result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps`}; ${review}` };
+}
+
+/**
+ * The deadline review phase of the digest.
+ *
+ * A configuration that was never installed is reported as such and does not
+ * fail the digest: the digest really did run. A review that threw is reported
+ * in the detail rather than as a job failure for the same reason.
+ */
+async function reviewDeadlines(context: JobEnvironment): Promise<string> {
+  let configured = context.deadlineReview;
+  if (configured === undefined && context.deadlineReviewFactory !== undefined) {
+    try { configured = context.deadlineReviewFactory(); }
+    catch { return "deadline review not configured"; }
+  }
+  if (configured === undefined) return "deadline review not configured";
+  const result = await runDeadlineReview({
+    database: context.env.DB,
+    provider: configured.provider,
+    ownerPrincipalId: configured.ownerPrincipalId,
+    ownerZone: configured.ownerZone,
+    now: context.clock.now(),
+    delivery: context.delivery,
+  });
+  if (result.outcome === "failed") return `deadline review failed (${result.failure ?? "unknown"})`;
+  if (result.outcome === "nothing_to_review") return "no deadlines to review";
+  return `deadline review saw ${result.seen}, ${result.toolCalls} reminder tool calls, ${result.messaged ? "messaged Sid" : "no message"}`;
 }
 
 function memoryBackup(context: JobEnvironment): MemoryBackupService {

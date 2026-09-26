@@ -18,7 +18,8 @@ export function isReminderTool(name: string): boolean {
   return REMINDER_TOOL_DEFINITIONS.some((tool) => tool.name === name);
 }
 
-export async function executeReminderTool(database: D1Database, input: Readonly<ModelAdapterStreamInput>,
+export async function executeReminderTool(database: D1Database,
+  input: Readonly<Pick<ModelAdapterStreamInput, "principalId">> & Readonly<{ correlationId: string | null }>,
   call: ModelFunctionCall, now: Date, ownerZone: string): Promise<ExecutedTool> {
   const repository = new OwnerReminderRepository(database);
   switch (call.name) {

@@ -395,9 +395,10 @@ describe("guided assignment tools", () => {
     const deadlineId = newUlid(); const sourceId = `deadline-source:${serial}`;
     await env.DB.prepare(`INSERT INTO deadline_sources (source_id, kind, label, created_at)
       VALUES (?, 'manual', 'Owner list', ?)`).bind(sourceId, NOW.toISOString()).run();
-    await env.DB.prepare(`INSERT INTO deadlines (deadline_id, source_id, external_id, course, title, due_at,
+    await env.DB.prepare(`INSERT INTO deadlines (deadline_id, source_id, external_id, course, title, due_at, due_date,
       effort, lead_minutes, status, content_hash, first_seen_at, last_seen_at)
-      VALUES (?, ?, ?, 'English', 'Macbeth paragraph', '2026-09-25T16:00:00.000Z', 'essay', 0, 'open', ?, ?, ?)`)
+      VALUES (?, ?, ?, 'English', 'Macbeth paragraph', '2026-09-25T16:00:00.000Z', '2026-09-25T16:00:00.000Z',
+        'other', 0, 'open', ?, ?, ?)`)
       .bind(deadlineId, sourceId, deadlineId, await sha256Hex("Macbeth deadline"), NOW.toISOString(), NOW.toISOString()).run();
     const read = await run(h, "When is Macbeth due?", call("guided_assignment_read", { assignmentId: `deadline:${deadlineId}` }));
     expect(read.result.data.assignment).toMatchObject({ title: "Macbeth paragraph", course: "English",

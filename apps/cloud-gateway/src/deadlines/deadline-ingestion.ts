@@ -13,19 +13,16 @@
  * that returns zero items is exactly what a half-broken scraper returns.
  * Making the caller say which it was is the only way the difference survives.
  *
- * Titles arriving here are untrusted. They are normalized, bounded, matched
- * against a fixed keyword table, and bound into SQL as parameters. Nothing in
- * this file composes one into a prompt, a path, or a pattern.
+ * Titles arriving here are untrusted. They are normalized, bounded and bound
+ * into SQL as parameters; nothing here reads one to decide what the work is.
+ * Nothing in this file composes a title into a prompt, a path, or a pattern.
  */
 
-import { classifyEffort } from "./effort-classifier.js";
 import type { DeadlineRepository } from "./deadline-repository.js";
 import { truncateFailure } from "./deadline-repository.js";
 import {
-  requireLeadMinutes,
   toInstant,
   type Deadline,
-  type DeadlineEffort,
   type RawDeadlineItem,
 } from "./deadline-types.js";
 
@@ -56,8 +53,6 @@ export type RejectionReason =
   | "missing_course"
   | "missing_title"
   | "invalid_due_at"
-  | "invalid_effort"
-  | "invalid_lead_minutes"
   | "duplicate_external_id"
   | "invalid_source_item";
 
@@ -69,7 +64,7 @@ export interface RejectedDeadlineItem {
 
 export interface MovedDeadline {
   readonly deadline: Deadline;
-  readonly previousDueAt: string;
+  readonly previousDueAt: string | null;
   readonly previousTitle: string;
   /** True when the date itself moved, as opposed to a title or course correction. */
   readonly dueDateMoved: boolean;
@@ -103,32 +98,20 @@ export interface DeadlineIngestionReport {
 export interface DeadlineIngestionOptions {
   readonly repository: DeadlineRepository;
   readonly now?: () => Date;
-  /**
-   * The owner's standing per-course rules, keyed by course name.
-   *
-   * These beat both the title and anything a source asserts, and that ordering
-   * is the point: a rule exists because the automatic answer was wrong for
-   * that course, so a rule that can be overruled by the thing it was written
-   * to correct is not a rule. "AP Calculus is always a test" survives every
-   * teacher who titles an assessment "Unit 7".
-   */
-  readonly courseEffort?: ReadonlyMap<string, DeadlineEffort>;
 }
 
 interface NormalizedItem {
   readonly externalId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: DeadlineEffort | null;
-  readonly leadMinutes: number | null;
+  /** Null when the source states no due date; stored as null, never filled in. */
+  readonly dueAt: string | null;
 }
 
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/gu;
 const UNSAFE_IDENTIFIER_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 const WHITESPACE_RUN = /\s+/gu;
-const EFFORTS: readonly DeadlineEffort[] = Object.freeze(["quiz", "test", "exam", "essay", "project", "other"]);
 
 /**
  * Flatten a title to one line of stored text.
@@ -173,41 +156,31 @@ function normalizeItem(item: RawDeadlineItem): { ok: true; value: NormalizedItem
   const title = typeof item.title === "string" ? normalizeTitle(item.title) : "";
   if (title.length === 0) return { ok: false, rejection: { externalId, reason: "missing_title" } };
 
-  if (typeof item.dueAt !== "string" || !UTC_MILLISECONDS.test(item.dueAt)) {
-    return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
-  }
-  const parsed = new Date(item.dueAt);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== item.dueAt) {
-    return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
-  }
-
-  let effort: DeadlineEffort | null = null;
-  if (item.effort !== undefined) {
-    if (!EFFORTS.includes(item.effort)) return { ok: false, rejection: { externalId, reason: "invalid_effort" } };
-    effort = item.effort;
-  }
-
-  let leadMinutes: number | null = null;
-  if (item.leadMinutes !== undefined) {
-    try {
-      leadMinutes = requireLeadMinutes(item.leadMinutes);
-    } catch {
-      return { ok: false, rejection: { externalId, reason: "invalid_lead_minutes" } };
+  // Null is a real value: the assignment has no stated due date, and it is
+  // stored that way rather than rejected, defaulted or skipped. Only a
+  // non-null value that is not a canonical instant is refused.
+  let dueAt: string | null = null;
+  if (item.dueAt !== null) {
+    if (typeof item.dueAt !== "string" || !UTC_MILLISECONDS.test(item.dueAt)) {
+      return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
     }
+    const parsed = new Date(item.dueAt);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== item.dueAt) {
+      return { ok: false, rejection: { externalId, reason: "invalid_due_at" } };
+    }
+    dueAt = item.dueAt;
   }
 
-  return { ok: true, value: { externalId, course, title, dueAt: item.dueAt, effort, leadMinutes } };
+  return { ok: true, value: { externalId, course, title, dueAt } };
 }
 
 export class DeadlineIngestion {
   readonly #repository: DeadlineRepository;
   readonly #now: () => Date;
-  readonly #courseEffort: ReadonlyMap<string, DeadlineEffort>;
 
   constructor(options: DeadlineIngestionOptions) {
     this.#repository = options.repository;
     this.#now = options.now ?? (() => new Date());
-    this.#courseEffort = options.courseEffort ?? new Map();
   }
 
   /**
@@ -303,16 +276,14 @@ export class DeadlineIngestion {
         }
         seen.add(item.externalId);
 
-        const override = this.#courseEffort.get(item.course) ?? item.effort;
-        const classification = classifyEffort(item.title, override);
+        // The row is exactly what the source states, including a null due
+        // date. Nothing here derives an effort, a lead or a date.
         const result = await this.#repository.upsert({
           sourceId,
           externalId: item.externalId,
           course: item.course,
           title: item.title,
           dueAt: item.dueAt,
-          effort: classification.effort,
-          leadMinutes: item.leadMinutes ?? classification.leadMinutes,
           now,
         });
 
