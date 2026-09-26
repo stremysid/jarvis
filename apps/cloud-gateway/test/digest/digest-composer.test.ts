@@ -226,7 +226,6 @@ describe("deadlines", () => {
   const base = {
     deadlineId: "deadline-a",
     course: "Calculus",
-    effort: "quiz" as const,
   };
 
   it("orders the nearest deadline first and describes how far away each is", () => {
@@ -234,7 +233,7 @@ describe("deadlines", () => {
       {
         ...empty(),
         deadlines: [
-          { ...base, deadlineId: "d2", title: "Essay", dueAt: "2026-09-05T16:00:00.000Z", effort: "essay" },
+          { ...base, deadlineId: "d2", title: "Essay", dueAt: "2026-09-05T16:00:00.000Z" },
           { ...base, deadlineId: "d1", title: "Quiz 3", dueAt: "2026-09-02T18:00:00.000Z" },
         ],
       },
@@ -302,7 +301,7 @@ describe("today's school catch-up", () => {
         ],
         deadlines: [{
           deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
-          dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+          dueAt: "2026-09-02T18:00:00.000Z",
         }],
       },
       daily(),
@@ -335,7 +334,6 @@ describe("today's school catch-up", () => {
           course: "Calculus",
           title: "Teacher-set final assignment",
           dueAt: "2026-09-02T18:00:00.000Z",
-          effort: "other",
         }],
       },
       daily(),
@@ -405,7 +403,7 @@ describe("verified grades and derived submission checks", () => {
       ...empty(),
       deadlines: [{
         deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
-        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+        dueAt: "2026-09-02T18:00:00.000Z",
       }],
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Quiz 2",
@@ -535,7 +533,7 @@ describe("school first", () => {
       ...empty(),
       deadlines: [{
         deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
-        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+        dueAt: "2026-09-02T18:00:00.000Z",
       }],
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Quiz 2",
@@ -580,7 +578,7 @@ describe("school first", () => {
       ...empty(),
       deadlines: [{
         deadlineId: "deadline-a", course: "Calculus", title: "Teacher-set final assignment",
-        dueAt: "2026-09-02T18:00:00.000Z", effort: "other",
+        dueAt: "2026-09-02T18:00:00.000Z",
       }],
       grades: [{
         observationId: "observation-a", course: "Calculus", title: "Limits quiz",

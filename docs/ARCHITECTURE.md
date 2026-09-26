@@ -101,7 +101,7 @@ sync routes, voice) and a `scheduled` handler (four cron expressions).
 | `autonomy/` | Capability tiers and shadow mode. |
 | `decisions/` | The decision queue and its Telegram keyboards. |
 | `projects/` | GitHub poller, stalled-project detector. |
-| `deadlines/` | Deadline store, effort classifier, Classroom and Brightspace calendar clients, quiet windows. |
+| `deadlines/` | Deadline store, per-effort default lead times, Classroom and Brightspace calendar clients, quiet windows. |
 | `digest/` | Deterministic composition of the daily digest and Sunday retro. |
 | `jobs/` | Wires the above into the scheduled jobs. |
 | `scheduler/` | Cron routing (including timezone), run claiming, heartbeat. |
