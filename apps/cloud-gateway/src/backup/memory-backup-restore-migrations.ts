@@ -47,6 +47,7 @@ import migration0051 from "../persistence/migrations/0051_confirm_only_five_acti
 import migration0052 from "../persistence/migrations/0052_email_inbox.sql";
 import migration0053 from "../persistence/migrations/0053_deadlines_store_facts.sql";
 import migration0054 from "../persistence/migrations/0054_owner_reminders_scheduled.sql";
+import migration0055 from "../persistence/migrations/0055_owner_access_tool.sql";
 
 /** Ordered text modules; the API selects only the target's applied receipt prefix. */
 export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
@@ -99,5 +100,6 @@ export const MEMORY_BACKUP_RESTORE_MIGRATIONS = Object.freeze([
   Object.freeze({ name: "0052_email_inbox.sql", sql: migration0052 }),
   Object.freeze({ name: "0053_deadlines_store_facts.sql", sql: migration0053 }),
   Object.freeze({ name: "0054_owner_reminders_scheduled.sql", sql: migration0054 }),
+  Object.freeze({ name: "0055_owner_access_tool.sql", sql: migration0055 }),
 ]);
 

@@ -79,7 +79,7 @@ describe("OwnerAccessService", () => {
 
   afterEach(() => clearVoiceAccessFixture(env.DB));
 
-  it("prepares a nominal 60-second proposal and creates a pending guest with an explicit PIN", async () => {
+  it("prepares a proposal with no wall-clock expiry and creates a pending guest with an explicit PIN", async () => {
     const service = new OwnerAccessService({
       repository,
       registry,
@@ -98,7 +98,7 @@ describe("OwnerAccessService", () => {
       draft: {
         kind: "add",
         providerE164: GUEST_E164,
-        permissionPhrases: ["conversation", "web research"],
+        capabilityIds: ["conversation.basic", "research.web"],
       },
       now: NOW,
     });
@@ -110,8 +110,9 @@ describe("OwnerAccessService", () => {
       operation: "add",
       capabilityIds: ["conversation.basic", "research.web"],
       createdAt: NOW.toISOString(),
-      expiresAt: new Date(NOW.valueOf() + 60_000).toISOString(),
     });
+    // The call's lifecycle is the bound; there is no invented 60-second timer.
+    expect(Object.hasOwn(proposal, "expiresAt")).toBe(false);
     expect(proposal.maskedTarget).not.toBe(GUEST_E164);
     expect(proposal.maskedTarget).toContain("0111");
     expect(proposal.accessDocumentHash).toMatch(/^[0-9a-f]{64}$/u);
@@ -126,9 +127,16 @@ describe("OwnerAccessService", () => {
       now: new Date(NOW.valueOf() + 1),
     });
 
-    expect(result.outcome).toBe("created");
-    expect(result.speech).not.toContain(GUEST_E164);
-    expect(result.speech).not.toContain("4827");
+    expect(result).toMatchObject({
+      outcome: "created",
+      operation: "add",
+      noticeUnconfirmed: false,
+    });
+    // The structured receipt carries the masked target, never the number or PIN.
+    expect(result.maskedTarget).toContain("0111");
+    expect(result.maskedTarget).not.toBe(GUEST_E164);
+    expect(JSON.stringify(result)).not.toContain(GUEST_E164);
+    expect(JSON.stringify(result)).not.toContain("4827");
     expect(digits).toEqual(Uint8Array.from([0, 0, 0, 0]));
     expect(Object.isFrozen(result)).toBe(true);
 
@@ -166,7 +174,7 @@ describe("OwnerAccessService", () => {
     const add = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
     expect(defaultReads).toBe(0);
@@ -184,7 +192,7 @@ describe("OwnerAccessService", () => {
       draft: {
         kind: "replace_permissions",
         providerE164: GUEST_E164,
-        permissionPhrases: ["conversation", "calls"],
+        capabilityIds: ["conversation.basic", "calls.place"],
       },
       now: new Date(NOW.valueOf() + 2),
     });
@@ -222,8 +230,9 @@ describe("OwnerAccessService", () => {
       pinSelection: null,
       now: new Date(NOW.valueOf() + 7),
     });
-    expect(listed).toMatchObject({ outcome: "listed" });
-    expect(listed.speech).not.toContain(GUEST_E164);
+    expect(listed).toMatchObject({ outcome: "listed", operation: "list", maskedTarget: null });
+    expect(listed.guests).toHaveLength(1);
+    expect(JSON.stringify(listed)).not.toContain(GUEST_E164);
 
     const revoke = await service.prepare({
       ownerAuthority,
@@ -255,7 +264,7 @@ describe("OwnerAccessService", () => {
     ).first()).resolves.toEqual({ count: 4 });
   });
 
-  it("keeps a committed guest mutation and warns the owner when its Telegram notice fails", async () => {
+  it("marks a committed guest mutation whose Telegram notice failed, without phrasing it", async () => {
     const service = new OwnerAccessService({
       repository,
       registry,
@@ -269,7 +278,7 @@ describe("OwnerAccessService", () => {
     const proposal = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
 
@@ -280,9 +289,12 @@ describe("OwnerAccessService", () => {
       now: new Date(NOW.valueOf() + 1),
     });
 
+    // Structured only: the model phrases this; code adds no sentence of its own.
     expect(result).toEqual({
       outcome: "created",
-      speech: "Caller +1******0111 is allowed. The Telegram notice could not be confirmed.",
+      operation: "add",
+      maskedTarget: "+1******0111",
+      noticeUnconfirmed: true,
     });
     await expect(env.DB.prepare("SELECT status FROM voice_access_grants").first<{ status: string }>())
       .resolves.toEqual({ status: "pending" });
@@ -311,7 +323,7 @@ describe("OwnerAccessService", () => {
     const proposal = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
 
@@ -328,7 +340,7 @@ describe("OwnerAccessService", () => {
     ).first()).resolves.toEqual({ status: "delivered", provider_message_id: "903" });
   });
 
-  it("maps every closed guest permission phrase and still rejects owner-only authority", async () => {
+  it("accepts every guest capability id the model may pass and rejects the owner-only one", async () => {
     const scopedRegistry = new CapabilityRegistry({
       installed: [...GUEST_CAPABILITY_IDS, "access.manage"],
       calendarConnectionIds: ["calendar:guest-b"],
@@ -360,42 +372,30 @@ describe("OwnerAccessService", () => {
       proposalIdFactory: () => `owner-access-proposal:${crypto.randomUUID()}`,
       defaultGuestPin: () => "1357",
     });
-    const cases: readonly (readonly [string, GuestCapabilityId])[] = [
-      ["conversation", "conversation.basic"],
-      ["web research", "research.web"],
-      ["memory", "memory.own"],
-      ["reminders", "reminders.manage"],
-      ["calendar reading", "calendar.read"],
-      ["calendar management", "calendar.manage"],
-      ["owner contact", "owner.contact"],
-      ["communication drafting", "communications.draft"],
-      ["communication sending", "communications.send"],
-      ["calls", "calls.place"],
-      ["file reading", "files.read"],
-      ["file writing", "files.write"],
-      ["computer control", "pc.control"],
-      ["spending proposals", "spending.propose"],
-      ["destructive proposals", "destructive.propose"],
-    ];
 
-    for (const [phrase, capability] of cases) {
+    for (const capability of GUEST_CAPABILITY_IDS) {
       const proposal = await service.prepare({
         ownerAuthority: scopedOwner,
         sessionId: OWNER_SESSION_ID,
-        draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: [phrase] },
+        draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: [capability] },
         now: NOW,
       });
       expect(proposal.capabilityIds).toEqual([capability]);
     }
+    // `access.manage` is owner-only, so a guest grant may never carry it.
     await expect(service.prepare({
       ownerAuthority: scopedOwner,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["access management"] },
+      draft: {
+        kind: "add",
+        providerE164: GUEST_E164,
+        capabilityIds: ["access.manage" as GuestCapabilityId],
+      },
       now: NOW,
     })).rejects.toThrow("owner_access_permission_invalid");
   });
 
-  it("resolves everything only to the exact target guest's owned scopes", async () => {
+  it("resolves the model's capability ids only to the exact target guest's owned scopes", async () => {
     const scopedRegistry = new CapabilityRegistry({
       installed: ["conversation.basic", "calendar.read", "files.read", "pc.control", "access.manage"],
       calendarConnectionIds: ["calendar:owner", "calendar:guest-a", "calendar:guest-b"],
@@ -438,7 +438,7 @@ describe("OwnerAccessService", () => {
       verifier,
       scopeResolver,
       idFactory: sequentialIds(),
-      proposalIdFactory: () => "owner-access-proposal:everything",
+      proposalIdFactory: () => "owner-access-proposal:scoped",
       defaultGuestPin: () => "1357",
     });
 
@@ -449,7 +449,7 @@ describe("OwnerAccessService", () => {
         draft: {
           kind: "add",
           providerE164: GUEST_E164,
-          permissionPhrases: ["file reading"],
+          capabilityIds: ["files.read"],
           resourceScopes: {
             schemaVersion: "1.0",
             calendarConnectionIds: [],
@@ -464,7 +464,11 @@ describe("OwnerAccessService", () => {
     const proposal = await service.prepare({
       ownerAuthority: scopedOwner,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["everything"] },
+      draft: {
+        kind: "add",
+        providerE164: GUEST_E164,
+        capabilityIds: ["conversation.basic", "calendar.read", "files.read", "pc.control"],
+      },
       now: NOW,
     });
     expect(proposal.capabilityIds).toEqual([

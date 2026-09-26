@@ -411,6 +411,13 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
         text: control.memoryText,
         kind: memoryKind(control.memoryText),
         sensitivity: "normal",
+        // This deterministic adapter has no model to ask, so it states the
+        // durable/no-end pair explicitly instead of leaning on a repository
+        // default. It is not composed in the production gateway; the model
+        // tools are what set lifetime in a live turn, and they refuse an
+        // omission rather than assuming one.
+        lifetime: "durable",
+        validTo: null,
       });
       return Object.freeze({
         receipt: namedReceipt(mutationReceipt("remember", result.receipt), control.memoryText),
@@ -434,11 +441,11 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       .readCurrentItem(input.principalId, candidates[0]!);
     const itemIds = Object.freeze([item.itemId]);
     if (control.intent === "forget") {
+      // One target: `findControlTargets` above already required exactly one.
+      const forgotten = await controls.forget({ ownerTurn, candidateItemIds: candidates });
+      if (forgotten.length !== 1) throw new TypeError("tel_memory_control_target_invalid");
       return Object.freeze({
-        receipt: namedReceipt(mutationReceipt(
-          "forget",
-          (await controls.forget({ ownerTurn, candidateItemIds: candidates })).receipt,
-        ), item.version.text),
+        receipt: namedReceipt(mutationReceipt("forget", forgotten[0]!.receipt), item.version.text),
         itemIds,
       });
     }
@@ -446,7 +453,14 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       return Object.freeze({
         receipt: namedReceipt(mutationReceipt(
           "lift",
-          (await controls.lift({ ownerTurn, candidateItemIds: candidates })).receipt,
+          (await controls.lift({
+            ownerTurn,
+            candidateItemIds: candidates,
+            // Same reason as `remember` above: a deterministic typed command
+            // has no model turn to decide the restored evidence's basis, so it
+            // states the first-person basis that the stored wording came from.
+            basis: "stated",
+          })).receipt,
         ), item.version.text),
         itemIds,
       });
