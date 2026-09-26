@@ -3,6 +3,7 @@ import { SCHOOL_WORK_EVIDENCE_TOOL } from "../school/school-work-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
+import { OWNER_COMMAND_TOOL_DEFINITIONS } from "./owner-command-tools.js";
 import { REPLY_REFERENCE_TOOL_DEFINITIONS } from "./reply-reference-tools.js";
 import { EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
@@ -12,6 +13,7 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
   ...MEMORY_TOOL_DEFINITIONS,
   ...REPLY_REFERENCE_TOOL_DEFINITIONS,
   ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
+  ...OWNER_COMMAND_TOOL_DEFINITIONS,
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
   SCHOOL_WORK_EVIDENCE_TOOL,

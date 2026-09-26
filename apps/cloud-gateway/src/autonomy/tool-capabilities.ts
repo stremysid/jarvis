@@ -103,6 +103,13 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   reminder_schedule: "notify.owner",
   reminder_list: "notify.owner",
   reminder_cancel: "notify.owner",
+  // The three reporting reads that replaced the Telegram-only slash commands.
+  // Telling the owner his own status, queue and digest is `notify.owner`, tier 1
+  // (0008): it reads only his own store, reaches nobody else and changes
+  // nothing, so it needs no new registry row.
+  owner_status: "notify.owner",
+  decision_queue: "notify.owner",
+  run_digest: "notify.owner",
   university_update: "university.track",
   study_coach: "study.coach",
   // Reads of the public web. Tier 1 in 0049_web_tools.sql: they send nothing as

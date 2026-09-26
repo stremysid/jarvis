@@ -2,6 +2,7 @@ import type { RedactionAudience } from "../../../../packages/contracts/src/index
 import { contextForAudience } from "../conversation/context-retriever.js";
 import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
 import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
+import { createOwnerCommandCapabilities } from "../agent/owner-command-capabilities.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
 import { AutonomyService } from "../autonomy/autonomy-service.js";
@@ -207,6 +208,10 @@ export function createProductionCallSessionCore(
     ),
     // The same web tools Telegram gets, from the same environment.
     web: webToolsFromEnv(env),
+    // The same three reporting reads Telegram gets, from the same
+    // environment: a call can ask what is waiting on Sid, for his status and
+    // for today's digest, which the Telegram-only slash commands could not.
+    commands: createOwnerCommandCapabilities(env, ownerPrincipalId, now),
     now,
   });
   const audience = voiceSessionAudience(input.initialization.binding);

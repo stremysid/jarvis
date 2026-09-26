@@ -113,7 +113,7 @@ Sid that the decision happened.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 1 | `CallSessionCore.#guardOwnerRepeat` (`src/voice/call-session-do.ts`) | Which of the owner's spoken words Jarvis is allowed to hear. For 2 s after the passphrase match it drops **any** owner utterance outright, without consulting the text; for 1.5 s after that it swallows an utterance built from 1–2 passphrase-list words. No reply, no transcript row. | A prompt statement that a repeated passphrase will not arrive, so Jarvis's judgment is informed rather than bypassed — plus a spoken neutral line whenever anything is dropped, so silence is never unexplained. **`silent` penalty: it is invisible to the model.** |
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. The A55 leftovers PR (2026-09-25) deleted the rest of the slash-command router but deliberately kept `/call` a command: `D1TelegramCallCommands.reconstruct` re-reads the exact `--confirm` line from the durable event as the authorization, so the tool is still the next step. |
 | 3 | `parseOwnerAccessIntent` (`src/voice/owner-access-intent.ts`) | What an access instruction **means**: a hand-written regex grammar with four fixed shapes decides whether the owner's utterance is an access command and which operation, target and permissions it names. | Jarvis calls the owner-access operations as tools, passing capability phrases as parameters. Code keeps the validation and the confirm step. If the grammar stays as a stopgap, an utterance that looks like a command and fails to parse must produce a spoken refusal — never fall through to ordinary conversation, where the model can answer as if it complied. **`silent` penalty.** |
 | 4 | `PERMISSION_CAPABILITIES` / `OwnerAccessService.#snapshot` (`src/voice/owner-access-service.ts`) | Which capability the owner's words name. A frozen table maps 17 phrases to 16 capabilities, and production installs only `conversation.basic` and `access.manage`, so **only "conversation" resolves** — the other 14 throw `capability_not_installed`, `access.manage` throws `capability_not_grantable`, and the `catch` at `#snapshot` collapses all of it into one `owner_access_permission_invalid` the owner never hears. | Give the model the capability ids as a tool parameter and let it map the owner's words; keep the table only as a validation set for what the model returns. At minimum drop `access management` (it can never succeed) and make refusal a spoken outcome. |
 | 5 | `PreparedOwnerAccessProposal.expiresAt` (`src/voice/owner-access-service.ts`) | How long the owner's pending decision lives: a hard-coded 60 s. Confirming takes three relay round trips through Deepgram transcription, so a slow confirmation loses the change **and** the call. | Either drop the wall-clock expiry — the call lifecycle is the natural bound and needs no invented timer — or tell the owner the window in the prompt. "How long a fact lasts" is named as Jarvis's call in the roadmap. |
@@ -201,6 +201,55 @@ puts in the model, not here. Neither removal needed a migration.
 
 Rows 11 and 12 are removed; the identifiers stay in this file so a future
 reader can find what decision they carried.
+
+### Telegram command router and the silent argument slice: removed (A55, 2026-09-25)
+
+Removed by the PR titled "Leftovers: slash commands become tools; decisions need
+a rank from the model" (branch `codex/leftovers-judgment-to-ai`, 2026-09-25).
+
+The router in `channels/telegram/telegram-commands.ts` (`COMMAND_PATTERN`,
+`KNOWN_COMMANDS`, `COMMAND_HELP`, the `unknown_command` result and the 256
+character `MAX_ARGUMENT_CHARACTERS` slice) and the handlers in
+`command-handler.ts` decided what a command-shaped message meant before the
+model ran, and answered `/status`, `/queue` and `/digest` from code. That also
+made those three capabilities **Telegram-only**, which is the rule 3 parity gap
+the register named.
+
+Now:
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| A55 | `parseCommand`, `KNOWN_COMMANDS`, `COMMAND_HELP`, `UnknownCommand`, `MAX_ARGUMENT_CHARACTERS` and the `command-handler` `status`/`queue`/`digest`/`vault`/`help` cases (`src/channels/telegram/`) | Which command-shaped text was a command, what `/status`, `/queue` and `/digest` answered, and where an over-long argument was silently cut to 256 characters. | Deleted or reduced. `owner_status`, `decision_queue` and `run_digest` are tools in the shared `OWNER_TOOL_DEFINITIONS`, dispatched by the same core on Telegram and on a call; code reads no wording. Unknown command-shaped text (including `/help`, `/vault`, `/deploy`) reaches the model. Nothing truncates: `requireConfirmation` refuses an over-long call visibly. |
+
+Three commands stay in code, each a purely mechanical owner-authenticated action
+rather than a reading of Sid's words:
+
+- `/shadow on|off` and `/exam on|off` are the owner's own permission and
+  notification switches. They are the escape hatches from shadow mode and quiet
+  hours, so they must work even when the model path is unavailable, and `on`/`off`
+  is a value rather than a judgment.
+- `/call <reason> --confirm` is a confirmed action whose authorization is that
+  exact text: `D1TelegramCallCommands.reconstruct` re-reads the durable event and
+  refuses without `--confirm`, so moving it behind a tool rewrites the calling
+  authorization. It is register row 2 above, and the tool is still the next step.
+
+No pairing or enrollment path uses a slash command (school pairing is a decision
+tap; device and phone enrollment are device-signed HTTP routes), so nothing was
+kept for that reason.
+
+### Decision rank: required at the service, no default (A119/B169, 2026-09-25)
+
+`DEFAULT_DECISION_RANK = 100` (`decisions/decision-types.ts`) and
+`const rank = input.rank ?? DEFAULT_DECISION_RANK` (`decisions/decision-service.ts`)
+let code choose the owner's queue priority silently: a caller that supplied no
+rank got 100 and the queue's order was a constant nobody wrote down.
+
+Removed. `RaiseDecisionInput.rank` is required and the service validates it,
+throwing `decision_rank_invalid` for a missing or invalid value; the four
+in-repository callers state their own rank. The `rank` column default in
+`0009_decisions.sql` is left in place and inert — the service always writes an
+explicit rank, and a test pins the column default without relying on it. No
+migration.
 
 ### Row 10 persisted inference: still in code, not removed
 

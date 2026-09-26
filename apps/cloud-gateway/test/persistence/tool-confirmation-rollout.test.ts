@@ -35,6 +35,7 @@ describe("the additive confirmation migration", () => {
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
     const reference = confirmationReference(request.toolName, "vehicle.unlock", await argumentsFingerprint(request.arguments));
     const item = await decisions.raise({
+      rank: 100,
       principalId, origin: TIER3_TOOL_ORIGIN, originReference: reference,
       urgency: "normal", question: "Run the fixture?", choices: [{ key: "confirm", label: "Confirm" }],
     });

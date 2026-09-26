@@ -1,9 +1,12 @@
 /**
- * What a slash command does.
+ * What a mechanical slash command does.
  *
- * Every handler returns text rather than sending it, so the reply path is the
- * same one an ordinary message takes and there is exactly one place that
- * talks to Telegram. It also makes each command testable without a bot token.
+ * Only three commands reach this file now (`/shadow`, `/exam`, `/call`); the
+ * reporting commands (`/status`, `/queue`, `/digest`) are model tools, so their
+ * words reach the model instead. Each handler returns text rather than sending
+ * it, so the reply path is the same one an ordinary message takes and there is
+ * exactly one place that talks to Telegram. It also makes each command
+ * testable without a bot token.
  *
  * Two rules run through all of them:
  *
@@ -18,17 +21,11 @@
  */
 
 import type { AutonomyMode } from "../../autonomy/autonomy-types.js";
-import type { DecisionItem } from "../../decisions/decision-types.js";
-import { buildDecisionKeyboard, type TelegramInlineKeyboardMarkup } from "../../decisions/telegram-keyboard.js";
-import type { ScheduledRunRecord } from "../../scheduler/scheduled-run-repository.js";
-import { COMMAND_HELP, parseToggle, type CommandName } from "./telegram-commands.js";
+import { parseToggle, type CommandName } from "./telegram-commands.js";
 
 /** One message to send back. A command may produce several. */
 export interface CommandReply {
   readonly text: string;
-  readonly keyboard?: TelegramInlineKeyboardMarkup;
-  /** Set for a decision message, so delivery can be recorded once it lands. */
-  readonly decisionId?: string;
 }
 
 export interface CommandContext {
@@ -38,26 +35,10 @@ export interface CommandContext {
     readMode(): Promise<{ mode: AutonomyMode; enteredAt: string }>;
     setMode(mode: AutonomyMode, now: string): Promise<{ mode: AutonomyMode; enteredAt: string }>;
   };
-  readonly decisions?: {
-    queue(principalId: string): Promise<readonly DecisionItem[]>;
-  };
-  readonly scheduler?: {
-    /**
-     * Which jobs exist, as a value rather than a literal in this file. The
-     * three names that used to be written here were the reason a failing
-     * nightly backup could not appear on `/status` at all.
-     */
-    jobs(): readonly string[];
-    recent(job: string, limit: number): Promise<readonly ScheduledRunRecord[]>;
-  };
-  readonly memoryMeaningCoverage?: {
-    read(): Promise<Readonly<{ eligible: number; indexed: number; missing: number }>>;
-  };
   readonly quietWindows?: {
     open(reason: "manual", from: Date, to: Date): Promise<void>;
     closeManual(at: Date): Promise<number>;
   };
-  readonly runDigestNow?: () => Promise<string>;
   /** Bound to the accepted event; neither the parser nor caller chooses a destination. */
   readonly calls?: { request(): Promise<string> };
   readonly now: () => Date;
@@ -72,84 +53,6 @@ function unavailable(what: string): CommandReply {
 
 function one(text: string): readonly CommandReply[] {
   return [{ text }];
-}
-
-async function status(context: CommandContext): Promise<readonly CommandReply[]> {
-  const lines: string[] = [];
-
-  if (context.autonomy === undefined) {
-    lines.push("Autonomy: not configured");
-  } else {
-    const mode = await context.autonomy.readMode();
-    lines.push(
-      mode.mode === "shadow"
-        ? `Autonomy: shadow since ${mode.enteredAt.slice(0, 10)} (reporting, not acting)`
-        : `Autonomy: live since ${mode.enteredAt.slice(0, 10)}`,
-    );
-  }
-
-  if (context.scheduler === undefined) {
-    lines.push("Scheduler: not configured");
-  } else {
-    // The list comes from the deployment, not from this file. Writing the
-    // names here is how the nightly backup came to be missing from the one
-    // screen whose whole job is reporting that something is wrong.
-    for (const job of context.scheduler.jobs()) {
-      const [last] = await context.scheduler.recent(job, 1);
-      if (last === undefined) {
-        // Never having run is a different fact from having run and failed,
-        // and the difference is what tells a fresh deployment from a broken
-        // one.
-        lines.push(`${job}: never run`);
-        continue;
-      }
-      const tail = last.detail === null || last.detail.length === 0 ? "" : ` -- ${last.detail}`;
-      if (last.failure !== null) {
-        lines.push(`${job}: FAILED at ${last.startedAt.slice(11, 16)} -- ${last.failure}`);
-      } else if (last.finishedAt === null) {
-        lines.push(`${job}: started ${last.startedAt.slice(11, 16)}, never finished`);
-      } else if (last.completion === "not_measured") {
-        // The job is wired up and holds no configuration, so it reached the
-        // end having done nothing. "ok" here would be the status screen
-        // certifying work that never happened -- the exact defect this
-        // reporting exists to catch.
-        lines.push(`${job}: NOT SET UP at ${last.finishedAt.slice(11, 16)}${tail}`);
-      } else if (last.completion === "degraded") {
-        // It ran, and part of what it is responsible for did not. Neither
-        // "ok" nor a failure, and saying either would be a lie with a
-        // consequence.
-        lines.push(`${job}: ok with caveat at ${last.finishedAt.slice(11, 16)}${tail}`);
-      } else {
-        // A clean success still shows its detail. Discarding the sentence a
-        // job returned is what made a successful-but-degraded run invisible.
-        lines.push(`${job}: ok at ${last.finishedAt.slice(11, 16)}${tail}`);
-      }
-    }
-  }
-
-  if (context.memoryMeaningCoverage === undefined) {
-    lines.push("Memory meaning: status unavailable");
-  } else {
-    const coverage = await context.memoryMeaningCoverage.read();
-    lines.push(`Memory meaning: ${coverage.indexed}/${coverage.eligible} indexed (${coverage.missing} missing)`);
-  }
-
-  return one(lines.join("\n"));
-}
-
-async function queue(context: CommandContext): Promise<readonly CommandReply[]> {
-  if (context.decisions === undefined) return [unavailable("The decision queue")];
-  const items = await context.decisions.queue(context.principalId);
-  if (items.length === 0) return one("Nothing waiting on you.");
-
-  // One message per decision, each with its own buttons. A single message
-  // cannot carry several keyboards, and a tap has to name which question it
-  // answered.
-  return items.map((item) => ({
-    text: item.urgency === "urgent" ? `! ${item.question}` : item.question,
-    keyboard: buildDecisionKeyboard(item),
-    decisionId: item.decisionId,
-  }));
 }
 
 async function shadow(
@@ -200,13 +103,8 @@ async function exam(
   return one("Quiet hours on for 24h. Errors and anything payment-critical still come through.");
 }
 
-async function digest(context: CommandContext): Promise<readonly CommandReply[]> {
-  if (context.runDigestNow === undefined) return [unavailable("The digest")];
-  return one(await context.runDigestNow());
-}
-
 /**
- * Run one command.
+ * Run one mechanical command.
  *
  * A handler that throws becomes a message rather than an unhandled rejection.
  * The owner typed something and is waiting for an answer, and a silent
@@ -219,14 +117,6 @@ export async function runCommand(
 ): Promise<readonly CommandReply[]> {
   try {
     switch (name) {
-      case "help":
-        return one(COMMAND_HELP);
-      case "status":
-        return await status(context);
-      case "queue":
-        return await queue(context);
-      case "digest":
-        return await digest(context);
       case "call":
         if (context.calls === undefined) return [unavailable("Calling")];
         try { return one(await context.calls.request()); }
@@ -235,10 +125,6 @@ export async function runCommand(
         return await shadow(argument, context);
       case "exam":
         return await exam(argument, context);
-      case "vault":
-        // The vault is on the owner's machine, not here. Saying so is more
-        // use than a generic failure -- it tells them where to run it.
-        return one("The vault lives on your PC. Run: jarvis vault search <query>");
     }
   } catch (error) {
     return one(`That failed: ${error instanceof Error ? error.message : String(error)}`);

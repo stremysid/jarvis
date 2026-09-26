@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { MAX_TOOL_CALLS_PER_ROUND } from "../../src/agent/owner-agent-core.js";
+import type { OwnerCommandCapabilities } from "../../src/agent/owner-command-capabilities.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
@@ -182,6 +183,7 @@ async function runTurn(input: {
   readonly controlTargetIds?: readonly Ulid[];
   readonly committedItemIds?: readonly Ulid[];
   readonly sessionId?: string;
+  readonly commands?: OwnerCommandCapabilities;
 }): Promise<string> {
   const directOwnerText = input.directOwnerText ?? true;
   const durableDirectOwnerText = input.durableDirectOwnerText ?? directOwnerText;
@@ -210,6 +212,7 @@ async function runTurn(input: {
     turnTimeoutMs: input.turnTimeoutMs,
     turnReceivedAt: input.turnReceivedAt,
     now: input.now,
+    ...(input.commands === undefined ? {} : { commands: input.commands }),
   });
   const service = new DefaultConversationService({
     repository,
@@ -2678,6 +2681,7 @@ describe("owner Telegram agent", () => {
     const harness = await ownerHarness("answer-from-tap-failure");
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
     const decision = await decisions.raise({
+      rank: 100,
       principalId: harness.principalId,
       origin: "telegram-memory-forget",
       originReference: newUlid(),
@@ -3102,6 +3106,28 @@ describe("owner Telegram agent", () => {
       expect(request.tools).toHaveLength(0);
       expect(request.toolChoice).toBe("none");
     }
+  });
+
+  it("dispatches the reporting command tools through the shared port and feeds their evidence back", async () => {
+    const harness = await ownerHarness("command-tools");
+    const capabilities: OwnerCommandCapabilities = {
+      status: async () => "Autonomy: live since 2026-09-01",
+      queue: async () => Object.freeze([]),
+      digest: async () => "Today's digest.",
+    };
+    const provider = new FakeAgentProvider([
+      called(tool("status-1", "owner_status", {})),
+      stopped("You are running live."),
+    ]);
+
+    await expect(runTurn({ harness, text: "/status", provider, commands: capabilities }))
+      .resolves.toBe("You are running live.");
+
+    // The tool ran through the owner port rather than falling to the
+    // unknown-tool refusal, and its evidence is in the model's next round.
+    expect(provider.requests).toHaveLength(2);
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+      .toMatchObject({ status: "completed", receipt: "Autonomy: live since 2026-09-01" });
   });
 
   it("keeps the deterministic honesty fallback once and within Telegram's character limit", async () => {

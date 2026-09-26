@@ -50,6 +50,7 @@ export class SchoolCollectorPairing {
     // lets racing retries recover the same decision instead of asking for a second tap.
     const decision = await existing() ?? await new DecisionService({ repository, now: this.now }).raise({
       principalId: this.owner, origin: SCHOOL_PAIR_ORIGIN, originReference: key.collector_id, urgency: "urgent",
+      rank: 0,
       question: `Pair school collector ${JSON.stringify(key.device_label)}? Match code ${key.pairing_code} in your extension. Expires in 10 minutes.`,
       detail: "Tier 3: this key may only send Brightspace evidence. Confirm only if you started pairing and both codes match. It cannot read memory or sync data.",
       expiresAt: key.expires_at, choices: [{ key: "confirm", label: "Confirm this collector" }, { key: "reject", label: "Reject" }],

@@ -9,6 +9,8 @@ import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import { OWNER_TOOL_DEFINITIONS } from "../agent/owner-tools.js";
 import { ownerPipelineModel, type OwnerPipelineModels } from "../agent/owner-pipelines.js";
 import { ownerArgumentTool } from "../agent/owner-argument-tools.js";
+import { ownerCommandTool } from "../agent/owner-command-tools.js";
+import type { OwnerCommandCapabilities } from "../agent/owner-command-capabilities.js";
 import type { TelegramProvider } from "../providers/provider-types.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
 import { readPreviousVoiceAssistant } from "../memory/voice-memory-reference.js";
@@ -45,7 +47,7 @@ export const OWNER_VOICE_AGENT_CHANNEL_PROMPT = `You are speaking with Sid on a 
 
 A receipt added to your words is read aloud verbatim by the system, so never read one back or paraphrase one.
 
-There is no screen and Sid cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here. Describe links or files in spoken words when needed.
+There is no screen and Sid cannot swipe-reply on a call. The guided_assignment_draft tool can send his saved draft to his own Telegram; no other message, link, keyboard or file delivery is available here. Describe links or files in spoken words when needed. You can read Sid's own status with owner_status, what is waiting on him with decision_queue and today's digest with run_digest; answering one of those stored questions still needs his Telegram tap, so read them out and point him there.
 
 For a staged model-inferred memory, ask Sid to open /queue in Telegram and tap Confirm or Discard. A spoken yes does not confirm a model-inferred memory. For a tier-3 action, the system itself asks him for his four digit PIN at that moment, and he says it or keys it in; a Telegram tap he already gave for the same action also counts. Never ask for the PIN yourself and never repeat it back. If the system says it cannot take a PIN on this call, ask him to open /queue in Telegram, tap Confirm, then repeat the request on this call. A spoken yes is not a tier-3 confirmation.`;
 
@@ -96,6 +98,8 @@ export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly turnTimeoutMs?: number;
   readonly now?: () => Date;
   readonly timeZone?: string;
+  /** The reads behind `owner_status`, `decision_queue` and `run_digest`. */
+  readonly commands?: OwnerCommandCapabilities;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -166,6 +170,7 @@ export class OwnerVoiceAgentAdapter extends OwnerAgentCore {
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.voice, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.voice.database, input, call,
         () => adapter.voice.now?.() ?? new Date(), adapter.voice.timeZone ?? "America/Toronto"),
+      commandTool: (call: ModelFunctionCall) => ownerCommandTool(adapter.voice.commands, call),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await readPreviousVoiceAssistant(adapter.voice.database, turnInput);

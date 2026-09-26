@@ -774,6 +774,7 @@ describe("verified memory backup restore", () => {
     };
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => instant });
     const item = await decisions.raise({
+      rank: 100,
       principalId: lookup.principalId, origin: TIER3_TOOL_ORIGIN,
       originReference: confirmationReference(lookup.toolName, lookup.capability, lookup.argumentsHash),
       urgency: "normal", question: "Run the backup fixture?", choices: [{ key: "confirm", label: "Confirm" }],

@@ -35,14 +35,6 @@ export const FREE_TEXT_OPTION_LABEL = "Other — I'll type it";
 export const EXPLAIN_OPTION_LABEL = "Explain more";
 
 /**
- * Mirrors the `rank` column default in 0009_decisions.sql. Written explicitly
- * rather than left to the column so a raised item's rank is known without a
- * read-back; the agreement between the two is pinned by a test, because a
- * silent drift here would reorder the owner's queue with nothing to show for it.
- */
-export const DEFAULT_DECISION_RANK = 100;
-
-/**
  * A question with more than a handful of choices is not answerable from a lock
  * screen, which is the only place this queue is ever cleared. The cap is on the
  * caller's choices; the two escapes are added on top.
@@ -72,7 +64,8 @@ export interface RaiseDecisionInput {
   readonly question: string;
   /** Shown only when the owner taps "explain more", so the question stays short. */
   readonly detail?: string | null;
-  readonly rank?: number;
+  /** Required. The queue orders by this, so whoever raises the question states its priority. */
+  readonly rank: number;
   readonly expiresAt?: string | null;
   readonly choices?: readonly DecisionChoice[];
 }

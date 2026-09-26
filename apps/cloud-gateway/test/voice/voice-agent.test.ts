@@ -1,4 +1,5 @@
 import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
+import type { OwnerCommandCapabilities } from "../../src/agent/owner-command-capabilities.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../src/school/guided-assignment-tools.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
@@ -266,6 +267,7 @@ interface RunVoiceTurnInput {
   readonly sessionId?: string;
   readonly committedItemIds?: readonly Ulid[];
   readonly agentDatabase?: D1Database;
+  readonly commands?: OwnerCommandCapabilities;
 }
 
 async function seedPrincipalOnce(principalId: string): Promise<void> {
@@ -287,6 +289,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     ownerPrincipalId: input.ownerPrincipalId ?? OWNER,
     targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
     ...(input.memorySearch === undefined ? {} : { memorySearch: input.memorySearch }),
+    ...(input.commands === undefined ? {} : { commands: input.commands }),
     directOwnerText: true,
     ...createOwnerPipelineModels(env, { async *stream() { throw new Error("unexpected_pipeline"); } }, new Redactor(), input.ownerPrincipalId ?? OWNER, true, () => NOW),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
@@ -1251,6 +1254,33 @@ describe("the voice agent adapter", () => {
     });
   });
 
+  it("reads the decision queue on a call through the same shared port Telegram uses", async () => {
+    const principalId = `principal:voice-queue:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const capabilities: OwnerCommandCapabilities = {
+      status: async () => "Autonomy: live since 2026-09-01",
+      queue: async () => Object.freeze([]),
+      digest: async () => "Today's digest.",
+    };
+    const provider = new FakeAgentProvider([
+      called(tool("queue-1", "decision_queue", {})),
+      stopped("Nothing is waiting on you."),
+    ]);
+
+    const spoken = await runVoiceTurn({
+      text: "what's waiting on me?",
+      provider,
+      ownerPrincipalId: principalId,
+      commands: capabilities,
+    });
+
+    expect(spoken).toBe("Nothing is waiting on you.");
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receipt: "Nothing is waiting on the owner.",
+    });
+  });
+
   it("offers the complete Telegram catalogue, including deadline_record, within the provider tool bound on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
@@ -1264,7 +1294,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(28);
+    expect(request?.tools).toHaveLength(31);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
@@ -1276,6 +1306,7 @@ describe("the voice agent adapter", () => {
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke", "school_work_evidence",
       "email_inbox_list", "email_inbox_read",
+      "owner_status", "decision_queue", "run_digest",
     ]));
     const telegramRequests: ModelAgentCompletionInput[] = [];
     const telegramProvider: ModelAgentProvider = {

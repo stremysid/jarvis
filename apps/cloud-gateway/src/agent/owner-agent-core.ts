@@ -404,6 +404,13 @@ export interface OwnerAgentChannelPort {
   pipelineModel(call: ModelFunctionCall): ModelAdapter | null;
   /** Argument-bearing channel tools still pass through the shared authority and tier gates. */
   argumentTool?(call: ModelFunctionCall): (() => Promise<ExecutedTool>) | null;
+  /**
+   * The reporting command tools (`owner_status`, `decision_queue`,
+   * `run_digest`) when this channel has the data behind them. They are reads,
+   * so the core still requires `directOwnerText` and runs the tier gate, but
+   * they mint no receipt.
+   */
+  commandTool?(call: ModelFunctionCall): (() => Promise<ExecutedTool>) | null;
   /** The refusal when this channel does not expose the tool that was called. */
   readonly unknownToolRefusal: string;
   /**
@@ -760,7 +767,7 @@ function informationalTool(
  * the model's reference data, and showing it verbatim in the reply is `explain`'s
  * job, not this one.
  */
-function unactionedTool(
+export function unactionedTool(
   call: ModelFunctionCall,
   evidence: string,
   referencedItemIds: readonly Ulid[],
@@ -1502,6 +1509,15 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       const result = await inbox.list(input.principalId, query as InboxQuery);
       return unactionedTool(call, emailInboxEvidence(inboxListPage(result, (query as InboxQuery).offset ?? 0)), []);
     }
+    const commandTool = port.commandTool?.(call);
+    if (commandTool != null) {
+      // The owner's own words, on either channel, and the same tier gate every
+      // other tool passes. The body is a read, so no receipt is minted.
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return commandTool();
+    }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
     }
@@ -1693,6 +1709,9 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       origin: TIER3_TOOL_ORIGIN,
       originReference: confirmationReference(call.name, decision.evaluation.capability, argumentsHash),
       urgency: "normal",
+      // The caller states the rank now; the service has no default. A tier-3
+      // confirmation sits in the normal band, below an explicitly urgent item.
+      rank: 100,
       question: `Run ${call.name}? ${decision.evaluation.capability} always needs your tap.`,
       detail: `${decision.receipt} Tap Confirm, then ask me again and I will do it.`,
       choices: Object.freeze([{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }]),
@@ -1920,6 +1939,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         origin: "telegram-memory-forget",
         originReference: itemIds.join(","),
         urgency: "normal",
+        rank: 100,
         question: `Forget these ${itemIds.length} memories?`,
         detail: "Nothing changes unless Sid taps Confirm forget.",
         choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${itemIds.length}` }]),
@@ -2060,6 +2080,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
         origin: "telegram-memory-confirm",
         originReference: `${itemId}:${item.version.versionId}`,
         urgency: "normal",
+        rank: 100,
         question,
         detail: "Nothing changes unless Sid taps Confirm. Discard leaves the proposal inactive.",
         choices: Object.freeze([
