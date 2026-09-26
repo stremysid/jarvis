@@ -61,6 +61,24 @@ file, and the citations were corrected where the audit's had moved.
 
 ---
 
+## Owner memory judgments: removed, 2026-09-25 (rows 6–9, 13)
+
+Removed by the PR titled "Memory: the AI decides, not code (register rows 6-9, 13)"
+(branch `codex/memory-judgment-to-ai`). Sid, 2026-09-25: "any judgment and decisions and
+thought should be the ai brain remember". These rows had each written a memory decision in
+code that the model could neither see nor correct. The table gives the symbol as it was and
+what replaced it; the full diff is in the PR.
+
+| Symbol (as of `e2af1aa2`) | What it decided | Now |
+|---|---|---|
+| `captureInput`'s `input.lifetime === undefined ? …` (`memory-repository.ts`), `memory_remember`'s optional lifetime pair, and the copies in `owner-agent-core.ts` and `MemoryOwnerControlsService.remember` | How long a fact lasts, when the caller said nothing. The tool description even invited the omission: *"Leave it out and the fact is durable."* The register said the same default lived in `owner-telegram-agent.ts`; that citation was stale — the third live copy was the tool dispatch in `owner-agent-core.ts`, and `telegram-memory-controls.ts` (a deterministic, test-only adapter) was a fourth | **Removed.** `lifetime` and `expiresAt` are required in `CommitInitialMemoryInput`, in `memory_remember` and `memory_correct`, and in `RememberMemoryInput`/`CorrectMemoryInput`; every defaulting branch is deleted, so an omission is refused rather than assumed. `memory_correct` no longer inherits the replaced wording's end in code — the model states the replacement's lifetime and end, and the tool description tells it to pass the old pair when only the wording changed |
+| `MemoryRepository.liftItem`'s `restoredBasis` | Whether a restored memory's evidence counted as confirmed. It set `confirmed` by itself whenever the version's origin was `authenticated_first_person` and every source was archive-only — a silent basis change with no receipt, invisible to the model | **Removed, with one written blocker.** `LiftMemoryItemInput.basis` is required and `memory_restore` carries a required `basis` enum, so the model decides what the restored evidence counts as. Code keeps only the coupling checks, so a basis the ledger would reject is refused by name. **Blocker:** a `0016` transition trigger still requires `confirmed` when a first-person version's every source is archive-only, because restoring text whose original live turn is gone is the owner's confirmation of it. A different basis for that case is now refused by name (not silently rewritten), but handing that case fully to the model needs a migration to relax the trigger; the tool description tells the model to pass `confirmed` there. No migration was added in this PR |
+| `MemoryRepository.findActiveItemByNormalizedText` / `normalizedRememberText` | Whether two statements were the same memory. It normalised both, compared strings, and on a match **silently merged** the new wording into the old item as an extra source — the stored wording never changed, the receipt implied Sid's new words were recorded, and the model never saw the item it was folded into | **Replaced by a hint.** The method is now `findSimilarActiveItems`, which returns up to three candidates and writes nothing. `remember` always stores the new statement as its own memory and appends a receipt line naming the similar stored wording and its id, telling the model to call `memory_correct` if the new statement replaces one. The string normalisation is unchanged; it is mechanical comparison, not a duplicate decision |
+| `MemoryRepository.refileAutomaticInboxItems`'s duplicated confidence floors | The register listed the `>= 0.6` floor as hard-coded four times. Two of those copies were the retry queries inside this method, where every retryable reason (`inbox_cap`, `inbox_filing_failure`) can only have been written by a filing that already passed the floor, so re-checking it re-decided a settled question | **Partly removed, and the remainder is named rather than hidden.** The two redundant floors are deleted, and the one floor that remains (a model-proposed topic path is filed only at or above the model's own confidence) is exported once as `MEMORY_FILING_CONFIDENCE_THRESHOLD` and used by both `memory-repository.ts` and `automatic-distillation.ts`. **Not removed:** which inbox items are retried, how many (10), and in what order. Handing those to the model needs a wake-up that tells Jarvis "N inbox items have unresolved topic decisions" and a refile tool; no such model-facing wake-up exists in this codebase, and adding one is a new surface rather than a removal. The batch size and the rotation are also the Worker/D1 throughput bound. This is a written blocker, not a claim the row is closed |
+| `OwnerAgentCore.forget`'s `itemIds.length !== 1` branch (`owner-agent-core.ts`) | Whether to act at all when Sid asked to forget several memories. It raised a `telegram-memory-forget` decision — "Nothing changes unless Sid taps Confirm forget" — and forgot nothing, because `commandKey` allowed one ledger mutation per owner turn | **Removed.** The tap is gone: one `memory_forget` call forgets every id it was given. Each target now has its own idempotency key, `<turn event>:forget:<itemId>`, its own command and its own receipt, and every target is validated before any command is written, so a batch naming a bad id changes nothing. `supportingExcerpt` is now required, matching single-target forget, so the model must quote Sid's words. `MemoryOwnerControlsService.forgetConfirmedDecision` is **kept**, not deleted: it resolves a `telegram-memory-forget` decision already in the queue, and no longer raising new ones is a separate cleanup |
+
+Rows 6–9 and 13 have left the list below.
+
 ## Owner deadline proof contract: removed
 
 Removed by the PR titled "fix(deadlines): let the AI decide deadlines; remove the code
@@ -98,6 +116,52 @@ known, and the quiz answer must be inside its window and size bound. Deleted fro
 
 The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
 they are receipts of a committed write, not a decision about what Sid meant.
+
+## Voice access and silent drops: removed
+
+Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
+AGENTS.md's rule that a PR adding a code-side judgment does not merge, and Sid's 2026-09-25
+decision that the model decides whether to read a number back while a guest still passes the
+guest PIN.
+
+| Row | What code decided | Now |
+|---|---|---|
+| 1 | `CallSessionCore.#guardOwnerRepeat` dropped owner utterances after a passphrase match | Stale on main: gone with the per-call passphrase gate removed in #196 |
+| 3 | `parseOwnerAccessIntent` parsed four fixed shapes into an access command, target and permissions | Deleted with `owner-access-intent.ts`. The model calls the `owner_access` tool with `{operation, phone, capabilities, pin}`, and code keeps only E.164, capability-membership and authority validation |
+| 4 | `PERMISSION_CAPABILITIES` mapped 17 phrases to 16 capabilities | Deleted. The model passes capability ids, `GUEST_CAPABILITY_IDS` is the validation set, and the owner-only `access.manage` is refused rather than mapped |
+| 5 | `PreparedOwnerAccessProposal.expiresAt` gave a pending change 60 seconds | Deleted. The call's lifecycle is the bound, and the model decides whether to confirm before calling the tool |
+| addendum | `#isFixedStepUpEcho`, `#ownerStepUpVerificationInFlight`, and the non-final / non-`active` / empty drops | The step-up branches are gone with the step-up gate. The non-final, non-`active` and empty drops stay deliberately: a partial transcript is not yet an utterance, so there is nothing to act on |
+
+Also in this batch: the access flow's fixed spoken lines are gone (the model runs the
+conversation and the `owner_access` outcome is a structured receipt carrying `operation`,
+`maskedTarget` and `outcome`), and an utterance that arrives while a turn owns the call is
+queued as the next turn rather than dropped. A failed voice retrieval now puts a notice in
+the model's context instead of silently empty memory.
+
+## Project attention judgment: removed (batch 13, 2026-09-25)
+
+Removed by the PR titled "Projects: the AI decides what needs attention, not code"
+([#209](https://github.com/stremysid/jarvis/pull/209), branch `codex/projects-judgment-to-ai`,
+2026-09-25). The stalled-project detector
+was eleven decisions about when a project was late; each is now a fact the model
+reads and judges. No migration: the `stale_after_days` column and its `DEFAULT 7`
+are left inert rather than rebuilt.
+
+| Item | Symbol (as of `679d2b95`) | What it decided | Now |
+|---|---|---|---|
+| B153, B155 | `attentionChanges` / `ATTENTION_DOCUMENT_PATHS` (`project-poller.ts`, `project-types.ts`) | That only a change to `KNOWN_ISSUES.md` or `DECISIONS.md` was worth pinging about. | Deleted. `diffDocuments` already reports every document change; which one matters is the model's judgment. |
+| B157 | `DEFAULT_APPROACHING_WITHIN_DAYS` (`stalled-detector.ts`) | That a deadline within 14 days counted as approaching. | Deleted with the module. There is no horizon constant anywhere. |
+| B161 | `DeadlineReading.nearest` | That the earliest parsed date is the commitment that matters. | Deleted. `readProjectDates` returns every ISO day it reads, in the order the document wrote them. |
+| B162 | `readDeadlines` sort and slice | Sorted the days and kept the first ten. | Deleted. The days are deduplicated (identical strings only) and left in document order; the 4096-character excerpt bound already bounds the list. |
+| B163 | `DeadlineReading.approaching` / `overdue` and `deadlineInstant` | Compared a parsed day against "now" to label it approaching or overdue. | Deleted. The model compares the days with the commit age and decides. |
+| B164 | `report.stale` (`daysSinceLastCommit > status.project.staleAfterDays`) | Whether the gap since the last commit made a project stale. | Deleted. `projectFacts` reports `daysSinceLastCommit` as arithmetic and no verdict. |
+| B165 | `ProjectStalenessReport.escalate` | Whether a project should be raised to Sid. | Deleted. `project_facts` hands the model the excerpts, commit ages, dates and poll health, and its description tells it to decide. |
+| B166 | `detectStalledProjects` filtering on `escalate` | Which projects reached the owner and which were dropped. | Deleted with the module. `projectFacts` returns one entry per project; the digest states the facts and attaches no verdict. |
+| B170 | `stale_after_days INTEGER NOT NULL DEFAULT 7` (`0010_projects.sql:22`) | A stored staleness threshold. | Left inert. The column and default stay because dropping them would need a table rebuild; no code reads them for a verdict, and `ProjectRepository.trackProject` still supplies the value, so nothing in the schema changed. |
+
+`projects/stalled-detector.ts` is renamed `projects/project-facts.ts`, because a
+detector that no longer detects is a misleading name. The new `project_facts` tool
+is a tier-1 read under the already-seeded `read.repository` capability.
 
 ## Effort, lead time and the deadline warning schedule: removed
 
@@ -177,27 +241,9 @@ Sid that the decision happened.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 1 | `CallSessionCore.#guardOwnerRepeat` (`src/voice/call-session-do.ts`) | Which of the owner's spoken words Jarvis is allowed to hear. For 2 s after the passphrase match it drops **any** owner utterance outright, without consulting the text; for 1.5 s after that it swallows an utterance built from 1–2 passphrase-list words. No reply, no transcript row. | A prompt statement that a repeated passphrase will not arrive, so Jarvis's judgment is informed rather than bypassed — plus a spoken neutral line whenever anything is dropped, so silence is never unexplained. **`silent` penalty: it is invisible to the model.** |
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. |
-| 3 | `parseOwnerAccessIntent` (`src/voice/owner-access-intent.ts`) | What an access instruction **means**: a hand-written regex grammar with four fixed shapes decides whether the owner's utterance is an access command and which operation, target and permissions it names. | Jarvis calls the owner-access operations as tools, passing capability phrases as parameters. Code keeps the validation and the confirm step. If the grammar stays as a stopgap, an utterance that looks like a command and fails to parse must produce a spoken refusal — never fall through to ordinary conversation, where the model can answer as if it complied. **`silent` penalty.** |
-| 4 | `PERMISSION_CAPABILITIES` / `OwnerAccessService.#snapshot` (`src/voice/owner-access-service.ts`) | Which capability the owner's words name. A frozen table maps 17 phrases to 16 capabilities, and production installs only `conversation.basic` and `access.manage`, so **only "conversation" resolves** — the other 14 throw `capability_not_installed`, `access.manage` throws `capability_not_grantable`, and the `catch` at `#snapshot` collapses all of it into one `owner_access_permission_invalid` the owner never hears. | Give the model the capability ids as a tool parameter and let it map the owner's words; keep the table only as a validation set for what the model returns. At minimum drop `access management` (it can never succeed) and make refusal a spoken outcome. |
-| 5 | `PreparedOwnerAccessProposal.expiresAt` (`src/voice/owner-access-service.ts`) | How long the owner's pending decision lives: a hard-coded 60 s. Confirming takes three relay round trips through Deepgram transcription, so a slow confirmation loses the change **and** the call. | Either drop the wall-clock expiry — the call lifecycle is the natural bound and needs no invented timer — or tell the owner the window in the prompt. "How long a fact lasts" is named as Jarvis's call in the roadmap. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. |
 
-Also in this file, and **the same class**: `CallSessionCore.#handlePrompt` has a further set of
-branches that drop an owner's utterance with no reply and no transcript row, and they predate
-item 1. Enumerated while verifying item 1 rather than by the audit:
-
-- `#isFixedStepUpEcho` drops any utterance exactly equal to one of five code-authored
-  constants: `OWNER_STEP_UP_PROMPT`, `OWNER_STEP_UP_RETRY_PROMPT`,
-  `OWNER_STEP_UP_FORMAT_PROMPT`, `OWNER_STEP_UP_VERIFIED`, `OWNER_STEP_UP_REJECTED`.
-- `#ownerStepUpVerificationInFlight` drops any final utterance that arrives while a
-  passphrase KDF is running. (One existing test covers this — *"ignores a final arriving during
-  KDF work instead of replacing the window alarm"* — but it asserts the alarm, not what the
-  owner hears, which is nothing.)
-- A non-final frame, a non-`active` phase, and an empty utterance are also dropped silently.
-
-Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
-line whenever anything is dropped, so silence is never unexplained.
+Rows 1 and 3–5 are removed; see [Voice access and silent drops: removed](#voice-access-and-silent-drops-removed).
 
 ### Additional voice finding (2026-09-23)
 
@@ -217,13 +263,13 @@ and rewrite are unchanged by #171.
 
 ### Memory
 
+Rows 6–9 and 13 were removed on 2026-09-25; see the removal table above. What
+remains of row 6 — which inbox items the automatic job retries, how many and in
+what order — is a written blocker there, not a live judgment row: handing it to
+the model needs a wake-up surface this codebase does not have.
+
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 6 | `MemoryRepository.refileAutomaticInboxItems` (`src/memory/memory-repository.ts`) | Which memories move, how many (10), in what order (a wall-clock-hour-indexed rotation over ≤100 rows), and at what confidence floor (`>= 0.6`, hard-coded **four times** across two files: three literals in the repository plus `FILING_CONFIDENCE_THRESHOLD` in `automatic-distillation.ts`). It replays a topic decision the model made when the item was created, with no chance to revise it. | A refile tool: the wake-up tells Jarvis "N inbox items have unresolved topic decisions" with the stored paths and confidences, and the model decides which, how many, and in what order. If the rule must stay, export one shared constant so the gate cannot drift from `FILING_CONFIDENCE_THRESHOLD`. |
-| 7 | `captureInput` (`src/memory/memory-repository.ts`) | How long a fact lasts. `input.lifetime === undefined ? (validTo === null ? "durable" : "temporary") : …` decides durability when the caller is silent — and the `memory_remember` tool description **invites the model to be silent**: *"Leave it out and the fact is durable."* The same default is written independently in `owner-telegram-agent.ts` and `memory-owner-controls.ts`. | Make `lifetime` and `expiresAt` **required** in the `memory_remember` schema so the omission cannot occur, and delete the three defaulting branches so an absent lifetime is refused rather than assumed. The same subsystem already states this principle: `automatic-distillation.ts` refuses to guess an expiry because *"answering it by guessing an expiry here would be code deciding what the roadmap gives to the model."* |
-| 8 | `findActiveItemByNormalizedText` / `normalizedRememberText` (`src/memory/memory-repository.ts`) | Whether two statements are the same memory. Normalises case, apostrophes, zero-width characters and punctuation, compares strings, and on a match **silently merges** the new wording into the old item as an extra source — so the stored wording never changes and the receipt implies the new words were recorded. | Expose the candidate memories to the model and let it decide whether a new statement duplicates, extends or corrects an existing memory — exactly as `memory_correct` already invites. A mechanical guard, if kept, is a **non-authoritative hint returned to the model**, never a silent merge in the write path. **`silent` penalty.** |
-| 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
-| 13 | `OwnerAgentCore.forget` (`src/agent/owner-agent-core.ts`), found in [#199](https://github.com/stremysid/jarvis/pull/199) | Whether to act at all when Sid asks to forget several memories. `itemIds.length !== 1` raises a `telegram-memory-forget` decision ("Nothing changes unless Sid taps Confirm forget") instead of forgetting them. Forgetting is not one of the five actions Sid wants asked about (2026-09-24), so this is a confirmation his rule removes. It exists because `commandKey` in `memory-owner-controls.ts` allows one ledger mutation per owner turn, not because anyone decided multi-forget is risky. | Delete the tap. Give `forget` a per-item idempotency key (`<turn event>:forget:<itemId>`, the shape `forgetConfirmedDecision` already uses), so one turn can forget several memories in one tool call. Each memory still gets its own receipt. Also listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25). |
 
 ### Reply-reference selection: removed
 

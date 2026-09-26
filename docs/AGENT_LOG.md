@@ -31,6 +31,110 @@ Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rule
   `mutation-specs-judg-coach1.json` in the PR. Full suites on CI.
 - Not merged or deployed.
 
+## 2026-09-25 — DeepSeek builder: calls judgment batch (`codex/calls-judgment-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **Owner access is a tool now.** `parseOwnerAccessIntent`, `PERMISSION_CAPABILITIES` and the
+  60-second `expiresAt` are deleted (`owner-access-intent.ts` removed). The model calls
+  `owner_access` with `{operation, phone, capabilities, pin}` on a call; code keeps E.164,
+  capability-membership (`GUEST_CAPABILITY_IDS`, so the owner-only `access.manage` is refused)
+  and the voice-access authority check. The model passes capability ids, not phrases.
+- **No confirm/cancel word match.** The two-phase prepare/confirm step and its fixed spoken
+  lines are gone; the model decides whether to read the number back or ask Sid to confirm, and a
+  guest still passes their own PIN (`GuestPinVerifier`). `pin: "default" | "digits"` is the
+  model's argument; `digits` opens a PIN question on the call, and the answer is consumed by
+  `CallSessionCore` before it can become a turn, event or model input.
+- **Receipts, not sentences.** `OwnerAccessService.execute` returns `{outcome, operation,
+  maskedTarget, guests, noticeUnconfirmed}`; the agent mints a receipt id but speaks no
+  code-authored sentence, so the model phrases the outcome. The `maskedTarget ?? "the caller"`
+  guess and every fixed instruction line are gone.
+- **No silent drops.** An utterance arriving while a turn owns the slot is queued as the next
+  turn (one slot; a third displaces the queued one and that displacement is spoken). A failed
+  voice retrieval now puts a "Memory could not be read this turn" notice in the model's context
+  instead of silently empty memory; the 750 ms bound stays.
+- **Migration `0055_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
+  tool is a classified capability; `0053` and `0054` landed on main with #201, so this is the
+  next free number. All the
+  hand-kept migration lists, the backup seed list and the pinned schema-version tests are
+  updated with it.
+- **Verified here:** gateway `tsc` 0; focused suites (voice, autonomy, conversation, security,
+  backup, owner-telegram-agent, relay fixes, owner-access tool/service/security) green;
+  `mutate.ps1` with `mutation-specs-calls-judgment.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13, PR #209)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/projects-judgment-to-ai` from
+`679d2b95`, PR [#209](https://github.com/stremysid/jarvis/pull/209). Touches Sid's rules
+1, 2, 8, 9. No migration.
+
+- **The detector is gone, replaced by facts.** `projects/stalled-detector.ts` is renamed
+  `projects/project-facts.ts`. `assessStaleness`, `detectStalledProjects`,
+  `DEFAULT_APPROACHING_WITHIN_DAYS`, `stale`, `escalate`, `reasons`, `blind`, `nearest`,
+  `approaching` and `overdue` are all deleted. `projectFacts` returns one entry per
+  project with the stored document excerpts, `daysSinceLastCommit` as arithmetic, poll
+  health, the failure text, and every ISO day `NEXT_STEPS.md` names plus the date-shaped
+  text the reader will not interpret (B157, B161–B166).
+- **Every document change is reported.** `attentionChanges` and `ATTENTION_DOCUMENT_PATHS`
+  are deleted; `diffDocuments` already reports all four files, and which change matters is
+  the model's judgment (B153, B155).
+- **B170 left inert.** `0010_projects.sql`'s `stale_after_days DEFAULT 7` and the
+  `TrackedProject.staleAfterDays` field stay, with a comment saying nothing reads them for
+  a verdict; the repository still supplies the value, so no table rebuild and no migration.
+- **The model gets the facts.** New read-only `project_facts` tool, classified under the
+  already-seeded tier-1 `read.repository` capability, dispatched as an unactioned evidence
+  read (no receipt id) on both channels. Its description says the model decides what needs
+  attention and asks Sid when the facts are incomplete. The digest's Projects section now
+  states the commit age, the NEXT_STEPS dates and unreadable date text, and no longer says
+  "stalled"; the failed-facts-read gap is renamed "Project facts".
+- **Tests.** `stalled-detector.test.ts` became `project-facts.test.ts` (dates, ordering,
+  refused shapes, no verdict fields); the poller gained an all-changes test; the digest
+  composer and job tests assert factual lines and the absence of "stalled"; a new
+  `multi-step-tools.test.ts` case drives `project_facts` on Telegram and voice and asserts
+  a completed, receipt-less result. Focused projects/digest/jobs/autonomy/agent/channels/
+  providers: 43 files / 1036 tests pass. Gateway `tsc` exit 0. Mutation sweep in
+  `reviewer-tools/mutation-specs-projects-judgment.json`. Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: memory judgments moved to the AI (register rows 6–9, 13)
+
+Signed: DeepSeek (builder agent), branch `codex/memory-judgment-to-ai` from `origin/main`
+`e2af1aa2`. Touches Sid's rules 1, 2, 4, 8, 9. Sid, 2026-09-25: "any judgment and decisions
+and thought should be the ai brain remember".
+
+- **Row 7 (lifetime).** `lifetime` and `expiresAt` are now required on `CommitInitialMemoryInput`,
+  `memory_remember`, `memory_correct`, `RememberMemoryInput` and `CorrectMemoryInput`; every
+  defaulting branch is deleted. `captureInput` no longer derives durability from `validTo`.
+  `memory_correct` no longer inherits the replaced wording's end in code — the model supplies it.
+  Register's citation of `owner-telegram-agent.ts` was stale: the live third copy was the tool
+  dispatch in `owner-agent-core.ts`, and `telegram-memory-controls.ts` (deterministic, not composed
+  in production) was a fourth.
+- **Row 8 (duplicate merge).** `findActiveItemByNormalizedText` is now `findSimilarActiveItems`,
+  which returns up to three candidates and writes nothing. `remember` stores every statement as its
+  own memory and appends a receipt line naming the similar stored wording and its id, with a pointer
+  to `memory_correct`. `appendSourceToActiveItem` remains as an unused write primitive a future
+  model-decided merge tool could use; it is no longer on the write path.
+- **Row 9 (restore basis).** `MemoryRepository.liftItem` takes a required `basis`; `memory_restore`
+  carries a required enum. **Blocker:** a `0016` transition trigger still requires `confirmed` when a
+  first-person version's every source is archive-only. That case is now refused by name instead of
+  silently rewritten, and the tool description tells the model to pass `confirmed`; fully handing it
+  over needs a migration, which this PR does not add.
+- **Row 13 (multi-forget tap).** `OwnerAgentCore.forget` forgets every id it was given; each target
+  keys as `<turn event>:forget:<itemId>` with its own command and receipt. Every target is validated
+  before any command is written, so a batch with a bad id changes nothing. `supportingExcerpt` is now
+  required, matching single-target forget. `forgetConfirmedDecision` is kept for a decision already
+  in the queue; nothing raises a new `telegram-memory-forget` decision.
+- **Row 6 (refile).** The two redundant `>= 0.6` floors inside `refileAutomaticInboxItems` are gone
+  (every retryable reason already implies a filing that passed the floor), and the one remaining floor
+  is exported once as `MEMORY_FILING_CONFIDENCE_THRESHOLD`. Which items are retried, how many and in
+  what order stay in code: handing those to the model needs a wake-up surface this codebase does not
+  have, and the batch size is the Worker/D1 bound. That is a written blocker in the register, not a
+  claim the row is closed.
+- **Verified here:** focused gateway files — `test/memory` 502, `test/channels` + `test/voice` 805,
+  `test/agent`+`test/jobs`+`test/autonomy`+`test/evals` 191, all green; gateway `tsc` exit 0;
+  `typecheck:tests` 140 errors, none in the changed files or mentioning the changed types. Mutation
+  sweep and exact counts are in the PR. No deploy, no migration, no production query.
+
 ## 2026-09-25 — DeepSeek builder: code stores deadlines, the AI decides when to warn (`codex/effort-by-ai` round 3)
 
 Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `8c98bcd8`, round 3 on PR

@@ -27,6 +27,7 @@ import {
   type ForgetMemoryItemInput,
   type LiftMemoryItemInput,
   type MemoryControlIntent,
+  type MemoryBasis,
   type MemoryKind,
   type MemoryLifetime,
   type MemoryOwnerTurnInput,
@@ -41,6 +42,9 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
+const MEMORY_BASES = new Set<MemoryBasis>([
+  "stated", "confirmed", "observed", "inferred", "third_party",
+]);
 const REMEMBER_CONTROL_PREFIXES = [
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
@@ -61,13 +65,13 @@ export interface RememberMemoryInput {
   /**
    * Whether this stops being true on its own, and when.
    *
-   * Optional so every existing caller keeps its behaviour -- absent means
-   * durable, which is what the store did before the column existed. The two are
-   * validated as a pair: durable with an end, or temporary without one, is
-   * refused rather than stored and then rejected by the coupling trigger.
+   * Required, not defaulted: the caller decided the fact, so the caller says
+   * how long it lasts. The pair is validated together -- durable with an end,
+   * or temporary without one, is refused rather than stored and then rejected
+   * by the coupling trigger.
    */
-  readonly lifetime?: MemoryLifetime;
-  readonly validTo?: string | null;
+  readonly lifetime: MemoryLifetime;
+  readonly validTo: string | null;
 }
 
 export interface ConfirmedForgetDecisionInput {
@@ -88,6 +92,11 @@ export interface ConfirmedMemoryDecisionInput {
 export interface TargetedMemoryControlInput {
   readonly ownerTurn: MemoryOwnerTurnInput;
   readonly candidateItemIds: readonly Ulid[];
+}
+
+/** A restore: one target, plus what the restored evidence now counts as. */
+export interface LiftMemoryInput extends TargetedMemoryControlInput {
+  readonly basis: MemoryBasis;
 }
 
 export interface MemoryMutationReceipt {
@@ -125,6 +134,14 @@ export interface CorrectMemoryInput extends TargetedMemoryControlInput {
   readonly sourceExcerpt?: string;
   /** True only when the caller proved the new wording is drawn from Sid's own words. */
   readonly normalizedFromSource?: boolean;
+  /**
+   * How long the replacement lasts, stated by the caller rather than inherited
+   * in code. The model normally passes the replaced memory's own lifetime and
+   * `validTo` when the timespan is unchanged; it says something else when the
+   * correction changes the timespan too.
+   */
+  readonly lifetime: MemoryLifetime;
+  readonly validTo: string | null;
 }
 
 export interface MemoryCorrectionReceipt {
@@ -277,6 +294,21 @@ function exactSingleTarget(candidateItemIds: readonly Ulid[]): Ulid {
   if (candidateItemIds.length === 0) throw new MemoryRepositoryError("memory_not_found");
   if (candidateItemIds.length !== 1) throw new MemoryRepositoryError("memory_ambiguous");
   return inputUlid(candidateItemIds[0]);
+}
+
+/**
+ * One to eight distinct targets for a control that acts on each of them.
+ *
+ * Nothing here judges which memory was meant; that is the model's call, and it
+ * passes only the ids it is sure about. The bound is the same size limit the
+ * store already puts on one item's sources.
+ */
+function exactTargets(candidateItemIds: readonly Ulid[]): readonly Ulid[] {
+  if (!Array.isArray(candidateItemIds)
+    || candidateItemIds.length < 1 || candidateItemIds.length > 8) refuse();
+  const itemIds = candidateItemIds.map(inputUlid);
+  if (new Set(itemIds).size !== itemIds.length) refuse();
+  return Object.freeze(itemIds);
 }
 
 function commandKey(turn: MemoryOwnerTurnInput, operation: MemoryControlIntent): string {
@@ -520,11 +552,14 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
   const payload = record(value);
   exactKeys(payload, [
     "operation", "targetId", "itemId", "previousVersionId", "versionId", "lifecycleState",
-    "sourceIds", "lifts",
+    "basis", "sourceIds", "lifts",
   ]);
   if (payload.operation !== "item.correct"
     || payload.lifecycleState !== "active" && payload.lifecycleState !== "proposed"
     || !Array.isArray(payload.sourceIds) || !Array.isArray(payload.lifts)) refuse();
+  // Re-decoded on replay, so a stored command that carries a basis the ledger
+  // would reject names the bad field rather than surfacing as a data fault.
+  if (typeof payload.basis !== "string" || !MEMORY_BASES.has(payload.basis as MemoryBasis)) refuse();
   const transitionId = inputUlid(payload.targetId);
   return Object.freeze({
     itemId: inputUlid(payload.itemId),
@@ -532,6 +567,7 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
     versionId: inputUlid(payload.versionId),
     transitionId,
     lifecycleState: payload.lifecycleState,
+    basis: payload.basis as MemoryBasis,
     sourceIds: Object.freeze(payload.sourceIds.map(inputUlid)),
     lifts: Object.freeze(payload.lifts.map((value) => {
       const entry = record(value);
@@ -633,6 +669,7 @@ export class MemoryOwnerControlsService {
       let acceptedTurn: Readonly<{ text: string; suppressed: boolean }>;
       let sourceExcerpt: string;
       let command: AppendedEvent;
+      let similarItems: readonly Readonly<{ itemId: Ulid; text: string }>[] = Object.freeze([]);
       if (existing) {
         command = await this.appendCommand(ownerTurn, key, requestHash, {
           operation: "item.transition",
@@ -657,47 +694,29 @@ export class MemoryOwnerControlsService {
         if (!isAuthorizedRememberText(
           text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, modelInferred,
         )) refuse();
-        const duplicate = modelInferred
-          ? null
-          : await this.memory.findActiveItemByNormalizedText(ownerTurn.principalId, text);
-        if (duplicate !== null) {
-          const item = await this.memory.appendSourceToActiveItem({
-            principalId: ownerTurn.principalId,
-            itemId: duplicate.itemId,
-            source: {
-              sourceId: this.nextId(),
-              eventId: ownerTurn.eventId,
-              eventSequence: ownerTurn.eventSequence,
-              sourceLocation: "live",
-              r2SegmentId: null,
-              excerpt: sourceExcerpt,
-              excerptHash: await sha256Hex(sourceExcerpt),
-              channel: ownerTurn.channel,
-              occurredAt: ownerTurn.occurredAt,
-            },
-          });
-          return Object.freeze({
-            item,
-            receipt: "That memory was already active, so I did not add a duplicate; I added Sid's new wording as evidence.",
-            replayed: true,
-          });
-        } else {
-          const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
-          const transitionId = this.nextId();
-          command = await this.appendCommand(ownerTurn, key, requestHash, {
-            operation: "item.transition",
-            targetId: transitionId,
-            itemId: this.nextId(),
-            versionId: this.nextId(),
-            lifecycleState: modelInferred ? "proposed" : "active",
-            sourceId: this.nextId(),
-            placementId: this.nextId(),
-            placementEventId: this.nextId(),
-            topicId: topics.inbox.topicId,
-            lifetime: input.lifetime ?? "durable",
-            validTo: input.validTo ?? null,
-          });
-        }
+        // A hint, never a write. This used to merge the new wording into any
+        // memory whose text normalized the same, which hid a duplicate decision
+        // from the model and left the stored wording unchanged while the receipt
+        // implied Sid's new words were recorded. The candidates are named and
+        // the model decides whether to correct, extend or keep both.
+        similarItems = modelInferred
+          ? Object.freeze([])
+          : await this.memory.findSimilarActiveItems(ownerTurn.principalId, text);
+        const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
+        const transitionId = this.nextId();
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: "item.transition",
+          targetId: transitionId,
+          itemId: this.nextId(),
+          versionId: this.nextId(),
+          lifecycleState: modelInferred ? "proposed" : "active",
+          sourceId: this.nextId(),
+          placementId: this.nextId(),
+          placementEventId: this.nextId(),
+          topicId: topics.inbox.topicId,
+          lifetime: input.lifetime,
+          validTo: input.validTo,
+        });
       }
       const payload = decodeStoredCommand(command.envelope.payload, rememberPayload);
       const commitInput = Object.freeze<CommitInitialMemoryInput>({
@@ -762,19 +781,27 @@ export class MemoryOwnerControlsService {
       const returnedItem = replayed && !transitionIsCurrent
         ? suppressMemoryText(result.item)
         : visibleItem;
+      const receipt = modelInferred && transitionIsCurrent
+        ? "Saved 1 uncertain memory for confirmation; I recall it as an unconfirmed possibility, never as a fact."
+        : replayed && !transitionIsCurrent
+        ? result.item.lifecycle.state === "forgotten"
+          ? "That remember request was already handled; the memory is currently hidden."
+          : "That remember request was already handled; the memory has changed since then."
+        : !visibility.retrievable
+          ? replayed
+            ? "That remember request was already handled; the memory is currently hidden."
+            : "Remembered 1 memory, but it is currently hidden by another forgotten memory from the same conversation turn."
+        : "Remembered 1 memory. You can ask in ordinary language to forget it.";
+      // Named as stored memories, never merged. The model owns the judgment
+      // about whether this new statement is the same memory as one of these.
+      const similarHint = similarItems.length === 0
+        ? ""
+        : ` Similar stored ${similarItems.length === 1 ? "memory" : "memories"}, left unchanged: ${similarItems
+          .map((entry) => `${entry.itemId} = "${entry.text}"`)
+          .join("; ")}. If Sid's new statement replaces one of them, call memory_correct with that id; if it is a separate fact, keep both.`;
       return Object.freeze({
         item: returnedItem,
-        receipt: modelInferred && transitionIsCurrent
-          ? "Saved 1 uncertain memory for confirmation; I recall it as an unconfirmed possibility, never as a fact."
-          : replayed && !transitionIsCurrent
-          ? result.item.lifecycle.state === "forgotten"
-            ? "That remember request was already handled; the memory is currently hidden."
-            : "That remember request was already handled; the memory has changed since then."
-          : !visibility.retrievable
-            ? replayed
-              ? "That remember request was already handled; the memory is currently hidden."
-              : "Remembered 1 memory, but it is currently hidden by another forgotten memory from the same conversation turn."
-          : "Remembered 1 memory. You can ask in ordinary language to forget it.",
+        receipt: `${receipt}${similarHint}`,
         replayed,
       });
     });
@@ -880,8 +907,8 @@ export class MemoryOwnerControlsService {
           placementId: this.nextId(),
           placementEventId: this.nextId(),
           topicId: topics.inbox.topicId,
-          lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
-          validTo: supersededBefore.version.validTo,
+          lifetime: input.lifetime,
+          validTo: input.validTo,
         });
         supersessionCommand = await this.appendCommand(ownerTurn, supersessionKey, supersessionHash, {
           operation: "item.transition",
@@ -903,12 +930,12 @@ export class MemoryOwnerControlsService {
         principalId: ownerTurn.principalId,
         itemId: replacementPayload.itemId,
         kind,
-        // The replacement inherits the lifetime being replaced, derived from the
-        // end the old wording carried rather than defaulted: defaulting to
-        // durable would silently turn a fact Sid said would lapse into one that
-        // never does, which is the kind of quiet promotion this redesign exists
-        // to remove.
-        lifetime: supersededBefore.version.validTo === null ? "durable" : "temporary",
+        // The replacement's lifetime comes from the stored command, which the
+        // caller supplied -- not derived here from the old wording's end.
+        // Defaulting or deriving in code would silently turn a fact Sid said
+        // would lapse into one that never does, which is the kind of quiet
+        // promotion this redesign exists to remove.
+        lifetime: replacementPayload.lifetime,
         creationEventId: ownerTurn.eventId,
         creationEventSequence: ownerTurn.eventSequence,
         version: {
@@ -920,7 +947,7 @@ export class MemoryOwnerControlsService {
           uncertain: false,
           sensitivity,
           validFrom: null,
-          validTo: supersededBefore.version.validTo,
+          validTo: replacementPayload.validTo,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
           extractorModelId: null,
         },
@@ -1188,64 +1215,101 @@ export class MemoryOwnerControlsService {
     });
   }
 
-  async forget(input: TargetedMemoryControlInput): Promise<MemoryForgetReceipt> {
+  /**
+   * Forgets one or more memories in a single owner turn.
+   *
+   * Every target gets its own idempotency key, `<turn event>:forget:<itemId>`,
+   * so one turn can hide several memories and each one still has its own
+   * command, its own receipt and its own replay. This replaces the old shape
+   * where more than one target raised a "Confirm forget" tap: forgetting is not
+   * one of the five actions Sid asked to be confirmed, and that tap existed only
+   * because the ledger allowed one mutation per owner turn, not because anyone
+   * decided multi-forget was risky.
+   */
+  async forget(input: TargetedMemoryControlInput): Promise<readonly MemoryForgetReceipt[]> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
       requireMemoryIntent(ownerTurn, "forget");
-      const itemId = exactSingleTarget(input.candidateItemIds);
-      const requestHash = await this.requestHash("forget", ownerTurn, [itemId]);
-      const key = commandKey(ownerTurn, "forget");
-      const existing = await this.hasCommand(key, requestHash);
-      let command: AppendedEvent;
-      if (existing) {
-        command = await this.appendCommand(ownerTurn, key, requestHash, {
-          operation: "item.forget",
-          targetId: this.nextId(),
-        });
-      } else {
+      const itemIds = exactTargets(input.candidateItemIds);
+      // Every target is checked before any command is appended or any memory
+      // changes, so a batch naming one id that does not exist (or belong to Sid)
+      // changes nothing at all. A per-item loop that wrote as it went would
+      // forget the earlier targets and then fail on the bad one.
+      const plans: Array<Readonly<{
+        itemId: Ulid;
+        key: string;
+        requestHash: Sha256Hex;
+        existing: boolean;
+      }>> = [];
+      for (const itemId of itemIds) {
+        const requestHash = await this.requestHash("forget", ownerTurn, [itemId]);
+        const key = `${ownerTurn.eventId}:forget:${itemId}`;
+        if (await this.hasCommand(key, requestHash)) {
+          plans.push(Object.freeze({ itemId, key, requestHash, existing: true }));
+          continue;
+        }
         await this.memory.validateOwnerTurn(ownerTurn, "forget");
-        const prepared = await this.memory.prepareForgetItem(ownerTurn.principalId, itemId);
-        const transitionId = this.nextId();
-        command = await this.appendCommand(ownerTurn, key, requestHash, {
-          operation: "item.forget",
-          targetId: transitionId,
-          itemId,
-          versionId: prepared.item.version.versionId,
-          lifecycleState: "forgotten",
-          suppressions: prepared.sources.map((source) => ({
-            suppressionId: this.nextId(),
-            sourceId: source.sourceId,
-            targetEventId: source.eventId,
-            startEventSequence: null,
-            endEventSequence: null,
-            newlyHiddenTurnCount: source.newlyHiddenTurnCount,
-            totalCoveredTurnCount: source.totalCoveredTurnCount,
-          })),
-        });
+        // Validation only; the payload is prepared again at apply time because
+        // forgetting an earlier target in this batch can change a later target's
+        // hidden-turn counts on a shared conversation turn.
+        await this.memory.prepareForgetItem(ownerTurn.principalId, itemId);
+        plans.push(Object.freeze({ itemId, key, requestHash, existing: false }));
       }
-      const decoded = decodeStoredCommand(command.envelope.payload, forgetPayload);
-      if (decoded.itemId !== itemId) corrupt();
-      const result = await this.memory.forgetItem({
-        ...decoded,
-        principalId: ownerTurn.principalId,
-        ownerAuthorizingEventId: command.envelope.eventId,
-      });
-      const hiddenSiblingItemCount = await this.memory.countSiblingItemsHiddenByForget(
-        ownerTurn.principalId,
-        itemId,
-        decoded.transitionId,
-      );
-      return Object.freeze({
-        itemId: result.item.itemId,
-        state: "forgotten" as const,
-        newlyHiddenTurnCount: result.newlyHiddenTurnCount,
-        totalCoveredTurnCount: result.totalCoveredTurnCount,
-        hiddenSiblingItemCount,
-        receipt: `Forgot 1 memory and hid ${result.newlyHiddenTurnCount} of ${result.totalCoveredTurnCount} source turns${hiddenSiblingItemCount === 0
-          ? ""
-          : `, which also hid ${hiddenSiblingItemCount} other active ${hiddenSiblingItemCount === 1 ? "memory" : "memories"}`}; the original conversation remains retained. You can ask in ordinary language to use it again.`,
-        replayed: command.replayed || result.replayed,
-      });
+      const receipts: MemoryForgetReceipt[] = [];
+      for (const plan of plans) {
+        let command: AppendedEvent;
+        if (plan.existing) {
+          // A stored command with the matching key and hash: `appendCommand`
+          // returns it rather than writing a second one.
+          command = await this.appendCommand(ownerTurn, plan.key, plan.requestHash, {
+            operation: "item.forget",
+            targetId: this.nextId(),
+          });
+        } else {
+          const prepared = await this.memory.prepareForgetItem(ownerTurn.principalId, plan.itemId);
+          const transitionId = this.nextId();
+          command = await this.appendCommand(ownerTurn, plan.key, plan.requestHash, {
+            operation: "item.forget",
+            targetId: transitionId,
+            itemId: plan.itemId,
+            versionId: prepared.item.version.versionId,
+            lifecycleState: "forgotten",
+            suppressions: prepared.sources.map((source) => ({
+              suppressionId: this.nextId(),
+              sourceId: source.sourceId,
+              targetEventId: source.eventId,
+              startEventSequence: null,
+              endEventSequence: null,
+              newlyHiddenTurnCount: source.newlyHiddenTurnCount,
+              totalCoveredTurnCount: source.totalCoveredTurnCount,
+            })),
+          });
+        }
+        const decoded = decodeStoredCommand(command.envelope.payload, forgetPayload);
+        if (decoded.itemId !== plan.itemId) corrupt();
+        const result = await this.memory.forgetItem({
+          ...decoded,
+          principalId: ownerTurn.principalId,
+          ownerAuthorizingEventId: command.envelope.eventId,
+        });
+        const hiddenSiblingItemCount = await this.memory.countSiblingItemsHiddenByForget(
+          ownerTurn.principalId,
+          plan.itemId,
+          decoded.transitionId,
+        );
+        receipts.push(Object.freeze({
+          itemId: result.item.itemId,
+          state: "forgotten" as const,
+          newlyHiddenTurnCount: result.newlyHiddenTurnCount,
+          totalCoveredTurnCount: result.totalCoveredTurnCount,
+          hiddenSiblingItemCount,
+          receipt: `Forgot 1 memory and hid ${result.newlyHiddenTurnCount} of ${result.totalCoveredTurnCount} source turns${hiddenSiblingItemCount === 0
+            ? ""
+            : `, which also hid ${hiddenSiblingItemCount} other active ${hiddenSiblingItemCount === 1 ? "memory" : "memories"}`}; the original conversation remains retained. You can ask in ordinary language to use it again.`,
+          replayed: command.replayed || result.replayed,
+        }));
+      }
+      return Object.freeze(receipts);
     });
   }
 
@@ -1404,12 +1468,14 @@ export class MemoryOwnerControlsService {
     });
   }
 
-  async lift(input: TargetedMemoryControlInput): Promise<MemoryLiftReceipt> {
+  async lift(input: LiftMemoryInput): Promise<MemoryLiftReceipt> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
       requireMemoryIntent(ownerTurn, "lift");
       const itemId = exactSingleTarget(input.candidateItemIds);
-      const requestHash = await this.requestHash("lift", ownerTurn, [itemId]);
+      const basis = input.basis;
+      if (!MEMORY_BASES.has(basis)) refuse();
+      const requestHash = await this.requestHash("lift", ownerTurn, [itemId, basis]);
       const key = commandKey(ownerTurn, "lift");
       const existing = await this.hasCommand(key, requestHash);
       let command: AppendedEvent;
@@ -1429,6 +1495,7 @@ export class MemoryOwnerControlsService {
           previousVersionId: prepared.item.version.versionId,
           versionId: this.nextId(),
           lifecycleState: prepared.restoredLifecycleState,
+          basis,
           sourceIds: prepared.item.sources.map(() => this.nextId()),
           lifts: prepared.suppressionIds.map((suppressionId) => ({
             liftId: this.nextId(),

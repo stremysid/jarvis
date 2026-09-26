@@ -27,6 +27,30 @@ export const FAKE_SENSITIVE_ACTION_PIN = "0000";
 
 export const FAKE_PIN_A = () => Uint8Array.from([52, 56, 50, 55]);
 export const FAKE_PIN_B = () => Uint8Array.from([49, 51, 53, 55]);
+
+/**
+ * Matches a PIN only where it leaked as its own value, never as a coincidental
+ * substring of a random identifier.
+ *
+ * A four-digit PIN can appear by chance inside a lowercase hex hash or a ULID —
+ * `4827` did exactly that inside a `model_claim_token_hash` in a
+ * `conversation_turns` row, failing a `not.toContain` check on CI. That is not
+ * the leak these acceptance tests exist for; a real leak stores the digits as
+ * their own token, separated from any surrounding value by JSON punctuation, a
+ * quote, whitespace or a string boundary.
+ *
+ * The match is therefore anchored on both sides against alphanumeric run
+ * characters, which is what a lowercase hex hash and a ULID are made of. That
+ * keeps the protection — a stored or spoken PIN is still caught — while a run
+ * such as `a4827f…`, `…4827abc`, `01k5j…4827` or `+14164827555` no longer
+ * matches. JSON punctuation, quotes, whitespace and separators such as `=` still
+ * delimit a leaked value, so `code=4827&` is caught.
+ */
+export function pinLeak(digits: Uint8Array): RegExp {
+  const value = String.fromCharCode(...digits);
+  return new RegExp(`(?<![0-9A-Za-z])${value}(?![0-9A-Za-z])`, "u");
+}
+
 export const FAKE_VOICE_REGISTRY = () => new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });
 const NOW = "2026-08-30T12:00:00.000Z";
 
@@ -104,6 +128,7 @@ export async function seedFakeCanonicalMemory(
     principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: eventId,
     creationEventSequence: event.sequence,
     version: {
