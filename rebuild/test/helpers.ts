@@ -70,6 +70,8 @@ export function makeHarness(
         call: event.call,
         ownerPinVerifier: built.ownerPinVerifier,
         guests: built.guests,
+        wakeups: built.wakeups,
+        archive: built.archive,
       };
     },
   };

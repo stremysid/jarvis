@@ -53,6 +53,8 @@ export interface AgentDeps {
   ownerPinVerifier?: OwnerPinVerifier;
   guests?: GuestsRepo;
   pinPepper?: string;
+  wakeups?: import("../scheduler/wakeup-scheduler.js").WakeupScheduler;
+  archive?: import("../plumbing/archive.js").ArchiveService;
 }
 
 /**
@@ -84,6 +86,8 @@ export class AgentCore {
       ownerPinVerifier: this.d.ownerPinVerifier,
       guests: this.d.guests,
       pinPepper: this.d.pinPepper,
+      wakeups: this.d.wakeups,
+      archive: this.d.archive,
     };
   }
 

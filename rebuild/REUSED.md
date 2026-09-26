@@ -21,6 +21,9 @@ memory, proof) and put every judgment in the model's prompt/tool descriptions.
 | `apps/cloud-gateway/src/autonomy/*` (confirmations) | The pending-action + enforced-tap pattern. Reimplemented in `rebuild/src/confirmations/*` with an explicit same-turn self-confirm guard and args-hash binding. |
 | `apps/cloud-gateway/src/channels/telegram/*` | Webhook secret header + owner-chat check. Reimplemented in `rebuild/src/router/telegram-webhook.ts`; **removed** any slash-command grammar parsing (those become model-called tools). |
 | (Phase 3 — no existing connector to study; the brief's MCP/HTTPS contract) | Built fresh in `rebuild/src/apps/*`: connector contract, HTTPS client, app-manager that merges tools into the same catalogue, connect_app routed through the confirmation gate, app-event wake. No code copied. |
+| `apps/cloud-gateway/src/voice/*` | The ConversationRelay + PIN + guest-isolation shape. Reimplemented fresh in `rebuild/src/voice/*`; guest prompt built from scratch so no pinned facts can leak; PIN compared as a hash and fail-closed. No code copied. |
+| `apps/cloud-gateway/src/{scheduler,reminders}/*` | Single-DO-alarm-points-at-earliest pattern. Reimplemented in `rebuild/src/scheduler/*`; the model supplies the wake-up instant (no hardcoded lead times / "warn N hours before"). No code copied. |
+| `apps/cloud-gateway/src/{backup,archive}/*` | Nightly export + archive-by-date shapes. Reimplemented in `rebuild/src/plumbing/*` against a Bucket interface; backup and vault report their counts so a truncation is visible (the old "stopped at 64" bug). No code copied. |
 
 If a later session copies a file, add a row: `original path → rebuild/<new path> → what was
 changed and why (especially which code-side judgment was stripped)`.

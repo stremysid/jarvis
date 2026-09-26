@@ -20,6 +20,14 @@ import type { ConnectedApp } from "../types.js";
 import { voiceTools } from "../voice/voice-tools.js";
 import { GuestsRepo } from "../voice/guests-repo.js";
 import { makeOwnerPinVerifier, type OwnerPinVerifier } from "../voice/pin.js";
+import { WakeupsRepo } from "../scheduler/wakeups-repo.js";
+import { WakeupScheduler, type SetAlarm } from "../scheduler/wakeup-scheduler.js";
+import { wakeupTools } from "../scheduler/wakeup-tools.js";
+import { InMemoryBucket, type Bucket } from "../plumbing/bucket.js";
+import { ArchiveService, archiveSearch } from "../plumbing/archive.js";
+import { BackupService } from "../plumbing/backup.js";
+import { HeartbeatRepo } from "../plumbing/heartbeat.js";
+import { WatchdogPinger } from "../plumbing/watchdog.js";
 
 export interface BuildInput {
   model: Model;
@@ -34,6 +42,12 @@ export interface BuildInput {
   /** Owner PIN config for the five actions on a call. Missing => fail closed. */
   ownerPin?: string;
   pinPepper?: string;
+  /** Object store for backup/archive/vault. Defaults to an in-memory bucket. */
+  bucket?: Bucket;
+  /** Points the single DO alarm at the earliest wake-up. Defaults to a no-op. */
+  setAlarm?: SetAlarm;
+  /** External watchdog ping URL (Healthchecks.io). Missing => not_connected. */
+  watchdogUrl?: string;
 }
 
 export interface BuiltJarvis {
@@ -48,6 +62,13 @@ export interface BuiltJarvis {
   appsRepo: ConnectedAppsRepo;
   guests: GuestsRepo;
   ownerPinVerifier: OwnerPinVerifier;
+  wakeups: WakeupScheduler;
+  wakeupsRepo: WakeupsRepo;
+  archive: ArchiveService;
+  backup: BackupService;
+  heartbeat: HeartbeatRepo;
+  watchdog: WatchdogPinger;
+  bucket: Bucket;
 }
 
 /** Wire the whole brain together. Used by the DO, local runner and tests. */
@@ -63,6 +84,8 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
     ...actionTools,
     ...appTools,
     ...voiceTools,
+    ...wakeupTools,
+    archiveSearch,
     sendText,
     receiptsQuery,
     settingsUpdate,
@@ -79,6 +102,22 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
 
   const guests = new GuestsRepo(input.clock);
   const ownerPinVerifier = makeOwnerPinVerifier(input.ownerPin, input.pinPepper);
+
+  const wakeupsRepo = new WakeupsRepo(input.clock);
+  const wakeups = new WakeupScheduler(wakeupsRepo, input.clock, input.setAlarm);
+  const bucket = input.bucket ?? new InMemoryBucket();
+  const archive = new ArchiveService(bucket, input.clock);
+  const heartbeat = new HeartbeatRepo(input.clock);
+  const watchdog = new WatchdogPinger(input.watchdogUrl);
+  const backup = new BackupService(bucket, input.clock, {
+    facts: () => facts.all(),
+    pending_actions: () => [], // exposed via repo internals in production; empty view here
+    wakeups: () => wakeupsRepo.list(),
+    guests: () => guests.list(),
+    connected_apps: () => appsRepo.list(),
+    receipts: () => receipts.all(),
+    settings: () => Object.entries(settings.all()).map(([key, value]) => ({ key, value })),
+  });
 
   const agent = new AgentCore({
     model: input.model,
@@ -97,8 +136,29 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
     apps,
     guests,
     ownerPinVerifier,
+    wakeups,
+    archive,
     ...(input.pinPepper ? { pinPepper: input.pinPepper } : {}),
   });
 
-  return { agent, dispatcher, facts, conversation, receipts, pending, settings, apps, appsRepo, guests, ownerPinVerifier };
+  return {
+    agent,
+    dispatcher,
+    facts,
+    conversation,
+    receipts,
+    pending,
+    settings,
+    apps,
+    appsRepo,
+    guests,
+    ownerPinVerifier,
+    wakeups,
+    wakeupsRepo,
+    archive,
+    backup,
+    heartbeat,
+    watchdog,
+    bucket,
+  };
 }

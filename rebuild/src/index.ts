@@ -11,6 +11,8 @@ import type { JarvisEvent } from "./jarvis/agent-core.js";
 import { AppEventsRepo, wakeOnAppEvent } from "./apps/app-events.js";
 import { buildConnectTwiml } from "./voice/twiml.js";
 import { verifyTwilioSignature } from "./voice/twilio-signature.js";
+import { handleCron } from "./scheduler/cron.js";
+import { buildVaultExport, authorizeVaultExport } from "./plumbing/vault.js";
 
 /**
  * Worker router. Receives Telegram webhooks, verifies them (fail closed), and
@@ -100,7 +102,26 @@ export default {
       });
     }
 
+    // Vault export (Phase 7): one-way pull for the Windows PC script. Token-gated
+    // (fail closed). Routes to the DO where the data lives.
+    if (url.pathname === "/vault/export") {
+      const ns = env.JARVIS as DurableObjectNamespace | undefined;
+      if (!ns) return json({ ok: false, reason: "JARVIS DO binding missing" }, 500);
+      if (!env.OWNER_CHAT_ID) return json({ ok: false, reason: "OWNER_CHAT_ID not configured" }, 500);
+      const stub = ns.get(ns.idFromName(env.OWNER_CHAT_ID));
+      const token = request.headers.get("x-vault-token") ?? url.searchParams.get("token");
+      return stub.fetch(`https://do/vault/export`, { headers: { "x-vault-token": token ?? "" } });
+    }
+
     return json({ ok: false, reason: "not found" }, 404);
+  },
+
+  /** Cron entry point. Cloudflare passes the matched cron string in event.cron. */
+  async scheduled(event: { cron: string }, env: Env): Promise<void> {
+    const ns = env.JARVIS as DurableObjectNamespace | undefined;
+    if (!ns || !env.OWNER_CHAT_ID) return;
+    const stub = ns.get(ns.idFromName(env.OWNER_CHAT_ID));
+    await stub.fetch(`https://do/cron?expr=${encodeURIComponent(event.cron)}`, { method: "POST" });
   },
 };
 
@@ -157,6 +178,12 @@ export class JarvisDurableObject {
     const url = new URL(request.url);
     if (url.pathname === "/apps/event") {
       return this.handleAppEvent(request);
+    }
+    if (url.pathname === "/cron") {
+      return this.handleCronRequest(url);
+    }
+    if (url.pathname === "/vault/export") {
+      return this.handleVaultExport(request);
     }
     const update = (await request.json()) as {
       chatId: string;
@@ -221,5 +248,43 @@ export class JarvisDurableObject {
     const ev = events.store(app.name, body.payload);
     const result = await wakeOnAppEvent(built.agent, ev, ownerId);
     return json({ ok: !result.error, note: "event delivered to Jarvis" });
+  }
+
+  private async handleCronRequest(url: URL): Promise<Response> {
+    const ownerId = this.env.OWNER_CHAT_ID ?? "";
+    let built;
+    try {
+      built = this.ensureBuilt(ownerId);
+    } catch (e) {
+      if (e instanceof MissingModelKeyError) return json({ ok: false, reason: "no model key" }, 200);
+      throw e;
+    }
+    const expr = url.searchParams.get("expr") ?? "";
+    const result = await handleCron({
+      cronExpr: expr,
+      agent: built.agent,
+      scheduler: built.wakeups,
+      heartbeat: built.heartbeat,
+      watchdog: built.watchdog,
+      backup: built.backup,
+    });
+    return json({ ok: true, result });
+  }
+
+  private async handleVaultExport(request: Request): Promise<Response> {
+    const ownerId = this.env.OWNER_CHAT_ID ?? "";
+    let built;
+    try {
+      built = this.ensureBuilt(ownerId);
+    } catch (e) {
+      if (e instanceof MissingModelKeyError) return json({ ok: false, reason: "no model key" }, 200);
+      throw e;
+    }
+    const token = request.headers.get("x-vault-token");
+    if (!authorizeVaultExport(token, this.env.VAULT_EXPORT_TOKEN)) {
+      return json({ ok: false, reason: "vault export requires a valid token" }, 401);
+    }
+    const exported = buildVaultExport(built.facts.all(), built.wakeupsRepo.list());
+    return json({ ok: true, count: exported.count, notes: exported.notes });
   }
 }

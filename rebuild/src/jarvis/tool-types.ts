@@ -59,6 +59,12 @@ export interface ToolContext {
   guests?: import("../voice/guests-repo.js").GuestsRepo;
   /** Pepper for hashing guest PINs at rest. */
   pinPepper?: string;
+
+  // ---- Daily rhythm + plumbing (Phases 6-7) ----
+  /** Wake-up scheduler (schedule/list/cancel). */
+  wakeups?: import("../scheduler/wakeup-scheduler.js").WakeupScheduler;
+  /** Conversation archive search. */
+  archive?: import("../plumbing/archive.js").ArchiveService;
 }
 
 export interface Tool {

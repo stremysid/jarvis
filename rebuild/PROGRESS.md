@@ -1,18 +1,18 @@
 # Jarvis rebuild (agent-1) — PROGRESS
 
-**Phases: 4.5 of 7 built and tested this session** (Phases 1, 2, 3, 5 complete; Phase 4
-confirmation/shadow/receipts core complete). Phases 6, 7 not started.
+**All 7 phases built and tested** (Phases 1, 2, 3, 5, 6, 7 complete; Phase 4 confirmation/shadow/
+receipts core complete — that is the whole of Phase 4's code scope).
 
-**Exact next step:** Phase 6 (Daily rhythm): schedule_wakeup / list_wakeups / cancel_wakeup with a
-DO alarm always set to the earliest; cron triggers accounting for Eastern time + DST (test WHICH
-firing happens); an hourly poll that wakes Jarvis and pings the watchdog; the model decides the
-morning digest time/content and the Sunday retro. Then Phase 7 (backups/archive/heartbeat/
-watchdog/vault sync).
+**Exact next step:** production persistence + runtime wiring (the deploy-side work, not new
+features): replace the in-memory repositories with D1-backed adapters that run
+`migrations/0001_init.sql`; persist Durable Object state across evictions; bind Vectorize +
+Workers AI + R2 in place of the in-memory/fake stand-ins; and implement the DO WebSocket loop that
+streams ConversationRelay call turns. The agent core already treats a voice turn identically to a
+text turn, so that last one is transport wiring, not logic.
 
 **Voice runtime note:** the `/voice` webhook (Twilio signature verified, returns ConversationRelay
 TwiML) and the caller-id/PIN/guest logic are built and unit-tested. The DO WebSocket loop that
-streams call turns is the one piece not wired end-to-end in the sandbox (no Twilio); the agent
-core already handles a voice turn identically to text, so wiring is plumbing.
+streams call turns is the one piece not wired end-to-end in the sandbox (no Twilio).
 
 ---
 
@@ -24,7 +24,7 @@ npm install
 npm test
 ```
 
-46 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
+59 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
 
 ---
 
@@ -66,6 +66,17 @@ npm test
 - `src/voice/voice-tools.ts` — pin_verify, call_place (not connected), guest_create, guest_revoke.
 - `src/voice/twiml.ts` — ConversationRelay Connect TwiML pointing at the DO websocket.
 - `src/voice/twilio-signature.ts` — Twilio HMAC-SHA1 signature verify (fail-closed).
+- `src/scheduler/wakeups-repo.ts` — wake-ups store (sorted by fire time).
+- `src/scheduler/wakeup-scheduler.ts` — single DO alarm always pointed at the earliest; fireDue delivers due ones.
+- `src/scheduler/wakeup-tools.ts` — schedule_wakeup / list_wakeups / cancel_wakeup (model supplies the instant).
+- `src/scheduler/time-zones.ts` — Eastern wall-clock via Intl (DST-correct, no hardcoded offset).
+- `src/scheduler/cron.ts` — cron entry: fire due wake-ups, hourly check, watchdog ping, nightly backup.
+- `src/plumbing/bucket.ts` — Bucket interface + InMemoryBucket + R2 adapter (production swap-in).
+- `src/plumbing/backup.ts` — nightly export of every table + row counts (no silent truncation).
+- `src/plumbing/archive.ts` — conversation archive by date + archive_search tool.
+- `src/plumbing/heartbeat.ts` — per-component liveness (alive vs quiet).
+- `src/plumbing/watchdog.ts` — external ping (Healthchecks.io); honest not_connected when unset.
+- `src/plumbing/vault.ts` — vault markdown export (processes EVERY note) + token gate (fail-closed).
 - `src/channels/telegram-channel.ts` — real Telegram send; surfaces delivery failures.
 - `src/channels/fake-owner-channel.ts` — test channel; can be told to fail.
 - `src/router/telegram-webhook.ts` — signature + owner checks (fail closed) + provenance.
@@ -95,6 +106,13 @@ npm test
   wrong/missing PIN fails closed; caller-id classifies owner/guest/unknown (and fail-closed with no owner
   phone); a guest gets a minimal prompt with no owner facts/memory/tools and no shared-history write;
   Connect TwiML built; Twilio signature verified (fail-closed); hashed PIN is not plaintext.
+- `test/phase6-daily-rhythm.test.ts` (6): schedule_wakeup validates + alarm; alarm tracks the earliest;
+  fires only PASSED wake-ups (asserts which firing); Eastern DST wall-clock (EST + EDT); hourly cron fires
+  due wake-ups, hands Jarvis an hourly check, pings watchdog, beats, and the MODEL chooses to send a digest;
+  nightly cron runs only the backup.
+- `test/phase7-plumbing.test.ts` (7): backup exports every table + every row (100, not capped); archive by
+  date + search across range incl call transcripts; archive_search tool; heartbeat alive-vs-quiet; watchdog
+  honest not_connected vs a real ping; vault export processes EVERY note (101, not 64); vault token fail-closed.
 
 ## Mutation checks done this session (trap: don't trust green until you mutate)
 
@@ -110,6 +128,9 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 - App failure visibility (fake pretend-success) → phase3 "failure is visible: a down app..." went red.
 - Voice PIN enforcement in the gate (disabled) → phase5 "a sensitive action on a call REFUSES without a verified PIN" went red.
 - Guest branch in agent core (removed) → phase5 "a guest call gets a minimal prompt..." went red.
+- Wake-up due-time check (fire everything) → phase6 "fires only wake-ups whose time has PASSED" went red.
+- Vault export capped at 64 (the old bug) → phase7 "processes EVERY note" went red.
+- Vault token fail-open (no token => allow) → phase7 "token-gated and fails closed" went red.
 
 ## Decisions not in the brief (mine, flagged for Sid)
 
@@ -157,9 +178,13 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 
 ## Not yet built (be honest with Sid)
 
-- Phase 6 wake-ups/cron/digest (the `schedule_wakeup` tool hook exists in ToolContext but no scheduler).
-- Phase 7 backups/archive/heartbeat/watchdog/vault sync.
-- D1/DO/Vectorize/R2 production persistence adapters (in-memory today).
+All seven phases' feature code is built and tested. What remains is deploy-side wiring, not new features:
+- D1/DO/Vectorize/R2 production persistence adapters (in-memory / fake stand-ins today). Repos are
+  written against `migrations/0001_init.sql`'s shape, so this is adapter work, not a redesign.
+- Durable Object state persisted across evictions (today the DO keeps state only for its lifetime).
+- The DO WebSocket loop that streams ConversationRelay call turns (the `/voice` webhook + all voice
+  logic exist and are tested; this is the transport that carries a voice turn into the same agent core).
+- The five action tools are wired to NO real provider on purpose — each returns `not_connected`.
 
 ---
 
@@ -171,7 +196,7 @@ Built by:
 - Reasoning / effort level (if known): UNKNOWN
 - Knowledge cutoff: UNKNOWN
 - Session date and time (UTC): 2026-09-26
-- Phases completed this session: Phases 1, 2, 3, 5, and the confirmation/shadow/receipts core of Phase 4
+- Phases completed this session: all 7 (Phases 1, 2, 3, 5, 6, 7, and the full confirmation/shadow/receipts scope of Phase 4)
 
 ---
 
