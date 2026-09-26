@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { MAX_TOOL_CALLS_PER_ROUND } from "../../src/agent/owner-agent-core.js";
+import type { OwnerCommandCapabilities } from "../../src/agent/owner-command-capabilities.js";
 import { testToolGate } from "../autonomy/tool-gate-fixture.js";
 import { argumentsFingerprint, confirmationReference } from "../../src/autonomy/tool-confirmations.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
@@ -211,6 +212,7 @@ async function runTurn(input: {
   readonly controlTargetIds?: readonly Ulid[];
   readonly committedItemIds?: readonly Ulid[];
   readonly sessionId?: string;
+  readonly commands?: OwnerCommandCapabilities;
 }): Promise<string> {
   const directOwnerText = input.directOwnerText ?? true;
   const durableDirectOwnerText = input.durableDirectOwnerText ?? directOwnerText;
@@ -239,6 +241,7 @@ async function runTurn(input: {
     turnTimeoutMs: input.turnTimeoutMs,
     turnReceivedAt: input.turnReceivedAt,
     now: input.now,
+    ...(input.commands === undefined ? {} : { commands: input.commands }),
   });
   const service = new DefaultConversationService({
     repository,
@@ -549,6 +552,7 @@ async function prepareConfirmedForget(label: string): Promise<Readonly<{
     origin: "telegram-memory-forget",
     originReference: ids.join(","),
     urgency: "normal",
+    rank: 50,
     question: `Forget these ${ids.length} memories?`,
     detail: "Nothing changes unless Sid taps Confirm forget.",
     choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${ids.length}` }]),
@@ -578,7 +582,7 @@ async function prepareModelConfirmationDecision(label: string): Promise<Readonly
     text: "yes",
     controlTargetIds: [itemId],
     provider: new FakeAgentProvider([
-      called(tool(`${label}-confirm`, "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      called(tool(`${label}-confirm`, "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })),
       stopped("Use Confirm or Discard."),
     ]),
   });
@@ -1190,7 +1194,7 @@ describe("owner Telegram agent", () => {
       provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
     });
     const provider = new FakeAgentProvider([
-      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
+      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right", rank: 50 })),
       stopped("Confirmed.", [{ sentence: "Confirmed.", receiptIds: ["receipt:confirm-1"] }]),
     ]);
 
@@ -1228,6 +1232,8 @@ describe("owner Telegram agent", () => {
       originReference: `${itemId}:${beforeTap.version.versionId}`,
       question: exactPrompt,
       status: "delivered",
+      // The rank is the model's: it passed rank 50 on the memory_confirm call.
+      rank: 50,
     });
     const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
     if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
@@ -1246,6 +1252,43 @@ describe("owner Telegram agent", () => {
           excerpt: 'Confirmed exact stored memory by tap: "I like art"',
         })]),
       });
+  });
+
+  it("refuses to queue a confirmation when the model does not state a rank", async () => {
+    const harness = await ownerHarness("confirm-no-rank");
+    const itemId = await proposedMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-1", "memory_confirm", { itemId, supportingExcerpt: "yes, that's right" })),
+      stopped("I did not change anything."),
+    ]);
+
+    await runTurn({
+      harness,
+      text: "yes, that's right",
+      provider,
+      context: [memoryContext({
+        item_id: itemId,
+        text: "I like art",
+        basis: "inferred",
+        lifecycle_state: "proposed",
+        excerpt: "maybe I like art",
+      })],
+      controlTargetIds: [itemId],
+    });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receipt: "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.",
+    });
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
+    const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
+    await expect(decisions.queue(harness.principalId)).resolves.toEqual([]);
   });
 
   it("labels an explanation of an uncertain memory as unconfirmed", async () => {
@@ -2626,6 +2669,7 @@ describe("owner Telegram agent", () => {
       origin: "telegram-memory-forget",
       originReference: ids.join(","),
       urgency: "normal",
+      rank: 100,
       question: `Forget these ${ids.length} memories?`,
       choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${ids.length}` }]),
     });
@@ -2664,6 +2708,7 @@ describe("owner Telegram agent", () => {
     const harness = await ownerHarness("answer-from-tap-failure");
     const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
     const decision = await decisions.raise({
+      rank: 100,
       principalId: harness.principalId,
       origin: "telegram-memory-forget",
       originReference: newUlid(),
@@ -3086,6 +3131,28 @@ describe("owner Telegram agent", () => {
       expect(request.tools).toHaveLength(0);
       expect(request.toolChoice).toBe("none");
     }
+  });
+
+  it("dispatches the reporting command tools through the shared port and feeds their evidence back", async () => {
+    const harness = await ownerHarness("command-tools");
+    const capabilities: OwnerCommandCapabilities = {
+      status: async () => "Autonomy: live since 2026-09-01",
+      queue: async () => Object.freeze([]),
+      digest: async () => "Today's digest.",
+    };
+    const provider = new FakeAgentProvider([
+      called(tool("status-1", "owner_status", {})),
+      stopped("You are running live."),
+    ]);
+
+    await expect(runTurn({ harness, text: "/status", provider, commands: capabilities }))
+      .resolves.toBe("You are running live.");
+
+    // The tool ran through the owner port rather than falling to the
+    // unknown-tool refusal, and its evidence is in the model's next round.
+    expect(provider.requests).toHaveLength(2);
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}"))
+      .toMatchObject({ status: "completed", receipt: "Autonomy: live since 2026-09-01" });
   });
 
   it("keeps the deterministic honesty fallback once and within Telegram's character limit", async () => {

@@ -96,10 +96,11 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
     name: "memory_confirm",
     description: "Mark a memory you inferred as confirmed once Sid agrees with the exact stored wording. Example: you proposed \"Sid dislikes long status updates\" and he answers \"yes, that's right\". A guess of yours is never promoted from your own words alone: you show the stored wording and he answers, or he taps the keyboard.",
     parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
+      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt", "rank"],
       properties: {
         itemId: { type: "string", description: "The id of the proposed memory, from the item ids in your context." },
         supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096, description: "His exact confirmation words, copied." },
+        rank: { type: "integer", minimum: 0, description: "Your priority for the confirm question this raises in Sid's queue: 0 is highest, larger waits longer. You decide how urgent it is; code will not choose for you." },
       },
     }),
   }),
