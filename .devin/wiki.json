@@ -1,0 +1,148 @@
+{
+  "repo_notes": [
+    {
+      "content": "Core rule: code builds tools, Jarvis (the AI) makes every decision. Code never decides meaning, relevance, how many, which, how long, or whether to act — the model does, through tool arguments and its own prompt, and it asks Sid when it is unsure. Code keeps exactly three kinds of thing: permissions (guest isolation, and Sid's five confirmed actions — spending money, sending an email, making a call, submitting school work, texting or calling someone on his behalf), validation that an id exists and belongs to Sid, and system-protection limits (sizes, timeouts, runaway caps), each named as such where it appears. A pull request that adds a new code-side judgment does not merge; one found in existing code is removed if small, or registered in docs/CODE-VS-JUDGMENT.md with a removal item in docs/QUEUE.md.",
+      "author": "stremysid/jarvis maintainers"
+    },
+    {
+      "content": "Only Sid's five actions ever ask him to confirm: spending money, sending an email, making a call, submitting school work, and texting or calling someone on his behalf (migration 0051). Nothing else asks 'just to be sure'. Toward Sid, nothing is hidden and nothing is redacted except machine-credential shapes (Jarvis's own infrastructure secrets) — Sid can see and hear his own codes, PINs, phone numbers and passphrases as they are. Redaction word-list rules apply only to readers who are not Sid: guest call sessions, policy audit, and provider callback telemetry. Guests are isolated from Sid's owner profile, prompt framing and tool catalogue entirely; an authenticated guest call gets no owner tools.",
+      "author": "stremysid/jarvis maintainers"
+    },
+    {
+      "content": "Sources of truth, read in this order: AGENTS.md (traps and conventions; read first), docs/STATE.md (what is true right now, regenerated not appended, capped at 150 lines), docs/QUEUE.md (what is in flight and who acts next), and docs/CODE-VS-JUDGMENT.md (the removal list of code-side judgments still on main, and the ones already deleted). If a longer document disagrees with docs/STATE.md, docs/STATE.md is right and the longer document is stale. docs/OWNER-ACTIONS.md lists what only the owner (Sid) can do; docs/FACTS.md is the durable-facts register about Sid and his environment; KNOWN_ISSUES.md lists proven-but-unfixed defects and unproven guarantees.",
+      "author": "stremysid/jarvis maintainers"
+    }
+  ],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "What Jarvis is (a personal AI assistant running as a Cloudflare Worker plus a Windows local agent), the fleet it runs on (Windows 11 home PC, Windows 11 laptop, iPhone 16 — no Linux, no server), and where to find the project's sources of truth (AGENTS.md, docs/STATE.md, docs/QUEUE.md, docs/CODE-VS-JUDGMENT.md).",
+      "parent": null,
+      "page_notes": [
+        "The home PC is on roughly 08:00-23:00 and off overnight; 'always-on' work belongs in the cloud gateway. The repo became public on 2026-09-25, so GitHub Actions runs free on standard runners."
+      ]
+    },
+    {
+      "title": "Gateway Core and the Owner Turn Loop",
+      "purpose": "apps/cloud-gateway/src/index.ts (the fetch/scheduled Worker entrypoint) and src/agent/OwnerAgentCore, the shared turn loop both Telegram and voice compose. Since PR #200, one owner turn can take several tool steps (search, then read, then record) instead of exactly one tool call per turn.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Autonomy Tiers and Confirmations",
+      "purpose": "src/autonomy/: capability tiers and shadow mode. Tier 3 is exactly Sid's five confirmed actions (migration 0051, PR #199); tier 2 runs unconfirmed once shadow mode is off; tier 1 always runs. A handful of confirmations outside the tier-3 registry still exist (multi-item memory forget, the guest-access phrase grammar, /call --confirm) and are tracked as follow-ups, not as the five-action gate.",
+      "parent": "Gateway Core and the Owner Turn Loop",
+      "page_notes": []
+    },
+    {
+      "title": "Persistence, Migrations and the Event Log",
+      "purpose": "src/persistence/: D1 access and the append-only events log with derived state. Migration 0001_foundation.sql is the single most useful file for the data model. The database enforces invariants with CHECK constraints and RAISE(ABORT) triggers, not application code.",
+      "parent": "Overview",
+      "page_notes": [
+        "As of 2026-09-25 evening, production D1 is at migration 0045; migrations 0044 and 0047 through 0054 are merged on main but not yet applied. A scratch rehearsal (PR #202) proved 0044 and 0047-0052 clean; 0053 and 0054 (added by PR #201, after the rehearsal) have not been rehearsed."
+      ]
+    },
+    {
+      "title": "Archive, Backup and Restore",
+      "purpose": "src/archive/ (R2 tiering for events aged out of D1) and src/backup/ (memory backup/restore, and the fixed notice sent to Sid when a nightly backup fails).",
+      "parent": "Persistence, Migrations and the Event Log",
+      "page_notes": []
+    },
+    {
+      "title": "Channels",
+      "purpose": "The three ways Sid reaches Jarvis: Telegram, phone calls, and email. Sid's rule is that only the medium differs — the brain, tools, memory, state and permissions are the same on every channel; any other difference is a bug.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Telegram Channel",
+      "purpose": "src/channels/telegram/: ingress, classification, rate limiting, command parsing, and a rejection payload structured so it cannot leak media metadata.",
+      "parent": "Channels",
+      "page_notes": []
+    },
+    {
+      "title": "Voice Subsystem",
+      "purpose": "src/voice/, src/calls/, src/providers/: Twilio, ConversationRelay and the CallSession Durable Object. Fails closed without credentials. Since PR #196, a sensitive action on a call is confirmed by a spoken or keyed 4-digit PIN (OWNER_ACTION_PIN) instead of a per-call passphrase gate.",
+      "parent": "Channels",
+      "page_notes": [
+        "Call transcripts are not verbatim: Deepgram strips filler words ('um', 'uh') by default and Twilio ConversationRelay exposes no option to keep them, so a guided-assignment 'raw' answer on a call is the stripped transcript, not Sid's exact words."
+      ]
+    },
+    {
+      "title": "Email Channel",
+      "purpose": "src/email/: the owner email inbox tool added in PR #190 (migration 0052), letting Jarvis read Sid's forwarded school mail and other messages as a tool result.",
+      "parent": "Channels",
+      "page_notes": []
+    },
+    {
+      "title": "Memory System",
+      "purpose": "src/memory/: the memory repository and owner controls (remember, forget, correct, confirm, pin), extraction/distillation from conversation, and the projection the local agent reads on calls.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Retrieval, Literal History and history_search",
+      "purpose": "Canonical memory-item retrieval plus the literal D1/R2 history search added in PR #198, letting Jarvis search anything Sid has said, on either channel. The newest messages (since the last hourly indexing run) are never in the index yet, and archived call replies below the indexing cursor are not backfilled.",
+      "parent": "Memory System",
+      "page_notes": []
+    },
+    {
+      "title": "Deadlines and Reminders",
+      "purpose": "src/deadlines/ (deadline store and external course-source clients) and src/reminders/ (reminder_schedule, reminder_list, cancel; PR #168). PRs #193 and #201 deleted the code-side due-date parsing grammar and the effort/lead-time/exam-window machinery: the model now supplies the due date and decides when to warn Sid itself.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "School, D2L and University Domain",
+      "purpose": "src/school/ and src/university/: school catch-up, study coach, and the university application tracker. Several word-grammar judgments here are being deleted area by area under the code-vs-judgment rule (PR #204 removed the worked-explanation and university-execution grammars; PRs #212 and #213 were open, not yet merged, as of 2026-09-25 evening).",
+      "parent": "Overview",
+      "page_notes": [
+        "Row 10 (deriveMissingWorkPage, a model-less cron job that infers missed schoolwork) is deliberately not removed yet: it needs a model-write tool and a new migration, tracked in docs/QUEUE.md."
+      ]
+    },
+    {
+      "title": "D2L Collector and Browser Extension",
+      "purpose": "apps/d2l-extension/: the Opera GX session-API collector that reads LDSB and Durham Brightspace on Sid's behalf, paired to the gateway per device. Brightspace itself exposes no calendar/iCal feed and its notification email carries no deadline, which is why the collector exists.",
+      "parent": "School, D2L and University Domain",
+      "page_notes": []
+    },
+    {
+      "title": "Web Tools",
+      "purpose": "src/web/: web_read and web_search tools added in PR #195, gated on the tier-1 read.web capability (migration 0049). web_read needs the PUBLIC_ORIGIN secret; web_search works keyless against Exa by default.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Local Agent (Windows)",
+      "purpose": "apps/local-agent/, Python managed with uv, ruff and mypy strict. Runs the replicate-then-distil-then-promote cycle, holds the named-pipe control channel, the Ed25519 device keys, and the Obsidian vault adapter. jarvis serve is the Windows launcher; jarvis node stays Linux-only and is not used.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Hermes Runtime and Watchdog",
+      "purpose": "apps/hermes-runtime/ (a hardened local model runtime track; the TypeScript adapter is on main, the Python Brain Bridge lacks its planned HTTP boundary) and apps/watchdog/ (a deliberately isolated second Worker that imports nothing from the gateway and only reads the shared liveness table).",
+      "parent": "Local Agent (Windows)",
+      "page_notes": []
+    },
+    {
+      "title": "Testing and CI",
+      "purpose": "The Vitest workspace suite, focused-test conventions (pnpm exec vitest --config vitest.workspace.ts run <file>), and the GitHub Actions workflows. Full suites run in CI, not on Sid's PC, because the PC also runs coding builders. scripts/check-state.mjs is the advisory CI job that keeps docs/STATE.md, docs/QUEUE.md, docs/OWNER-ACTIONS.md and docs/FACTS.md honest.",
+      "parent": "Overview",
+      "page_notes": [
+        "The repository going public on 2026-09-25 means GitHub Actions runs free on standard runners, which is why mutation sweeps and full-suite verification are being moved off Sid's PC onto workflow_dispatch jobs."
+      ]
+    },
+    {
+      "title": "Deployment",
+      "purpose": "How a revision reaches production: wrangler deploy for the gateway and watchdog Workers, and wrangler d1 migrations apply for D1, both run by Sid from an explicitly authorized checkout. Deploys are infrequent and manual; merged code can sit on main for many hours before it runs anywhere.",
+      "parent": "Overview",
+      "page_notes": []
+    },
+    {
+      "title": "Operating Docs and Agent Workflow",
+      "purpose": "How work actually happens: who builds (DeepSeek or a Claude/Codex builder) and who reviews (a different vendor, cross-checked); docs/BUILDING.md's stop-and-escalate rules; the docs/AGENT_LOG.md append-only handoff log between sessions that cannot talk to each other; and why a code-side judgment blocks merge.",
+      "parent": "Overview",
+      "page_notes": []
+    }
+  ]
+}

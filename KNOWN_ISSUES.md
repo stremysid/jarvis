@@ -228,9 +228,9 @@ not new probes. Both fixes belong to the builder in [QUEUE](docs/QUEUE.md).
 Sid's 2026-09-24 report, "ive already done test calling and it works", establishes
 his working-call observation, not the specific streaming checks above.
 
-## Guest-call privacy leak — live until #174 deploys
+## Guest-call privacy leak — fixed on main, still live in production
 
-On main and at the observed production revision `0d69556`,
+At the observed production revision `a7cd3553` (#189, deployed 2026-09-24 ~9:41 PM EDT),
 [`OwnerAgentCore.streamCaptured`](apps/cloud-gateway/src/agent/owner-agent-core.ts)
 reads the configured owner's pinned core profile unconditionally and builds an
 owner-framed system prompt. The
@@ -241,9 +241,10 @@ catalogue to the model. The later tool refusal does not protect prompt contents.
 The catalogue is model request metadata alongside the system prompt; this finding
 does not claim guest tools execute or that a live guest test was performed.
 
-[#174](https://github.com/stremysid/jarvis/pull/174) carries the fix. The defect
-remains live until that change merges and deploys; production still runs `0d69556` (#165),
-which predates it. See [STATE](docs/STATE.md#production).
+[#174](https://github.com/stremysid/jarvis/pull/174) carries the fix and **merged to `main`
+2026-09-25 1:53 AM EDT**, gating the profile, prompt and catalogue on exact owner-principal
+equality. The defect remains live in production because nothing has deployed since #189; see
+[STATE](docs/STATE.md#production).
 
 ## Telegram keyboard payload fields (PR #174 round-3 L2)
 
@@ -302,11 +303,11 @@ or explicitly unverified acceptance requirements, not a claim about today's
 production. Fixes removed from the old inventory, with fixing commits, are in
 the [audit record](docs/DOCS-VERIFY.md).
 
-Deployment evidence is [STATE](docs/STATE.md#production): **as of the 2026-09-24
-orchestrator-observed checks**, production runs source `0d69556` (#165), deployed at 03:47 UTC
-on 2026-09-24, with D1 at `0039`. The Worker version id is unverified. Everything merged after
-`0d69556` — including #171's streaming and #182's confirmation binding — is not deployed.
-Database contents below retain their older observation dates.
+Deployment evidence is [STATE](docs/STATE.md#production): as of the 2026-09-25 ~7:22 PM EDT
+orchestrator-observed checks, production runs source `a7cd3553` (#189), deployed ~9:41 PM EDT
+on 2026-09-24, with D1 at `0045`. Nothing has deployed since; every PR merged after `a7cd3553` —
+including #174's channel parity, #196's call PIN and #199's five-action tier-3 scope — is not
+deployed. Database contents below retain their older observation dates.
 Production was not queried for this audit. Owner-dependent acceptance belongs
 in [OWNER-ACTIONS](docs/OWNER-ACTIONS.md).
 

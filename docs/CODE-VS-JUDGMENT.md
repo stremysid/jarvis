@@ -28,11 +28,20 @@ system-protection limits (sizes, timeouts, runaway caps), each named as such.
 - **A judgment found in existing code** is removed in that pull request if it is small;
   otherwise it gets a row here **and** a removal item in [QUEUE](QUEUE.md), in the same PR.
 
-**Every current row is queued for removal** in [QUEUE](QUEUE.md#work-with-no-pull-request-yet),
-in three batches: voice (rows 1, 3, 4, 5), memory (rows 6–9 and 13) and school (rows 10–12,
-plus the two school collector rows at the end of this file). Two DeepSeek builders started
-the memory and school batches on 2026-09-25. **Row 2 is a permission, not a judgment**: the
-tier gate on placing a call stays; what is missing is a `call_place` hand.
+**Every current row is queued for removal** in [QUEUE](QUEUE.md#work-with-no-pull-request-yet).
+As of 2026-09-25 evening: school rows 11–12 are **removed, merged**
+([#204](https://github.com/stremysid/jarvis/pull/204)); voice rows 1, 3, 4, 5
+([#207](https://github.com/stremysid/jarvis/pull/207)) and memory rows 6–9, 13
+([#206](https://github.com/stremysid/jarvis/pull/206)) are **built, open, awaiting review**;
+row 10 is explicitly **not removed** (see below). The audit also continued past its original
+W1–W4 scope tonight, into three areas the table below once marked "never ran": the
+stalled-project detector ([#209](https://github.com/stremysid/jarvis/pull/209), open), the
+study-coach phrase parsers ([#212](https://github.com/stremysid/jarvis/pull/212), open) and
+the university status grammars ([#213](https://github.com/stremysid/jarvis/pull/213), open) —
+none of these three has merged, so none of their code is removed yet; see
+[the new-area findings](#new-area-findings-2026-09-25-open-not-yet-on-main) below.
+**Row 2 is a permission, not a judgment**: the tier gate on placing a call stays; what is
+missing is a `call_place` hand.
 
 ---
 
@@ -47,7 +56,7 @@ seven planned batches**:
 |---|---|---|
 | W1 | `memory` + `persistence` | **complete** |
 | W2 | `voice` + `channels` + `conversation` + `autonomy` + `security` + `sync` + `http` | **complete** |
-| W3 | `school`/`university`/`jobs`/`archive`/`backup`/`model`/`providers`/`index` | **never ran** |
+| W3 | `school`/`university`/`jobs`/`archive`/`backup`/`model`/`providers`/`index` | **partially run outside this audit's own batching**: `school` and `university` were reached by follow-on PRs (#204 merged; #212, #213 open); `jobs`/`archive`/`backup`/`model`/`providers`/`index` still never ran. `projects` (not originally named in W3) was also reached, by [#209](https://github.com/stremysid/jarvis/pull/209), open |
 | W4 | `local-agent`, `contracts`, `scripts`, watchdog, hermes | **never ran** |
 
 So: the whole Python local agent, the contracts package, `scripts/`, and the watchdog have
@@ -300,6 +309,18 @@ This is a partial register, not a completed audit of school or university code.
 every active accessible course offering is read and Jarvis judges its evidence.
 The collector's queue limits are explicitly owner-authorised storage bounds, with
 visible eviction counts. This remains a partial register, not a completed audit.
+
+## New-area findings, 2026-09-25 (open, not yet on `main`)
+
+None of the three PRs below has merged. Listed here so the next reader does not rediscover
+the same symbols; **do not treat any of it as removed** until its PR merges — check
+[QUEUE](QUEUE.md) for the current review state.
+
+| PR | Area | Symbols found | Replacement |
+|---|---|---|---|
+| [#209](https://github.com/stremysid/jarvis/pull/209) | `projects/stalled-detector.ts` | `assessStaleness`, `detectStalledProjects`, `DEFAULT_APPROACHING_WITHIN_DAYS`, and the verdict fields `stale`/`blind`/`escalate`/`reasons` plus `DeadlineReading`'s `nearest`/`approaching`/`overdue`/`available` — eleven decisions about when a project counts as late | `projects/project-facts.ts`'s `projectFacts()`, returning raw facts (days since last commit, poll health, last failure text, `NEXT_STEPS.md` dates) for the model to judge |
+| [#212](https://github.com/stremysid/jarvis/pull/212) | `school/study-coach-model.ts` | `parsePracticeRequest`, `parseStudyPreferenceIntent` (with its code-written confirmation), `parseOwnerStudyObservation` (with its negated-topic rejection), `resolveCourse`/`phraseMatches` | A declared `operation: practice\|preference\|observe` with the model's own arguments (`mode`, `sourcePhrase`, `preferencePatch`, `topic`, `outcome`, `courseId`); `courseId` is validated against the owner's own roster |
+| [#213](https://github.com/stremysid/jarvis/pull/213) | `university/university-tracker-model.ts` | The status-word grammars **B116–B129** (`OWNER_SUBMISSION`, `JOINT_OWNER_SUBMISSION`, `REPORTED_OWNER_SUBMISSION`, `NOT_STARTED_REPORT`, `DRAFTING_REPORT`, `READY_REPORT`, and more) — code decided the application/workflow status from Sid's wording | The model declares the status enum plus Sid's whole message as `statusEvidence`; code keeps only the receipt/provenance check (`statusEvidence === ownerMessage`), id/ownership, a real-calendar-date check and the verified source/cycle check. No migration |
 
 ## How to use this list
 
