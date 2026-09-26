@@ -2102,9 +2102,12 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     const args = parseArguments(call, fields);
     const itemId = safeUlid(args.itemId);
+    // Main requires a rank at this call site; this batch removes only the
+    // grammar that read Sid's words, so the rank stays and the excerpt is
+    // grounded by groundedExcerpt alone. confirmationExcerpt would re-add
+    // CONFIRMATION_LANGUAGE, which is the judgment this PR deletes.
     const rank = declaredRank(args.rank);
-    const excerpt = confirmationExcerpt(input, args.supportingExcerpt);
-    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
+    const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const stagedTargets = await this.dependencies.targets.findControlTargets({
       principalId: input.principalId,
