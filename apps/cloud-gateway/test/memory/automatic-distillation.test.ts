@@ -441,6 +441,8 @@ async function rememberedThenMaybeForgotten(forget: boolean): Promise<Readonly<{
     text: forgottenText,
     kind: "fact",
     sensitivity: "normal",
+    lifetime: "durable",
+    validTo: null,
   });
   const laterTurn = await appendConversation(events, principalId, "I sorted the shed today.");
   if (forget) {
@@ -519,6 +521,7 @@ async function commitInboxItem(
     principalId,
     itemId,
     kind: "fact" as const,
+    lifetime: "durable",
     creationEventId: event.envelope.eventId,
     creationEventSequence: event.eventSequence,
     version: Object.freeze({
@@ -1298,6 +1301,7 @@ describe("automatic memory distillation", () => {
         principalId,
         itemId: newUlid(),
         kind: "fact" as const,
+        lifetime: "durable",
         creationEventId: event.envelope.eventId,
         creationEventSequence: event.eventSequence,
         version: Object.freeze({
@@ -1425,6 +1429,28 @@ describe("automatic memory distillation", () => {
     }
     expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
       WHERE principal_id = ? AND operation = 'refile'`).bind(principalId).first("count")).toBe(0);
+  });
+
+  it("re-files an inbox item whose stored filing confidence is below the old floor", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_refile_school_missing");
+    // A retryable decision is only ever written by a filing that already passed
+    // the confidence floor, so re-checking the number in the retry query only
+    // re-decided a settled question. The reason is the retry test, not the
+    // confidence; this row would have been skipped by the old `>= 0.6`.
+    const lowConfidence = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "I kept the low-confidence retry note.", "inbox_cap", ["School"], "active", 0.1,
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toEqual({ examinedItemCount: 1, refiledItemCount: 1, failedItemCount: 0 });
+    expect((await placementDetail(principalId, lowConfidence)).topic_id).toBe(school.topic.topicId);
   });
 
   it("filters non-retryable filing decisions in SQL before the one-hundred-row re-file window", async () => {

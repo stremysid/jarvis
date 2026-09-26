@@ -85,8 +85,36 @@ function called(...toolCalls: readonly ModelFunctionCall[]): ModelAgentCompletio
   return Object.freeze({ content: null, toolCalls: Object.freeze([...toolCalls]), finishReason: "tool_calls" as const });
 }
 
+/**
+ * Fills in the memory tools' model-decided fields.
+ *
+ * `memory_remember` now requires a lifetime/`expiresAt` pair and
+ * `memory_restore` a basis, because the model decides those rather than the
+ * repository defaulting. A fixture testing something else should not have to
+ * restate them; a raw JSON string is left untouched so an omission can be sent
+ * deliberately.
+ */
+function withMemoryDefaults(name: string, args: unknown): unknown {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return args;
+  const record = args as Record<string, unknown>;
+  if (name === "memory_remember" && !("lifetime" in record)) {
+    return { ...record, lifetime: "durable", expiresAt: null };
+  }
+  if (name === "memory_correct" && !("lifetime" in record)) {
+    return { ...record, lifetime: "durable", expiresAt: null };
+  }
+  if (name === "memory_restore" && !("basis" in record)) {
+    return { ...record, basis: "stated" };
+  }
+  return args;
+}
+
 function tool(id: string, name: string, args: unknown): ModelFunctionCall {
-  return Object.freeze({ id, name, arguments: typeof args === "string" ? args : JSON.stringify(args) });
+  return Object.freeze({
+    id,
+    name,
+    arguments: typeof args === "string" ? args : JSON.stringify(withMemoryDefaults(name, args)),
+  });
 }
 
 class FakeAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
@@ -175,6 +203,7 @@ async function commitActiveMemoryFromVoiceTurn(
     principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: source.event_id as Ulid,
     creationEventSequence: source.sequence,
     version: {
@@ -855,7 +884,7 @@ describe("the voice agent adapter", () => {
     const principalId = `principal:voice-stream-save:${serial + 1}`;
     const heard: string[] = [];
     const fact = "I take my coffee black.";
-    const args = JSON.stringify({ fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal" });
+    const args = JSON.stringify({ fact, supportingExcerpt: fact, evidenceClass: "stated", previousOfferExcerpt: null, kind: "fact", sensitivity: "normal", lifetime: "durable", expiresAt: null });
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(agentResponse([
         agentFrame({ content: "I've sa" }), agentFrame({ content: "ved that. Here is some context." }),
@@ -1264,7 +1293,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(29);
+    expect(request?.tools).toHaveLength(30);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
@@ -1274,7 +1303,7 @@ describe("the voice agent adapter", () => {
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
-      "school_d2l_status", "school_collector_revoke", "school_work_evidence",
+      "school_d2l_status", "school_collector_revoke", "school_work_evidence", "project_facts",
       "email_inbox_list", "email_inbox_read",
     ]));
     const telegramRequests: ModelAgentCompletionInput[] = [];

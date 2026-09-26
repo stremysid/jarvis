@@ -128,6 +128,7 @@ export async function seedFakeCanonicalMemory(
     principalId,
     itemId,
     kind: "fact",
+    lifetime: "durable",
     creationEventId: eventId,
     creationEventSequence: event.sequence,
     version: {
