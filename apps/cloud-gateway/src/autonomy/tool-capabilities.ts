@@ -108,6 +108,11 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // It shares school_d2l_status's ungated tier-1 row: it reads Sid's own
   // school store, changes nothing and reaches nobody.
   school_work_evidence: "school.track",
+  // Read-only facts about the tracked repositories: excerpts, commit ages,
+  // dates and poll health. It shares `read.repository`, the tier-1 row
+  // `0008_autonomy.sql` already seeds for polling a repository's status
+  // documents, so classifying it needed no migration. It changes nothing.
+  project_facts: "read.repository",
   school_collector_revoke: "school.collector.revoke",
   reminder_schedule: "notify.owner",
   reminder_list: "notify.owner",

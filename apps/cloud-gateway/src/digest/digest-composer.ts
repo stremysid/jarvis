@@ -322,17 +322,26 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
 function projectSection(input: DigestInput): DigestSection | null {
   const lines: string[] = [];
   for (const project of input.projects) {
+    // Facts only. Whether any of this means a project needs Sid is Jarvis's
+    // judgment, so the digest states the commit age, the dates the plan names
+    // and whether the read failed, and attaches no verdict of its own.
+    const facts: string[] = [];
     if (project.pollFailure !== null) {
-      lines.push(
-        `${project.displayName}: could not be read (${neutraliseInline(project.pollFailure)})`,
-      );
-      continue;
+      facts.push(`could not be read (${neutraliseInline(project.pollFailure)})`);
     }
-    if (project.stalledReason !== null) {
-      lines.push(`${project.displayName}: stalled -- ${neutraliseInline(project.stalledReason)}`);
-    } else if (project.changedDocuments.length > 0) {
-      lines.push(`${project.displayName}: ${project.changedDocuments.join(", ")} changed`);
+    if (project.daysSinceLastCommit !== null) {
+      facts.push(`${String(Math.floor(project.daysSinceLastCommit))}d since the last commit`);
     }
+    if (project.nextStepsDates.length > 0) {
+      facts.push(`NEXT_STEPS dates: ${project.nextStepsDates.map((date) => neutraliseInline(date)).join(", ")}`);
+    }
+    if (project.nextStepsUnreadable.length > 0) {
+      facts.push(`date text it could not read: ${project.nextStepsUnreadable.map((value) => neutraliseInline(value)).join(", ")}`);
+    }
+    if (project.nextStepsTruncated) {
+      facts.push("NEXT_STEPS excerpt cut at the storage bound");
+    }
+    if (facts.length > 0) lines.push(`${project.displayName}: ${facts.join("; ")}`);
     if (project.nextStepsExcerpt !== null) {
       lines.push(...neutralise(project.nextStepsExcerpt));
     }

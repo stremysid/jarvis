@@ -6,6 +6,7 @@ import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
 import { REPLY_REFERENCE_TOOL_DEFINITIONS } from "./reply-reference-tools.js";
 import { OWNER_ACCESS_TOOL_DEFINITIONS } from "../voice/owner-access-tool.js";
 import { EMAIL_INBOX_TOOL_DEFINITIONS } from "../email/email-tools.js";
+import { PROJECT_FACTS_TOOL } from "../projects/project-tools.js";
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
 
 /** A new owner capability reaches both communication adapters from this catalogue. */
@@ -16,6 +17,7 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
   SCHOOL_WORK_EVIDENCE_TOOL,
+  PROJECT_FACTS_TOOL,
   ...OWNER_ACCESS_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",

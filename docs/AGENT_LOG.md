@@ -35,6 +35,39 @@ Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 
   `mutate.ps1` with `mutation-specs-calls-judgment.json` in the PR. Full suites on CI.
 - Not merged or deployed.
 
+## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13, PR #209)
+
+Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/projects-judgment-to-ai` from
+`679d2b95`, PR [#209](https://github.com/stremysid/jarvis/pull/209). Touches Sid's rules
+1, 2, 8, 9. No migration.
+
+- **The detector is gone, replaced by facts.** `projects/stalled-detector.ts` is renamed
+  `projects/project-facts.ts`. `assessStaleness`, `detectStalledProjects`,
+  `DEFAULT_APPROACHING_WITHIN_DAYS`, `stale`, `escalate`, `reasons`, `blind`, `nearest`,
+  `approaching` and `overdue` are all deleted. `projectFacts` returns one entry per
+  project with the stored document excerpts, `daysSinceLastCommit` as arithmetic, poll
+  health, the failure text, and every ISO day `NEXT_STEPS.md` names plus the date-shaped
+  text the reader will not interpret (B157, B161–B166).
+- **Every document change is reported.** `attentionChanges` and `ATTENTION_DOCUMENT_PATHS`
+  are deleted; `diffDocuments` already reports all four files, and which change matters is
+  the model's judgment (B153, B155).
+- **B170 left inert.** `0010_projects.sql`'s `stale_after_days DEFAULT 7` and the
+  `TrackedProject.staleAfterDays` field stay, with a comment saying nothing reads them for
+  a verdict; the repository still supplies the value, so no table rebuild and no migration.
+- **The model gets the facts.** New read-only `project_facts` tool, classified under the
+  already-seeded tier-1 `read.repository` capability, dispatched as an unactioned evidence
+  read (no receipt id) on both channels. Its description says the model decides what needs
+  attention and asks Sid when the facts are incomplete. The digest's Projects section now
+  states the commit age, the NEXT_STEPS dates and unreadable date text, and no longer says
+  "stalled"; the failed-facts-read gap is renamed "Project facts".
+- **Tests.** `stalled-detector.test.ts` became `project-facts.test.ts` (dates, ordering,
+  refused shapes, no verdict fields); the poller gained an all-changes test; the digest
+  composer and job tests assert factual lines and the absence of "stalled"; a new
+  `multi-step-tools.test.ts` case drives `project_facts` on Telegram and voice and asserts
+  a completed, receipt-less result. Focused projects/digest/jobs/autonomy/agent/channels/
+  providers: 43 files / 1036 tests pass. Gateway `tsc` exit 0. Mutation sweep in
+  `reviewer-tools/mutation-specs-projects-judgment.json`. Not merged or deployed.
+
 ## 2026-09-25 — DeepSeek builder: memory judgments moved to the AI (register rows 6–9, 13)
 
 Signed: DeepSeek (builder agent), branch `codex/memory-judgment-to-ai` from `origin/main`

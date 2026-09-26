@@ -115,6 +115,31 @@ conversation and the `owner_access` outcome is a structured receipt carrying `op
 queued as the next turn rather than dropped. A failed voice retrieval now puts a notice in
 the model's context instead of silently empty memory.
 
+## Project attention judgment: removed (batch 13, 2026-09-25)
+
+Removed by the PR titled "Projects: the AI decides what needs attention, not code"
+([#209](https://github.com/stremysid/jarvis/pull/209), branch `codex/projects-judgment-to-ai`,
+2026-09-25). The stalled-project detector
+was eleven decisions about when a project was late; each is now a fact the model
+reads and judges. No migration: the `stale_after_days` column and its `DEFAULT 7`
+are left inert rather than rebuilt.
+
+| Item | Symbol (as of `679d2b95`) | What it decided | Now |
+|---|---|---|---|
+| B153, B155 | `attentionChanges` / `ATTENTION_DOCUMENT_PATHS` (`project-poller.ts`, `project-types.ts`) | That only a change to `KNOWN_ISSUES.md` or `DECISIONS.md` was worth pinging about. | Deleted. `diffDocuments` already reports every document change; which one matters is the model's judgment. |
+| B157 | `DEFAULT_APPROACHING_WITHIN_DAYS` (`stalled-detector.ts`) | That a deadline within 14 days counted as approaching. | Deleted with the module. There is no horizon constant anywhere. |
+| B161 | `DeadlineReading.nearest` | That the earliest parsed date is the commitment that matters. | Deleted. `readProjectDates` returns every ISO day it reads, in the order the document wrote them. |
+| B162 | `readDeadlines` sort and slice | Sorted the days and kept the first ten. | Deleted. The days are deduplicated (identical strings only) and left in document order; the 4096-character excerpt bound already bounds the list. |
+| B163 | `DeadlineReading.approaching` / `overdue` and `deadlineInstant` | Compared a parsed day against "now" to label it approaching or overdue. | Deleted. The model compares the days with the commit age and decides. |
+| B164 | `report.stale` (`daysSinceLastCommit > status.project.staleAfterDays`) | Whether the gap since the last commit made a project stale. | Deleted. `projectFacts` reports `daysSinceLastCommit` as arithmetic and no verdict. |
+| B165 | `ProjectStalenessReport.escalate` | Whether a project should be raised to Sid. | Deleted. `project_facts` hands the model the excerpts, commit ages, dates and poll health, and its description tells it to decide. |
+| B166 | `detectStalledProjects` filtering on `escalate` | Which projects reached the owner and which were dropped. | Deleted with the module. `projectFacts` returns one entry per project; the digest states the facts and attaches no verdict. |
+| B170 | `stale_after_days INTEGER NOT NULL DEFAULT 7` (`0010_projects.sql:22`) | A stored staleness threshold. | Left inert. The column and default stay because dropping them would need a table rebuild; no code reads them for a verdict, and `ProjectRepository.trackProject` still supplies the value, so nothing in the schema changed. |
+
+`projects/stalled-detector.ts` is renamed `projects/project-facts.ts`, because a
+detector that no longer detects is a misleading name. The new `project_facts` tool
+is a tier-1 read under the already-seeded `read.repository` capability.
+
 ## Effort, lead time and the deadline warning schedule: removed
 
 Removed by the PR titled "Deadlines: the AI decides when to warn Sid"
