@@ -142,9 +142,9 @@ function fixtureHash(seed: string): Sha256Hex {
 }
 
 /**
- * A status view built by hand, so the stalled detector can be tested without
- * a database or a poll. The detector is a pure function over these; keeping
- * it that way is what makes a deadline rule cheap enough to test exhaustively.
+ * A status view built by hand, so the project-facts reader can be tested without
+ * a database or a poll. The reader is a pure function over these; keeping
+ * it that way is what makes a date rule cheap enough to test exhaustively.
  */
 export function projectStatus(input: {
   readonly project?: Partial<TrackedProject>;

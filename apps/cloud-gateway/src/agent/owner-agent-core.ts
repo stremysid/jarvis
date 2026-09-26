@@ -7,6 +7,8 @@
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
+import { ProjectRepository } from "../projects/project-repository.js";
+import { projectFacts } from "../projects/project-facts.js";
 import { SchoolObservationRepository } from "../school/school-observation-repository.js";
 import { CLASSROOM_SOURCE_ID } from "../school/classroom-source.js";
 import { SchoolCollectorPairing } from "../school/collector-pairing.js";
@@ -1553,6 +1555,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       const evidence = await new SchoolCollectorRepository(this.dependencies.database, input.principalId, this.dependencies.now ?? (() => new Date()))
         .status(args);
       return unactionedTool(call, JSON.stringify(evidence), []);
+    }
+    if (call.name === "project_facts") {
+      parseArguments(call, []);
+      // A read of Sid's own tracked repositories: no action authority spent,
+      // no receipt. The model judges what needs attention from these facts.
+      const statuses = await new ProjectRepository(this.dependencies.database).readActiveProjectStatuses();
+      const facts = projectFacts(statuses, { now: this.dependencies.now ?? (() => new Date()) });
+      return unactionedTool(call, JSON.stringify(facts), Object.freeze([]));
     }
     if (call.name === "school_work_evidence") {
       const args = parseArguments(call, ["cursor", "seenSinceDays", "limit"]);
