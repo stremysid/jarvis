@@ -77,9 +77,11 @@ describe("model-declared voice claims", () => {
     })).toBe(UNRECEIPTED_VOICE_ACTION);
   });
 
-  it("keeps credential requests and Brightspace checks forbidden even with a guided draft receipt", () => {
+  it("keeps a credential request even with a guided draft receipt, and still refuses a false Brightspace check", () => {
+    // Sid allowed Jarvis to ask for and hold a code (2026-09-24), so no rule
+    // rewrites the request. A claimed D2L check still needs its own evidence.
     expect(render(tagged("Send me your password.", "guided_assignment_draft"), [receipt("guided_assignment_draft")]))
-      .toContain("I can't accept passwords");
+      .toContain("Send me your password.");
     expect(render(tagged("I checked D2L.", "guided_assignment_draft"), [receipt("guided_assignment_draft")]))
       .toBe(UNRECEIPTED_VOICE_ACTION);
   });

@@ -162,12 +162,6 @@ function actionRow(value: ActionRow, expectedPrincipal: string): SchoolCatchupAc
   });
 }
 
-function addDays(localDate: string, days: number): string {
-  const instant = new Date(`${localDate}T12:00:00.000Z`);
-  instant.setUTCDate(instant.getUTCDate() + days);
-  return instant.toISOString().slice(0, 10);
-}
-
 interface RepairedPlan {
   readonly actions: readonly CatchupPlanAction[];
   readonly repairRules: readonly SchoolPlanRepairRule[];
@@ -182,7 +176,6 @@ const REPAIR_RULE_ORDER: readonly SchoolPlanRepairRule[] = Object.freeze([
 ]);
 
 function repairedPlan(actions: readonly CatchupPlanAction[], today: string): RepairedPlan {
-  const horizonEnd = addDays(today, 6);
   const repairs = new Set<SchoolPlanRepairRule>();
   const bounded: CatchupPlanAction[] = [];
   for (const action of actions) {
@@ -192,34 +185,37 @@ function repairedPlan(actions: readonly CatchupPlanAction[], today: string): Rep
     } catch {
       return Object.freeze({ actions: Object.freeze([]), repairRules: Object.freeze([]), invalidRule: "school_catchup_action_date_invalid" });
     }
-    if (localDate < today || localDate > horizonEnd) {
+    // Only a date in the past is refused: it cannot be planned. How far ahead a
+    // plan runs is the model's choice, and the prompt carries the owner's own
+    // policy. Code used to cut the window at seven days and drop what fell
+    // outside it, silently discarding planned work the model had chosen.
+    if (localDate < today) {
       repairs.add("school_catchup_action_date_invalid");
       continue;
     }
     if (!Number.isSafeInteger(action.estimatedMinutes)) {
       return Object.freeze({ actions: Object.freeze([]), repairRules: Object.freeze([]), invalidRule: "school_catchup_action_invalid" });
     }
-    const estimatedMinutes = Math.max(5, Math.min(180, action.estimatedMinutes));
-    if (estimatedMinutes !== action.estimatedMinutes) repairs.add("school_catchup_action_invalid");
-    bounded.push(Object.freeze({ ...action, localDate, estimatedMinutes }));
-  }
-
-  const kept: CatchupPlanAction[] = [];
-  const dayTotals = new Map<string, { count: number; minutes: number }>();
-  for (const action of bounded) {
-    const day = dayTotals.get(action.localDate) ?? { count: 0, minutes: 0 };
-    if (day.count >= 3 || day.minutes + action.estimatedMinutes > 180) {
-      repairs.add("school_catchup_day_unrealistic");
-      continue;
+    // `0020`'s CHECK stores 5..180 minutes per block, so that range is the
+    // storage bound. Code does not rewrite the model's number to fit it; it
+    // refuses and names the bound, and the model splits or rescales the block.
+    if (action.estimatedMinutes < 5 || action.estimatedMinutes > 180) {
+      return Object.freeze({
+        actions: Object.freeze([]),
+        repairRules: Object.freeze([]),
+        invalidRule: "school_catchup_action_minutes_out_of_range",
+      });
     }
-    day.count += 1;
-    day.minutes += action.estimatedMinutes;
-    dayTotals.set(action.localDate, day);
-    kept.push(action);
+    bounded.push(Object.freeze({ ...action, localDate }));
   }
 
+  // Renumbering keeps the model's order; it drops nothing. The per-day caps
+  // (three actions, 180 minutes) used to drop the day's extra actions here and
+  // are gone: a day's load is the owner's pinned capacity, which the prompt
+  // carries, and the model's judgment. The one runaway bound left is the
+  // 21-planned-action storage cap, checked by the caller.
   const nextRankByDate = new Map<string, number>();
-  const renumbered = kept.map((action) => {
+  const renumbered = bounded.map((action) => {
     const sequenceRank = (nextRankByDate.get(action.localDate) ?? 0) + 1;
     nextRankByDate.set(action.localDate, sequenceRank);
     if (sequenceRank !== action.sequenceRank) repairs.add("school_catchup_action_sequence_invalid");
@@ -248,7 +244,6 @@ export class SchoolCatchupRepository {
   async readSnapshot(principalIdValue: string, todayValue: string): Promise<SchoolCatchupSnapshot> {
     const principalId = principal(principalIdValue);
     const today = date(todayValue);
-    const resolvedSince = `${addDays(today, -30)}T00:00:00.000Z`;
     const [courseResult, factResult, resolvedFactResult, actionResult] = await Promise.all([
       this.database.prepare(`SELECT principal_id, course_id, course_name, course_name_source,
           platform_name, platform_source
@@ -265,9 +260,9 @@ export class SchoolCatchupRepository {
       this.database.prepare(`SELECT principal_id, course_id, fact_id, fact_kind, statement,
           evidence_source, observed_at, status, resolved_at
         FROM school_course_facts
-        WHERE principal_id = ?1 AND status = 'resolved' AND resolved_at >= ?2
+        WHERE principal_id = ?1 AND status = 'resolved'
         ORDER BY resolved_at DESC, fact_id
-        LIMIT 48`).bind(principalId, resolvedSince).all<FactRow>(),
+        LIMIT 48`).bind(principalId).all<FactRow>(),
       this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id, c.course_name,
           a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status
         FROM school_catchup_actions a

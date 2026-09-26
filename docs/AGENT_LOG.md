@@ -3,6 +3,59 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: #214 round 3 (migration 0056, row-20 queue item, final merge)
+
+Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai`.
+
+- **Migration renamed to `0056_school_catchup_planned_cap.sql`.** PR #207 (calls) took `0055`
+  (`0055_owner_access_tool.sql`), so the school cap-trigger migration moved one number up. Every
+  list and document that names it keeps both: `0055` then `0056` in numeric order in the restore
+  list, the school chain, the newest-runtime chain and the full list in
+  `test/persistence/migration.ts`, the remote-D1 syntax inventory, the memory-backup schema
+  version (`0056_school_catchup_planned_cap.sql`), the mutation spec and the docs. `0056` is free
+  on main and in every open PR. Nothing was applied anywhere.
+- **`docs/QUEUE.md` carries the removal item for register row 20** (`FALSE_EXTERNAL_COMPLETIONS`
+  and the passive-completion patterns in `school-catchup-model.ts`), which AGENTS.md requires for a
+  judgment that is registered but not removed. The row was 16 before #213's university rows 16–19
+  merged, so it and its references are renumbered to 20.
+- **`origin/main` merged** (`193d02b4`), bringing `0053`/`0054` (#201), `0055_owner_access_tool`
+  (#207), the study-coach batch (#212), the university tracker rows 16–19 (#213) and #218. The
+  study-coach test that expected the deleted credential-request rewrite now asserts the merged
+  behaviour: the generated password question stands and only the false completion claim is refused.
+- **Verified:** focused `test/school` + persistence/backup/migration + `voice-agent` +
+  `tool-classification` = 1214 passed; gateway `tsc --noEmit` clean; `scripts/check-state.mjs`
+  passes with the pre-existing FACTS warning.
+
+## 2026-09-25 — DeepSeek builder: school catch-up planner and reply guards ([#214](https://github.com/stremysid/jarvis/pull/214))
+
+Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `origin/main`
+`fbd593f9`. Touches Sid's rules 1, 2, 4, 8, 9. Register: `docs/CODE-VS-JUDGMENT.md`.
+
+- **Done (7 of the 10 sweep items).** `OWNER_ACKNOWLEDGEMENT` and both wrappers deleted, with
+  `ACKNOWLEDGEMENT_REPLY`; `messageTouchesTracker` and its keyword list deleted so the
+  tracker-too-large path always gives the model the notice and its own answer; `SECRET_REQUESTS`/
+  `SECRET_ADVISORY`/`SECRET_REPLACEMENT` deleted (Sid may be asked for a code); the `repairedPlan`
+  minute clamp replaced by a refusal with the bound named (`school_catchup_action_minutes_out_of_range`
+  plus `MINUTES_BOUND_REPLY`); the per-day caps deleted in code and in the
+  `school_catchup_actions_planned_cap_insert` trigger (migration `0056`); the seven-day horizon
+  deleted; the 30-day resolved-fact window deleted.
+- **Not done, named in the register.** Item 2 `BRIGHTSPACE_REFRESH_REQUEST` needs a new model-called
+  tool (register row 15 stays). Items 4/5 (`presentsUnsavedSchedule`, `PLAN_SAVE_COMPLETIONS`) need
+  the model to declare schedule/save claims so code can check them against the receipt; the batch
+  brief's own honesty note forbids removing item 4's rewrite without that check, and item 5's path is
+  free text with no structured envelope to carry a declaration. Item 10's "with the count" half needs
+  a new snapshot/prompt field.
+- **Migration `0056_school_catchup_planned_cap.sql`** drops and recreates the trigger with only the
+  21 cap. `0044` does not redefine it (checked). Registered in the restore list, the school chain, the
+  newest chain, the full list in `test/persistence/migration.ts` and the remote-D1 syntax list. Not
+  applied anywhere. Next free number: main tops at `0054`; #207 holds `0055`, so this branch took
+  `0056` (one ahead of the open PR, as AGENTS.md requires).
+- **Tests here:** `test/school`+`test/persistence`+`test/backup` 1906/1907 (one backup load flake,
+  49/49 alone); `test/channels`+`test/agent`+`test/voice` 844; `test/jobs`+`test/evals`+`test/autonomy`+
+  `test/conversation`+`test/memory` 736; gateway `tsc` exit 0; `check-state` passed. Mutation sweep
+  `reviewer-tools/mutation-specs-judg-catchup.json`: 7/7 killed, restore verified. Full suites on CI;
+  no merge, no deploy, no migration applied.
+
 ## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
 
 Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rules 1, 2, 3 and 8.

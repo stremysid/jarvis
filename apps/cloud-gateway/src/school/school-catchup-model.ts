@@ -36,19 +36,6 @@ const MAX_CONVERSATION_CONTEXT_BYTES = 16_000;
 const MAX_REPLY_BYTES = 24_000;
 const MAX_COURSE_BYTES = 160;
 const MAX_DETAIL_BYTES = 512;
-const SECRET_NAMES = String.raw`(?:password|oauth token|access token|refresh token|recovery code|mfa code|2fa code|verification code)`;
-const SECRET_REQUESTS = Object.freeze([
-  new RegExp(String.raw`\b(?:send|share|give|provide)\s+me\b.{0,48}\b(?:your\s+)?${SECRET_NAMES}\b`, "iu"),
-  new RegExp(String.raw`\b(?:send|share|give|provide)\b.{0,48}\b(?:your\s+)?${SECRET_NAMES}\b.{0,24}\b(?:here|to\s+me|with\s+me|in\s+(?:this\s+)?chat)\b`, "iu"),
-  new RegExp(String.raw`\bpaste\b.{0,48}\b(?:your\s+)?${SECRET_NAMES}\b`, "iu"),
-  new RegExp(String.raw`\btell\s+me\b.{0,48}\b(?:your\s+)?${SECRET_NAMES}\b`, "iu"),
-  new RegExp(String.raw`\bhand\s+(?:me|over)\b.{0,64}\b(?:your\s+)?${SECRET_NAMES}\b`, "iu"),
-  new RegExp(String.raw`\bwhat(?:'s| is)\b.{0,32}\b(?:your\s+)?${SECRET_NAMES}\b`, "iu"),
-]);
-const SECRET_ADVISORY = new RegExp(
-  String.raw`\b(?:never|do\s+not|don't|should\s+not|shouldn't)\s+(?:send|paste|share|tell|give|provide|hand)\b.{0,64}\b(?:your\s+)?${SECRET_NAMES}\b`,
-  "giu",
-);
 const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
 const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
 const ACTION_CLAIM_VERBS = String.raw`sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+(?:you\s+)?up|signing\s+up|reserved|cancelled|canceled|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled`;
@@ -93,7 +80,6 @@ const BRIGHTSPACE_CHECK_DISCUSSION = Object.freeze([
 const BRIGHTSPACE_CHECK_DENIALS = Object.freeze([
   /\b(?:i|we|jarvis)\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not)\s+(?:checked|refreshed|synced|looked\s+at)\s+(?:your\s+)?(?:d2l|brightspace)\b/giu,
 ]);
-const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
@@ -102,12 +88,11 @@ const PARTIAL_SCHEDULE_LINE = "I saved your course note, but not a study schedul
 const UNIVERSITY_SAVE_FAILURE_LINE = "I couldn't update your university tracker.";
 const UNSAVED_FALLBACK_REPLY = "I can still help with the school work in your message.";
 const UNSAVED_UNIVERSITY_FALLBACK_REPLY = "I can still help with the university planning in your message.";
-const ACKNOWLEDGEMENT_REPLY = "Got it.";
-const SECRET_REPLACEMENT = "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.";
 const EXTERNAL_ACTION_REPLACEMENT = "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.";
 const BRIGHTSPACE_CHECK_REPLACEMENT = "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.";
 const TRACKER_TOO_LARGE_REPLY = "Your school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.";
 const MODEL_RESPONSE_TOO_LARGE_REPLY = "I couldn't safely process that planning response, so I didn't save any tracker changes. Please name one course, school, program, or application item and try again.";
+const MINUTES_BOUND_REPLY = "Each study block must be between 5 and 180 minutes. I didn't save that plan: split the block or change its length and send it again.";
 
 interface SchoolCatchupModelDependencies {
   readonly model: ModelAdapter;
@@ -502,10 +487,7 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   const draftSends = new Set(claims.flatMap((claim) => typeof claim !== "string"
     && claim.toolNames.includes("guided_assignment_draft") ? [claim.sentence] : []));
   const worked = new Set((options.workedExplanations ?? []).map((sentence) => sentence.trim()));
-  const secretScan = reply.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
-  const secretRanges = offendingSentenceRanges(reply, secretScan, SECRET_REQUESTS);
   let scan = exemptDraftAndReportSpans(reply);
-  scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
   // The model declares which of its sentences are worked explanations, and
   // which action sentences a receipt proves. That declaration exempts only the
   // omission backstop for an undeclared first-person claim. The guards for a
@@ -525,15 +507,14 @@ export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions 
   const brightspaceRanges = isFalseBrightspaceCheckCompletion(scan)
     ? offendingSentenceRanges(reply, scan, BRIGHTSPACE_CHECK_COMPLETIONS)
     : [];
-  const all = [...secretRanges, ...unprovenExternalRanges, ...brightspaceRanges];
+  const all = [...unprovenExternalRanges, ...brightspaceRanges];
   if (all.length === 0) return reply;
   let safe = withoutSentenceRanges(reply, all);
   // An adjacent completion fragment cannot survive the action claim it affirmed.
   if (unprovenExternalRanges.length > 0) safe = safe.replace(/^\s*Done[.!]\s*/iu, "");
-  const replacement = secretRanges.length > 0
-    ? SECRET_REPLACEMENT
-    : unprovenExternalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
-  if (secretRanges.length === 0 && unprovenExternalRanges.length > 0
+  const replacement = unprovenExternalRanges.length > 0
+    ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
+  if (unprovenExternalRanges.length > 0
     && /\bI did not complete the unreceipted action\./u.test(safe)) return safe;
   return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
 }
@@ -559,8 +540,6 @@ export function guardVoiceReplySentence(
   sentence: string, receipts: ReadonlySet<string>, options: ReplyClaimGuardOptions = {},
 ): string {
   const text = sentence.replace(/\s+/gu, " ").trim();
-  const secretScan = text.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
-  if (SECRET_REQUESTS.some((pattern) => pattern.test(secretScan))) return SECRET_REPLACEMENT;
   if (receipts.has(text)) return text;
   const proofs = (options.receiptedInternalSentences ?? []).filter((claim): claim is ReceiptedToolSentence =>
     typeof claim !== "string" && claim.sentence === text);
@@ -635,33 +614,6 @@ function replyWithoutUnsavedSchedule(plan: OwnerCatchupPlan): string {
     reply.push(sentence);
   }
   return replaced ? reply.join(" ").trim() : plan.reply;
-}
-
-function mentionsName(value: string, name: string): boolean {
-  const haystack = ` ${normalizedEvidence(value)} `;
-  const needle = normalizedEvidence(name);
-  return needle.length > 0 && haystack.includes(` ${needle} `);
-}
-
-function universityAliases(university: string): readonly string[] {
-  return Object.freeze([...new Set([
-    university,
-    university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
-  ].filter(Boolean))]);
-}
-
-function messageTouchesTracker(
-  ownerMessage: string,
-  schoolSnapshot: SchoolCatchupSnapshot,
-  universitySnapshot: UniversityTrackerSnapshot | null,
-): boolean {
-  if (/\b(?:school|course|class|homework|assignment|quiz|test|exam|study|plan|deadline|due|university|college|program|application|essay|aif|ouac|offer|admission|transcript|reference|portal|fee)\b/iu.test(ownerMessage)) {
-    return true;
-  }
-  if (schoolSnapshot.courses.some((course) => mentionsName(ownerMessage, course.name))) return true;
-  return universitySnapshot?.programs.some((program) =>
-    mentionsName(ownerMessage, program.programName)
-    || universityAliases(program.university).some((alias) => mentionsName(ownerMessage, alias))) ?? false;
 }
 
 /**
@@ -894,27 +846,6 @@ function parseCombinedOwnerPlan(
   return Object.freeze({ reply: school.reply, school, university });
 }
 
-function withoutUnsupportedCombinedAcknowledgementMutations(
-  plan: CombinedOwnerPlan,
-  ownerMessage: string,
-): CombinedOwnerPlan {
-  if (!OWNER_ACKNOWLEDGEMENT.test(ownerMessage)) return plan;
-  if (!plan.school.engaged && !plan.university.engaged) return plan;
-  return Object.freeze({
-    reply: ACKNOWLEDGEMENT_REPLY,
-    school: Object.freeze({
-      engaged: false, reply: ACKNOWLEDGEMENT_REPLY, courseUpdates: Object.freeze([]),
-      completeActionIds: Object.freeze([]), plan: Object.freeze([]),
-    }),
-    university: Object.freeze({
-      engaged: false,
-      programUpdates: Object.freeze([]),
-      applicationUpdates: Object.freeze([]),
-      workflowUpdates: Object.freeze([]),
-    }),
-  });
-}
-
 async function collectJson(stream: AsyncIterable<ModelToken>): Promise<string> {
   let text = "";
   for await (const token of stream) {
@@ -928,21 +859,6 @@ function jsonPayload(raw: string): string {
   const trimmed = raw.trim();
   const fenced = /^```json[ \t]*\r?\n([\s\S]*?)\r?\n```$/u.exec(trimmed);
   return fenced?.[1] ?? trimmed;
-}
-
-function withoutUnsupportedAcknowledgementMutations(
-  plan: OwnerCatchupPlan,
-  ownerMessage: string,
-): OwnerCatchupPlan {
-  if (!OWNER_ACKNOWLEDGEMENT.test(ownerMessage)) return plan;
-  if (plan.courseUpdates.length === 0 && plan.completeActionIds.length === 0 && plan.plan.length === 0) return plan;
-  return Object.freeze({
-    engaged: false,
-    reply: ACKNOWLEDGEMENT_REPLY,
-    courseUpdates: Object.freeze([]),
-    completeActionIds: Object.freeze([]),
-    plan: Object.freeze([]),
-  });
 }
 
 function planSaveFailureCode(error: unknown): string {
@@ -970,6 +886,18 @@ function schoolFactCapReply(error: unknown): string | null {
   if (error.message === "school_catchup_total_fact_limit_exceeded") {
     return "The school tracker allows at most 48 active facts in total. Nothing was saved from this update.";
   }
+  return null;
+}
+
+/**
+ * A refusal that names the storage bound the model's number broke.
+ *
+ * Code does not rewrite a block length to fit `0020`'s 5..180 CHECK. It refuses
+ * and states the bound, so the model can split or rescale the block itself.
+ */
+function schoolPlanValidationReply(error: unknown): string | null {
+  if (!(error instanceof TypeError)) return null;
+  if (error.message === "school_catchup_action_minutes_out_of_range") return MINUTES_BOUND_REPLY;
   return null;
 }
 
@@ -1115,16 +1043,16 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       ? baseStructuredPrompt + selectedScopeInstruction
       : null;
     if (structuredPrompt === null) {
-      if (!messageTouchesTracker(input.userText, snapshot, universitySnapshot)) {
-        yield* guardedOrdinaryReplyWithNotice(
-          this.dependencies.model,
-          input,
-          this.dependencies.redactor,
-          TRACKER_TOO_LARGE_REPLY,
-        );
-        return;
-      }
-      yield Object.freeze({ index: 0, text: TRACKER_TOO_LARGE_REPLY, toolOutcome: "not_saved" as const });
+      // Too large to reason over the tracker. The model still answers in its own
+      // words; the notice states what code knows -- nothing was saved and the
+      // tracker could not be read whole -- rather than a keyword list deciding
+      // whether this message was "about" school.
+      yield* guardedOrdinaryReplyWithNotice(
+        this.dependencies.model,
+        input,
+        this.dependencies.redactor,
+        TRACKER_TOO_LARGE_REPLY,
+      );
       return;
     }
     const structuredInput: ModelAdapterStreamInput = Object.freeze({
@@ -1162,16 +1090,10 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     }
     try {
       if (universitySnapshot === null) {
-        schoolPlan = withoutUnsupportedAcknowledgementMutations(
-          parseOwnerCatchupPlan(payload, this.dependencies.redactor),
-          input.userText,
-        );
+        schoolPlan = parseOwnerCatchupPlan(payload, this.dependencies.redactor);
         reply = schoolPlan.reply;
       } else {
-        const combined = withoutUnsupportedCombinedAcknowledgementMutations(
-          parseCombinedOwnerPlan(payload, input.userText, this.dependencies.redactor, universitySnapshot),
-          input.userText,
-        );
+        const combined = parseCombinedOwnerPlan(payload, input.userText, this.dependencies.redactor, universitySnapshot);
         schoolPlan = combined.school;
         universityPlan = combined.university;
         reply = combined.reply;
@@ -1245,7 +1167,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         }, (result, receipt) => { saveResult = result; saved = receipt; });
       } catch (error) {
         console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
-        const capReply = schoolFactCapReply(error);
+        const capReply = schoolFactCapReply(error) ?? schoolPlanValidationReply(error);
         if (capReply !== null) {
           yield Object.freeze({ index: 0, text: capReply, toolOutcome: "not_saved" as const });
           return;
@@ -1267,9 +1189,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         console.warn("school_plan_save_failed", { code });
       }
       if (saveResult?.scheduleSaved === false) {
-        const partialReply = this.dependencies.fixedActionReceipts
-          ? schoolPlanReceipt(saveResult, saved, today)
-          : replyWithoutUnsavedSchedule(schoolPlan);
+        const partialReply = saveResult.partialCodes.includes("partial:school_catchup_action_minutes_out_of_range")
+          ? MINUTES_BOUND_REPLY
+          : this.dependencies.fixedActionReceipts
+            ? schoolPlanReceipt(saveResult, saved, today)
+            : replyWithoutUnsavedSchedule(schoolPlan);
         yield Object.freeze({
           index: 0,
           text: offerReport

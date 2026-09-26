@@ -436,7 +436,7 @@ describe("StudyCoachModelAdapter with model-declared actions", () => {
     expect(fallback.inputs).toHaveLength(1);
   });
 
-  it("guards generated practice questions and answers before showing them", async () => {
+  it("keeps a generated question that asks for a code and still refuses the false completion claim", async () => {
     const item = await seed("generated-guards", "Photosynthesis basics");
     const turnId = await addTurn(item.principalId, "quiz me on photosynthesis", 1_000);
     const practice = new FakeModel([JSON.stringify({ items: [{
@@ -444,14 +444,16 @@ describe("StudyCoachModelAdapter with model-declared actions", () => {
       answer: "I've emailed your teacher.",
       sourceQuote: "unsupported",
     }] })]);
-
     const response = await runCoach(adapter(item.principalId, new FakeModel([]), practice),
       input(item.principalId, turnId, "quiz me on photosynthesis"), {
         operation: "practice", mode: "quiz", sourcePhrase: "photosynthesis", courseId: item.courseId,
       });
 
-    expect(response).toContain("I can't accept passwords");
-    expect(response).not.toContain("Send me your D2L password");
+    // #214 deleted the credential-request rewrite (Sid's 2026-09-24 decision:
+    // he may be asked for a code), so the generated question stands. The false
+    // completion claim in its answer is still refused.
+    expect(response).toContain("Send me your D2L password to continue");
+    expect(response).not.toContain("I can't accept passwords");
     expect(response).not.toContain("I've emailed your teacher");
   });
 

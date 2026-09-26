@@ -50,6 +50,7 @@ import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql
 import deadlinesStoreFactsSql from "../../src/persistence/migrations/0053_deadlines_store_facts.sql?raw";
 import ownerRemindersScheduledSql from "../../src/persistence/migrations/0054_owner_reminders_scheduled.sql?raw";
 import ownerAccessToolSql from "../../src/persistence/migrations/0055_owner_access_tool.sql?raw";
+import schoolCatchupPlannedCapSql from "../../src/persistence/migrations/0056_school_catchup_planned_cap.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -232,6 +233,9 @@ export async function applySchoolCatchupMigration(): Promise<void> {
   await applyMemoryIngressMigration();
   schoolCatchupMigrated ??= applyD1Migrations(env.DB, [
     { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+    // 0056 replaces the planned-action cap trigger 0020 installs, so a school
+    // fixture that stopped at 0020 would enforce the removed per-day caps.
+    { name: "0056_school_catchup_planned_cap.sql", queries: splitMigration(schoolCatchupPlannedCapSql) },
   ]);
   await schoolCatchupMigrated;
 }
@@ -381,6 +385,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
     { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
     { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
+    { name: "0056_school_catchup_planned_cap.sql", queries: splitMigration(schoolCatchupPlannedCapSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -446,6 +451,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
   { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
   { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
+  { name: "0056_school_catchup_planned_cap.sql", queries: splitMigration(schoolCatchupPlannedCapSql) },
 ]);
 
 /**

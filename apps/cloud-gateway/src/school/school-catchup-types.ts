@@ -92,6 +92,7 @@ export type SchoolPlanRepairRule =
 export type SchoolPlanValidationRule =
   | SchoolPlanRepairRule
   | "school_catchup_action_limit_exceeded"
+  | "school_catchup_action_minutes_out_of_range"
   | "school_catchup_action_course_invalid"
   | "school_catchup_course_missing_next_action";
 

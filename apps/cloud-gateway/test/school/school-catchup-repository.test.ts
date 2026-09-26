@@ -407,13 +407,13 @@ describe("SchoolCatchupRepository", () => {
     expect(rereported?.factId).not.toBe(fact.factId);
   });
 
-  it("drops an action that would push a day beyond 180 minutes", async () => {
+  it("keeps two blocks that total 200 minutes on one day, because a day's load is the model's call", async () => {
     const principalId = "principal:school-cap";
     const turnId = "01k5fb9pg00000000000000620" as Ulid;
     await seedTelegramTurn(principalId, turnId, "I take calculus.");
     const repository = new SchoolCatchupRepository(env.DB);
     const plan = initialPlan();
-    const overloaded: OwnerCatchupPlan = {
+    const heavyDay: OwnerCatchupPlan = {
       ...plan,
       plan: [
         { courseRef: "new-1", localDate: TODAY, sequenceRank: 1, text: "Set one", estimatedMinutes: 100 },
@@ -422,14 +422,78 @@ describe("SchoolCatchupRepository", () => {
     };
     let repairResult: ApplyOwnerCatchupPlanResult | undefined;
     await expect(repository.applyOwnerPlan({
-      principalId, turnId, today: TODAY, responseHash: "d".repeat(64), plan: overloaded, now: NOW,
+      principalId, turnId, today: TODAY, responseHash: "d".repeat(64), plan: heavyDay, now: NOW,
     }, (result) => { repairResult = result; })).resolves.toBeUndefined();
-    expect(repairResult).toEqual({
-      scheduleSaved: true,
-      partialCodes: ["partial:repaired:school_catchup_day_unrealistic"],
-    });
+    // The per-day caps (three actions, 180 minutes) used to drop the second
+    // block here. Both survive now: the owner's pinned capacity is in the core
+    // profile the prompt carries, and the day's load is the model's judgment.
+    expect(repairResult).toEqual({ scheduleSaved: true, partialCodes: [] });
     await expect(repository.listActionsForDate(principalId, TODAY)).resolves.toEqual([
       expect.objectContaining({ text: "Set one", estimatedMinutes: 100, sequenceRank: 1 }),
+      expect.objectContaining({ text: "Set two", estimatedMinutes: 100, sequenceRank: 2 }),
+    ]);
+  });
+
+  it("keeps an action planned more than a week out instead of cutting the window at seven days", async () => {
+    const principalId = "principal:school-horizon";
+    const turnId = "01k5fb9pg00000000000000621" as Ulid;
+    await seedTelegramTurn(principalId, turnId, "I take calculus.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    const far = "2026-10-15";
+    let repairResult: ApplyOwnerCatchupPlanResult | undefined;
+    await repository.applyOwnerPlan({
+      principalId, turnId, today: TODAY, responseHash: "e".repeat(64), now: NOW,
+      plan: {
+        ...initialPlan(),
+        plan: [{ courseRef: "new-1", localDate: far, sequenceRank: 1, text: "Far review", estimatedMinutes: 20 }],
+      },
+    }, (result) => { repairResult = result; });
+    // Code used to drop anything past today + 6 days as a date repair.
+    expect(repairResult).toEqual({ scheduleSaved: true, partialCodes: [] });
+    await expect(repository.listActionsForDate(principalId, far)).resolves.toEqual([
+      expect.objectContaining({ text: "Far review", localDate: far }),
+    ]);
+  });
+
+  it("refuses a block outside the stored 5..180 minute range instead of rewriting its length", async () => {
+    const principalId = "principal:school-minutes";
+    const turnId = "01k5fb9pg00000000000000622" as Ulid;
+    await seedTelegramTurn(principalId, turnId, "I take calculus.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    // No course updates, so the refusal is the only statement in the batch and
+    // surfaces as the named rule rather than a partial save.
+    await expect(repository.applyOwnerPlan({
+      principalId, turnId, today: TODAY, responseHash: "f".repeat(64), now: NOW,
+      plan: {
+        engaged: true, reply: "Here is the plan.", courseUpdates: [], completeActionIds: [],
+        plan: [{ courseRef: "new-1", localDate: TODAY, sequenceRank: 1, text: "Too short", estimatedMinutes: 4 }],
+      },
+    })).rejects.toThrow("school_catchup_action_minutes_out_of_range");
+    await expect(repository.listActionsForDate(principalId, TODAY)).resolves.toEqual([]);
+  });
+
+  it("shows a resolved fact older than thirty days within the storage cap", async () => {
+    const principalId = "principal:school-resolution-window";
+    const turnId = "01k5fb9pg00000000000000623" as Ulid;
+    await seedTelegramTurn(principalId, turnId, "I take calculus.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId, today: TODAY, responseHash: "a".repeat(64), plan: initialPlan(), now: NOW,
+    });
+    const courseId = (await repository.readSnapshot(principalId, TODAY)).courses[0]!.courseId;
+    const longAgo = new Date(NOW.getTime() - 90 * 24 * 60 * 60 * 1_000).toISOString();
+    await env.DB.prepare(`INSERT INTO school_course_facts (
+      principal_id, course_id, fact_id, fact_key, fact_kind, statement, evidence_source,
+      source_turn_id, source_ref, observed_at, status, resolved_at, updated_at
+    ) VALUES (?1, ?2, ?3, 'old resolved fact', 'due_work', 'A fact resolved three months ago',
+      'platform_confirmed', NULL, 'classroom:submission:old', ?4, 'resolved', ?4, ?4)`)
+      .bind(principalId, courseId, "01k5fb9pg00000000000000624", longAgo).run();
+
+    // The thirty-day filter is gone: the storage cap is the only bound, so a
+    // resolved fact stays visible to the model however old it is.
+    const snapshot = await repository.readSnapshot(principalId, TODAY);
+    expect(snapshot.courses[0]?.recentResolvedFacts).toEqual([
+      expect.objectContaining({ statement: "A fact resolved three months ago" }),
     ]);
   });
 
