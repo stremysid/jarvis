@@ -3,6 +3,40 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: study-coach signals blocked, registered not removed (batch 7, `codex/coach-signals-to-ai`)
+
+Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origin/main`
+`193d02b4`. Touches Sid's rules 1, 2, 9. **No code changed.** Register:
+`docs/CODE-VS-JUDGMENT.md#study-coach-signal-ranking-and-selection-registered-not-removed-batch-7-2026-09-25`.
+
+- **All 13 items verified present on main** (B1 `STUDY_DEADLINE_ROW_LIMIT` 24 at
+  `deadline-repository.ts:48,549`; B2 `STUDY_DEADLINE_NEAR_DUE_HOURS` 72 at `:49,541`; B54
+  freshness 12 h/3 h at `study-coach-signals.ts:14-15`; B55 `scoreConfidence:67-69`; B56
+  `evidenceSignals:76-83`; B57 70 % at `:16,155`; B58 5 points at `:17,174`; B59
+  missing-work score at `:210`; B60 72 h at `:245`; B61 `ordered:272-277`; B62
+  `MAX_SIGNALS` at `:18,294`; B63 `chooseStudyCheckIn:297-338`; B64 `matchCourse:38-45`).
+  Line numbers in the brief were from an older main; none of the items is gone.
+- **Why nothing was removed.** All 13 feed one deterministic decision,
+  `chooseStudyCheckIn`, whose result is written into `school_study_check_in_claims`
+  (`0030`) — `course_id`, `topic`, `outcome`, `evidence_count` 1–4 and `confidence` are all
+  `NOT NULL`, so a claim is one chosen check-in and cannot hold a raw evidence set. The claim
+  runs in the **digest path, which has no model**: `digest-job.ts:374` calls
+  `claimStudyCheckIn`, and `digest-composer.ts` keeps composition deterministic on purpose.
+  The batch allows no migration and keeps `confidence` an enum, so the choice must be produced
+  before the claim, and the missing piece is a model call. Removing the scores while the same
+  scorer still ranks the survivors, or widening the deadline window while the scorer still
+  ranks it, changes behaviour without moving any judgment to the model.
+- **Proposed surface**, in the register: `deriveStudySignals` returns bounded raw evidence with
+  timestamps (grade percentages with `gradeUpdatedAt`, missing-work transitions, practice
+  outcomes, deadline instants, raw `lastSuccessAt`/`lastFailure`) plus a `droppedCount`; a
+  `completeJson` model call in the claim path answers with course/topic/outcome/confidence and
+  citation keys; code validates ids and enums and writes the claim; every score and
+  `chooseStudyCheckIn` is then deleted. The digest stays deterministic — the answer is data,
+  never text echoed into the digest.
+- **Premises checked:** #212 is merged (`08c283b2`, #213 at `4b1c230c`); main's newest migration
+  is `0055_owner_access_tool.sql` and open #214 holds `0056`, so no migration was needed here.
+- No PR with code; a docs-only PR registers the blocker. No deploy, no DB, no migration.
+
 ## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
 
 Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rules 1, 2, 3 and 8.
