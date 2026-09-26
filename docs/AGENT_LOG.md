@@ -37,6 +37,58 @@ Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origi
   is `0055_owner_access_tool.sql` and open #214 holds `0056`, so no migration was needed here.
 - Registered in [#220](https://github.com/stremysid/jarvis/pull/220), docs only. No deploy, no DB,
   no migration.
+## 2026-09-25 — DeepSeek builder: #214 round 3 (migration 0056, row-20 queue item, final merge)
+
+Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai`.
+
+- **Migration renamed to `0056_school_catchup_planned_cap.sql`.** PR #207 (calls) took `0055`
+  (`0055_owner_access_tool.sql`), so the school cap-trigger migration moved one number up. Every
+  list and document that names it keeps both: `0055` then `0056` in numeric order in the restore
+  list, the school chain, the newest-runtime chain and the full list in
+  `test/persistence/migration.ts`, the remote-D1 syntax inventory, the memory-backup schema
+  version (`0056_school_catchup_planned_cap.sql`), the mutation spec and the docs. `0056` is free
+  on main and in every open PR. Nothing was applied anywhere.
+- **`docs/QUEUE.md` carries the removal item for register row 20** (`FALSE_EXTERNAL_COMPLETIONS`
+  and the passive-completion patterns in `school-catchup-model.ts`), which AGENTS.md requires for a
+  judgment that is registered but not removed. The row was 16 before #213's university rows 16–19
+  merged, so it and its references are renumbered to 20.
+- **`origin/main` merged** (`193d02b4`), bringing `0053`/`0054` (#201), `0055_owner_access_tool`
+  (#207), the study-coach batch (#212), the university tracker rows 16–19 (#213) and #218. The
+  study-coach test that expected the deleted credential-request rewrite now asserts the merged
+  behaviour: the generated password question stands and only the false completion claim is refused.
+- **Verified:** focused `test/school` + persistence/backup/migration + `voice-agent` +
+  `tool-classification` = 1214 passed; gateway `tsc --noEmit` clean; `scripts/check-state.mjs`
+  passes with the pre-existing FACTS warning.
+
+## 2026-09-25 — DeepSeek builder: school catch-up planner and reply guards ([#214](https://github.com/stremysid/jarvis/pull/214))
+
+Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `origin/main`
+`fbd593f9`. Touches Sid's rules 1, 2, 4, 8, 9. Register: `docs/CODE-VS-JUDGMENT.md`.
+
+- **Done (7 of the 10 sweep items).** `OWNER_ACKNOWLEDGEMENT` and both wrappers deleted, with
+  `ACKNOWLEDGEMENT_REPLY`; `messageTouchesTracker` and its keyword list deleted so the
+  tracker-too-large path always gives the model the notice and its own answer; `SECRET_REQUESTS`/
+  `SECRET_ADVISORY`/`SECRET_REPLACEMENT` deleted (Sid may be asked for a code); the `repairedPlan`
+  minute clamp replaced by a refusal with the bound named (`school_catchup_action_minutes_out_of_range`
+  plus `MINUTES_BOUND_REPLY`); the per-day caps deleted in code and in the
+  `school_catchup_actions_planned_cap_insert` trigger (migration `0056`); the seven-day horizon
+  deleted; the 30-day resolved-fact window deleted.
+- **Not done, named in the register.** Item 2 `BRIGHTSPACE_REFRESH_REQUEST` needs a new model-called
+  tool (register row 15 stays). Items 4/5 (`presentsUnsavedSchedule`, `PLAN_SAVE_COMPLETIONS`) need
+  the model to declare schedule/save claims so code can check them against the receipt; the batch
+  brief's own honesty note forbids removing item 4's rewrite without that check, and item 5's path is
+  free text with no structured envelope to carry a declaration. Item 10's "with the count" half needs
+  a new snapshot/prompt field.
+- **Migration `0056_school_catchup_planned_cap.sql`** drops and recreates the trigger with only the
+  21 cap. `0044` does not redefine it (checked). Registered in the restore list, the school chain, the
+  newest chain, the full list in `test/persistence/migration.ts` and the remote-D1 syntax list. Not
+  applied anywhere. Next free number: main tops at `0054`; #207 holds `0055`, so this branch took
+  `0056` (one ahead of the open PR, as AGENTS.md requires).
+- **Tests here:** `test/school`+`test/persistence`+`test/backup` 1906/1907 (one backup load flake,
+  49/49 alone); `test/channels`+`test/agent`+`test/voice` 844; `test/jobs`+`test/evals`+`test/autonomy`+
+  `test/conversation`+`test/memory` 736; gateway `tsc` exit 0; `check-state` passed. Mutation sweep
+  `reviewer-tools/mutation-specs-judg-catchup.json`: 7/7 killed, restore verified. Full suites on CI;
+  no merge, no deploy, no migration applied.
 
 ## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
 
@@ -1345,6 +1397,15 @@ Signed: DeepSeek (dsh headless builder, effort high), codex/channel-parity F1 + 
 **Verification.** Focused vitest (6 files): 160/160 passed. `tsc --noEmit -p apps/cloud-gateway` exit 0. `check-state` passed with its one existing FACTS warning; `git diff --check` clean. The full workspace suite is left to GitHub Actions.
 
 **Not verified:** live Telegram, voice-relay or provider behaviour; the Windows CI leg; the test-tsconfig diagnostic count, which was not re-measured here.
+## 2026-09-24 — Claude builder: call transcripts cannot keep filler words (docs only)
+
+Signed: Claude (builder agent), branch `codex/call-verbatim-transcript` from `a7cd355`. Touches Sid's rules 1, 3, 5, 8 and 9.
+
+- **Question:** can `<ConversationRelay>` keep "uh"/"um", so a call's `guided_assignment_save` `raw` is verbatim?
+- **Answer: no documented way.** Deepgram strips "uh" and "um" unless `filler_words=true` ([docs](https://developers.deepgram.com/docs/filler-words)). Twilio's [attribute table](https://www.twilio.com/docs/voice/twiml/connect/conversationrelay) has no attribute for that or for any raw Deepgram option. The one Deepgram transcript-format attribute is `deepgramSmartFormat` (default `true`). Nothing in the TwiML was changed. The limit and its consequences are in `KNOWN_ISSUES.md`.
+- **Unverified:** whether Twilio sets `filler_words` itself. One live owner call would settle it.
+- **For the keypad/timeout build (report only, needs Sid's go):** the table lists `speechTimeout` (600–5000 ms, default `auto`), `hints`, `dtmfDetection`, `interruptible`, `interruptSensitivity`, `reportInputDuringAgentSpeech`, `ignoreBackchannel`, and flux-only `eotThreshold`/`partialPrompts`. The TwiML already renders `dtmfDetection="true"`. `#handleDtmf` in `call-session-do.ts` (as of `a7cd355`) routes digits only for guest PIN, owner access PIN and activation. Keypad digits during owner step-up or ordinary conversation are dropped. `speechTimeout` and `hints` are not set.
+- **Gates:** no source or test change, so no Vitest or tsc run was needed. The `check-state` result is in the PR body.
 
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 

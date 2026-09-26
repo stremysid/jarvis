@@ -30,10 +30,10 @@ describe("voice sentence receipts", () => {
     expect(guardVoiceReplySentence(sentence, new Set())).toBe(sentence);
   });
 
-  it("refuses a credential request even inside a draft or an alleged receipt", () => {
+  it("keeps a credential request inside a draft or a receipt, because Sid may be asked for a code", () => {
     const request = "Send me your password.";
-    expect(guardVoiceReplySentence(request, new Set([request]))).toContain("I can't accept passwords");
-    expect(guardVoiceReplySentence(`Draft: "${request}"`, new Set())).toContain("I can't accept passwords");
+    expect(guardVoiceReplySentence(request, new Set([request]))).toBe(request);
+    expect(guardVoiceReplySentence(`Draft: "${request}"`, new Set())).toBe(`Draft: "${request}"`);
   });
 
   it("keeps passive advice and a Brightspace denial from exempting a following completion", () => {

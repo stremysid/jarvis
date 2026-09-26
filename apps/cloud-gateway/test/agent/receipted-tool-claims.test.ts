@@ -51,9 +51,9 @@ describe("sentence receipt proof", () => {
     expect(guardReplyClaims(sentence, { receiptedInternalSentences: partial })).toContain("can't confirm");
   });
 
-  it("still checks credential requests in a receipted sentence", () => {
+  it("keeps a credential request in a receipted sentence, because Sid may be asked for a code", () => {
     const request = "Send me your password.";
     expect(guardReplyClaims(request, { receiptedInternalSentences: [{ sentence: request, toolNames: ["guided_assignment_draft"] }] }))
-      .not.toContain(request);
+      .toBe(request);
   });
 });

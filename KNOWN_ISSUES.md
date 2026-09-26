@@ -164,24 +164,60 @@ deadline armed through that body read and pin the case with an injected fetch.
 
 ## Call transcripts are not verbatim: Deepgram strips "um" and "uh" (2026-09-24)
 
-Calls use Deepgram through Twilio ConversationRelay with no `filler_words` option
-([twiml.ts](apps/cloud-gateway/src/voice/twiml.ts)), and Deepgram's default is `false`, in
-which case "uh" and "um" are stripped from the transcript — "When `filler_words=false` or
-the parameter is not set, the two most common fillers, 'uh' and 'um', are stripped out of
-the transcript" ([Deepgram docs](https://developers.deepgram.com/docs/filler-words)).
-That ConversationRelay leaves `filler_words` unset is inferred from Deepgram's default; no
-live call was checked.
+One issue, recorded once. Both bodies of evidence that established it are kept
+below, and their remedy guidance is reconciled rather than left in conflict.
 
-`guided_assignment_save` stores `input.userText` as `raw`
-([guided-assignment.ts](apps/cloud-gateway/src/school/guided-assignment.ts)), and on a call
-`input.userText` is, by that inference, the stripped transcript. So the saved "raw" answer is the transcript
-Jarvis received, **not a verbatim record of what Sid said**. Telegram text is unaffected:
-it reaches the turn as typed. Nothing in the repository claims a filler-word option;
-`git grep -n -i filler origin/main -- apps/cloud-gateway/src/voice` finds no match. This
-is recorded as a limit of the "raw" guarantee, not as a defect to fix silently — changing
-it means either enabling filler words or narrowing the claim. The standing rule is that the
-model cleans up spoken answers and regex-stripping filler words is ruled out; that rule
-forbids regex-stripping, not enabling filler words.
+**What the provider does.** Calls use Deepgram through Twilio ConversationRelay
+with no `filler_words` option ([twiml.ts](apps/cloud-gateway/src/voice/twiml.ts)),
+and Deepgram's default is `false`, in which case "uh" and "um" are stripped — "When
+`filler_words=false` or the parameter is not set, the two most common fillers, 'uh'
+and 'um', are stripped out of the transcript"
+([Deepgram docs](https://developers.deepgram.com/docs/filler-words)). Both call legs
+render `transcriptionProvider="Deepgram"` and `speechModel="nova-3-general"`
+(`renderConversationRelayTwiml` in [twiml.ts](apps/cloud-gateway/src/voice/twiml.ts),
+as of `a7cd355`).
+
+**What the relay exposes.** Twilio's [`<ConversationRelay>` attribute table](https://www.twilio.com/docs/voice/twiml/connect/conversationrelay)
+has no attribute that passes `filler_words` or any other raw Deepgram query option
+(page read 2026-09-24). The only Deepgram transcript-format attribute is
+`deepgramSmartFormat`, which applies Smart Format, and it defaults to `true`: that
+page says it converts "dates, times, currency, numbers, addresses, and other
+entities into their conventional written forms", so a call's `raw` may say "25"
+where Sid said "twenty-five". It is not set and not changed here; setting it to
+`false` would make `raw` more literal and could make dates and numbers harder to
+read, and that trade-off is left for a later change. Neither that page nor the
+[WebSocket messages page](https://www.twilio.com/docs/voice/conversationrelay/websocket-messages)
+mentions filler words.
+
+**What is unverified.** Twilio does not document which Deepgram parameters it
+sends, so whether it already sets `filler_words` itself is **unverified** — the
+same conclusion whether it is inferred from Deepgram's default or read off the
+attribute table. **Falsifier:** one live owner call that says "um" and then reads
+back the stored `raw`.
+
+**What it means.** `guided_assignment_save` stores `input.userText` as `raw`
+([guided-assignment.ts](apps/cloud-gateway/src/school/guided-assignment.ts)), and
+the tool description calls that "the owner's current received text verbatim as raw"
+(`GUIDED_ASSIGNMENT_TOOL_DEFINITIONS` in
+[guided-assignment-tools.ts](apps/cloud-gateway/src/school/guided-assignment-tools.ts)).
+On a call that text is the transcript, so the saved "raw" is what Jarvis received,
+**not a verbatim record of what Sid said**. Telegram text is unaffected: it reaches
+the turn as typed. Nothing in the repository claims a filler-word option;
+`git grep -n -i filler origin/main -- apps/cloud-gateway/src/voice` finds no match.
+
+**The remedy, reconciled.** This is a limit of the "raw" guarantee, not a defect to
+fix silently, and the standing rule is narrower than it first looks. Sid's rule is
+that the model cleans spoken answers and code never regex-strips filler words. That
+forbids **regex-stripping**, and it forbids **synthesizing** fillers — cleanup
+preserves Sid's words without adding content. It does **not** forbid retaining the
+fillers the provider actually heard, because keeping a real "um" adds nothing.
+So the route that remains open is *narrowing the claim*, not editing the text: the
+"verbatim as raw" wording in the tool description is the claim to narrow. Two
+routes could close the gap instead, and neither is built or researched here:
+
+- a Twilio attribute that passes `filler_words` — Twilio exposes none today;
+- a call audio path in which the gateway makes the Deepgram request itself — that
+  would redesign the call leg, so it is not a fix.
 
 ## Owner voice streaming acceptance (PR #171, 2026-09-24)
 
