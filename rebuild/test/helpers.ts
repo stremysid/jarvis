@@ -5,7 +5,8 @@ import { FakeOwnerChannel } from "../src/channels/fake-owner-channel.js";
 import { buildJarvis, type BuiltJarvis } from "../src/jarvis/build.js";
 import type { JarvisEvent } from "../src/jarvis/agent-core.js";
 import type { ToolContext } from "../src/jarvis/tool-types.js";
-import type { Channel, Provenance, Trigger } from "../src/types.js";
+import type { Channel, ConnectedApp, Provenance, Trigger } from "../src/types.js";
+import type { AppConnector } from "../src/apps/connector.js";
 
 export interface Harness extends BuiltJarvis {
   clock: FixedClock;
@@ -16,7 +17,10 @@ export interface Harness extends BuiltJarvis {
   ctxFor(event: JarvisEvent): ToolContext;
 }
 
-export function makeHarness(turns: ScriptedTurn[], opts: { clock?: FixedClock } = {}): Harness {
+export function makeHarness(
+  turns: ScriptedTurn[],
+  opts: { clock?: FixedClock; makeConnector?: (app: ConnectedApp) => AppConnector } = {},
+): Harness {
   const clock = opts.clock ?? new FixedClock();
   const model = new FakeModel(turns);
   const embeddings = new FakeEmbeddingProvider();
@@ -30,6 +34,7 @@ export function makeHarness(turns: ScriptedTurn[], opts: { clock?: FixedClock } 
     ownerChannel,
     ownerId: "sid",
     timezone: "America/Toronto",
+    ...(opts.makeConnector ? { makeConnector: opts.makeConnector } : {}),
   });
   return {
     ...built,
@@ -54,6 +59,7 @@ export function makeHarness(turns: ScriptedTurn[], opts: { clock?: FixedClock } 
         embeddings,
         vectors,
         ownerChannel,
+        apps: built.apps,
       };
     },
   };

@@ -8,6 +8,7 @@ import { TelegramChannel } from "./channels/telegram-channel.js";
 import { FakeEmbeddingProvider, InMemoryVectorIndex, WorkersAiEmbeddingProvider } from "./memory/embeddings.js";
 import { newId } from "./ids.js";
 import type { JarvisEvent } from "./jarvis/agent-core.js";
+import { AppEventsRepo, wakeOnAppEvent } from "./apps/app-events.js";
 
 /**
  * Worker router. Receives Telegram webhooks, verifies them (fail closed), and
@@ -52,6 +53,24 @@ export default {
         headers: { "content-type": "application/json" },
       });
       return resp;
+    }
+
+    // Apps give Jarvis senses: an authenticated event endpoint. The app posts
+    // { appName, authSecret, payload }; the DO verifies the secret against the
+    // registry, stores the event and wakes Jarvis. Auth is checked in the DO
+    // (that is where the registry lives).
+    if (url.pathname === "/apps/event" && request.method === "POST") {
+      const ns = env.JARVIS as DurableObjectNamespace | undefined;
+      if (!ns) return json({ ok: false, reason: "JARVIS DO binding missing" }, 500);
+      if (!env.OWNER_CHAT_ID) return json({ ok: false, reason: "OWNER_CHAT_ID not configured" }, 500);
+      const bodyText = await request.text();
+      const id = ns.idFromName(env.OWNER_CHAT_ID);
+      const stub = ns.get(id);
+      return stub.fetch("https://do/apps/event", {
+        method: "POST",
+        body: bodyText,
+        headers: { "content-type": "application/json" },
+      });
     }
 
     return json({ ok: false, reason: "not found" }, 404);
@@ -106,6 +125,10 @@ export class JarvisDurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/apps/event") {
+      return this.handleAppEvent(request);
+    }
     const update = (await request.json()) as {
       chatId: string;
       text: string;
@@ -148,5 +171,26 @@ export class JarvisDurableObject {
       return json({ ok: send.ok, sendStatus: send.status });
     }
     return json({ ok: true, note: "no reply text (model may have acted via tools or stayed quiet)" });
+  }
+
+  private async handleAppEvent(request: Request): Promise<Response> {
+    const ownerId = this.env.OWNER_CHAT_ID ?? "";
+    const body = (await request.json()) as { appName?: string; authSecret?: string; payload?: unknown };
+    let built;
+    try {
+      built = this.ensureBuilt(ownerId);
+    } catch (e) {
+      if (e instanceof MissingModelKeyError) return json({ ok: false, reason: "no model key" }, 200);
+      throw e;
+    }
+    const app = built.appsRepo.byName(String(body.appName ?? ""));
+    // Verify the app is registered and the secret matches. Fail closed.
+    if (!app || !body.authSecret || body.authSecret !== app.authSecret) {
+      return json({ ok: false, reason: "unknown app or bad secret" }, 401);
+    }
+    const events = new AppEventsRepo(new SystemClock());
+    const ev = events.store(app.name, body.payload);
+    const result = await wakeOnAppEvent(built.agent, ev, ownerId);
+    return json({ ok: !result.error, note: "event delivered to Jarvis" });
   }
 }

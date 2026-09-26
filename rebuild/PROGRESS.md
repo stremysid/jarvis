@@ -1,14 +1,13 @@
 # Jarvis rebuild (agent-1) — PROGRESS
 
-**Phases: 2.5 of 7 built and tested this session** (Phase 1 complete, Phase 2 complete,
-Phase 4 confirmation/shadow/receipts core complete). Phases 3, 5, 6, 7 not started.
+**Phases: 3.5 of 7 built and tested this session** (Phase 1 complete, Phase 2 complete,
+Phase 3 complete, Phase 4 confirmation/shadow/receipts core complete). Phases 5, 6, 7 not started.
 
-**Exact next step:** Phase 3 (Connected apps — the plug): add the `connected_apps` D1 table
-+ registry, a `connect_app` tool (routes through the same confirmation gate), an MCP/HTTPS
-"list tools / call tool" client that merges an app's tools into the dispatcher catalogue, and
-an authenticated app-event endpoint that stores an event and wakes Jarvis. Prove it with a
-small in-repo fake app + a test where one message connects it, a tool works, and an event
-wakes the brain.
+**Exact next step:** Phase 5 (Calling): a Twilio voice webhook returning TwiML for
+ConversationRelay pointed at a WebSocket on the Jarvis DO; inject channel=voice (same tools,
+memory, permissions); PIN (hashed) required for the five actions, keypad path always working;
+guest calls with a separate minimal prompt (no owner profile leak). Then Phase 6 (wake-ups/
+cron/digest) and Phase 7 (backups/archive/heartbeat/watchdog/vault sync).
 
 ---
 
@@ -20,7 +19,7 @@ npm install
 npm test
 ```
 
-30 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
+36 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
 
 ---
 
@@ -48,6 +47,12 @@ npm test
 - `src/jarvis/core-tools.ts` — send_text, receipts_query, settings_update, confirm_action, cancel_action.
 - `src/jarvis/agent-core.ts` — the ONE brain: model loop, many tool calls/turn, bounded by rounds+errors.
 - `src/jarvis/build.ts` — wires the whole brain (used by DO, tests).
+- `src/apps/connector.ts` — connector contract + HttpAppConnector (list tools/call tool/context); failure visible.
+- `src/apps/app-registry.ts` — connected_apps registry (in-memory).
+- `src/apps/app-manager.ts` — loads an app's tools into the same catalogue (namespaced); inherits confirmable.
+- `src/apps/app-tools.ts` — connect_app (confirmable setup)/disconnect_app/list_connected_apps/app_context.
+- `src/apps/app-events.ts` — app-event store + wakeOnAppEvent (senses); model decides what it means.
+- `src/apps/fake-app.ts` — in-process fake app for tests (publishes a normal + a confirmable tool).
 - `src/channels/telegram-channel.ts` — real Telegram send; surfaces delivery failures.
 - `src/channels/fake-owner-channel.ts` — test channel; can be told to fail.
 - `src/router/telegram-webhook.ts` — signature + owner checks (fail closed) + provenance.
@@ -68,6 +73,10 @@ npm test
 - `test/phase4-confirmations.test.ts` (7): confirmable held as pending (not executed); no same-turn
   self-confirm; executes only after a later confirm and is honestly `not_connected`; args-hash binding;
   shadow logs would-have; TTL expiry; receipts_query proof.
+- `test/phase3-connected-apps.test.ts` (6): one message connects an app (confirmed) and loads its tools;
+  an app tool works on text AND voice; an app's confirmable tool routes through Jarvis's gate; an app
+  event wakes Jarvis which decides whether to tell Sid; a down app returns an honest error; a fact from
+  an app event is stored with the app as its source.
 
 ## Mutation checks done this session (trap: don't trust green until you mutate)
 
@@ -79,6 +88,8 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 - Same-turn self-confirm guard → phase4 "refuses to self-confirm within the same turn" went red.
 - Confirmation gate (ran the action on first call) → phase4 "holds a confirmable action as pending" went red.
 - Temporary-expiry in FactsRepo.isActive → phase2 "temporary facts drop out of recall" went red.
+- App-tool confirmable propagation (forced false) → phase3 "routes through Jarvis's enforced confirmation" went red.
+- App failure visibility (fake pretend-success) → phase3 "failure is visible: a down app..." went red.
 
 ## Decisions not in the brief (mine, flagged for Sid)
 
@@ -95,6 +106,10 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 3. **Confirmation summary.** Each confirmable tool accepts an optional `confirmation_summary` the
    model writes; if omitted, the gate builds a factual `tool(args)` description (a receipt, not a
    judgment).
+4. **connect_app is confirmable.** Section 3 says only the five actions ask for confirmation, but
+   Phase 3 says connecting an app is "a one-time setup step with a confirmation." I honored Phase 3:
+   `connect_app` routes through the same enforced gate, because granting an app a place in the tool
+   catalogue is a permission change. Flagged here so it isn't read as a sixth everyday confirmation.
 
 ## What is faked, and why
 
@@ -122,7 +137,6 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 
 ## Not yet built (be honest with Sid)
 
-- Phase 3 connected-apps plug (next step, above).
 - Phase 5 voice (Twilio ConversationRelay, PIN, guests).
 - Phase 6 wake-ups/cron/digest (the `schedule_wakeup` tool hook exists in ToolContext but no scheduler).
 - Phase 7 backups/archive/heartbeat/watchdog/vault sync.

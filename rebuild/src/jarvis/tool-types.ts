@@ -46,6 +46,9 @@ export interface ToolContext {
 
   /** Enqueue a wake-up (Phase 6). Returns a status; a no-op scheduler is honest about it. */
   scheduleWakeup?: (fireAtIso: string, reason: string) => Promise<{ ok: boolean; status: string; id?: string }>;
+
+  /** Connected-apps manager (Phase 3). Present once app support is wired. */
+  apps?: import("../apps/app-manager.js").AppManager;
 }
 
 export interface Tool {

@@ -24,6 +24,10 @@ export class ToolDispatcher {
     this.registry.set(tool.name, tool);
   }
 
+  unregister(name: string): boolean {
+    return this.registry.delete(name);
+  }
+
   has(name: string): boolean {
     return this.registry.has(name);
   }

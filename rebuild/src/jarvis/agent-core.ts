@@ -43,6 +43,7 @@ export interface AgentDeps {
   ownerChannel: OwnerChannel;
   timezone: string;
   ownerId: string;
+  apps?: import("../apps/app-manager.js").AppManager;
 }
 
 /**
@@ -69,6 +70,7 @@ export class AgentCore {
       embeddings: this.d.embeddings,
       vectors: this.d.vectors,
       ownerChannel: this.d.ownerChannel,
+      apps: this.d.apps,
     };
   }
 

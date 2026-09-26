@@ -12,6 +12,11 @@ import type { Model } from "../model/types.js";
 import { AgentCore } from "./agent-core.js";
 import { makeConfirmTools, receiptsQuery, sendText, settingsUpdate } from "./core-tools.js";
 import type { OwnerChannel } from "./tool-types.js";
+import { ConnectedAppsRepo } from "../apps/app-registry.js";
+import { AppManager } from "../apps/app-manager.js";
+import { appTools } from "../apps/app-tools.js";
+import { HttpAppConnector, type AppConnector } from "../apps/connector.js";
+import type { ConnectedApp } from "../types.js";
 
 export interface BuildInput {
   model: Model;
@@ -21,6 +26,8 @@ export interface BuildInput {
   ownerChannel: OwnerChannel;
   ownerId: string;
   timezone: string;
+  /** Override how an app connector is built (tests inject an in-process fake). */
+  makeConnector?: (app: ConnectedApp) => AppConnector;
 }
 
 export interface BuiltJarvis {
@@ -31,6 +38,8 @@ export interface BuiltJarvis {
   receipts: ReceiptsRepo;
   pending: PendingActionsRepo;
   settings: SettingsRepo;
+  apps: AppManager;
+  appsRepo: ConnectedAppsRepo;
 }
 
 /** Wire the whole brain together. Used by the DO, local runner and tests. */
@@ -44,6 +53,7 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
   const dispatcher = new ToolDispatcher([
     ...memoryTools,
     ...actionTools,
+    ...appTools,
     sendText,
     receiptsQuery,
     settingsUpdate,
@@ -52,6 +62,11 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
   // confirm/cancel need a reference to the dispatcher's executeConfirmed.
   const confirmTools = makeConfirmTools((pendingId, ctx) => dispatcher.executeConfirmed(pendingId, ctx));
   for (const t of confirmTools) dispatcher.register(t);
+
+  const appsRepo = new ConnectedAppsRepo(input.clock);
+  const makeConnector =
+    input.makeConnector ?? ((app: ConnectedApp) => new HttpAppConnector(app.baseUrl, app.authSecret));
+  const apps = new AppManager(appsRepo, dispatcher, makeConnector);
 
   const agent = new AgentCore({
     model: input.model,
@@ -67,7 +82,8 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
     ownerChannel: input.ownerChannel,
     timezone: input.timezone,
     ownerId: input.ownerId,
+    apps,
   });
 
-  return { agent, dispatcher, facts, conversation, receipts, pending, settings };
+  return { agent, dispatcher, facts, conversation, receipts, pending, settings, apps, appsRepo };
 }
