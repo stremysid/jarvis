@@ -89,7 +89,18 @@ migration **before** `wrangler deploy` for that release.
 
 ## What works today
 
-Text conversations, memory (save/recall/correct/forget/pin, meaning + literal search), the five
-confirmed actions with enforced confirmation and shadow mode, and receipts. Voice, connected
-apps, wake-ups/digest, and backups/vault sync are not built yet (see `PROGRESS.md`). The five
-action tools are **not connected to real providers** — they say so rather than pretending.
+Text conversations, memory (save/recall/correct/forget/pin, meaning + literal search), connected
+apps (the plug), calling (same brain on voice, hashed PIN for the five actions, guest isolation,
+Twilio signature + TwiML), the five confirmed actions with enforced confirmation and shadow mode,
+and receipts. Wake-ups/digest and backups/vault sync are not built yet (see `PROGRESS.md`). The
+five action tools are **not connected to real providers** — they say so rather than pretending.
+
+To connect the phone number after deploy, point your Twilio number's Voice webhook at
+`https://<your-worker>.workers.dev/voice` (HTTP POST), and set the PIN + phone secrets:
+
+```powershell
+cd rebuild
+wrangler secret put TWILIO_AUTH_TOKEN
+wrangler secret put OWNER_PHONE_E164
+wrangler secret put OWNER_PIN_PEPPER
+```

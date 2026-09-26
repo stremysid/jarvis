@@ -49,6 +49,16 @@ export interface ToolContext {
 
   /** Connected-apps manager (Phase 3). Present once app support is wired. */
   apps?: import("../apps/app-manager.js").AppManager;
+
+  // ---- Voice (Phase 5) ----
+  /** Present on a call. Holds caller role + this-call PIN state. */
+  call?: import("../voice/call-session.js").CallSession;
+  /** Verifies the owner's 4-digit PIN (hash compare). Fail-closed when unconfigured. */
+  ownerPinVerifier?: import("../voice/pin.js").OwnerPinVerifier;
+  /** Guest registry, for guest_create / guest_revoke. */
+  guests?: import("../voice/guests-repo.js").GuestsRepo;
+  /** Pepper for hashing guest PINs at rest. */
+  pinPepper?: string;
 }
 
 export interface Tool {

@@ -141,6 +141,19 @@ export class ToolDispatcher {
       ctx.receipts.log({ tool: action.tool, input: {}, result, trigger: ctx.trigger, performed: false, status: "error" });
       return result;
     }
+
+    // On a call, a confirmed action ALSO requires a verified PIN at this moment.
+    // Caller ID can be spoofed, so identity alone is never enough. Fail closed.
+    if (ctx.provenance.channel === "voice" && !(ctx.call && ctx.call.pinVerified)) {
+      const result: ToolResult = {
+        ok: false,
+        status: "pin_required",
+        message: "This action needs Sid's 4-digit PIN on the call. Ask him to say or key it, then confirm again.",
+      };
+      ctx.receipts.log({ tool: action.tool, input: {}, result, trigger: ctx.trigger, performed: false, status: "pin_required" });
+      return result;
+    }
+
     const args = JSON.parse(action.argsJson) as Record<string, unknown>;
 
     // Shadow mode: log what would have happened, do not execute.

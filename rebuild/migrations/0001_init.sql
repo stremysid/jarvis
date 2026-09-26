@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS connected_apps (
   added_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS guests (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  phone      TEXT NOT NULL,
+  pin_hash   TEXT NOT NULL,
+  access     TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_guests_phone ON guests (phone);
+
 CREATE TABLE IF NOT EXISTS wakeups (
   id         TEXT PRIMARY KEY,
   fire_at    TEXT NOT NULL,

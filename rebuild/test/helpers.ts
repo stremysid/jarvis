@@ -19,7 +19,12 @@ export interface Harness extends BuiltJarvis {
 
 export function makeHarness(
   turns: ScriptedTurn[],
-  opts: { clock?: FixedClock; makeConnector?: (app: ConnectedApp) => AppConnector } = {},
+  opts: {
+    clock?: FixedClock;
+    makeConnector?: (app: ConnectedApp) => AppConnector;
+    ownerPin?: string;
+    pinPepper?: string;
+  } = {},
 ): Harness {
   const clock = opts.clock ?? new FixedClock();
   const model = new FakeModel(turns);
@@ -35,6 +40,8 @@ export function makeHarness(
     ownerId: "sid",
     timezone: "America/Toronto",
     ...(opts.makeConnector ? { makeConnector: opts.makeConnector } : {}),
+    ...(opts.ownerPin ? { ownerPin: opts.ownerPin } : {}),
+    ...(opts.pinPepper ? { pinPepper: opts.pinPepper } : {}),
   });
   return {
     ...built,
@@ -60,10 +67,37 @@ export function makeHarness(
         vectors,
         ownerChannel,
         apps: built.apps,
+        call: event.call,
+        ownerPinVerifier: built.ownerPinVerifier,
+        guests: built.guests,
       };
     },
   };
 }
+
+import { newCallSession, type CallSession } from "../src/voice/call-session.js";
+
+/** A voice-call event. Pass a CallSession to carry caller role + PIN state. */
+export function callEvent(text: string, call: CallSession, eventId = "c1"): JarvisEvent {
+  return {
+    channel: "voice",
+    trigger: "call",
+    eventId,
+    text,
+    call,
+    provenance: {
+      channel: "voice",
+      isOwner: call.role === "owner",
+      isForwarded: false,
+      isPrivate: true,
+      sourceRef: `call:${call.callId}:${eventId}`,
+      sourceType: "call",
+    },
+  };
+}
+
+export { newCallSession };
+export type { CallSession };
 
 export function ownerEvent(
   text: string,

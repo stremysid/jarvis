@@ -9,6 +9,10 @@ import type { ChatMessage, Model } from "../model/types.js";
 import type { Channel, Provenance, Trigger } from "../types.js";
 import { ToolDispatcher } from "../confirmations/gate.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { buildGuestPrompt } from "../voice/guest-prompt.js";
+import type { CallSession } from "../voice/call-session.js";
+import type { OwnerPinVerifier } from "../voice/pin.js";
+import type { GuestsRepo } from "../voice/guests-repo.js";
 import type { OwnerChannel, ToolContext } from "./tool-types.js";
 
 /** A runaway cap on tool-calling rounds (system protection, not "one action per turn"). */
@@ -21,6 +25,8 @@ export interface JarvisEvent {
   /** Incoming text: Sid's message, a call utterance, or a wake-up instruction. */
   text: string;
   eventId: string;
+  /** Present on a call. Carries caller role + this-call PIN state. */
+  call?: CallSession;
 }
 
 export interface AgentResult {
@@ -44,6 +50,9 @@ export interface AgentDeps {
   timezone: string;
   ownerId: string;
   apps?: import("../apps/app-manager.js").AppManager;
+  ownerPinVerifier?: OwnerPinVerifier;
+  guests?: GuestsRepo;
+  pinPepper?: string;
 }
 
 /**
@@ -71,10 +80,19 @@ export class AgentCore {
       vectors: this.d.vectors,
       ownerChannel: this.d.ownerChannel,
       apps: this.d.apps,
+      call: event.call,
+      ownerPinVerifier: this.d.ownerPinVerifier,
+      guests: this.d.guests,
+      pinPepper: this.d.pinPepper,
     };
   }
 
   async handle(event: JarvisEvent): Promise<AgentResult> {
+    // A guest (or unknown) caller gets a completely separate, minimal brain:
+    // no owner profile, no owner memory, no tools. See handleGuest.
+    if (event.call && event.call.role !== "owner") {
+      return this.handleGuest(event, event.call);
+    }
     const ctx = this.makeContext(event);
 
     // Persist Sid's own words (text/call). Wake-ups are not Sid's words.
@@ -175,6 +193,44 @@ export class AgentCore {
     await this.summarizeIfNeeded(event.channel);
 
     return { reply, iterations: rounds };
+  }
+
+  /**
+   * Guest / unknown caller handling. A guest gets NONE of Sid's profile, memory
+   * or tools — only a minimal prompt built from their granted access. Their
+   * transcript lives on the call session, never in Sid's memory. This is the
+   * fix for the first build's leak of pinned facts into guest prompts.
+   */
+  private async handleGuest(event: JarvisEvent, call: CallSession): Promise<AgentResult> {
+    const system = buildGuestPrompt({
+      access: call.access,
+      nowIso: this.d.clock.nowIso(),
+      timezone: this.d.timezone,
+    });
+    call.guestHistory.push({ role: "user", content: event.text });
+    const messages: ChatMessage[] = [
+      { role: "system", content: system },
+      ...call.guestHistory,
+    ];
+    let resp;
+    try {
+      // Guests get NO tools.
+      resp = await this.d.model.complete({ messages, tools: [] });
+    } catch (e) {
+      const msg = (e as Error).message;
+      this.d.receipts.log({
+        tool: "model",
+        input: { guestCall: call.callId },
+        result: { error: msg },
+        trigger: event.trigger,
+        performed: false,
+        status: "error",
+      });
+      return { reply: "", iterations: 0, error: msg };
+    }
+    const reply = resp.content;
+    if (reply.trim() !== "") call.guestHistory.push({ role: "assistant", content: reply });
+    return { reply, iterations: 0 };
   }
 
   private currentSystemPrompt(channel: Channel): string {

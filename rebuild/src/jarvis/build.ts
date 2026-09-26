@@ -17,6 +17,9 @@ import { AppManager } from "../apps/app-manager.js";
 import { appTools } from "../apps/app-tools.js";
 import { HttpAppConnector, type AppConnector } from "../apps/connector.js";
 import type { ConnectedApp } from "../types.js";
+import { voiceTools } from "../voice/voice-tools.js";
+import { GuestsRepo } from "../voice/guests-repo.js";
+import { makeOwnerPinVerifier, type OwnerPinVerifier } from "../voice/pin.js";
 
 export interface BuildInput {
   model: Model;
@@ -28,6 +31,9 @@ export interface BuildInput {
   timezone: string;
   /** Override how an app connector is built (tests inject an in-process fake). */
   makeConnector?: (app: ConnectedApp) => AppConnector;
+  /** Owner PIN config for the five actions on a call. Missing => fail closed. */
+  ownerPin?: string;
+  pinPepper?: string;
 }
 
 export interface BuiltJarvis {
@@ -40,6 +46,8 @@ export interface BuiltJarvis {
   settings: SettingsRepo;
   apps: AppManager;
   appsRepo: ConnectedAppsRepo;
+  guests: GuestsRepo;
+  ownerPinVerifier: OwnerPinVerifier;
 }
 
 /** Wire the whole brain together. Used by the DO, local runner and tests. */
@@ -54,6 +62,7 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
     ...memoryTools,
     ...actionTools,
     ...appTools,
+    ...voiceTools,
     sendText,
     receiptsQuery,
     settingsUpdate,
@@ -67,6 +76,9 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
   const makeConnector =
     input.makeConnector ?? ((app: ConnectedApp) => new HttpAppConnector(app.baseUrl, app.authSecret));
   const apps = new AppManager(appsRepo, dispatcher, makeConnector);
+
+  const guests = new GuestsRepo(input.clock);
+  const ownerPinVerifier = makeOwnerPinVerifier(input.ownerPin, input.pinPepper);
 
   const agent = new AgentCore({
     model: input.model,
@@ -83,7 +95,10 @@ export function buildJarvis(input: BuildInput): BuiltJarvis {
     timezone: input.timezone,
     ownerId: input.ownerId,
     apps,
+    guests,
+    ownerPinVerifier,
+    ...(input.pinPepper ? { pinPepper: input.pinPepper } : {}),
   });
 
-  return { agent, dispatcher, facts, conversation, receipts, pending, settings, apps, appsRepo };
+  return { agent, dispatcher, facts, conversation, receipts, pending, settings, apps, appsRepo, guests, ownerPinVerifier };
 }

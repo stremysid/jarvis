@@ -1,13 +1,18 @@
 # Jarvis rebuild (agent-1) — PROGRESS
 
-**Phases: 3.5 of 7 built and tested this session** (Phase 1 complete, Phase 2 complete,
-Phase 3 complete, Phase 4 confirmation/shadow/receipts core complete). Phases 5, 6, 7 not started.
+**Phases: 4.5 of 7 built and tested this session** (Phases 1, 2, 3, 5 complete; Phase 4
+confirmation/shadow/receipts core complete). Phases 6, 7 not started.
 
-**Exact next step:** Phase 5 (Calling): a Twilio voice webhook returning TwiML for
-ConversationRelay pointed at a WebSocket on the Jarvis DO; inject channel=voice (same tools,
-memory, permissions); PIN (hashed) required for the five actions, keypad path always working;
-guest calls with a separate minimal prompt (no owner profile leak). Then Phase 6 (wake-ups/
-cron/digest) and Phase 7 (backups/archive/heartbeat/watchdog/vault sync).
+**Exact next step:** Phase 6 (Daily rhythm): schedule_wakeup / list_wakeups / cancel_wakeup with a
+DO alarm always set to the earliest; cron triggers accounting for Eastern time + DST (test WHICH
+firing happens); an hourly poll that wakes Jarvis and pings the watchdog; the model decides the
+morning digest time/content and the Sunday retro. Then Phase 7 (backups/archive/heartbeat/
+watchdog/vault sync).
+
+**Voice runtime note:** the `/voice` webhook (Twilio signature verified, returns ConversationRelay
+TwiML) and the caller-id/PIN/guest logic are built and unit-tested. The DO WebSocket loop that
+streams call turns is the one piece not wired end-to-end in the sandbox (no Twilio); the agent
+core already handles a voice turn identically to text, so wiring is plumbing.
 
 ---
 
@@ -19,7 +24,7 @@ npm install
 npm test
 ```
 
-36 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
+46 tests pass (`vitest`). `npm run typecheck` (`tsc --noEmit`) is clean.
 
 ---
 
@@ -53,6 +58,14 @@ npm test
 - `src/apps/app-tools.ts` — connect_app (confirmable setup)/disconnect_app/list_connected_apps/app_context.
 - `src/apps/app-events.ts` — app-event store + wakeOnAppEvent (senses); model decides what it means.
 - `src/apps/fake-app.ts` — in-process fake app for tests (publishes a normal + a confirmable tool).
+- `src/voice/pin.ts` — owner PIN verifier (hash compare, fail-closed) + guest PIN hashing.
+- `src/voice/call-session.ts` — per-call state: caller role + this-call pinVerified + guest history.
+- `src/voice/caller-id.ts` — identify owner/guest/unknown by phone (fail-closed; id never authorizes actions).
+- `src/voice/guests-repo.ts` — guests registry (name, phone, pin hash, access, expiry).
+- `src/voice/guest-prompt.ts` — minimal guest prompt; no owner profile/memory/tools.
+- `src/voice/voice-tools.ts` — pin_verify, call_place (not connected), guest_create, guest_revoke.
+- `src/voice/twiml.ts` — ConversationRelay Connect TwiML pointing at the DO websocket.
+- `src/voice/twilio-signature.ts` — Twilio HMAC-SHA1 signature verify (fail-closed).
 - `src/channels/telegram-channel.ts` — real Telegram send; surfaces delivery failures.
 - `src/channels/fake-owner-channel.ts` — test channel; can be told to fail.
 - `src/router/telegram-webhook.ts` — signature + owner checks (fail closed) + provenance.
@@ -77,6 +90,11 @@ npm test
   an app tool works on text AND voice; an app's confirmable tool routes through Jarvis's gate; an app
   event wakes Jarvis which decides whether to tell Sid; a down app returns an honest error; a fact from
   an app event is stored with the app as its source.
+- `test/phase5-calling.test.ts` (10): a call uses the same tools/memory as text; prompt says CHANNEL:voice;
+  a sensitive action refuses without a verified PIN; proceeds (honestly not_connected) with a correct PIN;
+  wrong/missing PIN fails closed; caller-id classifies owner/guest/unknown (and fail-closed with no owner
+  phone); a guest gets a minimal prompt with no owner facts/memory/tools and no shared-history write;
+  Connect TwiML built; Twilio signature verified (fail-closed); hashed PIN is not plaintext.
 
 ## Mutation checks done this session (trap: don't trust green until you mutate)
 
@@ -90,6 +108,8 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 - Temporary-expiry in FactsRepo.isActive → phase2 "temporary facts drop out of recall" went red.
 - App-tool confirmable propagation (forced false) → phase3 "routes through Jarvis's enforced confirmation" went red.
 - App failure visibility (fake pretend-success) → phase3 "failure is visible: a down app..." went red.
+- Voice PIN enforcement in the gate (disabled) → phase5 "a sensitive action on a call REFUSES without a verified PIN" went red.
+- Guest branch in agent core (removed) → phase5 "a guest call gets a minimal prompt..." went red.
 
 ## Decisions not in the brief (mine, flagged for Sid)
 
@@ -137,7 +157,6 @@ Each guard below was broken on purpose; the named test went red; then reverted. 
 
 ## Not yet built (be honest with Sid)
 
-- Phase 5 voice (Twilio ConversationRelay, PIN, guests).
 - Phase 6 wake-ups/cron/digest (the `schedule_wakeup` tool hook exists in ToolContext but no scheduler).
 - Phase 7 backups/archive/heartbeat/watchdog/vault sync.
 - D1/DO/Vectorize/R2 production persistence adapters (in-memory today).
@@ -152,7 +171,7 @@ Built by:
 - Reasoning / effort level (if known): UNKNOWN
 - Knowledge cutoff: UNKNOWN
 - Session date and time (UTC): 2026-09-26
-- Phases completed this session: Phase 1, Phase 2, and the confirmation/shadow/receipts core of Phase 4
+- Phases completed this session: Phases 1, 2, 3, 5, and the confirmation/shadow/receipts core of Phase 4
 
 ---
 

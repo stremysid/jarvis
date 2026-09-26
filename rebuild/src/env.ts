@@ -30,6 +30,8 @@ export interface Env {
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_E164?: string;
   PUBLIC_ORIGIN?: string;
+  /** Sid's own phone number (E.164), for caller-id on inbound calls. Missing => nobody is owner. */
+  OWNER_PHONE_E164?: string;
 
   // --- Model ---
   DEEPSEEK_API_KEY?: string;

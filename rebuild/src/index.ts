@@ -9,6 +9,8 @@ import { FakeEmbeddingProvider, InMemoryVectorIndex, WorkersAiEmbeddingProvider 
 import { newId } from "./ids.js";
 import type { JarvisEvent } from "./jarvis/agent-core.js";
 import { AppEventsRepo, wakeOnAppEvent } from "./apps/app-events.js";
+import { buildConnectTwiml } from "./voice/twiml.js";
+import { verifyTwilioSignature } from "./voice/twilio-signature.js";
 
 /**
  * Worker router. Receives Telegram webhooks, verifies them (fail closed), and
@@ -73,6 +75,31 @@ export default {
       });
     }
 
+    // Twilio inbound voice webhook. Verify the Twilio signature (fail closed),
+    // then return TwiML that connects the call to ConversationRelay pointed at a
+    // WebSocket on the Jarvis DO. The caller is identified (owner/guest/unknown)
+    // when the WebSocket connects; the five actions still require the PIN there.
+    if (url.pathname === "/voice" && request.method === "POST") {
+      const form = await request.formData().catch(() => null);
+      if (!form) return json({ ok: false, reason: "expected form-encoded body" }, 400);
+      const params: Record<string, string> = {};
+      form.forEach((v, k) => {
+        params[k] = String(v);
+      });
+      const sig = request.headers.get("x-twilio-signature");
+      const ok = await verifyTwilioSignature(env.TWILIO_AUTH_TOKEN, request.url, params, sig);
+      if (!ok) return json({ ok: false, reason: "bad twilio signature" }, 403);
+
+      const origin = env.PUBLIC_ORIGIN ?? url.origin;
+      const wsOrigin = origin.replace(/^http/, "ws");
+      const from = params.From ?? "";
+      const wsUrl = `${wsOrigin}/voice/ws?from=${encodeURIComponent(from)}&callSid=${encodeURIComponent(params.CallSid ?? "")}`;
+      return new Response(buildConnectTwiml(wsUrl), {
+        status: 200,
+        headers: { "content-type": "text/xml" },
+      });
+    }
+
     return json({ ok: false, reason: "not found" }, 404);
   },
 };
@@ -120,6 +147,8 @@ export class JarvisDurableObject {
       ownerChannel,
       ownerId: chatId,
       timezone: this.env.OWNER_TIMEZONE ?? "America/Toronto",
+      ...(this.env.OWNER_ACTION_PIN ? { ownerPin: this.env.OWNER_ACTION_PIN } : {}),
+      ...(this.env.OWNER_PIN_PEPPER ? { pinPepper: this.env.OWNER_PIN_PEPPER } : {}),
     });
     return this.built;
   }
