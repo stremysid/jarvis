@@ -3,25 +3,30 @@ import { parseArguments, refusedTool, successfulTool, type ExecutedTool } from "
 import type { ModelAdapterStreamInput } from "../model/model-adapter.js";
 import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
 import { DeadlineRepository } from "./deadline-repository.js";
-import { DEFAULT_LEAD_MINUTES } from "./effort-classifier.js";
-import { DEADLINE_STATUSES, requireEffort, requireStatus, requireText, type DeadlineStatus } from "./deadline-types.js";
+import {
+  DEADLINE_STATUSES,
+  requireStatus,
+  requireText,
+  type DeadlineStatus,
+} from "./deadline-types.js";
 
-// Jarvis reads Sid's words and decides the course, title, due time, effort and
-// status. This tool only checks facts code owns: the arguments are well typed,
-// the date is a real calendar date or instant, the zone is a real IANA zone,
-// and the row it writes or updates is Sid's own. It never parses Sid's wording
-// (Sid, 2026-09-24: "code should never make a decision or restrict jarvis").
+// Jarvis reads Sid's words and decides the course, title, due time and status.
+// Code stores what the model says and nothing it did not say: a deadline with no
+// due date is stored with no due date, never one code supplies. This tool only
+// checks facts code owns: the arguments are well typed, a stated date is a real
+// calendar date or instant, the zone is a real IANA zone, and the row it writes
+// or updates is Sid's own. It never parses Sid's wording (Sid, 2026-09-24:
+// "code should never make a decision or restrict jarvis").
 export const DEADLINE_TOOL_DEFINITION: ModelFunctionDefinition = Object.freeze({
   name: "deadline_record",
-  description: "Record or update one of Sid's school deadlines from his current message, typed or spoken. You decide the course, title, due date and time, effort and status from what he said; the owner time zone and the message time are in your context for resolving words like Friday, tomorrow or 3pm. If you are truly unsure which date, time, assignment or status he means, ask him instead of calling this tool. dueAt: an ISO 8601 instant with an explicit offset or Z (2026-09-25T15:00:00-04:00) when you know the time, or a calendar date YYYY-MM-DD when you only know the day; a date is stored at the end of that day in timeZone and the receipt says no clock time was given. timeZone: optional IANA zone for a date-only dueAt, defaulting to the owner zone. effort is your classification. status: optional, one of open, submitted, missed or cancelled, as you judge from what Sid said; leave it out to keep the stored status. Calling again with the same course and title (case and spacing ignored) updates that row instead of adding one. The receipt names other stored deadlines with a similar name; if one of them is the same assignment, tell Sid and use its exact course and title. Platform sources may also list the same assignment.",
+ description: "Record or update one of Sid's school deadlines from his current message, typed or spoken. You decide the course, title, due date and status from what he said; the owner time zone and the message time are in your context for resolving words like Friday, tomorrow or 3pm. If you are truly unsure which date, time, assignment or status he means, ask him instead of calling this tool. course and title are required. dueAt is optional: an ISO 8601 instant with an explicit offset or Z (2026-09-25T15:00:00-04:00) when you know the time, or a calendar date YYYY-MM-DD when you only know the day; a date is stored at the end of that day in timeZone and the receipt says no clock time was given. Leave dueAt out when the assignment states no due date; a new row is then stored with no due date and the receipt says so, and updating an existing row keeps the date it already has. Never invent or guess one. timeZone: optional IANA zone for a date-only dueAt, defaulting to the owner zone. status: optional, one of open, submitted, missed or cancelled, as you judge from what Sid said; leave it out to keep the stored status. Calling again with the same course and title (case and spacing ignored) updates that row instead of adding one. The receipt names other stored deadlines with a similar name; if one of them is the same assignment, tell Sid and use its exact course and title. Platform sources may also list the same assignment.",
   parameters: {
     type: "object", additionalProperties: false,
-    required: ["course", "title", "dueAt", "effort"],
+    required: ["course", "title"],
     properties: {
       course: { type: "string" }, title: { type: "string" },
-      dueAt: { type: "string", description: "ISO 8601 instant with offset or Z, or a YYYY-MM-DD date." },
+      dueAt: { type: "string", description: "ISO 8601 instant with offset or Z, or a YYYY-MM-DD date. Omit when there is no due date." },
       timeZone: { type: "string", description: "IANA zone for a date-only dueAt; defaults to the owner zone." },
-      effort: { type: "string", enum: ["quiz", "test", "exam", "essay", "project", "other"] },
       status: { type: "string", enum: [...DEADLINE_STATUSES] },
     },
   },
@@ -81,9 +86,11 @@ function endOfLocalDay(date: string, zone: string): number {
   return latest + 59_999;
 }
 
-interface ResolvedDue { readonly dueAt: string; readonly dateOnlyZone: string | null }
+interface ResolvedDue { readonly dueAt: string | null; readonly dateOnlyZone: string | null }
 
+/** Null when the model stated no due date; never a date this code chose. */
 function resolveDue(value: unknown, timeZone: string): ResolvedDue {
+  if (value === undefined || value === null) return { dueAt: null, dateOnlyZone: null };
   const text = requireText(value, "deadline_due_at", 64);
   const date = DATE_ONLY.exec(text);
   if (date !== null) {
@@ -100,10 +107,10 @@ function resolveDue(value: unknown, timeZone: string): ResolvedDue {
   return { dueAt: new Date(Date.parse(text)).toISOString(), dateOnlyZone: null };
 }
 
-interface ExistingDeadline { external_id: string; course: string; title: string }
+interface ExistingDeadline { external_id: string; course: string; title: string; due_date: string | null }
 
 async function ownedDeadlines(database: D1Database, principal: string): Promise<ExistingDeadline[]> {
-  const rows = await database.prepare("SELECT external_id, course, title FROM deadlines WHERE source_id = 'owner-reported'").all<ExistingDeadline>();
+  const rows = await database.prepare("SELECT external_id, course, title, due_date FROM deadlines WHERE source_id = 'owner-reported'").all<ExistingDeadline>();
   const owned: ExistingDeadline[] = [];
   for (const row of rows.results) {
     // Older rows hashed literal spelling. Both generations must retain their
@@ -141,32 +148,40 @@ export async function recordDeadline(database: D1Database, input: Readonly<Model
   call: ModelFunctionCall, now: Date, context: { ownerZone: string }): Promise<ExecutedTool> {
   try {
     const decoded = JSON.parse(call.arguments) as Record<string, unknown>;
-    const args = parseArguments(call, ["course", "title", "dueAt", "effort",
-      ...["timeZone", "status"].filter((key) => Object.hasOwn(decoded, key))]);
+    const args = parseArguments(call, ["course", "title",
+      ...["dueAt", "timeZone", "status"].filter((key) => Object.hasOwn(decoded, key))]);
     const course = requireText(args.course, "deadline_course", 512);
     const title = requireText(args.title, "deadline_title", 512);
     if (normalize(course).length === 0 || normalize(title).length === 0) invalid("course and title must not be blank.");
-    const effort = requireEffort(args.effort);
     const status: DeadlineStatus | undefined = args.status === undefined ? undefined : requireStatus(args.status);
     const ownerZone = requireZone(context.ownerZone, "deadline_owner_zone");
     const timeZone = args.timeZone === undefined ? ownerZone : requireZone(args.timeZone, "deadline_zone");
-    const due = resolveDue(args.dueAt, timeZone);
     const { match, similar } = sameAndSimilar(await ownedDeadlines(database, input.principalId), course, title);
+    // An omitted dueAt keeps the stored date on an update, the same way an
+    // omitted status keeps the stored status, and stores no date on a new row.
+    // An explicit null clears it. Omitting never erases a date.
+    const due: ResolvedDue = args.dueAt === undefined
+      ? { dueAt: match?.due_date ?? null, dateOnlyZone: null }
+      : resolveDue(args.dueAt, timeZone);
     const repository = new DeadlineRepository(database);
     await repository.ensureSource({ sourceId: "owner-reported", kind: "manual", label: "owner-reported", now });
     const externalId = match?.external_id ?? await identity(input.principalId, courseKey(course), normalize(title));
     const result = await repository.upsert({ sourceId: "owner-reported", externalId,
       course: match?.course ?? course, title: match?.title ?? title, dueAt: due.dueAt,
-      effort, ...(status === undefined ? {} : { status }), replaceEffortAndLead: true, leadMinutes: DEFAULT_LEAD_MINUTES[effort], now });
+      ...(status === undefined ? {} : { status }), now });
     const local = (at: string) => new Intl.DateTimeFormat("en-CA", { timeZone: ownerZone, dateStyle: "full", timeStyle: "short" }).format(new Date(at));
     const action = result.outcome === "created" ? "Created" : result.outcome === "unchanged" ? "Unchanged" : "Updated";
-    const previous = result.previous !== null && result.previous.dueAt !== result.deadline.dueAt
-      ? ` Previous due time: ${local(result.previous.dueAt)} (${ownerZone}).` : "";
+    const previous = result.previous === null || result.previous.dueAt === result.deadline.dueAt ? ""
+      : result.previous.dueAt === null ? " Previous: no due date."
+        : ` Previous due time: ${local(result.previous.dueAt)} (${ownerZone}).`;
     const qualification = due.dateOnlyZone === null ? ""
       : ` Date-only: stored at end of day in ${due.dateOnlyZone}, not a stated clock time.`;
     const alike = similar.length === 0 ? "" : ` Similar stored deadlines: ${similar.map((row) =>
       `${JSON.stringify(row.course)} / ${JSON.stringify(row.title)}`).join(", ")}; if one is the same assignment, tell Sid.`;
-    return successfulTool(call, `${action} ${JSON.stringify(result.deadline.course)}: ${JSON.stringify(result.deadline.title)}, due ${local(result.deadline.dueAt)} (${ownerZone}); ${result.deadline.status}.${qualification}${previous}${alike} Source: owner-reported.`);
+    const dueText = result.deadline.dueAt === null
+      ? "no due date"
+      : `due ${local(result.deadline.dueAt)} (${ownerZone})`;
+    return successfulTool(call, `${action} ${JSON.stringify(result.deadline.course)}: ${JSON.stringify(result.deadline.title)}, ${dueText}; ${result.deadline.status}.${qualification}${previous}${alike} Source: owner-reported.`);
   } catch (error) {
     if (error instanceof DeadlineToolError) return refusedTool(call, `${error.reason}: ${error.detail} Nothing changed.`);
     if (error instanceof TypeError || error instanceof SyntaxError) return refusedTool(call,

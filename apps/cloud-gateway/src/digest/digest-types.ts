@@ -18,8 +18,8 @@ export interface DigestDeadline {
   readonly deadlineId: string;
   readonly course: string;
   readonly title: string;
-  readonly dueAt: string;
-  readonly effort: "quiz" | "test" | "exam" | "essay" | "project" | "other";
+  /** Null when the source states no due date. The digest says so rather than guessing. */
+  readonly dueAt: string | null;
   /** Fixed adapter label. Optional only for older fixture callers. */
   readonly source?: "Google Classroom" | "Brightspace calendar" | "D2L email" | "Manual" | "Brightspace";
 }

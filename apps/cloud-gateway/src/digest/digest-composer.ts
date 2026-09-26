@@ -161,11 +161,15 @@ function deadlineSection(
   horizonDays: number,
 ): DigestSection | null {
   const upcoming = input.deadlines
-    .map((deadline) => ({ deadline, hours: hoursUntil(deadline.dueAt, now) }))
+    .map((deadline) => ({ deadline, hours: deadline.dueAt === null ? null : hoursUntil(deadline.dueAt, now) }))
+    // An undated deadline is kept, like a due date that will not parse: it is
+    // still a deadline. The line says it has no due date rather than dropping it
+    // or inventing one.
+    //
     // A due date that will not parse is kept rather than filtered away. A
     // deadline we cannot read is still a deadline, and dropping it is exactly
     // how something gets missed silently.
-    .filter((entry) => entry.hours === null || entry.hours <= horizonDays * 24)
+    .filter((entry) => entry.deadline.dueAt === null || entry.hours === null || entry.hours <= horizonDays * 24)
     .sort(
       (left, right) =>
         (left.hours ?? Number.MAX_SAFE_INTEGER) - (right.hours ?? Number.MAX_SAFE_INTEGER),
@@ -176,9 +180,12 @@ function deadlineSection(
     heading: "Due",
     lines: upcoming.map(({ deadline, hours }) => {
       const source = deadline.source === undefined ? "" : `[${deadline.source}] `;
+      if (deadline.dueAt === null) {
+        return `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (no due date)`;
+      }
       return hours === null
         ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
-        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`;
+        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)})`;
     }),
   };
 }

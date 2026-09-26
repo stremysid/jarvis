@@ -740,7 +740,7 @@ export class SchoolObservationRepository {
     }
     this.#claim();
     const result = await this.database.prepare(
-      `SELECT d.deadline_id, d.due_at, d.status,
+      `SELECT d.deadline_id, d.due_date AS due_at, d.status,
               o.observation_id, o.submission_state, o.last_seen_at,
               (
                 SELECT t.to_state FROM school_missing_work_transitions AS t
@@ -858,7 +858,7 @@ export class SchoolObservationRepository {
          LIMIT 20`,
       ).bind(principalId, sourceId, changedSince).all<GradeRow>(),
       this.database.prepare(
-        `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_at,
+        `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_date AS due_at,
                 t.classification, t.to_state, basis.last_seen_at, COUNT(*) OVER () AS total_count
          FROM school_missing_work_transitions AS t
          JOIN deadlines AS d ON d.deadline_id = t.deadline_id
@@ -872,11 +872,11 @@ export class SchoolObservationRepository {
           AND basis.source_id = d.source_id
          WHERE t.principal_id = ? AND d.source_id = ?
            AND t.to_state = 'no_submission_seen'
-           AND d.status = 'open' AND d.due_at <= ?
+           AND d.status = 'open' AND d.due_date <= ?
            AND sync.last_success_at IS NOT NULL
            AND sync.last_success_started_at IS NOT NULL
            AND basis.last_seen_at >= sync.last_success_started_at
-           AND basis.last_seen_at >= d.due_at
+           AND basis.last_seen_at >= d.due_date
            AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
            AND NOT EXISTS (
              SELECT 1 FROM school_missing_work_transitions AS later
@@ -886,7 +886,7 @@ export class SchoolObservationRepository {
                  OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id)
                )
            )
-         ORDER BY d.due_at DESC, d.deadline_id
+         ORDER BY d.due_date DESC, d.deadline_id
          LIMIT 20`,
       ).bind(principalId, sourceId, now).all<MissingRow>(),
       this.readSync(principalId, sourceId),
@@ -984,7 +984,7 @@ export class SchoolObservationRepository {
         LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
         .bind(principalId).all<StudyGradeRow>(),
       this.database.prepare(`SELECT t.transition_id, t.deadline_id, d.course, d.title,
-          d.due_at, t.classification, t.to_state, basis.last_seen_at,
+          d.due_date AS due_at, t.classification, t.to_state, basis.last_seen_at,
           1 AS total_count, sync.last_success_at AS source_last_success_at,
           sync.last_failure AS source_last_failure
         FROM school_missing_work_transitions t
@@ -998,11 +998,11 @@ export class SchoolObservationRepository {
           AND basis.deadline_id = t.deadline_id
           AND basis.source_id = d.source_id
         WHERE t.principal_id = ?1 AND t.to_state = 'no_submission_seen'
-          AND d.status = 'open' AND d.due_at <= ?2
+          AND d.status = 'open' AND d.due_date <= ?2
           AND sync.last_success_at IS NOT NULL
           AND sync.last_success_started_at IS NOT NULL
           AND basis.last_seen_at >= sync.last_success_started_at
-          AND basis.last_seen_at >= d.due_at
+          AND basis.last_seen_at >= d.due_date
           AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
           AND NOT EXISTS (
             SELECT 1 FROM school_missing_work_transitions later
@@ -1010,7 +1010,7 @@ export class SchoolObservationRepository {
               AND (later.derived_at > t.derived_at
                 OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id))
           )
-        ORDER BY d.due_at DESC, d.deadline_id
+        ORDER BY d.due_date DESC, d.deadline_id
         LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
         .bind(principalId, now).all<StudyMissingRow>(),
     ]);
