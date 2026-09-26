@@ -820,7 +820,13 @@ describe("PR #64 round-4 regression corpus", () => {
       expect(records(text, update, same)).toBe(true);
     });
 
-    it("refuses a step declaration whose evidence is not Sid's whole message", () => {
+    it("refuses a step declaration whose evidence is only an excerpt of Sid's message", () => {
+      const text = "I paid the Waterloo AIF fee for the Waterloo AIF. Thanks!";
+      const update = existing(WF_AIF_PAY, WATERLOO, "owner_reported_done", "I paid the Waterloo AIF fee for the Waterloo AIF.");
+      expect(records(text, update, same)).toBe(false);
+    });
+
+    it("refuses a step declaration whose evidence is not in Sid's message at all", () => {
       const text = "I paid the Waterloo AIF fee for the Waterloo AIF.";
       const update = existing(WF_AIF_PAY, WATERLOO, "owner_reported_done", "I paid the fee");
       expect(records(text, update, same)).toBe(false);

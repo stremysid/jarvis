@@ -29,7 +29,7 @@
     "find": "  if (status === null && statusEvidence !== null || status !== null && (statusEvidence !== ownerMessage",
     "replace": "  if (status === null && statusEvidence !== null || status !== null && (false",
     "testPath": "apps/cloud-gateway/test/university/university-application-round4-corpus.test.ts",
-    "expect": "refuses a step declaration whose evidence is not Sid's whole message"
+    "expect": "refuses a step declaration whose evidence is only an excerpt of Sid's message"
   },
   {
     "name": "application-date-must-be-real",
