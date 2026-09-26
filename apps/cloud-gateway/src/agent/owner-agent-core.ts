@@ -564,24 +564,44 @@ function parseArgumentsWithOptionalExcerpt(
 }
 
 /**
- * `memory_remember`'s arguments, with or without the lifetime pair.
+ * `memory_remember`'s arguments, all of them required.
  *
  * `parseArguments` insists on an exact key set, which is what makes a
- * hallucinated argument a refusal rather than a silently dropped field, so an
- * optional field is expressed as a second accepted shape instead of by
- * loosening that check. `lifetime` and `expiresAt` are one shape and not two,
- * because they are coupled: durable carries no end, temporary requires one, so
- * a call sending just one of them is not a call this tool can mean.
+ * hallucinated argument a refusal rather than a silently dropped field. The
+ * lifetime pair is part of that exact set: the model states how long the fact
+ * lasts instead of relying on a code default, because "how long a fact lasts"
+ * is the model's decision and an omission must be refused rather than answered
+ * by guessing.
  */
 function parseRememberArguments(call: ModelFunctionCall): Record<string, unknown> {
-  const required = [
+  return parseArguments(call, [
     "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
-  ];
-  try {
-    return parseArguments(call, required);
-  } catch {
-    return parseArguments(call, [...required, "lifetime", "expiresAt"]);
+    "lifetime", "expiresAt",
+  ]);
+}
+
+/**
+ * The lifetime pair every memory-writing tool asks the model for.
+ *
+ * Shape only: whether the pair is *consistent* -- durable with no end,
+ * temporary with one -- is the capture's call, so that judgment lives in one
+ * place rather than being re-implemented per tool and drifting. The values
+ * themselves are the model's, and there is no default, because a default is
+ * code deciding how long Sid's fact lasts.
+ */
+function memoryLifetimeArguments(
+  args: Record<string, unknown>,
+): Readonly<{ lifetime: "durable" | "temporary"; validTo: string | null }> {
+  const lifetime = args.lifetime;
+  if (lifetime !== "durable" && lifetime !== "temporary") {
+    throw new TypeError("owner_agent_memory_lifetime_invalid");
   }
+  const expiresAt = args.expiresAt;
+  if (expiresAt !== null
+    && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
+    throw new TypeError("owner_agent_memory_expiry_invalid");
+  }
+  return Object.freeze({ lifetime, validTo: expiresAt });
 }
 
 /**
@@ -1886,16 +1906,10 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     // Shape only. Whether the pair is *consistent* -- durable with no end,
     // temporary with one -- is the capture's call, so that judgment lives in one
-    // place rather than being re-implemented here and drifting from it.
-    const lifetime = args.lifetime === undefined ? "durable" : args.lifetime;
-    if (lifetime !== "durable" && lifetime !== "temporary") {
-      throw new TypeError("owner_agent_memory_lifetime_invalid");
-    }
-    const expiresAt = args.expiresAt === undefined ? null : args.expiresAt;
-    if (expiresAt !== null
-      && (typeof expiresAt !== "string" || new Date(expiresAt).toISOString() !== expiresAt)) {
-      throw new TypeError("owner_agent_memory_expiry_invalid");
-    }
+    // place rather than being re-implemented here and drifting from it. The
+    // value itself is the model's: there is no default, because a default is
+    // code deciding how long Sid's fact lasts.
+    const { lifetime, validTo: expiresAt } = memoryLifetimeArguments(args);
     const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
     const result = await this.controls().remember({
       ownerTurn: await this.memoryOwnerTurn(input, port, "remember") as never,
@@ -1924,34 +1938,29 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const itemIds = safeItemIds(args.itemIds);
     const eligible = await this.eligibleItemIds(input, "forget");
     if (itemIds.some((itemId) => !eligible.has(itemId))) throw new TypeError("owner_agent_item_not_eligible");
-    if (itemIds.length !== 1) {
-      const decision = await this.dependencies.decisions.raise({
-        principalId: input.principalId,
-        origin: "telegram-memory-forget",
-        originReference: itemIds.join(","),
-        urgency: "normal",
-        question: `Forget these ${itemIds.length} memories?`,
-        detail: "Nothing changes unless Sid taps Confirm forget.",
-        choices: Object.freeze([{ key: "confirm", label: `Confirm forget ${itemIds.length}` }]),
-      });
-      port.recordDecision(input, decision);
-      return informationalTool(
-        call,
-        `Nothing changed. Tap Confirm forget ${itemIds.length} to hide those exact memories.`,
-        itemIds,
-      );
-    }
     groundedExcerpt(input, args.supportingExcerpt);
     // "don't forget the memory about X" is a request to keep it. The model
     // usually reads that correctly; this guard is what holds when it does not.
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
-    const item = await new MemoryRepository(this.dependencies.database)
-      .readCurrentItem(input.principalId, itemIds[0]!);
-    const result = await this.controls().forget({
+    // No confirmation tap. Forgetting is not one of the five actions Sid asked
+    // to be confirmed, and the tap that used to stand here existed only because
+    // the ledger allowed one mutation per owner turn. Each target now carries
+    // its own command and its own receipt, so one call can hide several.
+    const repository = new MemoryRepository(this.dependencies.database);
+    const items = await Promise.all(
+      itemIds.map((itemId) => repository.readCurrentItem(input.principalId, itemId)),
+    );
+    const results = await this.controls().forget({
       ownerTurn: await this.memoryOwnerTurn(input, port, "forget") as never,
       candidateItemIds: itemIds,
     });
-    return successfulTool(call, memoryReceipt(result.receipt, item.version.text), itemIds);
+    if (results.length !== itemIds.length) throw new TypeError("owner_agent_memory_arguments_invalid");
+    return successfulTool(
+      call,
+      results.map((result, index) =>
+        memoryReceipt(result.receipt, items[index]!.version.text)).join("\n"),
+      itemIds,
+    );
   }
 
   private async correct(
@@ -1959,7 +1968,9 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId", "newFact", "supportingExcerpt", "kind", "sensitivity"]);
+    const args = parseArguments(call, [
+      "itemId", "newFact", "supportingExcerpt", "kind", "sensitivity", "lifetime", "expiresAt",
+    ]);
     const itemId = safeUlid(args.itemId);
     const newFact = safeText(args.newFact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
@@ -1968,6 +1979,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
       throw new TypeError("owner_agent_memory_arguments_invalid");
     }
+    const { lifetime, validTo } = memoryLifetimeArguments(args);
     await this.requireEligibleItem(input, "correct", itemId);
     const grounding = rememberGrounding(input, newFact, excerpt, null);
     const result = await this.controls().correct({
@@ -1978,6 +1990,8 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       normalizedFromSource: grounding.authoritative,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
+      lifetime,
+      validTo,
     });
     // The receipt already names both wordings, so it is not given a second
     // "Memory:" suffix the way the single-wording mutations are.
@@ -1989,8 +2003,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId", "basis"]);
     const itemId = safeUlid(args.itemId);
+    // What the restored evidence now counts as is the model's call: code used to
+    // set `confirmed` on its own whenever the origin was first-person and every
+    // source was archive-only. Only the enum is checked here.
+    const bases = new Set<string>(["stated", "confirmed", "observed", "inferred", "third_party"]);
+    if (typeof args.basis !== "string" || !bases.has(args.basis)) {
+      throw new TypeError("owner_agent_memory_basis_invalid");
+    }
+    const basis = args.basis as "stated" | "confirmed" | "observed" | "inferred" | "third_party";
     groundedExcerpt(input, args.supportingExcerpt);
     // "I don't want to use that memory again" is not a restore request.
     if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
@@ -1999,6 +2021,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     const result = await this.controls().lift({
       ownerTurn: await this.memoryOwnerTurn(input, port, "lift") as never,
       candidateItemIds: Object.freeze([itemId]),
+      basis,
     });
     return successfulTool(call, memoryReceipt(result.receipt, item.version.text), Object.freeze([itemId]));
   }
