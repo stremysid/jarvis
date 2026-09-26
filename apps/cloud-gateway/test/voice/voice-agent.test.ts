@@ -1245,7 +1245,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(27);
+    expect(request?.tools).toHaveLength(28);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
@@ -1254,7 +1254,7 @@ describe("the voice agent adapter", () => {
       ...OWNER_ARGUMENT_TOOL_DEFINITIONS.map(definition => definition.name),
       "deadline_record", "reminder_schedule", "reminder_list", "reminder_cancel",
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
-      "school_d2l_status", "school_collector_revoke",
+      "school_d2l_status", "school_collector_revoke", "project_facts",
       "email_inbox_list", "email_inbox_read",
     ]));
     const telegramRequests: ModelAgentCompletionInput[] = [];
