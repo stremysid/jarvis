@@ -82,6 +82,12 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // selects nothing and changes no memory; it records the turn's reference set,
   // so it shares `memory.read`'s tier-1 row and needs no migration.
   declare_memory_references: "memory.read",
+  // Owner-only guest access management. `access.manage` is the capability the
+  // voice access authority already checks; `0055` registers it at tier 1 so the
+  // classification guard can read a real row. It is not one of the five actions
+  // Sid wants a confirmation for, and the model decides whether to read the
+  // number back, so no tap is added here.
+  owner_access: "access.manage",
   // Pinning changes a stored preference rather than an item's existence, so it is
   // a memory write like the rest and shares `memory.write`'s tier-1 row. That is
   // the whole reason these two needed no migration: `0035` already seeds the tier.

@@ -4,7 +4,7 @@
  * ingress authority, consent presentation and delivery-specific evidence.
  */
 
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import type { GuestCapabilityId, Ulid } from "../../../../packages/contracts/src/index.js";
 import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
 import { ProjectRepository } from "../projects/project-repository.js";
@@ -39,6 +39,11 @@ import {
   DECLARE_MEMORY_REFERENCES_TOOL_NAME,
   MAX_DECLARED_REFERENCES,
 } from "./reply-reference-tools.js";
+import {
+  OWNER_ACCESS_TOOL_NAME,
+  type OwnerAccessToolPort,
+  type OwnerAccessToolRequest,
+} from "../voice/owner-access-tool.js";
 
 /**
  * The accepted argument names of the two inbox tools, read from their own
@@ -459,6 +464,14 @@ export interface OwnerAgentCoreDependencies {
    * model, which is a different answer from "the web had nothing".
    */
   readonly web?: WebToolsDependencies;
+  /**
+   * Guest access management, on channels that have it.
+   *
+   * Only a call has a `VoiceCallAuthority` and a PIN question surface, so the
+   * shared `owner_access` tool refuses on a channel without this port rather
+   * than pretending the capability exists there.
+   */
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
   /** Test seam and an explicit cap below the channel's outer allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -792,6 +805,24 @@ function unactionedTool(
     receipt: null,
     receiptId: null,
     referencedItemIds,
+  });
+}
+
+/**
+ * A tool that changed something, whose outcome the model speaks itself.
+ *
+ * It mints a receipt id, so a reply sentence about the change is provable and
+ * survives the honesty guard, but it carries no code-authored sentence: the
+ * structured result is the model's evidence, and how to say it is the model's
+ * judgment (the batch that removed the owner-access result sentences).
+ */
+function modelStatedReceiptTool(call: ModelFunctionCall, evidence: string): ExecutedTool {
+  const receiptId = `receipt:${call.id}`;
+  return Object.freeze({
+    providerResult: toolResult(call, "completed", receiptId, evidence, Object.freeze([])),
+    receipt: null,
+    receiptId,
+    referencedItemIds: Object.freeze([]),
   });
 }
 
@@ -1449,6 +1480,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);
       return this.declareMemoryReferences(input, port, call, touchedItemIds);
     }
+    if (call.name === OWNER_ACCESS_TOOL_NAME) {
+      if (this.dependencies.ownerAccessTool === null || this.dependencies.ownerAccessTool === undefined) {
+        return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+      }
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return this.ownerAccess(input, call);
+    }
     if (GUIDED_ASSIGNMENT_TOOL_DEFINITIONS.some((definition) => definition.name === call.name)) {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
       await port.memoryOwnerTurn(input, null);
@@ -1647,6 +1686,51 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     port.recordReferences(input.correlationId, Object.freeze([...itemIds]));
     return unactionedTool(call, `Recorded ${itemIds.length === 1 ? "one memory reference" : `${itemIds.length} memory references`} for this reply.`, Object.freeze([]));
+  }
+
+  /**
+   * `owner_access`: the model names the operation, target, capabilities and PIN
+   * choice; the call's port validates and applies it. The requested text of each
+   * field is the tool description's job, and code keeps only the shape check
+   * here plus the service's own E.164, capability and authority validation.
+   */
+  private async ownerAccess(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool> {
+    const tool = this.dependencies.ownerAccessTool;
+    if (tool === null || tool === undefined) {
+      return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+    }
+    let args: Record<string, unknown>;
+    try {
+      args = parseArguments(call, ["operation", "phone", "capabilities", "pin"]);
+    } catch {
+      return refusedTool(call, "I did not change caller access because the tool call was malformed. Nothing changed.");
+    }
+    const operation = args.operation;
+    if (operation !== "add" && operation !== "replace_permissions" && operation !== "rotate_pin"
+      && operation !== "revoke" && operation !== "list") {
+      return refusedTool(call, "I did not change caller access because the operation was not one I can do. Nothing changed.");
+    }
+    if (args.phone !== null && typeof args.phone !== "string") {
+      return refusedTool(call, "I did not change caller access because the phone number was not a number or null. Nothing changed.");
+    }
+    if (args.pin !== "default" && args.pin !== "digits") {
+      return refusedTool(call, "I did not change caller access because the PIN choice was not default or digits. Nothing changed.");
+    }
+    if (!Array.isArray(args.capabilities)
+      || args.capabilities.some((value) => typeof value !== "string")) {
+      return refusedTool(call, "I did not change caller access because the capabilities were not a list of capability ids. Nothing changed.");
+    }
+    const request: OwnerAccessToolRequest = Object.freeze({
+      operation,
+      providerE164: args.phone,
+      capabilityIds: Object.freeze([...args.capabilities] as GuestCapabilityId[]),
+      pin: args.pin,
+    });
+    const result = await tool.run(request, input.signal);
+    return modelStatedReceiptTool(call, JSON.stringify({ status: "completed", ...result }));
   }
 
   private controls(): MemoryOwnerControlsService {

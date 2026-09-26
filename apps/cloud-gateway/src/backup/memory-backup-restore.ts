@@ -88,6 +88,7 @@ const MIGRATION_SEEDED_ROWS = Object.freeze({
   archive_state: Object.freeze([1]),
   autonomy_mode: Object.freeze([1]),
   capability_tiers: Object.freeze([
+    "access.manage",
     "contact.third_party",
     "delete.data",
     "email.read",

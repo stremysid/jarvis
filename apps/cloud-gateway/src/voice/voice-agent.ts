@@ -30,6 +30,7 @@ import {
   type OwnerAgentChannelPort,
 } from "../agent/owner-agent-core.js";
 import type { WebToolsDependencies } from "../web/web-tools.js";
+import type { OwnerAccessToolPort } from "./owner-access-tool.js";
 
 const encoder = new TextEncoder();
 
@@ -93,6 +94,12 @@ export interface OwnerVoiceAgentDependencies extends OwnerPipelineModels {
   readonly autonomy: ToolAutonomyGateContract;
   /** Shared with Telegram: the same web tools on both channels. */
   readonly web?: WebToolsDependencies;
+  /**
+   * Guest access management. Present on a call because that is where a guest
+   * grant and a PIN question live; the shared catalogue offers the tool on both
+   * channels and the core refuses where this port is absent.
+   */
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
   readonly turnTimeoutMs?: number;
   readonly now?: () => Date;
   readonly timeZone?: string;
