@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCommand, type CommandContext } from "../../src/channels/telegram/command-handler.js";
-import type { DecisionItem } from "../../src/decisions/decision-types.js";
 
 /**
  * Two properties, and both are about honesty rather than function.
@@ -11,6 +10,9 @@ import type { DecisionItem } from "../../src/decisions/decision-types.js";
  *
  * A command that changes state reports the state it REACHED, never the state
  * it was asked for. The next thing the owner does is act on that answer.
+ *
+ * Only the mechanical commands remain here: `/status`, `/queue` and `/digest`
+ * are model tools now (see `owner-command-tools.test.ts`).
  */
 
 const NOW = new Date("2026-09-02T11:30:00.000Z");
@@ -19,61 +21,17 @@ function context(overrides: Partial<CommandContext> = {}): CommandContext {
   return { principalId: "principal-a", now: () => NOW, ...overrides };
 }
 
-function decision(overrides: Partial<DecisionItem> = {}): DecisionItem {
-  return {
-    decisionId: "01k5d8s0m00000000000000001",
-    principalId: "principal-a",
-    origin: "projects",
-    originReference: null,
-    urgency: "normal",
-    question: "Approve the vendor quote?",
-    detail: null,
-    status: "open",
-    rank: 100,
-    expiresAt: null,
-    createdAt: NOW.toISOString(),
-    deliveredAt: null,
-    resolvedAt: null,
-    options: [
-      { optionKey: "yes", label: "Yes", ordinal: 0, kind: "choice" },
-      { optionKey: "no", label: "No", ordinal: 1, kind: "choice" },
-      { optionKey: "other", label: "Other", ordinal: 2, kind: "free_text" },
-      { optionKey: "explain", label: "Explain more", ordinal: 3, kind: "explain" },
-    ],
-    ...overrides,
-  } as DecisionItem;
-}
-
 async function text(...args: Parameters<typeof runCommand>): Promise<string> {
   return (await runCommand(...args)).map((reply) => reply.text).join("\n");
 }
 
-describe("help", () => {
-  it("lists every command", async () => {
-    const help = await text("help", "", context());
-    for (const name of ["/status", "/queue", "/digest", "/exam", "/shadow", "/vault", "/call"]) {
-      expect(help).toContain(name);
-    }
-  });
-});
-
 describe("a subsystem that is not configured", () => {
   it.each([
-    ["queue", "The decision queue"],
-    ["digest", "The digest"],
     ["exam", "Quiet hours"],
     ["shadow", "Autonomy"],
     ["call", "Calling"],
   ] as const)("says %s is not configured rather than reporting nothing", async (name, label) => {
-    // The failure this prevents: an owner reading "Nothing waiting on you"
-    // from a deployment where the decision queue was never wired up.
     expect(await text(name, "on", context())).toBe(`${label} is not configured on this deployment.`);
-  });
-
-  it("distinguishes an empty queue from an absent one", async () => {
-    const empty = await text("queue", "", context({ decisions: { queue: async () => [] } }));
-    expect(empty).toBe("Nothing waiting on you.");
-    expect(empty).not.toContain("not configured");
   });
 });
 
@@ -91,175 +49,6 @@ describe("calling", () => {
     } }));
     expect(reply).toBe("Could not confirm whether the call was placed. Check your phone before trying again.");
     expect(reply).not.toContain("private fixture");
-  });
-});
-
-describe("status", () => {
-  /** Every job the router knows about, including the nightly backup. */
-  const ALL_JOBS = ["drain", "poll", "digest", "retro", "backup"] as const;
-
-  it("reports never-run separately from failed", async () => {
-    // A fresh deployment and a broken one both have nothing recent to show.
-    // Collapsing them means the first alarming morning looks like day one.
-    const reported = await text(
-      "status",
-      "",
-      context({
-        autonomy: {
-          readMode: async () => ({ mode: "shadow" as const, enteredAt: "2026-09-01T00:00:00.000Z" }),
-          setMode: async () => ({ mode: "shadow" as const, enteredAt: "" }),
-        },
-        scheduler: {
-          jobs: () => ALL_JOBS,
-          recent: async (job) =>
-            job === "poll"
-              ? [{
-                runKey: "2026-09-02T11",
-                startedAt: "2026-09-02T11:00:00.000Z",
-                finishedAt: "2026-09-02T11:00:04.000Z",
-                failure: "GitHub returned 503",
-                detail: null,
-                completion: "ok" as const,
-              }]
-              : job === "drain"
-                ? [{
-                  runKey: "2026-09-02T11:25",
-                  startedAt: "2026-09-02T11:25:00.000Z",
-                  finishedAt: "2026-09-02T11:25:01.000Z",
-                  failure: null,
-                  detail: null,
-                  completion: "ok" as const,
-                }]
-                : [],
-        },
-      }),
-    );
-
-    expect(reported).toContain("Autonomy: shadow since 2026-09-01");
-    expect(reported).toContain("drain: ok at 11:25");
-    expect(reported).toContain("poll: FAILED at 11:00 -- GitHub returned 503");
-    expect(reported).toContain("digest: never run");
-  });
-
-  it("shows the detail a run reported even though the run succeeded", async () => {
-    // The defect: `finish` cleared `failure` and persisted nothing else, so a
-    // job that succeeded while saying "this source is not configured" looked
-    // exactly like a job that succeeded cleanly. The owner's own status screen
-    // is the only place that sentence was supposed to survive.
-    const reported = await text(
-      "status",
-      "",
-      context({
-        scheduler: {
-          jobs: () => ALL_JOBS,
-          recent: async (job) =>
-            job === "poll"
-              ? [{
-                runKey: "2026-09-02T11",
-                startedAt: "2026-09-02T11:00:00.000Z",
-                finishedAt: "2026-09-02T11:00:04.000Z",
-                failure: null,
-                detail: "12 archived; Classroom not configured; 6 polled",
-                completion: "degraded" as const,
-              }]
-              : [],
-        },
-      }),
-    );
-
-    expect(reported).toContain(
-      "poll: ok with caveat at 11:00 -- 12 archived; Classroom not configured; 6 polled",
-    );
-  });
-
-  it("reports the nightly backup, which the hardcoded three-job list never showed", async () => {
-    // A job outside the literal was invisible however badly it was failing,
-    // which is how a backup that wrote no rows for months stayed absent from
-    // the one screen an owner checks.
-    const reported = await text(
-      "status",
-      "",
-      context({
-        scheduler: {
-          jobs: () => ALL_JOBS,
-          recent: async (job) =>
-            job === "backup"
-              ? [{
-                runKey: "2026-09-06",
-                startedAt: "2026-09-06T23:30:00.000Z",
-                finishedAt: "2026-09-06T23:31:00.000Z",
-                failure: "memory_backup_binding_missing",
-                detail: null,
-                completion: "ok" as const,
-              }]
-              : [],
-        },
-      }),
-    );
-
-    expect(reported).toContain("backup: FAILED at 23:30 -- memory_backup_binding_missing");
-  });
-
-  it("reports a job that reached the end without running as not set up rather than ok", async () => {
-    // The third state. Recording it as a success is what let a job with no
-    // credential in place report `ok` and beat a healthy heartbeat.
-    const reported = await text(
-      "status",
-      "",
-      context({
-        scheduler: {
-          jobs: () => ALL_JOBS,
-          recent: async (job) =>
-            job === "backup"
-              ? [{
-                runKey: "2026-09-06",
-                startedAt: "2026-09-06T23:30:00.000Z",
-                finishedAt: "2026-09-06T23:31:00.000Z",
-                failure: null,
-                detail: "Memory consolidation not configured",
-                completion: "not_measured" as const,
-              }]
-              : [],
-        },
-      }),
-    );
-
-    expect(reported).toContain("backup: NOT SET UP at 23:31 -- Memory consolidation not configured");
-    expect(reported).not.toContain("backup: ok");
-  });
-
-  it("reports a run that started and never finished", async () => {
-    const reported = await text(
-      "status",
-      "",
-      context({
-        scheduler: {
-          jobs: () => ALL_JOBS,
-          recent: async (job) =>
-            job === "digest"
-              ? [{
-                runKey: "2026-09-02",
-                startedAt: "2026-09-02T11:30:00.000Z",
-                finishedAt: null,
-                failure: null,
-                detail: null,
-                completion: "ok" as const,
-              }]
-              : [],
-        },
-      }),
-    );
-    expect(reported).toContain("digest: started 11:30, never finished");
-  });
-
-  it("shows stale meaning-index coverage in status", async () => {
-    const reported = await text("status", "", context({
-      memoryMeaningCoverage: {
-        read: async () => ({ eligible: 12, indexed: 9, missing: 3 }),
-      },
-    }));
-
-    expect(reported).toContain("Memory meaning: 9/12 indexed (3 missing)");
   });
 });
 
@@ -343,50 +132,17 @@ describe("exam mode", () => {
   });
 });
 
-describe("the queue", () => {
-  it("sends one message per decision, each with its own buttons", async () => {
-    // A single message cannot carry several keyboards, and a tap has to name
-    // which question it answered.
-    const replies = await runCommand(
-      "queue",
-      "",
-      context({
-        decisions: {
-          queue: async () => [
-            decision(),
-            decision({ decisionId: "01k5d8s0m00000000000000002", urgency: "urgent", question: "Vendor wants to reschedule" }),
-          ],
-        },
-      }),
-    );
-
-    expect(replies).toHaveLength(2);
-    expect(replies[0]?.keyboard).toBeDefined();
-    expect(replies[0]?.decisionId).toBe("01k5d8s0m00000000000000001");
-    expect(replies[1]?.text).toBe("! Vendor wants to reschedule");
-  });
-});
-
-describe("the vault", () => {
-  it("says where it actually lives rather than failing", async () => {
-    // It is on the owner's machine, not in this Worker. Telling them the
-    // command to run is more use than a generic refusal.
-    expect(await text("vault", "pricing", context())).toContain("jarvis vault search");
-  });
-});
-
 describe("a handler that throws", () => {
   it("answers with the failure instead of going silent", async () => {
     // The owner typed something and is waiting. Silence reads exactly like a
     // bot that has stopped working.
     const said = await text(
-      "queue",
-      "",
+      "exam",
+      "on",
       context({
-        decisions: {
-          queue: async () => {
-            throw new Error("D1 unavailable");
-          },
+        quietWindows: {
+          open: async () => { throw new Error("D1 unavailable"); },
+          closeManual: async () => 0,
         },
       }),
     );

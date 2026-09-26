@@ -3,6 +3,101 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: study-coach signals blocked, registered not removed (batch 7, `codex/coach-signals-to-ai`)
+
+Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origin/main`
+`193d02b4`. Touches Sid's rules 1, 2, 9. **No code changed.** Register:
+`docs/CODE-VS-JUDGMENT.md#study-coach-signal-ranking-and-selection-registered-not-removed-batch-7-2026-09-25`.
+
+- **All 13 items verified present on main** (B1 `STUDY_DEADLINE_ROW_LIMIT` 24 at
+  `deadline-repository.ts:48,549`; B2 `STUDY_DEADLINE_NEAR_DUE_HOURS` 72 at `:49,541`; B54
+  freshness 12 h/3 h at `study-coach-signals.ts:14-15`; B55 `scoreConfidence:67-69`; B56
+  `evidenceSignals:76-83`; B57 70 % at `:16,155`; B58 5 points at `:17,174`; B59
+  missing-work score at `:210`; B60 72 h at `:245`; B61 `ordered:272-277`; B62
+  `MAX_SIGNALS` at `:18,294`; B63 `chooseStudyCheckIn:297-338`; B64 `matchCourse:38-45`).
+  Line numbers in the brief were from an older main; none of the items is gone.
+- **Why nothing was removed.** All 13 feed one deterministic decision,
+  `chooseStudyCheckIn`, whose result is written into `school_study_check_in_claims`
+  (`0030`) — `course_id`, `topic`, `outcome`, `evidence_count` 1–4 and `confidence` are all
+  `NOT NULL`, so a claim is one chosen check-in and cannot hold a raw evidence set. The claim
+  runs in the **digest path, which has no model**: `digest-job.ts:374` calls
+  `claimStudyCheckIn`, and `digest-composer.ts` keeps composition deterministic on purpose.
+  The batch allows no migration and keeps `confidence` an enum, so the choice must be produced
+  before the claim, and the missing piece is a model call. Removing the scores while the same
+  scorer still ranks the survivors, or widening the deadline window while the scorer still
+  ranks it, changes behaviour without moving any judgment to the model.
+- **Proposed surface**, in the register: `deriveStudySignals` returns bounded raw evidence with
+  timestamps (grade percentages with `gradeUpdatedAt`, missing-work transitions, practice
+  outcomes, deadline instants, raw `lastSuccessAt`/`lastFailure`) plus a `droppedCount`; a
+  `completeJson` model call in the claim path answers with course/topic/outcome/confidence and
+  citation keys; code validates ids and enums and writes the claim; every score and
+  `chooseStudyCheckIn` is then deleted. The digest stays deterministic — the answer is data,
+  never text echoed into the digest.
+- **Premises checked:** #212 is merged (`08c283b2`, #213 at `4b1c230c`); main's newest migration
+  is `0055_owner_access_tool.sql` and open #214 holds `0056`, so no migration was needed here.
+- Registered in [#220](https://github.com/stremysid/jarvis/pull/220), docs only. No deploy, no DB,
+  no migration.
+
+## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rules 1, 2, 3 and 8.
+
+- **What changed.** The nine intent parsers in `school/study-coach-model.ts` are deleted
+  (`parsePracticeRequest`, `parseStudyPreferenceIntent`, `parseOwnerStudyObservation`,
+  `resolveCourse`/`phraseMatches`, `forgetSubject`/`correctionIntent`/
+  `parseStudySignalControlIntent`/`parseCheckInPracticeMode`, `isUncertainAnswer`,
+  `plausiblyAnswersQuiz`, `courseFactSource` priority, and the fixed clarifying question).
+  `study_coach` is now one tool whose arguments carry the model's declared action:
+  `operation` (practice, check_in_practice, observe, preference, forget, signal, answer_quiz,
+  stop_quiz, correction) plus `mode`, `sourcePhrase`, `useCourseEvidence`, `factId`, `courseId`,
+  `topic`, `outcome`, `signal` and `preferencePatch`.
+- **What code keeps.** Course and fact ids are validated against the owner's own snapshot, the
+  enum values are checked, and the quiz answer keeps its 30-minute window and 256-byte bound.
+  A missing or unknown course or fact id returns the candidate list instead of defaulting; the
+  model asks Sid. Removed: the 12-word quiz-answer cap, the negation/"finished"/"plan" word
+  lists, the fuzzy course matching, the fact priority sort, and the code-written clarifying
+  question. The study-coach receipts stay code-authored, because they are receipts.
+- **Plumbing.** `owner-agent-core.ts`'s `runPipeline` passes the tool call to `study_coach`
+  (and only that pipeline; the others still refuse any argument), and `collectPipelineOutcome`
+  forwards it. `owner-tools.ts` uses the exported `STUDY_COACH_TOOL`.
+- **Verified here:** gateway `tsc` 0; 76 focused files across school, agent, channels, voice,
+  autonomy and providers: 2320 passed, 1 load-sensitive timeout in
+  `call-session-relay-fixes.test.ts` that passes 9/9 alone; `mutate.ps1` with
+  `mutation-specs-judg-coach1.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: calls judgment batch (`codex/calls-judgment-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **Owner access is a tool now.** `parseOwnerAccessIntent`, `PERMISSION_CAPABILITIES` and the
+  60-second `expiresAt` are deleted (`owner-access-intent.ts` removed). The model calls
+  `owner_access` with `{operation, phone, capabilities, pin}` on a call; code keeps E.164,
+  capability-membership (`GUEST_CAPABILITY_IDS`, so the owner-only `access.manage` is refused)
+  and the voice-access authority check. The model passes capability ids, not phrases.
+- **No confirm/cancel word match.** The two-phase prepare/confirm step and its fixed spoken
+  lines are gone; the model decides whether to read the number back or ask Sid to confirm, and a
+  guest still passes their own PIN (`GuestPinVerifier`). `pin: "default" | "digits"` is the
+  model's argument; `digits` opens a PIN question on the call, and the answer is consumed by
+  `CallSessionCore` before it can become a turn, event or model input.
+- **Receipts, not sentences.** `OwnerAccessService.execute` returns `{outcome, operation,
+  maskedTarget, guests, noticeUnconfirmed}`; the agent mints a receipt id but speaks no
+  code-authored sentence, so the model phrases the outcome. The `maskedTarget ?? "the caller"`
+  guess and every fixed instruction line are gone.
+- **No silent drops.** An utterance arriving while a turn owns the slot is queued as the next
+  turn (one slot; a third displaces the queued one and that displacement is spoken). A failed
+  voice retrieval now puts a "Memory could not be read this turn" notice in the model's context
+  instead of silently empty memory; the 750 ms bound stays.
+- **Migration `0055_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
+  tool is a classified capability; `0053` and `0054` landed on main with #201, so this is the
+  next free number. All the
+  hand-kept migration lists, the backup seed list and the pinned schema-version tests are
+  updated with it.
+- **Verified here:** gateway `tsc` 0; focused suites (voice, autonomy, conversation, security,
+  backup, owner-telegram-agent, relay fixes, owner-access tool/service/security) green;
+  `mutate.ps1` with `mutation-specs-calls-judgment.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
 ## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13, PR #209)
 
 Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/projects-judgment-to-ai` from

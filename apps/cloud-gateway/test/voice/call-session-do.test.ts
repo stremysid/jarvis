@@ -37,6 +37,7 @@ import {
   OwnerAccessService,
   TargetGuestResourceScopeResolver,
 } from "../../src/voice/owner-access-service.js";
+import { OwnerAccessTool } from "../../src/voice/owner-access-tool.js";
 import {
   AuthenticationAttemptBudget,
 } from "../../src/voice/inbound-auth.js";
@@ -589,6 +590,7 @@ async function accessHarness(
   });
   const authenticate = vi.spyOn(guestAuthentication, "authenticate");
   let id = 800;
+  let currentNow = new Date(NOW);
   const ownerAccess = withOwnerAdministration
     ? new OwnerAccessService({
       repository: voiceRepository,
@@ -600,6 +602,7 @@ async function accessHarness(
       defaultGuestPin: () => "1357",
     })
     : null;
+  const ownerAccessTool = ownerAccess === null ? null : new OwnerAccessTool(ownerAccess, () => new Date(currentNow));
   const conversation = {
     handleTurn: vi.fn(async () => ({
       outcome: "voice_sent" as const,
@@ -612,7 +615,6 @@ async function accessHarness(
   } as unknown as ConversationService;
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
-  let currentNow = new Date(NOW);
   const instance = new CallSessionCore({
     capacity,
     session: stored,
@@ -621,7 +623,7 @@ async function accessHarness(
     authority,
     guestAuthentication,
     activation: null,
-    ownerAccess,
+    ownerAccessTool,
     conversation,
     relay: {
       close,
@@ -639,6 +641,7 @@ async function accessHarness(
     authority,
     guestAuthentication,
     ownerAccess,
+    ownerAccessTool,
     authenticate,
     conversation,
     close,
@@ -1080,7 +1083,7 @@ describe("CallSessionCore owner and guest access", () => {
     expect(deriveBits).toHaveBeenCalledTimes(6);
   });
 
-  it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", async () => {
+  it("sends an access-shaped utterance to the model instead of a code grammar", async () => {
     const harness = await accessHarness("owner", undefined, true);
     await authenticateOwnerAdministration(harness);
 
@@ -1090,21 +1093,41 @@ describe("CallSessionCore owner and guest access", () => {
       language: "en-US",
       text: `allow ${GUEST_E164} with conversation`,
     });
-    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
-    await sendDigits(harness.instance, "2468");
+
+    // The model decides what the words mean; code no longer parses them, and it
+    // does not create a grant on words alone.
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+  });
+
+  it("routes a spoken or keyed answer to an open guest-PIN question, outside any turn", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    if (harness.ownerAccessTool === null) throw new Error("fixture_owner_access_tool_missing");
+    await authenticateOwnerAdministration(harness);
+
+    const run = harness.ownerAccessTool.run({
+      operation: "add",
+      providerE164: GUEST_E164,
+      capabilityIds: ["conversation.basic"],
+      pin: "digits",
+    });
+    await vi.waitFor(() => expect(harness.sendNeutralText).toHaveBeenCalled());
+
     await harness.instance.handleRelayEvent({
       type: "prompt",
       final: true,
       language: "en-US",
-      text: "confirm",
+      text: "2468",
     });
 
-    const grant = await env.DB.prepare(`SELECT grant_row.status, identity.provider_subject
-      FROM voice_access_grants grant_row
-      JOIN channel_identities identity ON identity.identity_id = grant_row.identity_id`)
-      .first<{ status: string; provider_subject: string }>();
-    expect(grant).toEqual({ status: "pending", provider_subject: GUEST_E164 });
+    await expect(run).resolves.toMatchObject({ outcome: "created", operation: "add" });
+    // The PIN utterance was consumed before it could become a turn.
     expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+    const row = await env.DB.prepare(`SELECT grant_row.status FROM voice_access_grants grant_row
+      JOIN channel_identities identity ON identity.identity_id = grant_row.identity_id
+      WHERE identity.provider_subject = ?`).bind(GUEST_E164).first<{ status: string }>();
+    expect(row).toEqual({ status: "pending" });
     expect(JSON.stringify(harness.sendNeutralText.mock.calls)).not.toMatch(/\+14165550111|2468/u);
   });
 
@@ -1124,85 +1147,24 @@ describe("CallSessionCore owner and guest access", () => {
       .toEqual({ count: 0 });
   });
 
-  it("invalidates an interrupted proposal and clears partial owner PIN input before a replacement", async () => {
+  it("clears partial keypad digits when a new PIN question opens", async () => {
     const harness = await accessHarness("owner", undefined, true);
-    if (harness.ownerAccess === null) throw new Error("fixture_owner_access_missing");
-    const invalidate = vi.spyOn(harness.ownerAccess, "invalidate");
+    if (harness.ownerAccessTool === null) throw new Error("fixture_owner_access_tool_missing");
     await authenticateOwnerAdministration(harness);
-    await harness.instance.handleRelayEvent({
-      type: "prompt",
-      final: true,
-      language: "en-US",
-      text: `allow ${GUEST_E164} with conversation`,
+
+    const run = harness.ownerAccessTool.run({
+      operation: "add",
+      providerE164: GUEST_E164,
+      capabilityIds: ["conversation.basic"],
+      pin: "digits",
     });
+    await vi.waitFor(() => expect(harness.sendNeutralText).toHaveBeenCalled());
+    // Digits from before the question are not part of its answer.
     await sendDigits(harness.instance, "24");
-    await harness.instance.handleRelayEvent({ type: "interrupt" });
-    expect(invalidate).toHaveBeenCalled();
+    await sendDigits(harness.instance, "2468");
 
-    await harness.instance.handleRelayEvent({
-      type: "prompt",
-      final: true,
-      language: "en-US",
-      text: "allow +14165550112 with conversation",
-    });
-    await sendDigits(harness.instance, "68");
-    await harness.instance.handleRelayEvent({
-      type: "prompt",
-      final: true,
-      language: "en-US",
-      text: "confirm",
-    });
-    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
-      .toEqual({ count: 0 });
-
-    await sendDigits(harness.instance, "1357");
-    await harness.instance.handleRelayEvent({
-      type: "prompt",
-      final: true,
-      language: "en-US",
-      text: "confirm",
-    });
-    const target = await env.DB.prepare("SELECT provider_subject FROM channel_identities WHERE principal_id != 'principal:owner'")
-      .first<{ provider_subject: string }>();
-    expect(target?.provider_subject).toBe("+14165550112");
-  });
-
-  it("drops an issued owner proposal and partial PIN across a core restart", async () => {
-    const harness = await accessHarness("owner", undefined, true);
-    await authenticateOwnerAdministration(harness);
-    await harness.instance.handleRelayEvent({
-      type: "prompt",
-      final: true,
-      language: "en-US",
-      text: `allow ${GUEST_E164} with conversation`,
-    });
-    await sendDigits(harness.instance, "13");
-    const active = await harness.repo.getCallSession(harness.stored.sessionId);
-    if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
-    const restarted = new CallSessionCore({
-      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
-      session: active,
-      expectedAccountSid: ACCOUNT_SID,
-      repository: harness.repo,
-      authority: harness.authority,
-      guestAuthentication: null,
-      activation: null,
-      ownerAccess: harness.ownerAccess,
-      conversation: harness.conversation,
-      relay: {
-        close: harness.close,
-        sendNeutralText: harness.sendNeutralText,
-        sendToken: async () => undefined,
-        finish: async () => undefined,
-        cancelOutput: async () => undefined,
-      },
-      now: () => new Date(NOW),
-    } as never);
-
-    await restarted.handleRelayEvent({ type: "prompt", final: true, language: "en-US", text: "confirm" });
-    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
-    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
-      .toEqual({ count: 0 });
+    await expect(run).resolves.toMatchObject({ outcome: "created" });
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
   });
 });
 
@@ -1531,7 +1493,7 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     expect(harness.instance.phase).toBe("active");
   });
 
-  it("rejects a concurrent final prompt while one model turn owns the session", async () => {
+  it("queues an overlapping final prompt and runs it as the next turn", async () => {
     const repo = repository();
     const stored = await createInboundSession(repo);
     const harness = conversationHarness(stored, repo, { manual: true }, [TURN_ID, NEXT_TURN_ID]);
@@ -1545,16 +1507,19 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     void pending.catch(() => undefined);
     await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(1));
 
+    // Not dropped: the words are held for the next turn rather than rejected.
     await expect(harness.instance.handleRelayEvent({
       type: "prompt",
       text: "overlapping turn",
       language: "en-US",
       final: true,
-    })).rejects.toThrow("turn_in_progress");
+    })).resolves.toBeUndefined();
 
     expect(harness.provider.requests).toHaveLength(1);
     await harness.instance.handleRelayEvent({ type: "interrupt" });
     await pending;
+    // The queued utterance became a real turn once the first released the slot.
+    await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(2));
   });
 
   it("cancels an in-progress Task 5 turn and completes the call on normal socket close", async () => {
@@ -1679,10 +1644,13 @@ describe("CallSession capacity admission", () => {
     const pending = core.instance.handleRelayEvent(prompt);
     try {
       await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
-      await expect(core.instance.handleRelayEvent(prompt)).rejects.toThrow("turn_in_progress");
+      // The overlap is queued, so it starts no second admission while the first
+      // holds the slot (and does not reject the caller).
+      await expect(core.instance.handleRelayEvent(prompt)).resolves.toBeUndefined();
       expect(core.newTurnId).not.toHaveBeenCalled();
     } finally { release(); await pending; }
-    expect(core.provider.requests).toHaveLength(1);
+    // The queued prompt then runs as the next turn.
+    await vi.waitFor(() => expect(core.provider.requests).toHaveLength(2));
   });
 
   it.each([false, true])("quietly cancels admission on interruption even if collection later fails: %s", async (fails) => {
@@ -2187,16 +2155,15 @@ describe("CallSession production composition", () => {
       expect(requests).toEqual([]);
     });
 
-  it("shares the production owner authority with confirmed access administration without calling the model", async () => {
+  it("lets the model handle an access-shaped utterance through the production runtime, creating no grant from words", async () => {
     await seedActiveVoiceIdentity();
     const call = await runtime(await createInboundSession(repository()));
     await call.setup();
     await call.prompt(`allow ${GUEST_E164} with conversation`);
-    await call.digits("2468");
+    // No grammar intercepts the words: they reach the model, and nothing is
+    // granted until it calls the tool with a target and PIN choice.
+    expect(requests).toContain("https://api.deepseek.com/chat/completions");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first()).toEqual({ count: 0 });
-    await call.prompt("confirm");
-    expect(await env.DB.prepare("SELECT status FROM voice_access_grants").first()).toEqual({ status: "pending" });
-    expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(call.close).not.toHaveBeenCalled();
   });
 

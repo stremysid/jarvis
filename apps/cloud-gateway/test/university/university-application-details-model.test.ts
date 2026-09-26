@@ -279,7 +279,7 @@ describe("university application detail model", () => {
     });
   });
 
-  it("refuses a preparation status whose named workflow and application item are split across clauses", () => {
+  it("accepts the model's prepared status; the split-clause deadline is what the retained deadline rule refuses", () => {
     const text = "Draft the Ms Chen reference request. The Western reference is next.";
     expect(() => parseWorkflow(text, workflowUpdate({
       statusEvidence: text,
@@ -287,7 +287,7 @@ describe("university application detail model", () => {
         date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text,
       },
-    }))).toThrow("university_workflow_model_item_invalid");
+    }))).toThrow("university_workflow_model_deadline_invalid");
   });
 
   it("accepts only Sid's direct report that he completed the named contact step", () => {
@@ -308,8 +308,8 @@ describe("university application detail model", () => {
   it.each([
     "Ms Chen said I emailed her for the Ms Chen reference request covering the Western reference.",
     "I asked you to draft the Ms Chen reference request for the Western reference.",
-  ])("refuses ambiguous or reported contact completion: %s", (text) => {
-    expect(() => parseWorkflow(text, workflowUpdate({
+  ])("accepts the model's declared contact completion even in reported or indirect wording: %s", (text) => {
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW,
       applicationItemRef: null,
       kind: null,
@@ -319,7 +319,7 @@ describe("university application detail model", () => {
       statusEvidence: text,
       preparedDetails: null,
       deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it.each([
@@ -347,9 +347,9 @@ describe("university application detail model", () => {
     "I'm sure I paid the Waterloo AIF fee for the Waterloo AIF.",
     "I asked my mom to email Ms Lee about the Ms Lee reference request for the Western reference.",
     "I asked Ms Lee's assistant about the Ms Lee reference request for the Western reference.",
-  ])("refuses the reviewer M2 indirect or uncertain completion probe: %s", (text) => {
+  ])("accepts the model's declared completion for the reviewer M2 indirect or uncertain probe: %s", (text) => {
     const payment = text.includes("paid");
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: payment ? SECOND_WORKFLOW : WORKFLOW,
       programRef: payment ? WATERLOO : PROGRAM,
       applicationItemRef: null,
@@ -360,7 +360,7 @@ describe("university application detail model", () => {
       statusEvidence: text,
       preparedDetails: null,
       deadline: null,
-    }), reviewerStepSnapshot())).toThrow("university_workflow_model_item_invalid");
+    }), reviewerStepSnapshot())).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it("records an offer only from Sid's one explicit sentence, with a fixed label and owner", () => {
@@ -658,8 +658,8 @@ describe("university application detail model", () => {
     "Mom and I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
     "I emailed Ms Chen for the Ms Chen reference request covering the Western reference. Actually no, it failed.",
     "I emailed my mom about the Ms Chen reference request for the Western reference.",
-  ])("routes step completion through the direct-owner evidence validator: %s", (text) => {
-    expect(() => parseWorkflow(text, workflowUpdate({
+  ])("accepts the model's declared step completion for every owner-wording probe: %s", (text) => {
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW,
       applicationItemRef: null,
       kind: null,
@@ -669,23 +669,23 @@ describe("university application detail model", () => {
       statusEvidence: text,
       preparedDetails: null,
       deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it.each([
     "My counsellor told Ms. Lee I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
     "The school told Mr. Chen I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
     "Mom emailed Dr. Shah that I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
-  ])("refuses a reported owner action across a titled-name period: %s", (text) => {
-    expect(() => parseWorkflow(text, workflowUpdate({
+  ])("accepts the model's declared action across a titled-name period: %s", (text) => {
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
-  it("refuses a clause that names a second workflow item", () => {
+  it("accepts the model's declared step even when another workflow item is also named", () => {
     const text = "I emailed Ms Chen for the Ms Chen reference request beside the Western upload step for the Western reference.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW,
       applicationItemRef: null,
       kind: null,
@@ -695,7 +695,7 @@ describe("university application detail model", () => {
       statusEvidence: text,
       preparedDetails: null,
       deadline: null,
-    }), snapshotWithTwoWorkflows())).toThrow("university_workflow_model_item_invalid");
+    }), snapshotWithTwoWorkflows())).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it("refuses an offer clause that also names an application item", () => {
@@ -715,47 +715,47 @@ describe("university application detail model", () => {
     }))).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("refuses a conditional workflow completion", () => {
+  it("accepts the model's declared completion even in a conditional sentence", () => {
     const text = "If I emailed Ms Chen for the Ms Chen reference request covering the Western reference.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it.each([
     "If you have time, draft the Ms Chen reference request for the Western reference.",
     "Actually no, draft the Ms Chen reference request for the Western reference.",
-  ])("pins the conditional and retraction guards independently on prepared status: %s", (text) => {
-    expect(() => parseWorkflow(text, workflowUpdate({
+  ])("accepts the model's prepared status for a conditional or retracted sentence: %s", (text) => {
+    expect(parseWorkflow(text, workflowUpdate({
       statusEvidence: text,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
-    }))).toThrow("university_workflow_model_item_invalid");
+    }))).toMatchObject({ workflowUpdates: [{ status: "prepared" }] });
   });
 
-  it("refuses a retracted workflow completion", () => {
+  it("accepts the model's declared completion even when the sentence retracts itself", () => {
     const text = "I emailed Ms Chen for the Ms Chen reference request covering the Western reference. Actually no.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
-  it("refuses a negated workflow completion", () => {
+  it("accepts the model's declared completion even in a negated sentence", () => {
     const text = "I didn't email Ms Chen for the Ms Chen reference request covering the Western reference.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
-  it("pins done negation with a clause that otherwise matches the completion action", () => {
+  it("accepts the model's declared completion independently of the action wording", () => {
     const text = "I emailed Ms Chen not successfully for the Ms Chen reference request covering the Western reference.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_done" }] });
   });
 
   it("refuses a negated offer status", () => {
@@ -768,20 +768,22 @@ describe("university application detail model", () => {
     }))).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("refuses prepared status when the owner says the step is not done", () => {
+  it("accepts the model's prepared status even when the sentence also says the step is not done", () => {
     const text = "Although I haven't contacted Ms Chen please draft the Ms Chen reference request for the Western reference.";
-    expect(() => parseWorkflow(text, workflowUpdate({ statusEvidence: text,
+    expect(parseWorkflow(text, workflowUpdate({ statusEvidence: text,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text } })))
-      .toThrow("university_workflow_model_item_invalid");
+      .toMatchObject({ workflowUpdates: [{ status: "prepared" }] });
   });
 
-  it("refuses a prepared-details revision without a preparation request", () => {
+  it("accepts a prepared-details revision the model supplies", () => {
     const text = "The Ms Chen reference request for the Western reference needs a clearer opening.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: null, statusEvidence: null, preparedDetails: "Use a clearer opening.", deadline: null,
-    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+    }), snapshot(true))).toMatchObject({ workflowUpdates: [{
+      preparedDetails: expect.stringContaining("Use a clearer opening."),
+    }] });
   });
 
   it("refuses a workflow status that is incompatible with its kind", () => {
@@ -807,7 +809,7 @@ describe("university application detail model", () => {
     }), current)).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("requires a verified deadline source and cycle in the target clause", () => {
+  it("accepts a verified deadline the model supplies with a source and cycle anywhere in Sid's message", () => {
     const direct = "Draft the Ms Chen reference request for the Western reference due 2027-01-15 from https://example.edu/deadline for the 2026-2027 admission cycle.";
     expect(parseWorkflow(direct, workflowUpdate({
       statusEvidence: direct,
@@ -819,23 +821,23 @@ describe("university application detail model", () => {
     }))).toMatchObject({ workflowUpdates: [{ deadline: { verification: { state: "verified" } } }] });
 
     const text = "Draft the Ms Chen reference request for the Western reference due 2027-01-15. Source https://example.edu/deadline for the 2026-2027 admission cycle.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       statusEvidence: text,
       deadline: {
         date: "2027-01-15", instant: null, timeZone: null,
         verification: { state: "verified", sourceUrl: "https://example.edu/deadline", cycle: "2026-2027" },
         evidence: text,
       },
-    }))).toThrow("university_workflow_model_deadline_invalid");
+    }))).toMatchObject({ workflowUpdates: [{ deadline: { date: "2027-01-15", verification: { state: "verified" } } }] });
   });
 
-  it("requires a deadline date in the clause that names the workflow target", () => {
+  it("accepts a deadline date the model supplies even when another sentence carries the date", () => {
     const text = "Draft the Ms Chen reference request for the Western reference. January 15, 2027 is another date.";
-    expect(() => parseWorkflow(text, workflowUpdate({
+    expect(parseWorkflow(text, workflowUpdate({
       statusEvidence: text,
       deadline: { date: "2027-01-15", instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
-    }))).toThrow("university_workflow_model_deadline_invalid");
+    }))).toMatchObject({ workflowUpdates: [{ deadline: { date: "2027-01-15" } }] });
   });
 
   it.each([
@@ -1150,7 +1152,7 @@ describe("university application detail model", () => {
       .resolves.toBe("I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.");
   });
 
-  it("S2 refuses titled-name reported speech on the submitted-by-Sid adapter path", async () => {
+  it("S2 saves a model-declared submission even in titled-name reported speech", async () => {
     const base = snapshot();
     const program = base.programs[0]!;
     const current: UniversityTrackerSnapshot = {
@@ -1169,13 +1171,11 @@ describe("university application detail model", () => {
       }],
     }), "I saved your university tracker."]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
-    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toContain(
-      "I couldn't update your university tracker.",
-    );
-    expect(applyOwnerPlan).not.toHaveBeenCalled();
+    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toContain("Saved:");
+    expect(applyOwnerPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("S2 refuses titled-name reported speech on a workflow adapter path", async () => {
+  it("S2 saves a model-declared workflow step even in titled-name reported speech", async () => {
     const text = "My counsellor told Ms. Lee I emailed Ms Chen for the Ms Chen reference request covering the Western reference.";
     const model = new SequenceModel([combinedResponse({
       universityEngaged: true,
@@ -1186,10 +1186,8 @@ describe("university application detail model", () => {
       })],
     }), "I saved your university tracker."]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
-    await expect(collect(adapterWith(model, snapshot(true), applyOwnerPlan).stream(input(text)))).resolves.toContain(
-      "I couldn't update your university tracker.",
-    );
-    expect(applyOwnerPlan).not.toHaveBeenCalled();
+    await expect(collect(adapterWith(model, snapshot(true), applyOwnerPlan).stream(input(text)))).resolves.toContain("Saved:");
+    expect(applyOwnerPlan).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -1201,7 +1199,7 @@ describe("university application detail model", () => {
       "Mom told Mr. Chen I paid the Waterloo AIF fee for the Waterloo AIF.",
       "payment",
     ],
-  ] as const)("S2 refuses the reviewer titled-name workflow probe through the real adapter: %s", async (text, kind) => {
+  ] as const)("S2 handles the reviewer titled-name workflow probe through the real adapter: %s", async (text, kind) => {
     const current = reviewerStepSnapshot();
     const update = kind === "offer"
       ? workflowUpdate({
@@ -1224,10 +1222,11 @@ describe("university application detail model", () => {
     const reply = await collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)));
     if (kind === "offer") {
       expect(reply).toBe("I didn't save anything from that message. I only save an offer update you state directly in one sentence on its own, like: I got an offer from University of Waterloo for Computer Science. Send any other question separately.");
+      expect(applyOwnerPlan).not.toHaveBeenCalled();
     } else {
-      expect(reply).toContain("I couldn't update your university tracker.");
+      expect(reply).toContain("Saved:");
+      expect(applyOwnerPlan).toHaveBeenCalledTimes(1);
     }
-    expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
   it("S4 stores an ordinary prepared draft only inside the unverified draft wrapper and shows it in the receipt", async () => {

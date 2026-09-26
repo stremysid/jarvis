@@ -127,11 +127,11 @@ describe("owner access security", () => {
     expect(calls).toBe(0);
   });
 
-  it("requires the exact same-session issued proposal and rejects replay and the expiry boundary", async () => {
+  it("requires the exact same-session issued proposal and rejects replay", async () => {
     const proposal = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
 
@@ -147,12 +147,6 @@ describe("owner access security", () => {
       pinSelection: { kind: "default" },
       now: NOW,
     })).rejects.toThrow("owner_access_authority_invalid");
-    await expect(service.execute({
-      proposal,
-      ownerAuthority,
-      pinSelection: { kind: "default" },
-      now: new Date(NOW.valueOf() + 60_000),
-    })).rejects.toThrow("owner_access_proposal_expired");
 
     const current = await service.prepare({
       ownerAuthority,
@@ -172,6 +166,23 @@ describe("owner access security", () => {
       pinSelection: null,
       now: new Date(NOW.valueOf() + 3),
     })).rejects.toThrow("owner_access_proposal_invalid");
+  });
+
+  it("lets a proposal survive a long think: the call's lifecycle is the only bound", async () => {
+    const proposal = await service.prepare({
+      ownerAuthority,
+      sessionId: OWNER_SESSION_ID,
+      draft: { kind: "list" },
+      now: NOW,
+    });
+    // The removed 60-second timer used to refuse this. Nothing about the call
+    // has ended, so the proposal is still valid.
+    await expect(service.execute({
+      proposal,
+      ownerAuthority,
+      pinSelection: null,
+      now: new Date(NOW.valueOf() + 60_000),
+    })).resolves.toMatchObject({ outcome: "listed" });
   });
 
   it("invalidates an older same-session proposal and rejects unknown or owner-only permissions", async () => {
@@ -196,13 +207,13 @@ describe("owner access security", () => {
     await expect(service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["unknown permission"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["unknown.permission"] },
       now: NOW,
     })).rejects.toThrow("owner_access_permission_invalid");
     await expect(service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["access management"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["access.manage" as never] },
       now: NOW,
     })).rejects.toThrow("owner_access_permission_invalid");
   });
@@ -238,7 +249,7 @@ describe("owner access security", () => {
     const add = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
     await service.execute({
@@ -250,7 +261,7 @@ describe("owner access security", () => {
     await expect(service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: new Date(NOW.valueOf() + 2),
     })).rejects.toThrow("owner_access_target_unavailable");
 
@@ -271,7 +282,7 @@ describe("owner access security", () => {
       await service.prepare({
         ownerAuthority,
         sessionId: OWNER_SESSION_ID,
-        draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+        draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
         now: new Date(NOW.valueOf() + 5),
       });
     } catch (error) {
@@ -298,7 +309,7 @@ describe("owner access security", () => {
     const proposal = await invalidDefaultService.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
     expect(reads).toBe(0);
@@ -334,7 +345,7 @@ describe("owner access security", () => {
     const proposal = await throwingDefaultService.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
 
@@ -379,7 +390,7 @@ describe("owner access security", () => {
     const proposal = await faultService.prepare({
       ownerAuthority: faultOwner,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
     const digits = Uint8Array.from([52, 56, 50, 55]);
@@ -408,7 +419,7 @@ describe("owner access security", () => {
     const proposal = await service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: NOW,
     });
     expect(JSON.stringify(proposal)).not.toContain(GUEST_E164);
@@ -430,7 +441,7 @@ describe("owner access security", () => {
     await expect(service.prepare({
       ownerAuthority,
       sessionId: OWNER_SESSION_ID,
-      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      draft: { kind: "add", providerE164: GUEST_E164, capabilityIds: ["conversation.basic"] },
       now: new Date(NOW.valueOf() + 2),
     })).rejects.not.toThrow(GUEST_E164);
   });

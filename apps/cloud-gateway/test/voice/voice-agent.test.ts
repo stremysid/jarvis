@@ -1,5 +1,7 @@
 import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
+import type { OwnerCommandCapabilities } from "../../src/agent/owner-command-capabilities.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import type { OwnerAccessToolPort } from "../../src/voice/owner-access-tool.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../src/school/guided-assignment-tools.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
@@ -64,7 +66,7 @@ import type {
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyAutonomyToolCapabilitiesMigration, applyNewestRuntimeMigration } from "../persistence/migration.js";
-import { DeepSeekAgentProvider, assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, AGENT_MAX_TOOLS, assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { agentFrame, agentResponse, textResponse, toolFrames } from "../fixtures/deepseek-agent-stream.js";
 import { guardVoiceReplySentence, UNRECEIPTED_VOICE_ACTION } from "../../src/school/school-catchup-model.js";
 import { GUIDED_ASSIGNMENT_QUESTIONS, WORKED_REPLY } from "../school/tutoring-reply-fixtures.js";
@@ -295,6 +297,8 @@ interface RunVoiceTurnInput {
   readonly sessionId?: string;
   readonly committedItemIds?: readonly Ulid[];
   readonly agentDatabase?: D1Database;
+  readonly commands?: OwnerCommandCapabilities;
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
 }
 
 async function seedPrincipalOnce(principalId: string): Promise<void> {
@@ -316,6 +320,8 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     ownerPrincipalId: input.ownerPrincipalId ?? OWNER,
     targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB }),
     ...(input.memorySearch === undefined ? {} : { memorySearch: input.memorySearch }),
+    ...(input.commands === undefined ? {} : { commands: input.commands }),
+    ...(input.ownerAccessTool === undefined ? {} : { ownerAccessTool: input.ownerAccessTool }),
     directOwnerText: true,
     ...createOwnerPipelineModels(env, { async *stream() { throw new Error("unexpected_pipeline"); } }, new Redactor(), input.ownerPrincipalId ?? OWNER, true, () => NOW),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
@@ -446,7 +452,7 @@ describe("the voice agent adapter", () => {
     const sessionId = `voice:confirm:${serial + 1}`;
     const itemId = await offerProposedMemory(principalId, sessionId);
     const provider = new FakeAgentProvider([
-      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })),
       stopped("Use the decision queue."),
     ]);
     const reply = await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId, sessionId });
@@ -466,7 +472,7 @@ describe("the voice agent adapter", () => {
     const principalId = `principal:voice-confirm-other:${serial + 1}`;
     const itemId = await offerProposedMemory(principalId, `voice:earlier:${serial + 1}`);
     const provider = new FakeAgentProvider([
-      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes" })), stopped("Nothing changed."),
+      called(tool("confirm", "memory_confirm", { itemId, supportingExcerpt: "yes", rank: 50 })), stopped("Nothing changed."),
     ]);
     await runVoiceTurn({ text: "yes", provider, ownerPrincipalId: principalId,
       context: [memoryContext("I like art", itemId)], sessionId: `voice:later:${serial + 1}` });
@@ -1264,6 +1270,85 @@ describe("the voice agent adapter", () => {
     });
   });
 
+  it("reads the decision queue on a call through the same shared port Telegram uses", async () => {
+    const principalId = `principal:voice-queue:${serial + 1}`;
+    await seedPrincipal(principalId);
+    const capabilities: OwnerCommandCapabilities = {
+      status: async () => "Autonomy: live since 2026-09-01",
+      queue: async () => Object.freeze([]),
+      digest: async () => "Today's digest.",
+    };
+    const provider = new FakeAgentProvider([
+      called(tool("queue-1", "decision_queue", {})),
+      stopped("Nothing is waiting on you."),
+    ]);
+
+    const spoken = await runVoiceTurn({
+      text: "what's waiting on me?",
+      provider,
+      ownerPrincipalId: principalId,
+      commands: capabilities,
+    });
+
+    expect(spoken).toBe("Nothing is waiting on you.");
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receipt: "Nothing is waiting on the owner.",
+    });
+  });
+
+  it("dispatches owner_access with the model's arguments and returns a structured receipt it speaks itself", async () => {
+    const run = vi.fn<OwnerAccessToolPort["run"]>(async () => Object.freeze({
+      outcome: "listed" as const,
+      operation: "list" as const,
+      maskedTarget: null,
+      noticeUnconfirmed: false,
+      guests: Object.freeze([{
+        maskedNumber: "+1******0111", status: "pending",
+        capabilityIds: Object.freeze(["conversation.basic" as const]),
+      }]),
+    }));
+    const provider = new FakeAgentProvider([
+      called(tool("access-1", "owner_access", {
+        operation: "list", phone: null, capabilities: [], pin: "default",
+      })),
+      stopped("Your mum is allowed."),
+    ]);
+
+    const spoken = await runVoiceTurn({
+      text: "who is allowed to call you?",
+      provider,
+      ownerAccessTool: { run },
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]![0]).toEqual({
+      operation: "list", providerE164: null, capabilityIds: [], pin: "default",
+    });
+    const result = JSON.parse(provider.requests[1]!.toolResults![0]!.content ?? "{}") as
+      Readonly<{ status: string; receiptId: string | null; receipt: string }>;
+    expect(result).toMatchObject({ status: "completed" });
+    expect(JSON.parse(result.receipt)).toMatchObject({ outcome: "listed", maskedTarget: null });
+    // Code adds no spoken sentence of its own: the model says the outcome.
+    expect(spoken).toBe("Your mum is allowed.");
+  });
+
+  it("refuses owner_access with an honest line when the channel has no access port", async () => {
+    const provider = new FakeAgentProvider([
+      called(tool("access-none", "owner_access", {
+        operation: "list", phone: null, capabilities: [], pin: "default",
+      })),
+      stopped("I cannot do that here."),
+    ]);
+
+    await runVoiceTurn({ text: "who is allowed to call you?", provider });
+
+    const result = JSON.parse(provider.requests[1]!.toolResults![0]!.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("refused");
+    expect(result.receipt).toContain("only available on a call");
+  });
+
   it("offers the complete Telegram catalogue, including deadline_record, within the provider tool bound on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
@@ -1277,8 +1362,8 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(30);
-    expect(request!.tools.length).toBeLessThanOrEqual(32);
+    expect(request?.tools).toHaveLength(35);
+    expect(request!.tools.length).toBeLessThanOrEqual(AGENT_MAX_TOOLS);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([
       "memory_remember", "memory_correct", "memory_forget", "memory_restore",
@@ -1289,6 +1374,7 @@ describe("the voice agent adapter", () => {
       "guided_assignment_read", "guided_assignment_save", "guided_assignment_draft",
       "school_d2l_status", "school_collector_revoke", "school_work_evidence", "project_facts",
       "email_inbox_list", "email_inbox_read",
+      "owner_status", "decision_queue", "run_digest",
     ]));
     const telegramRequests: ModelAgentCompletionInput[] = [];
     const telegramProvider: ModelAgentProvider = {

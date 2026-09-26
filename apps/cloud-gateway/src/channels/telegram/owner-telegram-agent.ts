@@ -18,6 +18,8 @@ import {
 import { OWNER_TOOL_DEFINITIONS } from "../../agent/owner-tools.js";
 import { ownerPipelineModel } from "../../agent/owner-pipelines.js";
 import { ownerArgumentTool } from "../../agent/owner-argument-tools.js";
+import { ownerCommandTool } from "../../agent/owner-command-tools.js";
+import type { OwnerCommandCapabilities } from "../../agent/owner-command-capabilities.js";
 import type { TelegramProvider } from "../../providers/provider-types.js";
 import type { MeaningSearchReader } from "../../memory/meaning-search.js";
 import { recordPendingTelegramMemoryReferences } from "../../memory/telegram-memory-reference.js";
@@ -73,6 +75,8 @@ export interface OwnerTelegramAgentDependencies {
   readonly schoolModel: ModelAdapter;
   readonly universityModel: ModelAdapter;
   readonly studyCoachModel: ModelAdapter;
+  /** The reads behind `owner_status`, `decision_queue` and `run_digest`. */
+  readonly commands?: OwnerCommandCapabilities;
   /** Test seam and an explicit cap below Telegram's outer 90 second allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -182,6 +186,7 @@ export class OwnerTelegramAgentAdapter extends OwnerAgentCore {
       pipelineModel: (call: ModelFunctionCall) => ownerPipelineModel(adapter.telegram, call),
       argumentTool: (call: ModelFunctionCall) => ownerArgumentTool(adapter.telegram.database, input, call,
         now, ownerZone),
+      commandTool: (call: ModelFunctionCall) => ownerCommandTool(adapter.telegram.commands, call),
       unknownToolRefusal: "I refused an unknown tool call. Nothing changed.",
       previousAssistant: async (turnInput: Readonly<ModelAdapterStreamInput>) => {
         const previous = await adapter.previousAssistant(turnInput);

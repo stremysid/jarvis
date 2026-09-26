@@ -4,7 +4,7 @@
  * ingress authority, consent presentation and delivery-specific evidence.
  */
 
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import type { GuestCapabilityId, Ulid } from "../../../../packages/contracts/src/index.js";
 import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
 import { SchoolCollectorRepository, schoolStatusOptions } from "../school/collector-repository.js";
 import { ProjectRepository } from "../projects/project-repository.js";
@@ -39,6 +39,11 @@ import {
   DECLARE_MEMORY_REFERENCES_TOOL_NAME,
   MAX_DECLARED_REFERENCES,
 } from "./reply-reference-tools.js";
+import {
+  OWNER_ACCESS_TOOL_NAME,
+  type OwnerAccessToolPort,
+  type OwnerAccessToolRequest,
+} from "../voice/owner-access-tool.js";
 
 /**
  * The accepted argument names of the two inbox tools, read from their own
@@ -76,6 +81,7 @@ import type {
   ModelToolRound,
 } from "../providers/provider-types.js";
 import { guardReplyClaims, type ReceiptedToolSentence } from "../school/school-catchup-model.js";
+import { STUDY_COACH_TOOL_NAME } from "../school/study-coach-model.js";
 import { VoiceSentences } from "./voice-sentences.js";
 import { VoiceReplyStream, type CheckedVoiceSentence } from "./voice-reply.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader, readGuidedAssignmentReferences } from "../school/guided-assignment.js";
@@ -122,6 +128,17 @@ const POST_COMMIT_FALLBACK = "Done — I couldn't write a longer reply.";
 const NOT_SAVED_FALLBACK = "I couldn't finish that, and nothing was saved.";
 const DEADLINE_FALLBACK = "I couldn't finish that turn before the deadline. Nothing changed.";
 const TURN_ENDED_REFUSAL = "That turn ended before the action could run, so nothing changed.";
+/**
+ * The queue band a gate-raised tier-3 confirmation uses.
+ *
+ * The model called the tool, but the confirm question is raised by the tier
+ * gate rather than written by the model, and no dispatchable tool carries a
+ * rank argument today. This is a named system band, not a hidden default, and
+ * `docs/CODE-VS-JUDGMENT.md` records it as a remaining code-side choice. The
+ * two memory tools that raise a question on the model's behalf take the rank
+ * from the model's own arguments.
+ */
+const TIER3_CONFIRMATION_RANK = 100;
 /**
  * The least time a turn has left once a held deadline restarts.
  *
@@ -382,6 +399,13 @@ export interface OwnerAgentChannelPort {
   pipelineModel(call: ModelFunctionCall): ModelAdapter | null;
   /** Argument-bearing channel tools still pass through the shared authority and tier gates. */
   argumentTool?(call: ModelFunctionCall): (() => Promise<ExecutedTool>) | null;
+  /**
+   * The reporting command tools (`owner_status`, `decision_queue`,
+   * `run_digest`) when this channel has the data behind them. They are reads,
+   * so the core still requires `directOwnerText` and runs the tier gate, but
+   * they mint no receipt.
+   */
+  commandTool?(call: ModelFunctionCall): (() => Promise<ExecutedTool>) | null;
   /** The refusal when this channel does not expose the tool that was called. */
   readonly unknownToolRefusal: string;
   /**
@@ -435,6 +459,14 @@ export interface OwnerAgentCoreDependencies {
    * model, which is a different answer from "the web had nothing".
    */
   readonly web?: WebToolsDependencies;
+  /**
+   * Guest access management, on channels that have it.
+   *
+   * Only a call has a `VoiceCallAuthority` and a PIN question surface, so the
+   * shared `owner_access` tool refuses on a channel without this port rather
+   * than pretending the capability exists there.
+   */
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
   /** Test seam and an explicit cap below the channel's outer allowance. */
   readonly turnTimeoutMs?: number;
   /** Production webhook arrival anchor, recomputed when stream() actually starts. */
@@ -639,6 +671,21 @@ function safeItemIds(value: unknown): readonly Ulid[] {
   return Object.freeze(ids);
 }
 
+/**
+ * The model's own queue priority, or null when the call did not state one.
+ *
+ * The rank is the model's judgment about which of Sid's waiting questions
+ * matters most, so code neither invents one nor silently falls back to a
+ * constant: it validates the number and refuses the raise that needed it.
+ */
+function declaredRank(value: unknown): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError("owner_agent_decision_rank_invalid");
+  }
+  return value;
+}
+
 function memoryReceipt(receipt: string, text: string): string {
   const shortened = Array.from(text);
   const name = shortened.length <= 160 ? text : `${shortened.slice(0, 159).join("")}…`;
@@ -658,15 +705,19 @@ function explanationReceipt(explanation: MemoryExplanation, memoryText: string):
 async function collectPipelineOutcome(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
+  call?: ModelFunctionCall,
 ): Promise<PipelineOutcome> {
   let text = "";
   let signalledStatus: PipelineOutcome["status"] | null = null;
   const structured = model as ModelAdapter & {
-    readonly streamOwnerTool?: (value: ModelAdapterStreamInput) => AsyncIterable<ModelToken>;
+    readonly streamOwnerTool?: (
+      value: ModelAdapterStreamInput,
+      call?: ModelFunctionCall,
+    ) => AsyncIterable<ModelToken>;
   };
   const hasStructuredOutcome = typeof structured.streamOwnerTool === "function";
   const tokens = hasStructuredOutcome
-    ? structured.streamOwnerTool(input)
+    ? structured.streamOwnerTool(input, call)
     : model.stream(input);
   for await (const token of tokens) {
     text += token.text;
@@ -779,7 +830,7 @@ function informationalTool(
  * the model's reference data, and showing it verbatim in the reply is `explain`'s
  * job, not this one.
  */
-function unactionedTool(
+export function unactionedTool(
   call: ModelFunctionCall,
   evidence: string,
   referencedItemIds: readonly Ulid[],
@@ -789,6 +840,24 @@ function unactionedTool(
     receipt: null,
     receiptId: null,
     referencedItemIds,
+  });
+}
+
+/**
+ * A tool that changed something, whose outcome the model speaks itself.
+ *
+ * It mints a receipt id, so a reply sentence about the change is provable and
+ * survives the honesty guard, but it carries no code-authored sentence: the
+ * structured result is the model's evidence, and how to say it is the model's
+ * judgment (the batch that removed the owner-access result sentences).
+ */
+function modelStatedReceiptTool(call: ModelFunctionCall, evidence: string): ExecutedTool {
+  const receiptId = `receipt:${call.id}`;
+  return Object.freeze({
+    providerResult: toolResult(call, "completed", receiptId, evidence, Object.freeze([])),
+    receipt: null,
+    receiptId,
+    referencedItemIds: Object.freeze([]),
   });
 }
 
@@ -1361,6 +1430,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.memoryAuthorityRefusal);
       return this.declareMemoryReferences(input, port, call, touchedItemIds);
     }
+    if (call.name === OWNER_ACCESS_TOOL_NAME) {
+      if (this.dependencies.ownerAccessTool === null || this.dependencies.ownerAccessTool === undefined) {
+        return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+      }
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return this.ownerAccess(input, call);
+    }
     if (GUIDED_ASSIGNMENT_TOOL_DEFINITIONS.some((definition) => definition.name === call.name)) {
       if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
       await port.memoryOwnerTurn(input, null);
@@ -1435,6 +1512,15 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       }
       const result = await inbox.list(input.principalId, query as InboxQuery);
       return unactionedTool(call, emailInboxEvidence(inboxListPage(result, (query as InboxQuery).offset ?? 0)), []);
+    }
+    const commandTool = port.commandTool?.(call);
+    if (commandTool != null) {
+      // The owner's own words, on either channel, and the same tier gate every
+      // other tool passes. The body is a read, so no receipt is minted.
+      if (!this.dependencies.directOwnerText) return refusedTool(call, port.authorityRefusal);
+      const gated = await this.gateTool(input, port, call);
+      if (gated !== null) return gated;
+      return commandTool();
     }
     if (this.dependencies.directPipelineText === false) {
       return refusedTool(call, port.pipelineAuthorityRefusal);
@@ -1561,6 +1647,51 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     return unactionedTool(call, `Recorded ${itemIds.length === 1 ? "one memory reference" : `${itemIds.length} memory references`} for this reply.`, Object.freeze([]));
   }
 
+  /**
+   * `owner_access`: the model names the operation, target, capabilities and PIN
+   * choice; the call's port validates and applies it. The requested text of each
+   * field is the tool description's job, and code keeps only the shape check
+   * here plus the service's own E.164, capability and authority validation.
+   */
+  private async ownerAccess(
+    input: Readonly<ModelAdapterStreamInput>,
+    call: ModelFunctionCall,
+  ): Promise<ExecutedTool> {
+    const tool = this.dependencies.ownerAccessTool;
+    if (tool === null || tool === undefined) {
+      return refusedTool(call, "I could not change caller access because that is only available on a call to Jarvis, not here. Nothing changed.");
+    }
+    let args: Record<string, unknown>;
+    try {
+      args = parseArguments(call, ["operation", "phone", "capabilities", "pin"]);
+    } catch {
+      return refusedTool(call, "I did not change caller access because the tool call was malformed. Nothing changed.");
+    }
+    const operation = args.operation;
+    if (operation !== "add" && operation !== "replace_permissions" && operation !== "rotate_pin"
+      && operation !== "revoke" && operation !== "list") {
+      return refusedTool(call, "I did not change caller access because the operation was not one I can do. Nothing changed.");
+    }
+    if (args.phone !== null && typeof args.phone !== "string") {
+      return refusedTool(call, "I did not change caller access because the phone number was not a number or null. Nothing changed.");
+    }
+    if (args.pin !== "default" && args.pin !== "digits") {
+      return refusedTool(call, "I did not change caller access because the PIN choice was not default or digits. Nothing changed.");
+    }
+    if (!Array.isArray(args.capabilities)
+      || args.capabilities.some((value) => typeof value !== "string")) {
+      return refusedTool(call, "I did not change caller access because the capabilities were not a list of capability ids. Nothing changed.");
+    }
+    const request: OwnerAccessToolRequest = Object.freeze({
+      operation,
+      providerE164: args.phone,
+      capabilityIds: Object.freeze([...args.capabilities] as GuestCapabilityId[]),
+      pin: args.pin,
+    });
+    const result = await tool.run(request, input.signal);
+    return modelStatedReceiptTool(call, JSON.stringify({ status: "completed", ...result }));
+  }
+
   private controls(): MemoryOwnerControlsService {
     return new MemoryOwnerControlsService(this.dependencies.database, this.dependencies.archive);
   }
@@ -1635,6 +1766,7 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       origin: TIER3_TOOL_ORIGIN,
       originReference: confirmationReference(call.name, decision.evaluation.capability, argumentsHash),
       urgency: "normal",
+      rank: TIER3_CONFIRMATION_RANK,
       question: `Run ${call.name}? ${decision.evaluation.capability} always needs your tap.`,
       detail: `${decision.receipt} Tap Confirm, then ask me again and I will do it.`,
       choices: Object.freeze([{ key: TIER3_CONFIRM_OPTION, label: "Confirm" }]),
@@ -1964,9 +2096,15 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     port: OwnerAgentChannelPort,
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId", "supportingExcerpt"]);
+    const fields = optionalArgumentKeys(call, ["itemId", "supportingExcerpt", "rank"]);
+    if (!fields.includes("itemId") || !fields.includes("supportingExcerpt")) {
+      throw new TypeError("owner_agent_tool_arguments_invalid");
+    }
+    const args = parseArguments(call, fields);
     const itemId = safeUlid(args.itemId);
-    const excerpt = groundedExcerpt(input, args.supportingExcerpt);
+    const rank = declaredRank(args.rank);
+    const excerpt = confirmationExcerpt(input, args.supportingExcerpt);
+    if (NEGATION.test(input.userText)) throw new TypeError("owner_agent_memory_grounding_invalid");
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const stagedTargets = await this.dependencies.targets.findControlTargets({
       principalId: input.principalId,
@@ -1981,12 +2119,16 @@ export abstract class OwnerAgentCore implements ModelAdapter {
       throw new TypeError("owner_agent_item_not_eligible");
     }
     if (item.version.origin === "model" && item.version.basis === "inferred") {
+      if (rank === null) {
+        return refusedTool(call, "I did not queue the confirm question because the call did not state a rank. Pass rank as a whole number, 0 for the most urgent.");
+      }
       const question = modelInferenceDecisionQuestion(item.version.text);
       const decision = await this.dependencies.decisions.raise({
         principalId: input.principalId,
         origin: "telegram-memory-confirm",
         originReference: `${itemId}:${item.version.versionId}`,
         urgency: "normal",
+        rank,
         question,
         detail: "Nothing changes unless Sid taps Confirm. Discard leaves the proposal inactive.",
         choices: Object.freeze([
@@ -2091,9 +2233,12 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     call: ModelFunctionCall,
     model: ModelAdapter,
   ): Promise<ExecutedTool> {
-    parseArguments(call, []);
+    // `study_coach` carries the model's declared action as tool arguments; every
+    // other pipeline still takes none, and a stray argument there is refused.
+    const takesArguments = call.name === STUDY_COACH_TOOL_NAME;
+    if (!takesArguments) parseArguments(call, []);
     await this.memoryOwnerTurn(input, port, null, true);
-    const outcome = await collectPipelineOutcome(model, input);
+    const outcome = await collectPipelineOutcome(model, input, takesArguments ? call : undefined);
     return outcome.status === "saved"
       ? successfulTool(call, outcome.receipt)
       : notSavedTool(call, outcome.receipt);

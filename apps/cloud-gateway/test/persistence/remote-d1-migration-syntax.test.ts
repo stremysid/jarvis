@@ -200,6 +200,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0052_email_inbox.sql",
       "0053_deadlines_store_facts.sql",
       "0054_owner_reminders_scheduled.sql",
+      "0055_owner_access_tool.sql",
     ]);
   });
 

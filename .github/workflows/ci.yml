@@ -34,6 +34,25 @@ jobs:
       - run: node --test scripts/test/deploy.test.mjs
       - run: node --test scripts/test/check-state.test.mjs
 
+  # Proves mutation.yml's verdict step really fails on a bad sweep. That
+  # workflow is dispatch-only, so this self-test runs the same verdict script
+  # over synthetic SURVIVED / NOT APPLIED / INVALID reports here, in the PR's
+  # normal CI, and proves the exit-code capture shape the workflow uses.
+  mutation-verdict-selftest:
+    name: mutation verdict self-test (windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prove a bad sweep fails and a clean sweep passes
+        shell: pwsh
+        run: pwsh -NoProfile -File reviewer-tools/test/verdict-selftest.ps1
+
   # Cloud gateway, contracts and acceptance. These run under the Cloudflare
   # Workers pool, so they are platform-independent and live on Linux.
   workspace:

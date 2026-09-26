@@ -51,7 +51,10 @@ class SequenceModel implements ModelAdapter {
 
 class ToolAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider {
   readonly requests: ModelAgentCompletionInput[] = [];
-  constructor(private readonly toolName: string) {}
+  constructor(
+    private readonly toolName: string,
+    private readonly toolArguments: string = "{}",
+  ) {}
 
   async completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion> {
     this.requests.push(input);
@@ -61,7 +64,7 @@ class ToolAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider 
         toolCalls: Object.freeze([Object.freeze({
           id: "pipeline_call",
           name: this.toolName,
-          arguments: "{}",
+          arguments: this.toolArguments,
         })]),
         finishReason: "tool_calls" as const,
       });
@@ -83,7 +86,7 @@ class ToolAgentProvider implements ModelAgentProvider, ModelAgentStreamProvider 
           toolCalls: Object.freeze([Object.freeze({
             id: "pipeline_call",
             name: this.toolName,
-            arguments: "{}",
+            arguments: this.toolArguments,
           })]),
           finishReason: "tool_calls" as const,
         }),
@@ -104,6 +107,7 @@ async function runPipelineTurn(input: {
   readonly label: string;
   readonly message: string;
   readonly toolName: "school_update" | "university_update" | "study_coach";
+  readonly toolArguments?: string;
   readonly modelReplies: readonly string[];
   readonly ownerTurnAuthoritative?: boolean;
 }): Promise<Readonly<{
@@ -141,7 +145,7 @@ async function runPipelineTurn(input: {
     input.ownerTurnAuthoritative ?? true,
     () => NOW,
   );
-  const agent = new ToolAgentProvider(input.toolName);
+  const agent = new ToolAgentProvider(input.toolName, input.toolArguments);
   const repository = new ConversationRepository(env.DB, new EventRepository(env.DB), {
     ...(input.channel === "telegram" ? { telegramDirectOwnerText: true } : {}),
   });
@@ -341,10 +345,15 @@ describe.each(["telegram", "voice"] as const)("owner %s agent validated feature 
       label: "study",
       message: "turn off coursework check-ins",
       toolName: "study_coach",
+      toolArguments: JSON.stringify({
+        operation: "preference", mode: null, sourcePhrase: null, useCourseEvidence: false,
+        factId: null, courseId: null, topic: null, outcome: null, signal: null,
+        preferencePatch: { enabled: false },
+      }),
       modelReplies: [],
     });
 
-    expect(result.reply).toBe(`Coursework check-ins are off.${channel === "voice" ? " " : ""}`);
+    expect(result.reply).toBe(`Coursework check-in settings updated: check-ins off.${channel === "voice" ? " " : ""}`);
     expectReceiptBoundary(result.reply);
     expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
       status: "completed",

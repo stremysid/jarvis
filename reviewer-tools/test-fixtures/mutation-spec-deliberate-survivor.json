@@ -1,0 +1,10 @@
+[
+  {
+    "name": "E2E deliberate survivor",
+    "file": "apps/cloud-gateway/test/ci/mutation-survivor-source.ts",
+    "find": "  return value * 2;",
+    "replace": "  return value * 3;",
+    "testPath": "apps/cloud-gateway/test/ci/mutation-survivor.test.ts",
+    "expect": "labels a positive number"
+  }
+]

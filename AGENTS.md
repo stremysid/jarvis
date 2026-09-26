@@ -224,6 +224,47 @@ gateway suite runs (239 files, 7,402 tests, about three minutes, measured
 `mutate.ps1` defaults `-GateDir` to an old PR's checkout, so always pass it; the
 spec format and the verdicts are in the script's header.
 
+### Heavy verification runs on CI, not on the owner's PC
+
+This is a public repo, so GitHub Actions is free (standard runners, 20
+concurrent jobs, 6 hours per job) and the PC also hosts builders. **A mutation
+sweep or anything that takes more than a couple of minutes is a builder's job
+for CI, not for Sid's machine.** `.github/workflows/mutation.yml` and
+`.github/workflows/focused-tests.yml` are `workflow_dispatch` jobs a builder
+triggers itself:
+
+```powershell
+gh workflow run mutation.yml -f spec=reviewer-tools/mutation-specs-<name>.json -f ref=<branch>
+gh workflow run focused-tests.yml -f ref=<branch> -f paths="apps/cloud-gateway/test/workspace.test.ts"
+gh run watch <run-id> --exit-status
+```
+
+**Both are `workflow_dispatch`, so they can only be dispatched once the file
+exists on the default branch.** Until a PR that adds or changes one merges,
+`gh workflow run` resolves against `main` and reports "could not find any
+workflows named"; that is the ordering, not a broken workflow. `--ref` chooses
+the code the run checks out, not where the workflow file is found.
+
+`mutation.yml` runs `mutate.ps1` on `windows-latest` against the given spec
+and `ref`, and fails the job if any mutation SURVIVED, was NOT APPLIED, or
+came back INVALID — a job summary and the full report artifact carry the
+per-mutation verdict. The sweep's output is redirected to a file rather than
+piped, because a pipeline between the native call and the `$LASTEXITCODE` read
+can leave the code at 0 and report a bad sweep green; `ci.yml`'s
+`mutation-verdict-selftest` job runs
+`reviewer-tools/test/verdict-selftest.ps1`, which proves the failure path on
+synthetic SURVIVED / NOT APPLIED / INVALID reports and asserts that workflow
+shape. `focused-tests.yml` runs the `pnpm exec vitest` form above (plus the
+gateway test typecheck, advisory) against the given file on `ubuntu-latest`; it
+takes exactly one file, because Vitest reads a second positional as a filename
+filter against the first, and a path outside the `default` project's includes
+(`apps/cloud-gateway/test`, `packages/contracts/test`, `tests/acceptance`)
+fails as "No test files found". **Watch the run by id** — `gh run watch` with no
+argument follows the newest run for the whole repo, which with two dispatches in
+flight may not be the one just started; `gh workflow run --json` prints the new
+run's id. Pass `--exit-status` if the calling script needs the runner's exit
+code, not just the printed log.
+
 ## Conventions
 
 - **pnpm**, Node 24.19.0 or later in the Node 24 line.

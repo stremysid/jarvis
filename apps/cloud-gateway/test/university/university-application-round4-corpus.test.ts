@@ -5,7 +5,7 @@ import {
   guardSchoolReply,
   SchoolCatchupModelAdapter,
 } from "../../src/school/school-catchup-model.js";
-import { parseOwnerUniversityPlan, supportsStatus } from "../../src/university/university-tracker-model.js";
+import { parseOwnerUniversityPlan } from "../../src/university/university-tracker-model.js";
 import type {
   ApplyOwnerUniversityPlanInput,
   UniversityApplicationItemStatus,
@@ -106,6 +106,27 @@ function existing(workflowRef: Ulid, programRef: Ulid, status: UniversityWorkflo
 function records(text: string, update: Record<string, unknown>, snapshot: UniversityTrackerSnapshot): boolean {
   try {
     parseOwnerUniversityPlan({ engaged: true, programUpdates: [], applicationUpdates: [], workflowUpdates: [update] }, text, passthrough, snapshot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function recordsApplication(
+  text: string,
+  status: UniversityApplicationItemStatus,
+  snapshot: UniversityTrackerSnapshot,
+): boolean {
+  const update = {
+    itemRef: WE_ESSAY, programRef: WESTERN, kind: null, label: null, status, statusEvidence: text, dueDate: null,
+  };
+  try {
+    parseOwnerUniversityPlan(
+      { engaged: true, programUpdates: [], applicationUpdates: [update], workflowUpdates: [] },
+      text,
+      passthrough,
+      snapshot,
+    );
     return true;
   } catch {
     return false;
@@ -789,13 +810,42 @@ describe("PR #64 round-4 regression corpus", () => {
       ["reported", "Priya texted that I paid the Waterloo AIF fee for the Waterloo AIF.", false, step(WF_AIF_PAY, WATERLOO, "Priya texted that I paid the Waterloo AIF fee for the Waterloo AIF.")],
     ];
 
-    it.each(rows)("%s %s records: %s", (_source, text, expected, update) => {
-      expect(records(text, update, same)).toBe(expected);
+    // This corpus was recorded when code read Sid's wording to decide whether a
+    // step was done. Code no longer reads the sentence: the model declares the
+    // step status and names Sid's whole current message as its evidence
+    // (`statusEvidence === ownerMessage`). The `wasRecorded` column is kept only
+    // to show what the deleted word guards used to refuse; every row is now the
+    // model's declaration and is accepted.
+    it.each(rows)("%s %s accepts the model's declared step status", (_source, text, _wasRecorded, update) => {
+      expect(records(text, update, same)).toBe(true);
+    });
+
+    it("refuses a step declaration whose evidence is only an excerpt of Sid's message", () => {
+      const text = "I paid the Waterloo AIF fee for the Waterloo AIF. Thanks!";
+      const update = existing(WF_AIF_PAY, WATERLOO, "owner_reported_done", "I paid the Waterloo AIF fee for the Waterloo AIF.");
+      expect(records(text, update, same)).toBe(false);
+    });
+
+    it("refuses a step declaration whose evidence is not in Sid's message at all", () => {
+      const text = "I paid the Waterloo AIF fee for the Waterloo AIF.";
+      const update = existing(WF_AIF_PAY, WATERLOO, "owner_reported_done", "I paid the fee");
+      expect(records(text, update, same)).toBe(false);
+    });
+
+    it("refuses a step status the snapshot's step kind does not allow", () => {
+      const text = "I got an offer from Waterloo for Computer Science.";
+      const update = existing(WF_ESSAY_SUB, WESTERN, "owner_reported_offered", text);
+      expect(records(text, update, same)).toBe(false);
     });
   });
 
-  describe("requirement 2: PR #52 checklist results identical to main", () => {
-    // main is origin/main's supportsStatus on the same fixture, recorded row by row.
+  describe("the model declares the application status (replaces the PR #52 checklist oracle)", () => {
+    // These rows were recorded against origin/main's `supportsStatus`, which
+    // derived `submitted_by_sid` / `ready` / `not_needed_by_sid` from Sid's
+    // wording. Code no longer reads the sentence: the model names the status and
+    // carries Sid's whole current message as `statusEvidence`, so every row is
+    // accepted for the item the model chose. The `main` column is kept only to
+    // show which rows the deleted predicate used to refuse.
     const rows: readonly { readonly source: string; readonly status: UniversityApplicationItemStatus; readonly text: string; readonly sameProgramName: boolean; readonly main: boolean }[] = [
     {"source":"pr64c/n2r3.mjs","status":"submitted_by_sid","text":"My sister told me I submitted the Western essay.","sameProgramName":false,"main":false},
     {"source":"pr64c/n2r3.mjs","status":"submitted_by_sid","text":"Priya told me I submitted the Western essay.","sameProgramName":false,"main":false},
@@ -829,14 +879,40 @@ describe("PR #64 round-4 regression corpus", () => {
     {"source":"pr64b/guards2.mjs","status":"submitted_by_sid","text":"I submitted the Western essay. Actually no, it failed.","sameProgramName":true,"main":false},
     ];
 
-    it.each(rows.map((row) => [row.source, row.status, row.text, row.main, row.sameProgramName] as const))(
-      "%s %s gives main's result: %s -> %s",
-      (_source, status, text, main, sameProgramName) => {
-        const snapshot = fixture({ sameProgramName });
-        const western = snapshot.programs[1]!;
-        expect(supportsStatus(status, text, false, "drafting", WE_ESSAY, "Western essay", "essay", western, snapshot)).toBe(main);
+    it.each(rows.map((row) => [row.source, row.status, row.text, row.sameProgramName] as const))(
+      "%s %s accepts the model's declaration: %s",
+      (_source, status, text, sameProgramName) => {
+        expect(recordsApplication(text, status, fixture({ sameProgramName }))).toBe(true);
       },
     );
+
+    it("refuses an application status whose evidence is not Sid's whole message", () => {
+      const text = "I submitted the Western essay.";
+      const update = {
+        itemRef: WE_ESSAY, programRef: WESTERN, kind: null, label: null,
+        status: "submitted_by_sid" as const, statusEvidence: "I submitted the essay", dueDate: null,
+      };
+      expect(() => parseOwnerUniversityPlan(
+        { engaged: true, programUpdates: [], applicationUpdates: [update], workflowUpdates: [] },
+        text,
+        passthrough,
+        fixture(),
+      )).toThrow("university_application_model_item_invalid");
+    });
+
+    it("refuses an application status that is not a known enum value", () => {
+      const text = "I submitted the Western essay.";
+      const update = {
+        itemRef: WE_ESSAY, programRef: WESTERN, kind: null, label: null,
+        status: "submitted", statusEvidence: text, dueDate: null,
+      };
+      expect(() => parseOwnerUniversityPlan(
+        { engaged: true, programUpdates: [], applicationUpdates: [update], workflowUpdates: [] },
+        text,
+        passthrough,
+        fixture(),
+      )).toThrow("university_application_model_item_invalid");
+    });
   });
 
   describe("row 12: the model decides an execution request, not a code regex", () => {

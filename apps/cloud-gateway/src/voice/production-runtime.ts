@@ -2,6 +2,7 @@ import type { RedactionAudience } from "../../../../packages/contracts/src/index
 import { contextForAudience } from "../conversation/context-retriever.js";
 import { TelegramMemoryRetriever } from "../memory/telegram-memory-retriever.js";
 import { createOwnerPipelineModels } from "../agent/owner-pipelines.js";
+import { createOwnerCommandCapabilities } from "../agent/owner-command-capabilities.js";
 import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { AutonomyRepository } from "../autonomy/autonomy-repository.js";
 import { AutonomyService } from "../autonomy/autonomy-service.js";
@@ -36,6 +37,7 @@ import {
 import { CapabilityRegistry } from "./capability-registry.js";
 import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
+import { OwnerAccessTool } from "./owner-access-tool.js";
 import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { OwnerVoiceAgentAdapter } from "./voice-agent.js";
 import { webToolsFromEnv } from "../web/web-tools.js";
@@ -129,6 +131,9 @@ export function createProductionCallSessionCore(
     ),
     ...(defaultGuestPin === undefined ? {} : { defaultGuestPin: () => defaultGuestPin }),
   });
+  // The model dispatches guest access through this shared port: the agent runs a
+  // tool call, and the call session answers its owner-authority and PIN questions.
+  const ownerAccessTool = new OwnerAccessTool(ownerAccess, now);
   const observations = new VerifiedChannelObservationAuthority();
   const challenges = new IdentityChallengeService({
     database: env.DB,
@@ -207,6 +212,11 @@ export function createProductionCallSessionCore(
     ),
     // The same web tools Telegram gets, from the same environment.
     web: webToolsFromEnv(env),
+    // The same three reporting reads Telegram gets, from the same
+    // environment: a call can ask what is waiting on Sid, for his status and
+    // for today's digest, which the Telegram-only slash commands could not.
+    commands: createOwnerCommandCapabilities(env, ownerPrincipalId, now),
+    ownerAccessTool,
     now,
   });
   const audience = voiceSessionAudience(input.initialization.binding);
@@ -227,7 +237,7 @@ export function createProductionCallSessionCore(
     expectedAccountSid: configuration.accountSid,
     repository: calls,
     authority: authorities,
-    guestAuthentication, ownerAccess, activation, conversation, sensitiveActionPin,
+    guestAuthentication, ownerAccessTool, activation, conversation, sensitiveActionPin,
     relay: input.relay,
     ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
       ? { preAuthentication: input.initialization.preAuthentication }

@@ -11,7 +11,7 @@ export const VOICE_FAKE_TEST_FILTERS = Object.freeze([
   "apps/cloud-gateway/test/security/redaction.test.ts",
   "apps/cloud-gateway/test/voice/capability-registry.test.ts",
   "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
-  "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",
+  "apps/cloud-gateway/test/voice/owner-access-tool.test.ts",
   "apps/cloud-gateway/test/voice/call-session-do.test.ts",
   "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
   // The PIN gate replaced the per-call passphrase, so the release gate runs its
