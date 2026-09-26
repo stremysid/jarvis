@@ -290,30 +290,29 @@ describe("school assignment pastes", () => {
     expect(result.tokens[0]).toMatchObject({ toolOutcome: "not_saved" });
   });
 
-  it("lists only the three stored blocks when a fourth overloaded block was dropped", async () => {
+  it("keeps a fourth block on one day and lists every stored block", async () => {
     const response: OwnerCatchupPlan = { ...fixture(), courseUpdates: fixture().courseUpdates.slice(0, 1),
-      plan: [60, 60, 60, 240].map((estimatedMinutes, index) => ({
+      plan: [60, 60, 60, 45].map((estimatedMinutes, index) => ({
         courseRef: "new-1", localDate: TODAY, sequenceRank: index + 1, text: `Block ${index + 1}`, estimatedMinutes,
       })) };
     const h = await harness({ response });
     const result = await collect(h.adapter.streamOwnerTool(h.input));
-    expect(result.text).toContain("Today: Chemistry: Block 1 (60 min); Chemistry: Block 2 (60 min); Chemistry: Block 3 (60 min).");
-    expect(result.text).not.toContain("Block 4");
-    expect(result.text).not.toContain("240");
-    expect(result.text).toContain("Schedule adjusted:");
-    expect(result.text).toContain("dropped or clamped");
-    expect(await h.repository.listActionsForDate(h.principalId, TODAY)).toHaveLength(3);
+    // The fourth block of one day used to be dropped as "unrealistic".
+    // Nothing drops it now: the receipt is the committed plan.
+    expect(result.text).toContain("Block 1 (60 min)");
+    expect(result.text).toContain("Block 4 (45 min)");
+    expect(result.text).not.toContain("Schedule adjusted");
+    expect(await h.repository.listPlannedActions(h.principalId)).toHaveLength(4);
   });
 
-  it("shows the stored minutes when a block was clamped", async () => {
+  it("refuses a 240-minute block and names the bound instead of clamping it", async () => {
     const response: OwnerCatchupPlan = { ...fixture(), courseUpdates: fixture().courseUpdates.slice(0, 1),
       plan: [{ courseRef: "new-1", localDate: TODAY, sequenceRank: 1, text: "Work on assignment 1", estimatedMinutes: 240 }] };
     const h = await harness({ response });
     const result = await collect(h.adapter.streamOwnerTool(h.input));
-    expect(result.text).toContain("(180 min)");
-    expect(result.text).not.toContain("240");
-    expect(result.text).toContain("Schedule adjusted:");
-    expect((await h.repository.listActionsForDate(h.principalId, TODAY))[0]?.estimatedMinutes).toBe(180);
+    expect(result.text).toContain("between 5 and 180 minutes");
+    expect(result.text).not.toContain("(240 min)");
+    expect(await h.repository.listPlannedActions(h.principalId)).toHaveLength(0);
   });
 
   it("keeps every course and the total visible after composing a realistic paste receipt with the agent reply", async () => {

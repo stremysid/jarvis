@@ -637,7 +637,6 @@ describe("owner Telegram agent", () => {
     ["external action", "I emailed Ms. Lee about your extension.", "I emailed"],
     ["passive completion", "Your application has been submitted for you.", "has been submitted"],
     ["Brightspace check", "I checked Brightspace just now.", "I checked Brightspace"],
-    ["secret request", "Send me your password here.", "Send me your password"],
   ] as const)("applies the deterministic %s guard to unlisted ordinary-agent claims", async (_label, claim, unsafe) => {
     const harness = await ownerHarness(`guard-${_label.replaceAll(" ", "-")}`);
     const provider = new FakeAgentProvider([stopped(claim)]);
@@ -646,6 +645,20 @@ describe("owner Telegram agent", () => {
 
     expect(reply).not.toContain(unsafe);
     expect(provider.requests).toHaveLength(1);
+  });
+
+  it("keeps a credential request from the model, because Sid may be asked for a code", async () => {
+    // The secret-request rewrite is gone: Sid decided he may be asked for a code
+    // and Jarvis may hold it (2026-09-24).
+    const harness = await ownerHarness("guard-secret-request");
+    const claim = "Send me your password here.";
+    const reply = await runTurn({
+      harness,
+      text: "help",
+      provider: new FakeAgentProvider([stopped(claim)]),
+    });
+
+    expect(reply).toContain(claim);
   });
 
   it("stores Sid's misspelled remember request as stated evidence with the exact excerpt", async () => {

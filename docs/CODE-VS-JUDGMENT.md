@@ -96,11 +96,13 @@ The grammar above now runs only for a reader who is not Sid (`RedactionAudience`
 `external`: guest call sessions, policy audit, provider callback telemetry).
 Toward Sid the boundary is not a word list at all: it asks who receives the
 text, and removes only machine-credential shapes (Jarvis's infrastructure
-secrets). A separate reply grader remains and is not removed here:
-`SECRET_REQUESTS`/`SECRET_REPLACEMENT` in `school/school-catchup-model.ts` rewrites
-a school reply that asks Sid for a password or MFA code into "I can't accept
-passwords...". It judges the model's wording and contradicts "Jarvis can say
-email codes and store them"; it is listed here for a follow-up.
+secrets). The separate reply grader that used to remain here —
+`SECRET_REQUESTS`/`SECRET_REPLACEMENT` in `school/school-catchup-model.ts`, which
+rewrote a school reply that asked Sid for a password or MFA code into "I can't
+accept passwords..." — was **removed** on 2026-09-25 by
+`codex/catchup-judgment-to-ai`, because it judged the model's wording and
+contradicted Sid's 2026-09-24 decision that Jarvis may ask for and hold a code.
+See the removal table below.
 
 ## The list
 
@@ -179,8 +181,7 @@ declares nothing records nothing, with no recency fallback.
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
-| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
+| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Still queued: the `codex/catchup-judgment-to-ai` batch left this one, because it is a new tool rather than a removal |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -196,11 +197,54 @@ puts in the model, not here. Neither removal needed a migration.
 
 | # | Symbol (as of `e2af1aa2`) | What it decided | Now |
 |---|---|---|---|
-| 11 | `isWorkedExplanation` and the `WORKED_*` grammar (`WORKED_OBJECTS`, `WORKED_CLAIM_PREFIX`, `WORKED_CONTINUATION`, `WORKED_DESTINATION`, `WORKED_RECIPIENT`, `WORKED_NAMED_RECIPIENT`, `WORKED_REAL_WORLD_VALUE`, `WORKED_TRANSACTION_OBJECT`, `WORKED_APPLIED_FOR_YOU`) in `src/school/school-catchup-model.ts` | Whether a sentence was a worked explanation, by parsing a verb object and a continuation and vetoing destinations, recipients, times and money. The model's declarations on Telegram (`workedExplanations`) and voice (`[[worked]]`) were ignored. | Deleted. The model declares its worked-explanation sentences: `workedExplanations` is an accepted key of the structured reply (`ParsedReply.workedExplanations`, threaded through `parseOwnerCatchupPlan`, the university combined reply and the study practice JSON), and voice wraps one sentence in `[[worked]]…[[/worked]]`. `unsafeFirstPersonRanges` checks plain membership for the exemption and keeps the omission backstop for an **undeclared** first-person action sentence; `blankDeclaredWorked` gates `FALSE_EXTERNAL_COMPLETIONS` and the passive patterns the same way. A declaration naming text the reply does not contain is refused, so it cannot exempt anything. |
+| 11 | `isWorkedExplanation` and the `WORKED_*` grammar (`WORKED_OBJECTS`, `WORKED_CLAIM_PREFIX`, `WORKED_CONTINUATION`, `WORKED_DESTINATION`, `WORKED_RECIPIENT`, `WORKED_NAMED_RECIPIENT`, `WORKED_REAL_WORLD_VALUE`, `WORKED_TRANSACTION_OBJECT`, `WORKED_APPLIED_FOR_YOU`) in `src/school/school-catchup-model.ts` | Whether a sentence was a worked explanation, by parsing a verb object and a continuation and vetoing destinations, recipients, times and money. The model's declarations on Telegram (`workedExplanations`) and voice (`[[worked]]`) were ignored. | Deleted. The model declares its worked-explanation sentences: `workedExplanations` is an accepted key of the structured reply (`ParsedReply.workedExplanations`, threaded through `parseOwnerCatchupPlan`, the university combined reply and the study practice JSON), and voice wraps one sentence in `[[worked]]…[[/worked]]`. `unsafeFirstPersonRanges` checks one declared sentence for membership and keeps the omission backstop for an **undeclared** first-person action sentence. `FALSE_EXTERNAL_COMPLETIONS` and the passive patterns read the reply unchanged, so a declaration cannot exempt those either. A declaration naming text the reply does not contain is refused, so it cannot exempt anything. `blankDeclaredWorked`, named by an earlier version of this row, was deleted by the #204 round and never existed on main after it; that sentence was stale and is corrected here. |
 | 12 | `isUniversityExecutionRequest` and its regex engine (`REQUESTED_ACTION`, `REQUEST_PARTY`, `REQUEST_EXTERNAL_OBJECT`, `DECISION_OBJECT`, `TRANSACTION_VERB`, `COMMUNICATION_VERB`, `DECISION_VERB`, `COURTESY_MARKER`, `DIRECTIVE_PREFIX`, `PREPARATION_START`, `SCHOOL_NAMES`) in `src/school/school-catchup-model.ts` | In university and legacy unselected scope, a hand-written grammar decided whether Sid was asking Jarvis to act on an external target, and refused before the model ran. | Deleted. Every request now reaches the model, which decides what Sid means. `OWNER_AGENT_COMMON_PROMPT` states that no tool can email, submit, upload, pay, sign up or contact anyone, so Jarvis says plainly that he cannot and prepares the draft or checklist; the university and school structured prompts already carry the same rule. Nothing is lost in enforcement: the pipeline has no external execution hand — `university_update` and `school_update` only store plans — and the reply guards (`FALSE_EXTERNAL_COMPLETIONS`, the passive patterns) plus the `claimedActions` receipt protocol still bound what may be said. |
 
 Rows 11 and 12 are removed; the identifiers stay in this file so a future
 reader can find what decision they carried.
+
+### School catch-up planner and reply guards: partly removed, 2026-09-25
+
+Removed by the PR titled "School catch-up: the AI plans, code doesn't override"
+(branch `codex/catchup-judgment-to-ai`), which carried the sweep rows 1, 3, 6, 7,
+8, 9 and 10 of the school batch. The table gives the symbol as it was and what
+replaced it. Three of the ten are **not** in this PR and are named at the end as
+blockers, not silently dropped.
+
+| Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|
+| `OWNER_ACKNOWLEDGEMENT` (register row 14), `withoutUnsupportedAcknowledgementMutations` and `withoutUnsupportedCombinedAcknowledgementMutations` | A bare "ok", "thanks" or a 👍 made code discard the model's whole plan and reply "Got it." | **Deleted.** `ACKNOWLEDGEMENT_REPLY` goes with them. The prompt already says a bare acknowledgement is not a request to change the plan; the model's reading is the only reading |
+| `messageTouchesTracker` and its school/university keyword list | On the prompt-too-large path, a keyword list decided whether to answer normally or refuse with a fixed line | **Deleted.** The model always gets the too-large notice (`TRACKER_TOO_LARGE_REPLY`) and answers in its own words; code states only what it knows, that nothing was saved and the tracker could not be read whole |
+| `SECRET_REQUESTS` / `SECRET_ADVISORY` / `SECRET_REPLACEMENT` | Six regexes decided the reply asked Sid for a password or code, and replaced the whole reply with a refusal | **Deleted.** Sid, 2026-09-24: he may be asked for a code and Jarvis may hold it. Both `guardReplyClaims` and `guardVoiceReplySentence` lost the secret branch; nothing rewrites a credential request now |
+| `repairedPlan`'s `Math.max(5, Math.min(180, …))` | Silently rewrote the model's block length to the stored range | **Deleted.** An out-of-range block is refused with the new rule `school_catchup_action_minutes_out_of_range`, and code names the 5..180 bound back to the model (`MINUTES_BOUND_REPLY`) so it can split or rescale the block itself. The `0020` `estimated_minutes BETWEEN 5 AND 180` CHECK stays as the named storage bound |
+| `repairedPlan`'s day caps (`day.count >= 3`, `day.minutes + … > 180`) | Decided what a realistic day was and dropped the model's extra actions | **Deleted**, in code and in the `school_catchup_actions_planned_cap_insert` trigger (migration `0055`). A day's load is the owner's pinned capacity, which the prompt carries, and the model's judgment. The 21-planned-action runaway cap stays, in code and in the trigger |
+| `repairedPlan`'s horizon (`localDate > addDays(today, 6)`) | Fixed the planning window at seven days and dropped later actions | **Deleted.** How far ahead a plan runs is the model's choice; a date in the past is still refused because it cannot be planned |
+| `readSnapshot`'s `resolvedSince = addDays(today, -30)` | Showed the model only the last 30 days of resolved facts | **Deleted.** The `LIMIT 48` storage cap is the only bound, so a resolved fact stays visible however old it is. **Not done:** the row also asked for the count when the cap truncates; surfacing it needs a new snapshot/prompt field and is left for a follow-up |
+
+**Not in this PR, with the reason:**
+
+- **`BRIGHTSPACE_REFRESH_REQUEST` (register row 15)** — turning "check D2L now"
+  into a model-called tool needs a new tool in the shared catalogue, dispatch
+  wiring, its own prompt statement and tests. That is a feature, not a removal,
+  and it is the one item of the ten this PR does not attempt.
+- **`presentsUnsavedSchedule` / `replyWithoutUnsavedSchedule`** — the register
+  asks for the model to declare schedule claims in the structured reply and code
+  to check them against the committed receipt. Removing the sentence rewrite
+  without that check would let an unsaved schedule be presented as saved, which
+  the batch brief itself names as the honesty risk. The declaration field and
+  its receipt check are not built here.
+- **`PLAN_SAVE_COMPLETIONS` in `fallbackWithSaveFailure`** — its replacement is
+  the same claim-plus-receipt mechanism, but this path asks the model for
+  free text, with no structured envelope to carry a declaration. Deleting the
+  regex alone would leave the passive/internal save forms ("your plan has been
+  saved") unproven but unsaid-to, so it stays until the declaration channel
+  exists.
+
+### Code-side meaning judgments still found in school replies
+
+| # | Symbol | The decision code is making | Surface it should move to |
+|---|---|---|---|
+| 16 | `FALSE_EXTERNAL_COMPLETIONS`, `PASSIVE_EXTERNAL_COMPLETION`, `PASSIVE_EXTERNAL_DELIVERY`, `PASSIVE_RECEIPT_COMPLETION`, `PASSIVE_ADVICE_CONTEXT` and `hasPassiveExternalCompletion` (`src/school/school-catchup-model.ts`), found in the [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether a sentence claims Jarvis completed an external action, by vocabulary and passive-voice patterns. It is a meaning judgment written as regexes, and it is broader than the declared-claim mechanism #204 built: a passive sentence with no first-person subject is caught here and nowhere else | The model declares the sentences that claim an action, as it already declares `workedExplanations`; code checks each declared sentence against this turn's receipts and nothing else. Until that exists, this is the omission backstop that keeps an undeclared passive completion from being spoken, and it is registered here rather than treated as settled |
 
 ### Row 10 persisted inference: still in code, not removed
 

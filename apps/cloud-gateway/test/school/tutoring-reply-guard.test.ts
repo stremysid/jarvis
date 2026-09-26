@@ -110,11 +110,10 @@ describe("tutoring reply claims", () => {
     expect(guardReplyClaims(reply, { workedExplanations: ["We applied the chain rule."] })).toBe(reply);
   });
 
-  it("keeps the secret-request guard after a worked explanation", () => {
+  it("keeps a request for a password after a worked explanation, because Sid may be asked for one", () => {
     const explanation = "We added 5 to both sides, so x = 3.";
-    expect(guardReplyClaims(`${explanation} Send me your password.`, { workedExplanations: [explanation] })).toBe(
-      `${explanation}\n\nI can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.`,
-    );
+    const reply = `${explanation} Send me your password.`;
+    expect(guardReplyClaims(reply, { workedExplanations: [explanation] })).toBe(reply);
   });
 
   it("still requires a receipt for a school save and keeps the receipted sentence", () => {

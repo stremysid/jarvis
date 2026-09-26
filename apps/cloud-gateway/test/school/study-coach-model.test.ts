@@ -741,7 +741,7 @@ describe("StudyCoachModelAdapter", () => {
     expect(response).toContain("The neutralization endpoint is pink");
   });
 
-  it("guards generated practice questions and answers before showing them", async () => {
+  it("keeps a generated question that asks for a code and still refuses the false completion claim", async () => {
     const item = await seed("generated-guards", "Photosynthesis basics");
     const request = "quiz me on photosynthesis for Chemistry";
     const turnId = await addTurn(item.principalId, request, 1_000);
@@ -753,8 +753,9 @@ describe("StudyCoachModelAdapter", () => {
     const response = await collect(adapter(item.principalId, new FakeModel([]), practice).stream(
       input(item.principalId, turnId, request),
     ));
-    expect(response).toContain("I can't accept passwords");
-    expect(response).not.toContain("Send me your D2L password");
+    // Sid may be asked for a code, so the question stands; the false completion
+    // claim in the answer does not.
+    expect(response).toContain("Send me your D2L password to continue");
     expect(response).not.toContain("I've emailed your teacher");
   });
 

@@ -367,16 +367,17 @@ describe("school catch-up schema through 0022", () => {
       .rejects.toThrow(/school_catchup_action_limit_exceeded/u);
   });
 
-  it("enforces per-day action count and minute caps inside inserts", async () => {
+  it("no longer caps one day's action count or minutes", async () => {
     const minutesItem = await graph("action-minute-cap");
+    // 160 further minutes on a day that already holds a block used to abort.
     await expect(env.DB.prepare(`INSERT INTO school_catchup_actions (
       principal_id, action_id, course_id, local_date, sequence_rank, action_text, estimated_minutes,
       status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
-    ) VALUES (?1, ?2, ?3, ?4, 2, 'Too many minutes', 160, 'planned',
+    ) VALUES (?1, ?2, ?3, ?4, 2, 'Full day', 160, 'planned',
       ?5, NULL, NULL, ?6, ?6)`)
       .bind(minutesItem.principalId, newUlid(new Date(NOW.getTime() + 42_000)), minutesItem.courseId,
         TODAY, minutesItem.turnId, NOW.toISOString()).run())
-      .rejects.toThrow(/school_catchup_action_limit_exceeded/u);
+      .resolves.toBeDefined();
 
     const countItem = await graph("action-day-cap");
     await env.DB.batch([2, 3].map((rank) => env.DB.prepare(`INSERT INTO school_catchup_actions (
@@ -385,6 +386,7 @@ describe("school catch-up schema through 0022", () => {
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 10, 'planned', ?7, NULL, NULL, ?8, ?8)`)
       .bind(countItem.principalId, newUlid(new Date(NOW.getTime() + 43_000 + rank)), countItem.courseId,
         TODAY, rank, `Action ${rank}`, countItem.turnId, NOW.toISOString())));
+    // The fourth action of the day used to abort. A day's load is the model's.
     await expect(env.DB.prepare(`INSERT INTO school_catchup_actions (
       principal_id, action_id, course_id, local_date, sequence_rank, action_text, estimated_minutes,
       status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
@@ -392,6 +394,31 @@ describe("school catch-up schema through 0022", () => {
       ?5, NULL, NULL, ?6, ?6)`)
       .bind(countItem.principalId, newUlid(new Date(NOW.getTime() + 44_000)), countItem.courseId,
         TODAY, countItem.turnId, NOW.toISOString()).run())
+      .resolves.toBeDefined();
+  });
+
+  it("still refuses a twenty-second planned action", async () => {
+    const item = await graph("action-total-cap");
+    // The fixture seeds one planned action; twenty more reach the cap of 21.
+    // Ranks stay inside the table's own 1..20 CHECK, so only the total cap can
+    // fire, and each action sits on its own day.
+    const base = new Date("2026-09-16T12:00:00.000Z");
+    const day = (offset: number): string =>
+      new Date(base.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+    await env.DB.batch(Array.from({ length: 20 }, (_, index) => env.DB.prepare(`INSERT INTO school_catchup_actions (
+      principal_id, action_id, course_id, local_date, sequence_rank, action_text, estimated_minutes,
+      status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
+    ) VALUES (?1, ?2, ?3, ?4, 1, ?5, 10, 'planned', ?6, NULL, NULL, ?7, ?7)`)
+      .bind(item.principalId, newUlid(new Date(NOW.getTime() + 45_000 + index)), item.courseId,
+        day(index), `Action ${index + 2}`,
+        item.turnId, NOW.toISOString())));
+    await expect(env.DB.prepare(`INSERT INTO school_catchup_actions (
+      principal_id, action_id, course_id, local_date, sequence_rank, action_text, estimated_minutes,
+      status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
+    ) VALUES (?1, ?2, ?3, '2026-08-31', 1, 'One too many', 10, 'planned',
+      ?4, NULL, NULL, ?5, ?5)`)
+      .bind(item.principalId, newUlid(new Date(NOW.getTime() + 46_000)), item.courseId,
+        item.turnId, NOW.toISOString()).run())
       .rejects.toThrow(/school_catchup_action_limit_exceeded/u);
   });
 

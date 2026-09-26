@@ -609,7 +609,7 @@ describe("school catch-up Telegram integration", () => {
     }
   });
 
-  it("drops a date nine days ahead and saves the rest of the schedule", async () => {
+  it("keeps a date nine days ahead instead of cutting the window at seven days", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const principalId = "principal:school-date-repair";
     try {
@@ -630,12 +630,15 @@ describe("school catch-up Telegram integration", () => {
           ],
         },
       });
+      // The horizon used to drop the nine-day-out block as a date repair. How
+      // far ahead a plan runs is the model's choice.
       await expect(env.DB.prepare(`SELECT local_date, action_text FROM school_catchup_actions
         WHERE principal_id = ?1 AND status = 'planned' ORDER BY local_date`).bind(principalId)
         .all<{ local_date: string; action_text: string }>()).resolves.toMatchObject({ results: [
         { local_date: "2026-09-16", action_text: "Review Chemistry notes" },
+        { local_date: "2026-09-25", action_text: "Review Chemistry again" },
       ] });
-      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+      expect(warning).not.toHaveBeenCalledWith("school_plan_save_failed", {
         code: "partial:repaired:school_catchup_action_date_invalid",
       });
     } finally {
@@ -643,7 +646,7 @@ describe("school catch-up Telegram integration", () => {
     }
   });
 
-  it("clamps a 300-minute action before saving the schedule", async () => {
+  it("refuses a 300-minute block and names the 5..180 bound instead of clamping it", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const principalId = "principal:school-minutes-repair";
     try {
@@ -664,11 +667,13 @@ describe("school catch-up Telegram integration", () => {
           }],
         },
       });
-      await expect(env.DB.prepare(`SELECT estimated_minutes FROM school_catchup_actions
+      // 300 used to be silently rewritten to 180 and saved. The block is not
+      // saved now, and the reply names the bound so the model can split it.
+      await expect(env.DB.prepare(`SELECT count(*) AS count FROM school_catchup_actions
         WHERE principal_id = ?1 AND status = 'planned'`).bind(principalId)
-        .first<{ estimated_minutes: number }>()).resolves.toEqual({ estimated_minutes: 180 });
+        .first<{ count: number }>()).resolves.toEqual({ count: 0 });
       expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
-        code: "partial:repaired:school_catchup_action_invalid",
+        code: "partial:school_catchup_action_minutes_out_of_range",
       });
     } finally {
       warning.mockRestore();
