@@ -1,5 +1,6 @@
 import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
 import { SCHOOL_WORK_EVIDENCE_TOOL } from "../school/school-work-tools.js";
+import { STUDY_COACH_TOOL } from "../school/study-coach-model.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
@@ -29,10 +30,6 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
     description: "Update university planning when Sid names a shortlist, admission requirement, application date or progress, for example 'add Waterloo Computer Science' or 'I finished my application draft'. Keeps supplied dates visibly verified or unverified. Use school_update for a pasted school assignment list or missed classwork. This prepares and records plans; it cannot submit applications or contact anyone.",
     parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
-  Object.freeze({
-    name: "study_coach",
-    description: "Help Sid learn or practise a topic, for example 'explain titration', 'quiz me on derivatives', or 'I missed the lesson on quadratics; teach me'. Use school_update to save a pasted assignment list, record 'I finished the lab', or plan 'what should I do today'; use study_coach for the actual explanation, practice and feedback.",
-    parameters: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
-  }),
+  STUDY_COACH_TOOL,
   ...EMAIL_INBOX_TOOL_DEFINITIONS,
 ]);

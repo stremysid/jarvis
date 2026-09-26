@@ -94,6 +94,29 @@ wording, and writing them down did not make them right.
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
+## Study-coach intent parsing: removed
+
+Removed by "Study coach: the model reads intent" (branch `codex/coach-intent-to-ai`). The
+`study_coach` tool now carries the model's declared action as arguments, and code keeps only
+validation: the course and fact ids must exist in the owner's snapshot, the enum values must be
+known, and the quiz answer must be inside its window and size bound. Deleted from
+`school/study-coach-model.ts`:
+
+| Sweep id | Symbol | Now |
+|---|---|---|
+| B45 | `parsePracticeRequest` | `operation: practice` with `mode` and `sourcePhrase`; any phrasing works because the model reads it |
+| B46 | `parseStudyPreferenceIntent` | `operation: preference` with `preferencePatch`; the applied values are the receipt, and Sid's wording is never matched |
+| B47 | `parseOwnerStudyObservation` | `operation: observe` with `topic`, `outcome` and `courseId`; the negation and "finished"/"plan" word lists are gone |
+| B48 | `resolveCourse` / `phraseMatches` | The model passes `courseId`, validated against the snapshot. A missing or unknown id returns the course list as evidence instead of defaulting to the only course |
+| B49 | `forgetSubject` / `correctionIntent` / `parseStudySignalControlIntent` / `parseCheckInPracticeMode` | `operation` forget, correction, signal and check_in_practice, with `topic`, `courseId`, `signal` and `mode` |
+| B50 | `isUncertainAnswer` | Gone. The model declares `answer_quiz` |
+| B51 | `plausiblyAnswersQuiz`, including the 12-word cap | Gone. The model declares `answer_quiz`. The 30-minute answer window and the 256-byte bound stay as system-protection limits |
+| B52 | `courseFactSource` priority (weak_area, then missed_work, then newest) | The model passes `factId`; code looks it up in the chosen course and lists the facts when none is named |
+| B53 | The fixed "Which course should I use for that practice?" question | Gone. A refusal lists the courses or facts, and the model asks Sid |
+
+The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
+they are receipts of a committed write, not a decision about what Sid meant.
+
 ## Voice access and silent drops: removed
 
 Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
@@ -268,7 +291,7 @@ declares nothing records nothing, with no recency fallback.
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
 | 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
-| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
+| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool`. The study-coach use was removed by the coach-intent batch (B51), which no longer checks Sid's answer for a refresh request. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
