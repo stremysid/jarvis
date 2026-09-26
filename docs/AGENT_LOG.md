@@ -33,6 +33,161 @@ Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `or
   `reviewer-tools/mutation-specs-judg-catchup.json`: 7/7 killed, restore verified. Full suites on CI;
   no merge, no deploy, no migration applied.
 
+## 2026-09-25 — DeepSeek builder: code stores deadlines, the AI decides when to warn (`codex/effort-by-ai` round 3)
+
+Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `8c98bcd8`, round 3 on PR
+#201. Sid, 2026-09-25, 6:00 PM, verbatim: **"or hear me out, you let ai
+DECIDE"**. Touches Sid's rules 1, 2, 3, 4 and 8. No merge, deploy, database
+query or production read. The round-2 direction was cancelled mid-edit and the
+half-done changes were discarded before this started.
+
+- **Removed the whole decision surface.** `DeadlineEffort`, `requireEffort`,
+  the `effort` column, `effortJudged`, the `deadline_judge` tool,
+  `DEFAULT_LEAD_MINUTES`, `leadMinutesForWrite`, `lead_minutes`,
+  `listReminderDue`, `markReminded`, `QuietWindowService.deriveExamWindows`,
+  `EXAM_WINDOW_*`, the digest's effort text, the ICS `VALARM`, and effort in
+  the study signals. Code stores what a source states and delivers what the
+  model schedules. Nothing chooses a warning time or a category.
+- **The AI decides.** `deadline_list` is a read-only view of stored rows.
+  A scheduled review pass (`deadline-review-job.ts`) runs from the daily digest,
+  shows the model the stored deadlines plus the owner reminder tools
+  (`reminder_schedule`, `reminder_list`, `reminder_cancel`), lets it schedule
+  its own warnings, and delivers the model's own text to Sid -- which is how it
+  asks about a missing due date. Code composes no message.
+- **Missing due dates.** `due_date` is nullable and code never fills it in. A
+  Classroom assignment with no due date, a D2L topic with no date and a quiz
+  with no date are all stored with `null`, shown as "no due date", and left for
+  the model to ask Sid about. `deadline_record` keeps a stored date when the
+  model omits it on an update and stores null on a new row.
+- **Migrations.** `0053_deadlines_store_facts.sql` adds `due_date` and backfills
+  it. A rebuild was attempted and is impossible: triggers created in `0027`
+  reference `deadlines`, so `DROP TABLE deadlines` fails in the full migration
+  order (measured in `collector-migration`, D1 error
+  `no such table: main.deadlines`). The legacy `due_at`, `effort` and
+  `lead_minutes` columns are written with placeholders and never read; a QUEUE
+  item and a register row record that. `0054_owner_reminders_scheduled.sql`
+  makes `owner_reminders.created_turn_id` nullable so a scheduled review can
+  schedule a reminder without inventing a conversation turn; the owner-turn
+  guard still checks every reminder that has one. This needed a second
+  migration number; the brief said 0053 for the deadline change, and 0054 is
+  disclosed here and in the PR.
+- **Merge.** `origin/main` (`#200`, `#203`, `#205`) merged normally, keeping
+  both `AGENT_LOG.md` sides; the voice catalogue count is 28.
+- **Left outside this PR, named not changed:** `deriveMissingWorkPage` still
+  derives missing work from deadline status and dates; the `0027` triggers still
+  compare the now-placeholder `deadlines.due_at`; the Brightspace ICS client
+  cannot surface an item with no `DUE`/`DTSTART` at all; the collector's
+  `staleAfterMs` default remains.
+- **Evidence.** `test/deadlines`: **184 passed / 0 failed**. Focused neighbour
+  runs were green (61 files across digest, http, persistence, school and the
+  agent: **1,902 passed / 0 failed**; a later 12-file set 231 passed). A single
+  169-file local run under load produced unrelated voice/PIN timeouts, so CI is
+  the authority here: the **`workspace suite` job passed** at `87d3ec62`. The
+  only failing CI job, on both the first run and the re-run, is
+  `hermes-runtime suite (windows)`: `sbom-integrity-round2.test.mjs >
+  rejects a fabricated release-shaped source root ...` times out at 5000 ms.
+  That file passes alone on this PC (14/14, 5.8 s) and touches no deadline code;
+  it is the known Hermes timeout flake #185 addresses. Source `tsc --noEmit`
+  clean; `typecheck:tests` 140 baseline errors, none new in a touched file.
+  `reviewer-tools/mutate.ps1` at `8c98bcd8`: **12/12 KILLED, each confirmed on
+  a second run**, 0 survived / not-applied / invalid, restore byte-identical
+  across 6 files. The first sweep had D5 survive because the list notice also
+  contained "no due date"; the test now pins the row line itself.
+- **Not verified:** no deploy, no live D1, no production read. The review pass
+  runs daily from the digest, not on each collector upload, so a new deadline is
+  seen at least once a day. Live model compliance with the reminder-tool prompt
+  is untested.
+
+## 2026-09-25 — DeepSeek builder: a collected deadline gets a judged effort, and a lead override survives (`codex/effort-by-ai` round 2)
+
+Signed: **DeepSeek**. Branch `codex/effort-by-ai` at `5933c49f`, round 2 on PR
+#201, fixing the Claude cross-vendor review of `34cce44`. Touches Sid's rules 1,
+2 and 8. No merge, no deploy, no database query, no production read.
+
+- **F1 — every deadline, not just Sid's own.** `deadline_record` only reached
+  `source_id = 'owner-reported'`, so every collected row was `other` with the
+  1,440-minute lead and the exam quiet window could never open for one. Two
+  tools now share the core (`deadline-judgment-tools.ts`, in `OWNER_TOOL_DEFINITIONS`
+  so calls and Telegram are identical): `deadline_list` lists open rows with
+  their `deadlineId` and marks a row whose effort nobody judged as
+  "unjudged effort (stored other)", telling the model to judge each one and
+  never to infer effort from a title word list; `deadline_judge` sets effort and
+  optional lead on any stored row by id. Migration
+  `0053_deadline_effort_judgment.sql` adds `deadlines.effort_judged`, marks
+  owner-reported rows judged and leaves collected rows unjudged. Reviewer
+  finding 1's second blocker is fixed in `DeadlineRepository.upsert`: when
+  `replaceEffortAndLead` is false and the stored row is judged, a content
+  revision keeps the stored effort and lead instead of writing the incoming
+  `other`.
+- **F5 — existing rows.** The same migration marks every existing collected row
+  unjudged, so the model can re-judge the keyword classifier's old answers
+  rather than being stuck with them. No separate reset migration is needed.
+- **F2 — a lead override survives.** `leadMinutesForWrite` keeps a stored lead
+  when the caller names none and the effort is unchanged, and uses the new
+  effort's default only when the kind of work changed. A status update or a
+  due-date correction no longer resets 45 to 10,080.
+- **F3 — the receipt says what was saved.** `deadline_record`'s receipt now
+  carries `effort <x>; lead <n> minutes`.
+- **F4 — dead code removed.** `DeadlineIngestionOptions.courseEffort` and its
+  `E2` spec are gone; it had no production caller, no store and no model-facing
+  surface.
+- **Register.** `docs/CODE-VS-JUDGMENT.md` corrects the overclaim that "Jarvis
+  sets effort through `deadline_record`" and states the remaining limit: there
+  is no scheduled model pass over newly collected deadlines; the digest composes
+  no prompt, so judging happens on an owner turn that lists deadlines.
+- **Evidence.** `test/deadlines`: **206 passed / 0 failed** (10 files). The
+  65-file neighbour set (persistence, autonomy, backup, digest, reminders,
+  email, web, memory-search, provider catalogue, collector ingest/migration,
+  calendar feed, study-coach signals): **1,268 passed / 0 failed**. An earlier
+  run of that set caught two consequences of the new migration — a hard-coded
+  schema version and a partial-schema fixture that stopped before `0053` — and
+  both were fixed before this green run. Source `tsc --noEmit` clean;
+  `typecheck:tests` has no diagnostic in any touched file (140 baseline errors
+  elsewhere). The full CI `workspace suite` caught one hard-coded catalogue
+  length, `test/voice/voice-agent.test.ts` expecting 26 tools; updated to 28,
+  re-run locally **58 passed / 0 failed**. `reviewer-tools/mutate.ps1` at
+  `5933c49f`: **13/13 KILLED, each confirmed on a second run**, 0 survived /
+  not-applied / invalid, restore verified byte-identical.
+- **Not verified:** no deploy, no live D1, no production read. No scheduled AI
+  pass judges new collected deadlines automatically; adding one is a separate
+  design decision, because the digest is deliberately model-free.
+
+## 2026-09-25 — DeepSeek builder: deadlines get effort from Jarvis, not a keyword list (`codex/effort-by-ai`)
+
+Signed: **DeepSeek**, reasoning effort not exposed to the session, so it is stated
+rather than guessed. Branch `codex/effort-by-ai` from `f43fcf42`. Touches Sid's
+rules 1 and 8. No merge, deploy, database query or migration.
+
+- **Removed.** `EFFORT_KEYWORDS` and `classifyEffort` in
+  `apps/cloud-gateway/src/deadlines/effort-classifier.ts` read a deadline's title
+  and chose quiz/test/exam/essay/project from a fixed word table, with a
+  precedence order and a matched-keyword report. That is the red flag in
+  `sid-principles.md`: a keyword list deciding what Sid meant. The file is
+  replaced by `effort-lead-times.ts`, which keeps only `DEFAULT_LEAD_MINUTES`
+  (a stored default, overridable per row).
+- **Ingestion** (`deadline-ingestion.ts`) now stores the caller's explicit
+  override — a per-course rule or a source tag — or `other`. It never reads the
+  title. A bare "Final Exam" arriving from a collector is `other` with the
+  one-day unknown lead, not `exam`.
+- **Jarvis decides.** `deadline_record` already required `effort` and already
+  rewrote effort and lead on an existing row (`replaceEffortAndLead`); it now
+  also takes an optional `leadMinutes` override, and its description says effort
+  is the model's judgment from the title, the course and Sid's words, and to
+  ask Sid when unsure.
+- **Register.** `docs/CODE-VS-JUDGMENT.md` carries the removal (symbol, what it
+  decided, where it moved); `docs/ARCHITECTURE.md` no longer says "effort
+  classifier".
+- **Evidence.** Focused vitest on the three changed files: 91 passed. Whole
+  `test/deadlines` folder: 183 passed. `test/school` + `test/jobs` +
+  `test/digest`: 1,086 passed. `tsc --noEmit` clean; `typecheck:tests` reports no
+  diagnostic in the touched files. `reviewer-tools/mutate.ps1` at the PR head
+  `5bc1907b`: **7/7 KILLED, each confirmed on a second run**, 0 survived,
+  not-applied or invalid, restore verified byte-identical (spec
+  `reviewer-tools/mutation-specs-effort-by-ai.json`).
+- **Not verified:** no deploy, no live D1, no production read. The `courseEffort`
+  option has no production caller (tests only); it is kept as an explicit
+  caller-supplied override, not a title guess. The register stays partial.
+
 ## 2026-09-25 — DeepSeek builder: PR #204 round 2 (merge #200; worked labels no longer bypass a receipt)
 
 Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/school-judgment-to-ai`,

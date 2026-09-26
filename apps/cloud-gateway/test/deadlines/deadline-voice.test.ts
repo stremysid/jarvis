@@ -7,7 +7,7 @@ import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
 
 const text = "Chem lab due tomorrow at 3pm";
 const call = { id: "voice-deadline", name: "deadline_record", arguments: JSON.stringify({ course: "Chem", title: "lab",
-  dueAt: "2026-09-24T22:00:00.000Z", effort: "project" }) };
+  dueAt: "2026-09-24T22:00:00.000Z" }) };
 const options = { messageAt: new Date("2026-09-24T05:00:00.000Z"), processingAt: new Date("2026-09-26T14:00:00.000Z"), timeZone: "America/Vancouver" };
 const rows = async () => (await env.DB.prepare("SELECT * FROM deadlines").all()).results;
 
