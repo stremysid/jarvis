@@ -25,8 +25,9 @@ Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 
   turn (one slot; a third displaces the queued one and that displacement is spoken). A failed
   voice retrieval now puts a "Memory could not be read this turn" notice in the model's context
   instead of silently empty memory; the 750 ms bound stays.
-- **Migration `0054_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
-  tool is a classified capability; it is the next free number (open #201 holds `0053`). All the
+- **Migration `0055_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
+  tool is a classified capability; `0053` and `0054` landed on main with #201, so this is the
+  next free number. All the
   hand-kept migration lists, the backup seed list and the pinned schema-version tests are
   updated with it.
 - **Verified here:** gateway `tsc` 0; focused suites (voice, autonomy, conversation, security,

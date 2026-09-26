@@ -83,7 +83,7 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // so it shares `memory.read`'s tier-1 row and needs no migration.
   declare_memory_references: "memory.read",
   // Owner-only guest access management. `access.manage` is the capability the
-  // voice access authority already checks; `0054` registers it at tier 1 so the
+  // voice access authority already checks; `0055` registers it at tier 1 so the
   // classification guard can read a real row. It is not one of the five actions
   // Sid wants a confirmation for, and the model decides whether to read the
   // number back, so no tap is added here.
