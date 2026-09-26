@@ -179,7 +179,7 @@ describe("CallSession relay fixes", () => {
     await clearVoiceAccessFixture(env.DB);
   });
 
-  it("drops an overlapping prompt without closing the relay or starting another model turn", async () => {
+  it("queues an overlapping prompt without closing the relay or starting a second admission", async () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
@@ -189,6 +189,7 @@ describe("CallSession relay fixes", () => {
       const first = message(prompt("Tell me what is next."));
       try {
         await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+        // The overlap resolves and is held for the next turn rather than dropped.
         await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
         expect(harness.close).not.toHaveBeenCalled();
         expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce();
@@ -200,12 +201,14 @@ describe("CallSession relay fixes", () => {
       }
       expect(harness.close).not.toHaveBeenCalled();
       expect(harness.handleTurn).toHaveBeenCalledOnce();
-      expect(harness.provider.requests).toHaveLength(1);
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(2));
       expect(harness.provider.requests[0]).toMatchObject({ userText: "Tell me what is next." });
+      // The queued utterance became the next real turn.
+      expect(harness.provider.requests[1]).toMatchObject({ userText: "And after that?" });
       await expect(message(prompt("Thanks."))).resolves.toBeUndefined();
       expect(harness.close).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(2);
-      expect(harness.provider.requests[1]).toMatchObject({ userText: "Thanks." });
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(3));
+      expect(harness.provider.requests[2]).toMatchObject({ userText: "Thanks." });
     });
   });
 
@@ -309,7 +312,7 @@ describe("CallSession relay fixes", () => {
     });
   });
 
-  it("drops a prompt after barge-in when the aborted turn outlives the bound, and keeps the call open", async () => {
+  it("queues a prompt after barge-in when the aborted turn outlives the bound, and keeps the call open", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const harness = await relayHarness("owner", { holdFirstTurn: held });
@@ -319,7 +322,7 @@ describe("CallSession relay fixes", () => {
       try {
         await vi.waitFor(() => expect(harness.handleTurn).toHaveBeenCalledTimes(1));
         await message({ type: "interrupt", utteranceUntilInterrupt: "", durationUntilInterruptMs: 0 });
-        // Turn 1 is still held, so this resolves only because the 2 s bound expired.
+        // Turn 1 is still held, so this resolves because it is queued, not admitted.
         await expect(message(prompt("And after that?"))).resolves.toBeUndefined();
         expect(harness.close).not.toHaveBeenCalled();
         expect(harness.provider.requests).toHaveLength(0);
@@ -329,15 +332,17 @@ describe("CallSession relay fixes", () => {
       }
       await expect(message(prompt("Thanks."))).resolves.toBeUndefined();
       expect(harness.close).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(1);
-      expect(harness.provider.requests[0]).toMatchObject({ userText: "Thanks." });
+      // The queued utterance ran first, then the later one: neither was dropped.
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(2));
+      expect(harness.provider.requests[0]).toMatchObject({ userText: "And after that?" });
+      expect(harness.provider.requests[1]).toMatchObject({ userText: "Thanks." });
     });
   });
 
   // On this branch the passphrase repeat check is gone. The one await a prompt
   // makes before the slot check is the late-PIN claim, so that is where a slow
   // D1 read can hold one prompt while another claims the slot.
-  it("two owner prompts racing the late-PIN claim never both start a turn", async () => {
+  it("two owner prompts racing the late-PIN claim never both start a turn at once", async () => {
     let releaseCapacity!: () => void;
     const capacityGate = new Promise<void>((resolve) => { releaseCapacity = resolve; });
     const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await capacityGate; }) };
@@ -373,12 +378,16 @@ describe("CallSession relay fixes", () => {
       await a;
       await b;
       expect(harness.close).not.toHaveBeenCalled();
-      expect({ turnsStarted, modelRequests: harness.provider.requests.length })
-        .toEqual({ turnsStarted: 1, modelRequests: 1 });
+      // Only one turn was admitted while the slot was held; the other ran
+      // afterwards, as the next turn, so the two never started at once.
+      expect(turnsStarted).toBe(1);
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(2));
+      expect(harness.provider.requests.map((request) => (request as { userText?: string }).userText))
+        .toEqual(expect.arrayContaining(["Question A.", "Question B."]));
     });
   });
 
-  it("two prompts after one barge-in never both start a turn", async () => {
+  it("two prompts after one barge-in never both start a turn at once", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     const harness = await relayHarness("owner", { holdFirstTurn: held });
@@ -395,7 +404,11 @@ describe("CallSession relay fixes", () => {
       await c;
       await first;
       expect(harness.close).not.toHaveBeenCalled();
-      expect(harness.provider.requests).toHaveLength(1);
+      // Both utterances reached the model, one turn at a time: the barge-in
+      // aborted the first turn, and neither of the later two was dropped.
+      await vi.waitFor(() => expect(harness.provider.requests).toHaveLength(2));
+      expect(harness.provider.requests.map((request) => (request as { userText?: string }).userText))
+        .toEqual(expect.arrayContaining(["Question B.", "Question C."]));
     });
   });
 });

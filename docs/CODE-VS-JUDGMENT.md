@@ -61,6 +61,24 @@ file, and the citations were corrected where the audit's had moved.
 
 ---
 
+## Owner memory judgments: removed, 2026-09-25 (rows 6–9, 13)
+
+Removed by the PR titled "Memory: the AI decides, not code (register rows 6-9, 13)"
+(branch `codex/memory-judgment-to-ai`). Sid, 2026-09-25: "any judgment and decisions and
+thought should be the ai brain remember". These rows had each written a memory decision in
+code that the model could neither see nor correct. The table gives the symbol as it was and
+what replaced it; the full diff is in the PR.
+
+| Symbol (as of `e2af1aa2`) | What it decided | Now |
+|---|---|---|
+| `captureInput`'s `input.lifetime === undefined ? …` (`memory-repository.ts`), `memory_remember`'s optional lifetime pair, and the copies in `owner-agent-core.ts` and `MemoryOwnerControlsService.remember` | How long a fact lasts, when the caller said nothing. The tool description even invited the omission: *"Leave it out and the fact is durable."* The register said the same default lived in `owner-telegram-agent.ts`; that citation was stale — the third live copy was the tool dispatch in `owner-agent-core.ts`, and `telegram-memory-controls.ts` (a deterministic, test-only adapter) was a fourth | **Removed.** `lifetime` and `expiresAt` are required in `CommitInitialMemoryInput`, in `memory_remember` and `memory_correct`, and in `RememberMemoryInput`/`CorrectMemoryInput`; every defaulting branch is deleted, so an omission is refused rather than assumed. `memory_correct` no longer inherits the replaced wording's end in code — the model states the replacement's lifetime and end, and the tool description tells it to pass the old pair when only the wording changed |
+| `MemoryRepository.liftItem`'s `restoredBasis` | Whether a restored memory's evidence counted as confirmed. It set `confirmed` by itself whenever the version's origin was `authenticated_first_person` and every source was archive-only — a silent basis change with no receipt, invisible to the model | **Removed, with one written blocker.** `LiftMemoryItemInput.basis` is required and `memory_restore` carries a required `basis` enum, so the model decides what the restored evidence counts as. Code keeps only the coupling checks, so a basis the ledger would reject is refused by name. **Blocker:** a `0016` transition trigger still requires `confirmed` when a first-person version's every source is archive-only, because restoring text whose original live turn is gone is the owner's confirmation of it. A different basis for that case is now refused by name (not silently rewritten), but handing that case fully to the model needs a migration to relax the trigger; the tool description tells the model to pass `confirmed` there. No migration was added in this PR |
+| `MemoryRepository.findActiveItemByNormalizedText` / `normalizedRememberText` | Whether two statements were the same memory. It normalised both, compared strings, and on a match **silently merged** the new wording into the old item as an extra source — the stored wording never changed, the receipt implied Sid's new words were recorded, and the model never saw the item it was folded into | **Replaced by a hint.** The method is now `findSimilarActiveItems`, which returns up to three candidates and writes nothing. `remember` always stores the new statement as its own memory and appends a receipt line naming the similar stored wording and its id, telling the model to call `memory_correct` if the new statement replaces one. The string normalisation is unchanged; it is mechanical comparison, not a duplicate decision |
+| `MemoryRepository.refileAutomaticInboxItems`'s duplicated confidence floors | The register listed the `>= 0.6` floor as hard-coded four times. Two of those copies were the retry queries inside this method, where every retryable reason (`inbox_cap`, `inbox_filing_failure`) can only have been written by a filing that already passed the floor, so re-checking it re-decided a settled question | **Partly removed, and the remainder is named rather than hidden.** The two redundant floors are deleted, and the one floor that remains (a model-proposed topic path is filed only at or above the model's own confidence) is exported once as `MEMORY_FILING_CONFIDENCE_THRESHOLD` and used by both `memory-repository.ts` and `automatic-distillation.ts`. **Not removed:** which inbox items are retried, how many (10), and in what order. Handing those to the model needs a wake-up that tells Jarvis "N inbox items have unresolved topic decisions" and a refile tool; no such model-facing wake-up exists in this codebase, and adding one is a new surface rather than a removal. The batch size and the rotation are also the Worker/D1 throughput bound. This is a written blocker, not a claim the row is closed |
+| `OwnerAgentCore.forget`'s `itemIds.length !== 1` branch (`owner-agent-core.ts`) | Whether to act at all when Sid asked to forget several memories. It raised a `telegram-memory-forget` decision — "Nothing changes unless Sid taps Confirm forget" — and forgot nothing, because `commandKey` allowed one ledger mutation per owner turn | **Removed.** The tap is gone: one `memory_forget` call forgets every id it was given. Each target now has its own idempotency key, `<turn event>:forget:<itemId>`, its own command and its own receipt, and every target is validated before any command is written, so a batch naming a bad id changes nothing. `supportingExcerpt` is now required, matching single-target forget, so the model must quote Sid's words. `MemoryOwnerControlsService.forgetConfirmedDecision` is **kept**, not deleted: it resolves a `telegram-memory-forget` decision already in the queue, and no longer raising new ones is a separate cleanup |
+
+Rows 6–9 and 13 have left the list below.
+
 ## Owner deadline proof contract: removed
 
 Removed by the PR titled "fix(deadlines): let the AI decide deadlines; remove the code
@@ -75,6 +93,117 @@ wording, and writing them down did not make them right.
 | `statusOf` / `STATUS_WORDS` (`deadline-tool.ts`) | Only "submitted", "handed in" or "turned in" in Sid's words counted as a submission; "finished" did not | Deleted. `status` is one of the four stored values, chosen by the model |
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
+
+## Study-coach intent parsing: removed
+
+Removed by "Study coach: the model reads intent" (branch `codex/coach-intent-to-ai`). The
+`study_coach` tool now carries the model's declared action as arguments, and code keeps only
+validation: the course and fact ids must exist in the owner's snapshot, the enum values must be
+known, and the quiz answer must be inside its window and size bound. Deleted from
+`school/study-coach-model.ts`:
+
+| Sweep id | Symbol | Now |
+|---|---|---|
+| B45 | `parsePracticeRequest` | `operation: practice` with `mode` and `sourcePhrase`; any phrasing works because the model reads it |
+| B46 | `parseStudyPreferenceIntent` | `operation: preference` with `preferencePatch`; the applied values are the receipt, and Sid's wording is never matched |
+| B47 | `parseOwnerStudyObservation` | `operation: observe` with `topic`, `outcome` and `courseId`; the negation and "finished"/"plan" word lists are gone |
+| B48 | `resolveCourse` / `phraseMatches` | The model passes `courseId`, validated against the snapshot. A missing or unknown id returns the course list as evidence instead of defaulting to the only course |
+| B49 | `forgetSubject` / `correctionIntent` / `parseStudySignalControlIntent` / `parseCheckInPracticeMode` | `operation` forget, correction, signal and check_in_practice, with `topic`, `courseId`, `signal` and `mode` |
+| B50 | `isUncertainAnswer` | Gone. The model declares `answer_quiz` |
+| B51 | `plausiblyAnswersQuiz`, including the 12-word cap | Gone. The model declares `answer_quiz`. The 30-minute answer window and the 256-byte bound stay as system-protection limits |
+| B52 | `courseFactSource` priority (weak_area, then missed_work, then newest) | The model passes `factId`; code looks it up in the chosen course and lists the facts when none is named |
+| B53 | The fixed "Which course should I use for that practice?" question | Gone. A refusal lists the courses or facts, and the model asks Sid |
+
+The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
+they are receipts of a committed write, not a decision about what Sid meant.
+
+## Voice access and silent drops: removed
+
+Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
+AGENTS.md's rule that a PR adding a code-side judgment does not merge, and Sid's 2026-09-25
+decision that the model decides whether to read a number back while a guest still passes the
+guest PIN.
+
+| Row | What code decided | Now |
+|---|---|---|
+| 1 | `CallSessionCore.#guardOwnerRepeat` dropped owner utterances after a passphrase match | Stale on main: gone with the per-call passphrase gate removed in #196 |
+| 3 | `parseOwnerAccessIntent` parsed four fixed shapes into an access command, target and permissions | Deleted with `owner-access-intent.ts`. The model calls the `owner_access` tool with `{operation, phone, capabilities, pin}`, and code keeps only E.164, capability-membership and authority validation |
+| 4 | `PERMISSION_CAPABILITIES` mapped 17 phrases to 16 capabilities | Deleted. The model passes capability ids, `GUEST_CAPABILITY_IDS` is the validation set, and the owner-only `access.manage` is refused rather than mapped |
+| 5 | `PreparedOwnerAccessProposal.expiresAt` gave a pending change 60 seconds | Deleted. The call's lifecycle is the bound, and the model decides whether to confirm before calling the tool |
+| addendum | `#isFixedStepUpEcho`, `#ownerStepUpVerificationInFlight`, and the non-final / non-`active` / empty drops | The step-up branches are gone with the step-up gate. The non-final, non-`active` and empty drops stay deliberately: a partial transcript is not yet an utterance, so there is nothing to act on |
+
+Also in this batch: the access flow's fixed spoken lines are gone (the model runs the
+conversation and the `owner_access` outcome is a structured receipt carrying `operation`,
+`maskedTarget` and `outcome`), and an utterance that arrives while a turn owns the call is
+queued as the next turn rather than dropped. A failed voice retrieval now puts a notice in
+the model's context instead of silently empty memory.
+
+## Project attention judgment: removed (batch 13, 2026-09-25)
+
+Removed by the PR titled "Projects: the AI decides what needs attention, not code"
+([#209](https://github.com/stremysid/jarvis/pull/209), branch `codex/projects-judgment-to-ai`,
+2026-09-25). The stalled-project detector
+was eleven decisions about when a project was late; each is now a fact the model
+reads and judges. No migration: the `stale_after_days` column and its `DEFAULT 7`
+are left inert rather than rebuilt.
+
+| Item | Symbol (as of `679d2b95`) | What it decided | Now |
+|---|---|---|---|
+| B153, B155 | `attentionChanges` / `ATTENTION_DOCUMENT_PATHS` (`project-poller.ts`, `project-types.ts`) | That only a change to `KNOWN_ISSUES.md` or `DECISIONS.md` was worth pinging about. | Deleted. `diffDocuments` already reports every document change; which one matters is the model's judgment. |
+| B157 | `DEFAULT_APPROACHING_WITHIN_DAYS` (`stalled-detector.ts`) | That a deadline within 14 days counted as approaching. | Deleted with the module. There is no horizon constant anywhere. |
+| B161 | `DeadlineReading.nearest` | That the earliest parsed date is the commitment that matters. | Deleted. `readProjectDates` returns every ISO day it reads, in the order the document wrote them. |
+| B162 | `readDeadlines` sort and slice | Sorted the days and kept the first ten. | Deleted. The days are deduplicated (identical strings only) and left in document order; the 4096-character excerpt bound already bounds the list. |
+| B163 | `DeadlineReading.approaching` / `overdue` and `deadlineInstant` | Compared a parsed day against "now" to label it approaching or overdue. | Deleted. The model compares the days with the commit age and decides. |
+| B164 | `report.stale` (`daysSinceLastCommit > status.project.staleAfterDays`) | Whether the gap since the last commit made a project stale. | Deleted. `projectFacts` reports `daysSinceLastCommit` as arithmetic and no verdict. |
+| B165 | `ProjectStalenessReport.escalate` | Whether a project should be raised to Sid. | Deleted. `project_facts` hands the model the excerpts, commit ages, dates and poll health, and its description tells it to decide. |
+| B166 | `detectStalledProjects` filtering on `escalate` | Which projects reached the owner and which were dropped. | Deleted with the module. `projectFacts` returns one entry per project; the digest states the facts and attaches no verdict. |
+| B170 | `stale_after_days INTEGER NOT NULL DEFAULT 7` (`0010_projects.sql:22`) | A stored staleness threshold. | Left inert. The column and default stay because dropping them would need a table rebuild; no code reads them for a verdict, and `ProjectRepository.trackProject` still supplies the value, so nothing in the schema changed. |
+
+`projects/stalled-detector.ts` is renamed `projects/project-facts.ts`, because a
+detector that no longer detects is a misleading name. The new `project_facts` tool
+is a tier-1 read under the already-seeded `read.repository` capability.
+
+## Effort, lead time and the deadline warning schedule: removed
+
+Removed by the PR titled "Deadlines: the AI decides when to warn Sid"
+(branch `codex/effort-by-ai`). Sid, 2026-09-25, 6:00 PM: "or hear me out, you
+let ai DECIDE".
+
+The first round deleted the title keyword table. This round removed the rest of
+the machinery: `effort`, `lead_minutes`, `effort_judged`,
+`DEFAULT_LEAD_MINUTES`, `leadMinutesForWrite`, the `deadline_judge` tool and the
+effort-derived exam quiet window are all gone. Code stores what a source states
+-- title, course, due date or none, source, status -- and delivers what the
+model schedules. The model decides whether and when Sid is warned through the
+owner reminder tools, and a scheduled review pass shows it collected deadlines
+so nothing waits for Sid to ask.
+
+| Symbol (as of `f43fcf42`) | What it decided | Now |
+|---|---|---|
+| `classifyEffort` / `EFFORT_KEYWORDS` / `titleTokens` | Whether a deadline was a quiz, test, exam, essay or project, from words in its title | Deleted. Nothing stores or infers an effort category |
+| `DeadlineIngestionOptions.courseEffort` | A caller's per-course rules imposing an effort | Deleted. It had no production caller, no store and no tool |
+| `DEFAULT_LEAD_MINUTES` / `leadMinutesForWrite` / `lead_minutes` | How long before a due time Sid is warned | Deleted. The model chooses warning times through `reminder_schedule`, and reads `reminder_list` to avoid duplicates |
+| `effort_judged` and the re-judgment marker | Which rows still needed a model judgment | Deleted. There is no category left to judge |
+| `QuietWindowService.deriveExamWindows` / `EXAM_WINDOW_*` | A window that held messages around an `exam`-tagged deadline | Deleted from the service. Quiet windows remain only when created directly through `/quiet` |
+
+### What still decides, and what was left outside this PR
+
+- **Legacy placeholder columns.** `0011` declares `deadlines.due_at`, `effort`
+  and `lead_minutes` NOT NULL. Relaxing or dropping them needs a table rebuild,
+  and triggers created in `0027` reference `deadlines`, so a `DROP TABLE` fails
+  in the full migration order (measured in `collector-migration`).
+  `0053_deadlines_store_facts.sql` therefore adds the real nullable `due_date`
+  column, and the writer fills the legacy columns with placeholders
+  (`effort = 'other'`, `lead_minutes = 0`, `due_at = ''`). Nothing reads them.
+  Removing them is a QUEUE item.
+- **Missing-due-date derivations outside this PR's area** (named, not changed):
+  `SchoolObservationRepository.deriveMissingWorkPage` in
+  `school-observation-repository.ts` still chooses `closed`, `submission_seen`,
+  `not_due` or `no_submission_seen` from deadline status and dates, and the
+  triggers in `0027_school_observations.sql` still compare
+  `deadlines.due_at` (now the placeholder) with `basis_due_at`. The collector's
+  `staleAfterMs` default and the empty-sweep flag are also code judgments.
+  They are follow-ups, listed here rather than silently kept.
 
 ## Owner-requested redaction grammar, 2026-09-24
 
@@ -112,27 +241,9 @@ Sid that the decision happened.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 1 | `CallSessionCore.#guardOwnerRepeat` (`src/voice/call-session-do.ts`) | Which of the owner's spoken words Jarvis is allowed to hear. For 2 s after the passphrase match it drops **any** owner utterance outright, without consulting the text; for 1.5 s after that it swallows an utterance built from 1–2 passphrase-list words. No reply, no transcript row. | A prompt statement that a repeated passphrase will not arrive, so Jarvis's judgment is informed rather than bypassed — plus a spoken neutral line whenever anything is dropped, so silence is never unexplained. **`silent` penalty: it is invisible to the model.** |
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. |
-| 3 | `parseOwnerAccessIntent` (`src/voice/owner-access-intent.ts`) | What an access instruction **means**: a hand-written regex grammar with four fixed shapes decides whether the owner's utterance is an access command and which operation, target and permissions it names. | Jarvis calls the owner-access operations as tools, passing capability phrases as parameters. Code keeps the validation and the confirm step. If the grammar stays as a stopgap, an utterance that looks like a command and fails to parse must produce a spoken refusal — never fall through to ordinary conversation, where the model can answer as if it complied. **`silent` penalty.** |
-| 4 | `PERMISSION_CAPABILITIES` / `OwnerAccessService.#snapshot` (`src/voice/owner-access-service.ts`) | Which capability the owner's words name. A frozen table maps 17 phrases to 16 capabilities, and production installs only `conversation.basic` and `access.manage`, so **only "conversation" resolves** — the other 14 throw `capability_not_installed`, `access.manage` throws `capability_not_grantable`, and the `catch` at `#snapshot` collapses all of it into one `owner_access_permission_invalid` the owner never hears. | Give the model the capability ids as a tool parameter and let it map the owner's words; keep the table only as a validation set for what the model returns. At minimum drop `access management` (it can never succeed) and make refusal a spoken outcome. |
-| 5 | `PreparedOwnerAccessProposal.expiresAt` (`src/voice/owner-access-service.ts`) | How long the owner's pending decision lives: a hard-coded 60 s. Confirming takes three relay round trips through Deepgram transcription, so a slow confirmation loses the change **and** the call. | Either drop the wall-clock expiry — the call lifecycle is the natural bound and needs no invented timer — or tell the owner the window in the prompt. "How long a fact lasts" is named as Jarvis's call in the roadmap. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. |
 
-Also in this file, and **the same class**: `CallSessionCore.#handlePrompt` has a further set of
-branches that drop an owner's utterance with no reply and no transcript row, and they predate
-item 1. Enumerated while verifying item 1 rather than by the audit:
-
-- `#isFixedStepUpEcho` drops any utterance exactly equal to one of five code-authored
-  constants: `OWNER_STEP_UP_PROMPT`, `OWNER_STEP_UP_RETRY_PROMPT`,
-  `OWNER_STEP_UP_FORMAT_PROMPT`, `OWNER_STEP_UP_VERIFIED`, `OWNER_STEP_UP_REJECTED`.
-- `#ownerStepUpVerificationInFlight` drops any final utterance that arrives while a
-  passphrase KDF is running. (One existing test covers this — *"ignores a final arriving during
-  KDF work instead of replacing the window alarm"* — but it asserts the alarm, not what the
-  owner hears, which is nothing.)
-- A non-final frame, a non-`active` phase, and an empty utterance are also dropped silently.
-
-Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
-line whenever anything is dropped, so silence is never unexplained.
+Rows 1 and 3–5 are removed; see [Voice access and silent drops: removed](#voice-access-and-silent-drops-removed).
 
 ### Additional voice finding (2026-09-23)
 
@@ -152,13 +263,13 @@ and rewrite are unchanged by #171.
 
 ### Memory
 
+Rows 6–9 and 13 were removed on 2026-09-25; see the removal table above. What
+remains of row 6 — which inbox items the automatic job retries, how many and in
+what order — is a written blocker there, not a live judgment row: handing it to
+the model needs a wake-up surface this codebase does not have.
+
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 6 | `MemoryRepository.refileAutomaticInboxItems` (`src/memory/memory-repository.ts`) | Which memories move, how many (10), in what order (a wall-clock-hour-indexed rotation over ≤100 rows), and at what confidence floor (`>= 0.6`, hard-coded **four times** across two files: three literals in the repository plus `FILING_CONFIDENCE_THRESHOLD` in `automatic-distillation.ts`). It replays a topic decision the model made when the item was created, with no chance to revise it. | A refile tool: the wake-up tells Jarvis "N inbox items have unresolved topic decisions" with the stored paths and confidences, and the model decides which, how many, and in what order. If the rule must stay, export one shared constant so the gate cannot drift from `FILING_CONFIDENCE_THRESHOLD`. |
-| 7 | `captureInput` (`src/memory/memory-repository.ts`) | How long a fact lasts. `input.lifetime === undefined ? (validTo === null ? "durable" : "temporary") : …` decides durability when the caller is silent — and the `memory_remember` tool description **invites the model to be silent**: *"Leave it out and the fact is durable."* The same default is written independently in `owner-telegram-agent.ts` and `memory-owner-controls.ts`. | Make `lifetime` and `expiresAt` **required** in the `memory_remember` schema so the omission cannot occur, and delete the three defaulting branches so an absent lifetime is refused rather than assumed. The same subsystem already states this principle: `automatic-distillation.ts` refuses to guess an expiry because *"answering it by guessing an expiry here would be code deciding what the roadmap gives to the model."* |
-| 8 | `findActiveItemByNormalizedText` / `normalizedRememberText` (`src/memory/memory-repository.ts`) | Whether two statements are the same memory. Normalises case, apostrophes, zero-width characters and punctuation, compares strings, and on a match **silently merges** the new wording into the old item as an extra source — so the stored wording never changes and the receipt implies the new words were recorded. | Expose the candidate memories to the model and let it decide whether a new statement duplicates, extends or corrects an existing memory — exactly as `memory_correct` already invites. A mechanical guard, if kept, is a **non-authoritative hint returned to the model**, never a silent merge in the write path. **`silent` penalty.** |
-| 9 | `MemoryRepository.liftItem` (`src/memory/memory-repository.ts`) | Whether a restored memory's evidence counts as confirmed. When a version's origin is `authenticated_first_person` and **every** source is archive-only, it sets `restoredBasis = "confirmed"`; otherwise it keeps the version's existing basis. Silent, and unreported to Sid. | Not necessarily a defect — the code's own comment argues the owner's lift *is* the confirmation. But it is a basis change made in code with no receipt, so either surface the new basis in the lift receipt or leave `basis` alone and let the model decide. |
-| 13 | `OwnerAgentCore.forget` (`src/agent/owner-agent-core.ts`), found in [#199](https://github.com/stremysid/jarvis/pull/199) | Whether to act at all when Sid asks to forget several memories. `itemIds.length !== 1` raises a `telegram-memory-forget` decision ("Nothing changes unless Sid taps Confirm forget") instead of forgetting them. Forgetting is not one of the five actions Sid wants asked about (2026-09-24), so this is a confirmation his rule removes. It exists because `commandKey` in `memory-owner-controls.ts` allows one ledger mutation per owner turn, not because anyone decided multi-forget is risky. | Delete the tap. Give `forget` a per-item idempotency key (`<turn event>:forget:<itemId>`, the shape `forgetConfirmedDecision` already uses), so one turn can forget several memories in one tool call. Each memory still gets its own receipt. Also listed in [KNOWN_ISSUES](../KNOWN_ISSUES.md#confirmations-outside-sids-five-that-migration-0051-does-not-remove-2026-09-25). |
 
 ### Reply-reference selection: removed
 
@@ -181,6 +292,10 @@ declares nothing records nothing, with no recency fallback.
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
 | 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
 | 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
+| 16 | `supportsOfferStatusEvidence`, `offerTemplates`, `offerMessageMatchesProgram` and the `OFFER_WORKFLOW_*` tables (`src/university/university-tracker-model.ts`) | A whole-message template grammar decides an offer/condition/response status from Sid's sentence. Kept out of the B116–B129 round so the offer family is not silently loosened with the rest. | The model declares the offer status and carries Sid's whole current message as evidence; code keeps provenance, ids, program binding and the real-date check, exactly like the step statuses B116–B129 just moved. |
+| 17 | `stepTargetClauses` (`src/university/university-tracker-model.ts`) | Which clause names the workflow and application item, used as the `targetClauses.length === 0` gate in `workflowDeadline`. Retained in the B116–B129 round; the deadline-naming judgment is out of that batch. | The model supplies the deadline for the workflow it chose; code should keep only the real-date, exact-instant and IANA-timezone checks. |
+| 18 | `universityStateJson` context selection (`mentions`, `namedApplicationItems`, `clauseGroups`) | Which tracked items are fed to the model as current tracker state, by matching Sid's words against labels and program aliases. | The model should read the snapshot and choose; the selection becomes a bounded, non-authoritative hint rather than a gate. |
+| 19 | `LABEL_METADATA`, `containsLabel` and `isWorkflowLabelSafe` (`src/university/university-tracker-model.ts`) | Whether a new label smuggles a date, verification claim, money amount, URL, phone number or relative deadline into tracker state. | Partly a storage-safety check. The model should choose the label from Sid's message; code should keep only size, character and plain-provenance bounds. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -201,6 +316,41 @@ puts in the model, not here. Neither removal needed a migration.
 
 Rows 11 and 12 are removed; the identifiers stay in this file so a future
 reader can find what decision they carried.
+
+### University tracker status judgments: removed (B116–B129, 2026-09-25)
+
+Removed by the PR titled "University tracker: the model declares status"
+(branch `codex/university-judgment-to-ai`, 2026-09-25). Every one of these was
+code deciding what Sid's words meant before a university tracker status could be
+stored, which Sid's 2026-09-25 rule — "you let ai DECIDE" — puts in the model.
+The model now declares the status enum and carries Sid's whole current message
+as `statusEvidence`; code keeps only the receipt/provenance fact
+(`statusEvidence === ownerMessage`), id, ownership and enum checks, the
+real-calendar-date check and the verified source/cycle check. No migration: the
+status enums are unchanged from `fbd593f9`.
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| B116 | `OWNER_SUBMISSION`, `JOINT_OWNER_SUBMISSION`, `REPORTED_OWNER_SUBMISSION` | Whether a sentence was Sid's own submission report. | Deleted. The model declares `submitted_by_sid`; code keeps exact-substring provenance. |
+| B117 | `NOT_STARTED_REPORT`, `DRAFTING_REPORT`, `READY_REPORT` | Which checklist enum a progress sentence meant. | Deleted. The model picks the enum. |
+| B118 | `CONDITIONAL_OR_QUESTION`, `HEARSAY`, `NEGATION`, `RETRACTION` | Whether a status sentence was conditional, hearsay, negated or retracted. | Deleted. The model judges. |
+| B119 | `RETIREMENT`, `BARE_DONT_NEED`, `REACTIVATION`, `DATE_CORRECTION` | Retirement, reactivation and date-correction wording. | Deleted. The prompt carries that vocabulary; the model decides. |
+| B120 | `supportsStatus` | The ~45-line gate over an application status update. | Replaced by the evidence-provenance check only. |
+| B121 | `evidenceSupportsCycle` | Whether the evidence named the admission cycle. | Deleted; the model supplies the cycle with the evidence. |
+| B122 | `evidenceSupportsDate` | Whether the wording contained the date. | Deleted; the model supplies an ISO date and code checks it is a real calendar date. |
+| B123 | `effectiveVerification` | An upgrade of stored verification derived from wording. | Deleted; code stores what the model gave and shows both. |
+| B128 | `FORWARDED_OR_QUOTED_OWNER_CLAIM`, `WORKFLOW_HEARSAY`, `DELEGATED_OWNER_ACTION` | Whether a workflow sentence was forwarded, quoted, hearsay or delegated. | Deleted; the model declares provenance. The rule that text not from Sid never triggers an action lives in the `telegram-types` provenance, not here. |
+| B129 | `PREPARATION_REQUEST`, `OWNER_ACTION_NOT_DONE` | Whether a sentence asked for preparation or said the owner action was not done. | Deleted; the model chooses `prepared` or an owner-reported status. |
+
+Risk accepted: a status update in Sid's own words is no longer refused when the
+wording might read another way, and a misread could mark an item submitted. The
+receipt names every status change and the tracker can be corrected, so the
+failure is visible and reversible rather than silent.
+
+Retained on purpose (registered as rows 16–19 above, not removed this round):
+the whole-message offer template grammar, the `workflowDeadline` target-clause
+naming, the `universityStateJson` context selection and the label-metadata
+checks.
 
 ### Row 10 persisted inference: still in code, not removed
 
@@ -339,5 +489,4 @@ This register remains partial.
 
 | Symbol | Decision in code | Surface it should move to |
 |---|---|---|
-| `DeadlineIngestion.ingest` / `classifyEffort` | Existing keyword and per-course rules choose an effort category and lead time for every ingested deadline, including new D2L evidence | Jarvis-supplied effort and reminder choices. This receiver reuses the existing ingestion safeguards and does not broaden that classifier |
 | `SchoolCollectorRepository.status` called by the deterministic digest | Twelve hours determines when a whole school read is labelled stale, following the existing school-observation convention | An owner or Jarvis-selected source freshness setting. `school_d2l_status` already requires Jarvis to supply `staleAfterMs`; the digest default remains explicit here |

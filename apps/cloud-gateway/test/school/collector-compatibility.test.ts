@@ -35,10 +35,14 @@ it("persists Durham provenance and isolates equal course IDs across hosts even w
   expect(status.hosts.map((host) => host.host).sort()).toEqual([durham.host, ldsb.host]);
   expect(status.lastGoodReadAt).toBe(durham.startedAt);
   expect(status.lastGoodReadUndatedItems).toBe(2);
-  const rows = await env.DB.prepare("SELECT source_id, course FROM deadlines WHERE source_id IN (?, ?) ORDER BY source_id")
+  // Each host stores both items, the dated one and the undated one. The
+  // undated item is not dropped, it is stored with a null due date.
+  const rows = await env.DB.prepare("SELECT source_id, COUNT(*) AS n FROM deadlines WHERE source_id IN (?, ?) GROUP BY source_id ORDER BY source_id")
     .bind(`d2l-api:${durham.host}:${f.courseId}`, `d2l-api:${ldsb.host}:${f.courseId}`).all();
-  expect(rows.results).toEqual([{ source_id: `d2l-api:${durham.host}:${f.courseId}`, course: durham.course.name },
-    { source_id: `d2l-api:${ldsb.host}:${f.courseId}`, course: ldsb.course.name }]);
+  expect(rows.results).toEqual([
+    { source_id: `d2l-api:${durham.host}:${f.courseId}`, n: 2 },
+    { source_id: `d2l-api:${ldsb.host}:${f.courseId}`, n: 2 },
+  ]);
   expect((await upload(f, { ...ldsb, host: durham.host })).status).toBe(400);
   expect((await repo(f).status({ limit: 100 })).evidence).toHaveLength(10);
 });
@@ -65,6 +69,8 @@ it("accepts announcements as raw evidence and projects quiz due dates and availa
   expect(mapped.deadlines.filter((item) => item.externalId.startsWith("quiz-"))).toEqual([
     { externalId: "quiz-8", course: batch.course.name, title: "Synthetic quiz [quiz DueDate]", dueAt: "2026-09-25T00:00:00.000Z" },
     { externalId: "quiz-8-end", course: batch.course.name, title: "Synthetic quiz [availability end]", dueAt: "2026-09-26T00:00:00.000Z" },
+    // Undated, and stored as such rather than skipped.
+    { externalId: "quiz-9", course: batch.course.name, title: "Undated quiz", dueAt: null },
     { externalId: "quiz-10", course: batch.course.name, title: "Availability only [availability end]", dueAt: "2026-09-27T00:00:00.000Z" },
   ]);
   expect(mapped.items.some((item) => item.title === "Synthetic announcement")).toBe(false);
@@ -173,7 +179,7 @@ it("records complete optional-tool 404 responses as missing while keeping projec
   expect(status.state).toBe("current");
   expect(status.refused).toHaveLength(4);
   expect(status.refused.every((row) => row.status === 404 && row.disposition === "missing tool")).toBe(true);
-  expect(mapSchoolCourse({ ...batch, routes }).deadlines).toHaveLength(1);
+  expect(mapSchoolCourse({ ...batch, routes }).deadlines).toHaveLength(2);
   expect(await (await upload(f, { ...batch, readId: newUlid(f.clock()), routes: routes.map((row) => row.status === 404 ? { ...row, complete: false } : row) })).json()).toMatchObject({ outcome: "failed" });
 });
 
@@ -264,7 +270,8 @@ it("keeps unlinked and conflicting dates visible without projecting an arbitrary
   const mapped = mapSchoolCourse(batch);
   expect(mapped.items.find((item) => item.id === "folder-17")?.dueAt).toBeNull();
   expect(mapped.unmapped).toHaveLength(3);
-  expect(mapped.deadlines).toHaveLength(0);
+  expect(mapped.deadlines).toHaveLength(2);
+  expect(mapped.deadlines.every((item) => item.dueAt === null)).toBe(true);
   expect(await (await upload(f, batch)).json()).toMatchObject({ outcome: "good" });
   expect((await repo(f).status()).unmappedRoutes).toBe(3);
   expect((await digest(f)).text).toContain("unknown projection or date disagreement");

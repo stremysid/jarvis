@@ -2,7 +2,8 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { localDate } from "../digest/digest-composer.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../model/model-types.js";
 import { MAX_MESSAGE_CHARACTERS } from "../providers/telegram-provider.js";
-import { guardSchoolReply, isBrightspaceRefreshRequest } from "./school-catchup-model.js";
+import type { ModelFunctionCall, ModelFunctionDefinition } from "../providers/provider-types.js";
+import { guardSchoolReply } from "./school-catchup-model.js";
 import type { StudyCoachRepository } from "./study-coach-repository.js";
 import type {
   GeneratedPracticeItem,
@@ -18,12 +19,105 @@ import type {
 const MAX_GENERATED_CHARACTERS = 12_000;
 const MAX_TEXT_BYTES = 512;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
-const WEEKEND_MASK = (1 << 0) | (1 << 6);
 const QUIZ_ANSWER_WINDOW_MS = 30 * 60 * 1_000;
 const MAX_QUIZ_ANSWER_BYTES = 256;
 const MAX_PRACTICE_PROMPT_BYTES = 2_048;
-const CLOSED_QUIZ_FALLBACK_PREFIX = "I closed the previous quiz before answering normally.\n\n";
+const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const encoder = new TextEncoder();
+
+/**
+ * The one study-coach tool.
+ *
+ * Which action Sid means is the model's judgment, so it arrives as `operation`
+ * with the fields that action needs. Code validates the course and fact ids
+ * against the owner's own snapshot, the enum values, and the system bounds
+ * (the quiz answer window and size); it never parses Sid's wording.
+ */
+export const STUDY_COACH_TOOL_NAME = "study_coach";
+
+export const STUDY_COACH_TOOL: ModelFunctionDefinition = Object.freeze({
+  name: STUDY_COACH_TOOL_NAME,
+  description: "Study with Sid: start a quiz or flashcards, record what he found easy, uncertain or wrong, change the coursework check-in schedule, forget a weak spot, mark a study signal wrong or handled, answer the open quiz, stop the quiz, or hand a mark correction to the catch-up tracker. You decide which action he means and pass it as operation. Answer an explanation or teaching request yourself; this tool records an action. Use school_update for a pasted assignment list, recording finished work, or asking what to do today. courseId and factId are ids from the study-coach state you were shown; if you do not have one, ask Sid which course he means rather than guessing. Example: \"quiz me on titration\" is operation practice with mode quiz and sourcePhrase titration. Example: \"I found derivatives easy in Calculus\" is operation observe with topic derivatives, outcome easy and the Calculus courseId.",
+  parameters: Object.freeze({
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "operation", "mode", "sourcePhrase", "useCourseEvidence", "factId",
+      "courseId", "topic", "outcome", "signal", "preferencePatch",
+    ],
+    properties: {
+      operation: {
+        enum: [
+          "practice", "check_in_practice", "observe", "preference",
+          "forget", "signal", "answer_quiz", "stop_quiz", "correction",
+        ],
+        description: "What to do: practice starts a quiz or flashcards from a topic or a course-card fact; check_in_practice practises the topic of today's claimed check-in; observe records one evidence point; preference changes the check-in schedule; forget removes a weak spot; signal retires the latest cited signal as wrong or handled; answer_quiz records Sid's answer to the open quiz; stop_quiz closes the open quiz; correction hands a mark correction to the catch-up tracker.",
+      },
+      mode: {
+        type: ["string", "null"],
+        description: "For practice and check_in_practice: quiz or flashcard. Null for every other operation.",
+      },
+      sourcePhrase: {
+        type: ["string", "null"],
+        description: "For practice without course evidence: the topic Sid wants to practise, in his words. Null otherwise.",
+      },
+      useCourseEvidence: {
+        type: "boolean",
+        description: "True when practice should be generated from a stored course-card fact, which then needs factId; false for practice from sourcePhrase or the check-in topic.",
+      },
+      factId: {
+        type: ["string", "null"],
+        description: "The course-card fact id to practise from when useCourseEvidence is true. Null otherwise.",
+      },
+      courseId: {
+        type: ["string", "null"],
+        description: "The id of the course this action belongs to, from the study-coach state you were shown. Required for practice, observe, forget and check_in_practice; null only for preference, signal, answer_quiz, stop_quiz and correction.",
+      },
+      topic: {
+        type: ["string", "null"],
+        description: "The topic in Sid's words: the observed topic for observe, or the weak spot for forget. Null otherwise.",
+      },
+      outcome: {
+        type: ["string", "null"],
+        description: "For observe: easy, uncertain or wrong. Null otherwise.",
+      },
+      signal: {
+        type: ["string", "null"],
+        description: "For signal: wrong when the cited study signal is wrong, handled when Sid already handled it. Null otherwise.",
+      },
+      preferencePatch: {
+        type: ["object", "null"],
+        description: "For preference: the fields to change. enabled turns coursework check-ins on or off; allowedDaysMask keeps the existing day bits and clears the rest, with Sunday bit 0 and Saturday bit 6; quietStartMinute and quietEndMinute are minutes after local midnight. Null otherwise.",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: ["boolean", "null"] },
+          allowedDaysMask: { type: ["integer", "null"], minimum: 0, maximum: 127 },
+          quietStartMinute: { type: ["integer", "null"], minimum: 0, maximum: 1439 },
+          quietEndMinute: { type: ["integer", "null"], minimum: 0, maximum: 1439 },
+        },
+      },
+    },
+  }),
+});
+
+type StudyCoachOperation =
+  | "practice" | "check_in_practice" | "observe" | "preference"
+  | "forget" | "signal" | "answer_quiz" | "stop_quiz" | "correction";
+
+type StudySignalControlReason = "wrong" | "handled";
+
+interface StudyCoachIntent {
+  readonly operation: StudyCoachOperation;
+  readonly mode: StudyPracticeMode | null;
+  readonly sourcePhrase: string | null;
+  readonly useCourseEvidence: boolean;
+  readonly factId: Ulid | null;
+  readonly courseId: Ulid | null;
+  readonly topic: string | null;
+  readonly outcome: StudyOutcome | null;
+  readonly signal: StudySignalControlReason | null;
+  readonly preferencePatch: Partial<StudyPreference> | null;
+}
 
 interface StudyCoachModelDependencies {
   readonly fallbackModel: ModelAdapter;
@@ -34,39 +128,6 @@ interface StudyCoachModelDependencies {
   readonly ownerTurnAuthoritative: boolean;
   readonly timeZone: string;
   readonly now?: () => Date;
-}
-
-interface PracticeRequest {
-  readonly mode: StudyPracticeMode;
-  readonly sourcePhrase: string;
-}
-
-interface ObservationIntent {
-  readonly topic: string;
-  readonly courseHint: string | null;
-  readonly outcome: StudyOutcome;
-}
-
-interface PreferenceIntent {
-  readonly patch: Partial<StudyPreference>;
-  readonly reply: string;
-}
-
-function normalized(value: string): string {
-  return value.normalize("NFC").trim().toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
-}
-
-function normalizedPhrase(value: string): string {
-  return normalized(value).replace(/[^\p{L}\p{N}%]+/gu, " ").replace(/\s+/gu, " ").trim();
-}
-
-async function* notSavedFallback(
-  model: ModelAdapter,
-  input: ModelAdapterStreamInput,
-): AsyncIterable<ModelToken> {
-  for await (const token of model.stream(input)) {
-    yield Object.freeze({ index: token.index, text: token.text, toolOutcome: "not_saved" as const });
-  }
 }
 
 function safeText(
@@ -98,174 +159,128 @@ function exactRecord(value: unknown, fields: readonly string[], label: string): 
   return result;
 }
 
-function parsePracticeRequest(text: string): PracticeRequest | null {
-  const quiz = /^\s*(?:please\s+)?(?:give\s+me\s+(?:a\s+)?(?:short\s+)?quiz|quiz\s+me)\s+(?:on|about|from)\s+(.+?)[.!?]*\s*$/iu.exec(text);
-  if (quiz !== null && !/^(?:that|it|(?:that|the)\s+weak\s+spot)$/iu.test(quiz[1]!.trim())) {
-    return Object.freeze({ mode: "quiz", sourcePhrase: quiz[1]!.trim() });
-  }
-  const flashcards = /^\s*(?:please\s+)?(?:make|create)\s+(?:me\s+)?(?:some\s+)?flashcards?\s+(?:on|about|from)\s+(.+?)[.!?]*\s*$/iu.exec(text);
-  return flashcards === null || /^(?:that|it|(?:that|the)\s+weak\s+spot)$/iu.test(flashcards[1]!.trim())
-    ? null
-    : Object.freeze({ mode: "flashcard", sourcePhrase: flashcards[1]!.trim() });
-}
+const INTENT_FIELDS = [
+  "operation", "mode", "sourcePhrase", "useCourseEvidence", "factId",
+  "courseId", "topic", "outcome", "signal", "preferencePatch",
+] as const;
+const PREFERENCE_PATCH_FIELDS = [
+  "enabled", "allowedDaysMask", "quietStartMinute", "quietEndMinute",
+] as const;
 
-function parseClock(text: string): number | null {
-  const value = /^\s*(\d{1,2})(?::([0-5]\d))?\s*(am|pm)?\s*$/iu.exec(text);
+function optionalUlid(value: unknown): Ulid | null {
   if (value === null) return null;
-  let hour = Number(value[1]);
-  const minute = Number(value[2] ?? "0");
-  const suffix = value[3]?.toLocaleLowerCase("en-CA");
-  if (suffix !== undefined) {
-    if (hour < 1 || hour > 12) return null;
-    if (hour === 12) hour = 0;
-    if (suffix === "pm") hour += 12;
-  } else if (hour > 23) return null;
-  return hour * 60 + minute;
+  if (typeof value !== "string" || !ULID.test(value)) throw new TypeError("study_coach_arguments_invalid");
+  return value as Ulid;
 }
 
-export function parseStudyPreferenceIntent(text: string): PreferenceIntent | null {
-  if (/^\s*(?:please\s+)?(?:stop|do not|don't)\s+(?:coursework\s+|school\s+)?check(?:ing)?[ -]?ins?\s+on\s+weekends?[.!]*\s*$/iu.test(text)) {
-    return Object.freeze({ patch: { allowedDaysMask: 127 & ~WEEKEND_MASK }, reply: "Coursework check-ins are off on weekends." });
+function optionalText(
+  value: unknown,
+  redactor: StudyCoachModelDependencies["redactor"],
+): string | null {
+  return value === null ? null : safeText(value, redactor, "study_coach_arguments_invalid");
+}
+
+function optionalEnum<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new TypeError("study_coach_arguments_invalid");
   }
-  if (/^\s*(?:please\s+)?(?:check\s+in|send\s+(?:me\s+)?(?:a\s+)?coursework\s+check[ -]?in)\s+(?:with\s+me\s+)?every\s+day[.!]*\s*$/iu.test(text)) {
-    return Object.freeze({ patch: { enabled: true, allowedDaysMask: 127 }, reply: "Coursework check-ins are on every day." });
+  return value as T;
+}
+
+function optionalMinute(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 1_439) {
+    throw new TypeError("study_coach_arguments_invalid");
   }
-  if (/^\s*(?:please\s+)?(?:stop|disable|turn\s+off|do not|don't)\s+(?:all\s+)?(?:coursework\s+|school\s+)?check[ -]?ins?[.!]*\s*$/iu.test(text)) {
-    return Object.freeze({ patch: { enabled: false }, reply: "Coursework check-ins are off." });
+  return value;
+}
+
+function capturePreferencePatch(
+  value: unknown,
+  redactor: StudyCoachModelDependencies["redactor"],
+): Partial<StudyPreference> | null {
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError("study_coach_arguments_invalid");
+  const keys = Reflect.ownKeys(value);
+  const allowed: readonly string[] = PREFERENCE_PATCH_FIELDS;
+  if (keys.length === 0 || keys.some((key) => typeof key !== "string" || !allowed.includes(key))) {
+    throw new TypeError("study_coach_arguments_invalid");
   }
-  if (/^\s*(?:please\s+)?(?:resume|enable|start|turn\s+on)\s+(?:coursework\s+|school\s+)?check[ -]?ins?[.!]*\s*$/iu.test(text)) {
-    return Object.freeze({ patch: { enabled: true }, reply: "Coursework check-ins are on." });
+  const record = Object.create(null) as Record<string, unknown>;
+  for (const key of keys as string[]) record[key] = (value as Record<string, unknown>)[key];
+  const patch: {
+    enabled?: boolean;
+    allowedDaysMask?: number;
+    quietStartMinute?: number;
+    quietEndMinute?: number;
+  } = {};
+  if (record.enabled !== undefined) {
+    if (typeof record.enabled !== "boolean") throw new TypeError("study_coach_arguments_invalid");
+    patch.enabled = record.enabled;
   }
-  const quiet = /^\s*(?:please\s+)?(?:do not|don't|stop)\s+check(?:ing)?\s+in\s+between\s+(.+?)\s+and\s+(.+?)[.!]*\s*$/iu.exec(text);
-  if (quiet !== null) {
-    const start = parseClock(quiet[1]!);
-    const end = parseClock(quiet[2]!);
-    if (start !== null && end !== null && start !== end) {
-      return Object.freeze({
-        patch: { quietStartMinute: start, quietEndMinute: end },
-        reply: `Coursework check-ins will stay quiet from ${quiet[1]!.trim()} to ${quiet[2]!.trim()}.`,
-      });
+  if (record.allowedDaysMask !== undefined) {
+    const mask = record.allowedDaysMask;
+    if (typeof mask !== "number" || !Number.isSafeInteger(mask) || mask < 0 || mask > 127) {
+      throw new TypeError("study_coach_arguments_invalid");
     }
+    patch.allowedDaysMask = mask;
   }
-  return null;
+  const quietStart = record.quietStartMinute === undefined ? null : optionalMinute(record.quietStartMinute);
+  const quietEnd = record.quietEndMinute === undefined ? null : optionalMinute(record.quietEndMinute);
+  if ((quietStart === null) !== (quietEnd === null)) throw new TypeError("study_coach_arguments_invalid");
+  if (quietStart !== null && quietEnd !== null) {
+    if (quietStart === quietEnd) throw new TypeError("study_coach_arguments_invalid");
+    patch.quietStartMinute = quietStart;
+    patch.quietEndMinute = quietEnd;
+  }
+  void redactor;
+  return Object.freeze(patch);
 }
 
-export function parseOwnerStudyObservation(text: string): ObservationIntent | null {
-  const observation = (topicValue: string, courseHint: string | null, outcome: StudyOutcome): ObservationIntent | null => {
-    const topic = topicValue.trim();
-    if (/\b(?:not|never|no|none|nothing)\b|n['’]t\b/iu.test(topic)
-      || /[,;:]/u.test(topic)
-      || /\b(?:finished|done\s+with)\b/iu.test(topic)
-      || /^(?:(?:the|that|this|your|my)\s+)?(?:due\s+date|plan|reply|answer|message|course\s+card|mark|grade)\b/iu.test(topic)) {
-      return null;
-    }
-    return Object.freeze({ topic, courseHint, outcome });
-  };
-  const found = /^\s*i\s+(?:found|thought)\s+(.+?)\s+(easy|hard|weak|confusing|uncertain|wrong)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (found !== null) return observation(found[1]!, found[3]?.trim() ?? null,
-    /easy/iu.test(found[2]!) ? "easy" : /wrong/iu.test(found[2]!) ? "wrong" : "uncertain");
-  const got = /^\s*i\s+got\s+(.+?)\s+(right|wrong)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (got !== null) return observation(got[1]!, got[3]?.trim() ?? null,
-    /right/iu.test(got[2]!) ? "easy" : "wrong");
-  const unsure = /^\s*i(?:['’]m|\s+am)\s+(?:not\s+sure|unsure|uncertain)\s+(?:about|on)\s+(.+?)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (unsure !== null) return observation(unsure[1]!, unsure[2]?.trim() ?? null, "uncertain");
-  const direct = /^\s*(.+?)\s+(?:feels?|is|was)\s+(easy|hard|weak|confusing|uncertain|wrong)[.!]*\s*$/iu.exec(text);
-  if (direct !== null
-    && !/^the\s+(?:message|feed|course\s+card|model)\b/iu.test(direct[1]!)
-    && !/\b(?:says?|said|reports?|reported|told|according\s+to)\b/iu.test(direct[1]!)) {
-    return observation(direct[1]!, null,
-      /easy/iu.test(direct[2]!) ? "easy" : /wrong/iu.test(direct[2]!) ? "wrong" : "uncertain");
+/** The model's declared action, as a typed shape. Shape and enums only. */
+function captureStudyCoachIntent(
+  argumentsJson: string,
+  redactor: StudyCoachModelDependencies["redactor"],
+): StudyCoachIntent {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(argumentsJson) as unknown;
+  } catch {
+    throw new TypeError("study_coach_arguments_invalid");
   }
-  return null;
-}
-
-function resolveCourse(
-  snapshot: StudyCoachSnapshot,
-  hint: string | null,
-  fullText: string,
-): StudyCourseSnapshot | null {
-  const needle = normalized(hint ?? fullText);
-  const exact = snapshot.courses.filter((course) => normalized(course.name) === needle);
-  if (exact.length === 1) return exact[0]!;
-  const contained = snapshot.courses.filter((course) => {
-    const name = normalized(course.name);
-    return needle.includes(name) || name.includes(needle);
+  const record = exactRecord(decoded, INTENT_FIELDS, "study_coach_arguments_invalid");
+  const operation = optionalEnum<StudyCoachOperation>(record.operation, [
+    "practice", "check_in_practice", "observe", "preference",
+    "forget", "signal", "answer_quiz", "stop_quiz", "correction",
+  ]);
+  if (operation === null) throw new TypeError("study_coach_arguments_invalid");
+  const useCourseEvidence = record.useCourseEvidence;
+  if (typeof useCourseEvidence !== "boolean") throw new TypeError("study_coach_arguments_invalid");
+  return Object.freeze({
+    operation,
+    mode: optionalEnum<StudyPracticeMode>(record.mode, ["quiz", "flashcard"]),
+    sourcePhrase: optionalText(record.sourcePhrase, redactor),
+    useCourseEvidence,
+    factId: optionalUlid(record.factId),
+    courseId: optionalUlid(record.courseId),
+    topic: optionalText(record.topic, redactor),
+    outcome: optionalEnum<StudyOutcome>(record.outcome, ["easy", "uncertain", "wrong"]),
+    signal: optionalEnum<StudySignalControlReason>(record.signal, ["wrong", "handled"]),
+    preferencePatch: capturePreferencePatch(record.preferencePatch, redactor),
   });
-  if (contained.length === 1) return contained[0]!;
-  return hint === null && snapshot.courses.length === 1 ? snapshot.courses[0]! : null;
 }
 
-function phraseMatches(left: string, right: string): boolean {
-  const leftPhrase = normalizedPhrase(left);
-  const rightPhrase = normalizedPhrase(right);
-  if (leftPhrase.length < 3 || rightPhrase.length < 3) return false;
-  return leftPhrase === rightPhrase
-    || ` ${leftPhrase} `.includes(` ${rightPhrase} `)
-    || ` ${rightPhrase} `.includes(` ${leftPhrase} `);
-}
-
-function resolveObservationCourse(
-  snapshot: StudyCoachSnapshot,
-  observation: ObservationIntent,
-): StudyCourseSnapshot | null {
-  if (observation.courseHint !== null) {
-    const matches = snapshot.courses.filter((course) => phraseMatches(course.name, observation.courseHint!));
-    return matches.length === 1 ? matches[0]! : null;
-  }
-  const matches = snapshot.courses.filter((course) => course.topics.some((topic) =>
-    phraseMatches(topic.topic, observation.topic))
-    || course.facts.some((fact) => fact.kind === "weak_area" && phraseMatches(fact.statement, observation.topic))
-    || phraseMatches(course.name, observation.topic));
-  return matches.length === 1 ? matches[0]! : null;
-}
-
-function forgetSubject(text: string): string | null {
-  const match = /^\s*(?:please\s+)?forget\s+(?:that\s+)?(.+?)\s+(?:is|was)\s+(?:a\s+)?weak\s+(?:spot|area)[.!]*\s*$/iu.exec(text);
-  return match?.[1]?.trim() ?? null;
-}
-
-function correctionIntent(text: string): boolean {
-  return /^\s*(?:please\s+)?(?:that|the)\s+(?:mark|grade)\s+(?:was|is)\s+(?:entered|recorded)\s+wrong[.!]*\s*$/iu.test(text);
-}
-
-export function parseStudySignalControlIntent(text: string): "wrong" | "handled" | null {
-  if (/^\s*(?:please\s+)?(?:(?:that|this)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot)|the\s+(?:last\s+)?(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))\s+(?:is|was)\s+wrong[.!]*\s*$/iu.test(text)) {
-    return "wrong";
-  }
-  if (/^\s*(?:please\s+)?(?:i\s+(?:already\s+)?(?:handled|finished|did)\s+(?:(?:that|this|the)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))|(?:(?:that|this|the)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))\s+(?:is|was|has\s+been)\s+(?:already\s+)?(?:handled|finished|done))[.!]*\s*$/iu.test(text)) {
-    return "handled";
-  }
-  return null;
-}
-
-function parseCheckInPracticeMode(text: string): StudyPracticeMode | null {
-  if (/^\s*(?:yes[,!]?\s*)?(?:quiz\s+me|give\s+me\s+(?:a\s+)?quiz|let['’]s\s+do\s+(?:a\s+)?quiz)(?:\s+on\s+(?:that|it|(?:that|the)\s+weak\s+spot))?[.!]*\s*$/iu.test(text)) {
-    return "quiz";
-  }
-  return /^\s*(?:yes[,!]?\s*)?(?:make|give)\s+(?:me\s+)?flashcards?(?:\s+(?:on|for)\s+(?:that|it|(?:that|the)\s+weak\s+spot))?[.!]*\s*$/iu.test(text)
-    ? "flashcard" : null;
-}
-
-function isUncertainAnswer(text: string): boolean {
-  const value = normalizedPhrase(text);
-  return /^(?:i\s+(?:do\s+not|don\s+t)\s+know|not\s+sure|unsure|skip|idk)$/u.test(value);
-}
-
-function plausiblyAnswersQuiz(item: StudyPracticeItem, text: string, now: Date): boolean {
-  const createdAt = Date.parse(item.createdAt);
-  const age = now.getTime() - createdAt;
-  const trimmed = text.trim();
-  if (!Number.isFinite(createdAt) || age < 0 || age > QUIZ_ANSWER_WINDOW_MS
-    || trimmed.length === 0 || !trimmed.isWellFormed() || trimmed !== trimmed.normalize("NFC")
-    || encoder.encode(trimmed).byteLength > MAX_QUIZ_ANSWER_BYTES || UNSAFE_INLINE.test(trimmed)
-    || /\?/u.test(trimmed)) return false;
-  if (isBrightspaceRefreshRequest(trimmed)) return false;
-  if (isUncertainAnswer(trimmed)) return true;
-  if (/^(?:ok(?:ay)?|thanks?(?:\s+you)?|hello|hi|hey|cool|alright|sure)[.!]*$/iu.test(trimmed)
-    || /^(?:what|when|where|why|who|how|can|could|would|will|please|check|refresh|update|help|plan|remind|tell)\b/iu.test(trimmed)
-    || /\b(?:d2l|brightspace|deadline|due\s+(?:today|tomorrow|this\s+week)|schedule|calendar|application|ouac)\b/iu.test(trimmed)
-    || /\b(?:feels?|found|finished|got)\b/iu.test(trimmed)) return false;
-  return trimmed.split(/\s+/u).length <= 12;
+function notSavedFallback(
+  model: ModelAdapter,
+  input: ModelAdapterStreamInput,
+): AsyncIterable<ModelToken> {
+  return (async function* () {
+    for await (const token of model.stream(input)) {
+      yield Object.freeze({ index: token.index, text: token.text, toolOutcome: "not_saved" as const });
+    }
+  })();
 }
 
 function applyPreferencePatch(current: StudyPreference, patch: Partial<StudyPreference>): StudyPreference {
@@ -351,20 +366,6 @@ source_json=${JSON.stringify(source)}`;
   return prompt;
 }
 
-function courseFactSource(course: StudyCourseSnapshot): PracticeSource | null {
-  const ordered = [...course.facts].sort((left, right) => {
-    const priority = (kind: string): number => kind === "weak_area" ? 0 : kind === "missed_work" ? 1 : 2;
-    return priority(left.kind) - priority(right.kind) || right.observedAt.localeCompare(left.observedAt);
-  });
-  const fact = ordered[0];
-  return fact === undefined ? null : Object.freeze({
-    kind: "course_fact",
-    factId: fact.factId,
-    excerpt: fact.statement,
-    observedAt: fact.observedAt,
-  });
-}
-
 function citation(item: StudyPracticeItem): string {
   const date = item.sourceObservedAt.slice(0, 10);
   return item.sourceKind === "owner_topic"
@@ -413,6 +414,31 @@ function answerReply(
   ].join("\n\n"));
 }
 
+function courseById(snapshot: StudyCoachSnapshot, courseId: Ulid | null): StudyCourseSnapshot | null {
+  return courseId === null ? null : snapshot.courses.find((course) => course.courseId === courseId) ?? null;
+}
+
+/** A non-authoritative hint: the courses the model may choose from. */
+function courseChoices(snapshot: StudyCoachSnapshot): string {
+  if (snapshot.courses.length === 0) return "No courses are stored.";
+  return `Courses: ${snapshot.courses.map((course) => `${course.name} (${course.courseId})`).join("; ")}.`;
+}
+
+function factChoices(course: StudyCourseSnapshot): string {
+  if (course.facts.length === 0) return `I don't have course-card evidence for ${course.name} yet.`;
+  return `Course-card facts for ${course.name}: ${course.facts.map((fact) => `${fact.factId} (${fact.kind}): ${fact.statement}`).join("; ")}.`;
+}
+
+function preferenceReceipt(patch: Partial<StudyPreference>): string {
+  const parts: string[] = [];
+  if (patch.enabled !== undefined) parts.push(patch.enabled ? "check-ins on" : "check-ins off");
+  if (patch.allowedDaysMask !== undefined) parts.push(`days mask ${patch.allowedDaysMask}`);
+  if (patch.quietStartMinute !== undefined && patch.quietEndMinute !== undefined) {
+    parts.push(`quiet ${patch.quietStartMinute}–${patch.quietEndMinute} minutes after midnight`);
+  }
+  return `Coursework check-in settings updated: ${parts.join(", ")}.`;
+}
+
 async function makePractice(
   dependencies: StudyCoachModelDependencies,
   input: ModelAdapterStreamInput,
@@ -453,8 +479,17 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     }
   }
 
-  /** Preserves code-observed save state for the owner-agent tool boundary. */
-  async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+  /**
+   * The study-coach pipeline, driven by the model's `study_coach` arguments.
+   *
+   * Called by the owner agent with the tool call; without one there is no
+   * declared action, so the ordinary conversation answers instead of code
+   * guessing from Sid's wording.
+   */
+  async *streamOwnerTool(
+    input: ModelAdapterStreamInput,
+    call?: ModelFunctionCall,
+  ): AsyncIterable<ModelToken> {
     if (input.principalId !== this.dependencies.ownerPrincipalId
       || !this.dependencies.ownerTurnAuthoritative) {
       yield* notSavedFallback(this.dependencies.fallbackModel, input);
@@ -471,254 +506,317 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;
     }
-
-    const preferenceIntent = parseStudyPreferenceIntent(input.userText);
-    if (preferenceIntent !== null) {
-      const update = await attemptStudyOperation(() => this.dependencies.repository.updatePreference({
-        principalId: input.principalId,
-        turnId: input.correlationId,
-        preference: applyPreferencePatch(snapshot.preference, preferenceIntent.patch),
-        now,
-      }));
-      yield Object.freeze({
-        index: 0,
-        text: update.ok ? preferenceIntent.reply : "I couldn't update the study-coach check-in settings.",
-        toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
-      });
-      return;
-    }
-
-    const forgotten = forgetSubject(input.userText);
-    if (forgotten !== null) {
-      const course = resolveCourse(snapshot, forgotten, forgotten);
-      const exactTopic = snapshot.courses.flatMap((candidate) => candidate.topics.map((topic) => ({ candidate, topic })))
-        .filter(({ topic }) => normalized(topic.topic) === normalized(forgotten));
-      const operation = await attemptStudyOperation(async () => course !== null && normalized(course.name) === normalized(forgotten)
-        ? this.dependencies.repository.forget(input.principalId, input.correlationId, { courseId: course.courseId }, now)
-        : exactTopic.length === 1
-          ? this.dependencies.repository.forget(input.principalId, input.correlationId,
-            { topicKey: exactTopic[0]!.topic.topicKey }, now)
-          : 0);
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok
-          ? "I couldn't update the study-coach record."
-          : operation.value > 0
-            ? `Forgot ${operation.value} operational study-coach evidence ${operation.value === 1 ? "record" : "records"} for ${forgotten}.`
-            : `I couldn't identify one active study-coach record for ${forgotten}.`,
-        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
-      });
-      return;
-    }
-
-    const signalControl = parseStudySignalControlIntent(input.userText);
-    if (signalControl !== null) {
-      const claimed = await attemptStudyOperation(
-        () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
-      );
-      if (!claimed.ok || claimed.value === null) {
-        yield* notSavedFallback(this.dependencies.fallbackModel, input);
-        return;
-      }
-      const operation = await attemptStudyOperation(() => this.dependencies.repository.retireLatestCheckInSignals({
-        principalId: input.principalId,
-        turnId: input.correlationId,
-        reason: signalControl,
-        today,
-        now,
-      }));
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok ? "I couldn't update the study-coach signal."
-          : operation.value > 0
-            ? `Retired ${operation.value} cited study-coach ${operation.value === 1 ? "signal" : "signals"} as ${signalControl}.`
-            : "I couldn't identify an active cited signal to retire.",
-        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
-      });
-      return;
-    }
-
-    if (correctionIntent(input.userText)) {
-      // The catch-up adapter owns course facts. Let it resolve the underlying
-      // fact instead of changing only the study-coach projection.
+    // Course-context projection runs on every owner turn, tool call or not, so
+    // the study evidence stays current. Without a declared action there is
+    // nothing to do, and the ordinary conversation answers.
+    if (call === undefined) {
       yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;
     }
 
-    if (/^\s*(?:stop|end|cancel)\s+(?:the\s+)?quiz[.!]*\s*$/iu.test(input.userText)) {
-      const operation = await attemptStudyOperation(() =>
-        this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+    let intent: StudyCoachIntent;
+    try {
+      intent = captureStudyCoachIntent(call.arguments, this.dependencies.redactor);
+    } catch {
       yield Object.freeze({
         index: 0,
-        text: !operation.ok ? "I couldn't update the study-coach record."
-          : operation.value > 0 ? "Quiz stopped." : "No quiz is open.",
-        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
+        text: "I couldn't read that study-coach request. Nothing changed.",
+        toolOutcome: "not_saved" as const,
       });
       return;
     }
+    yield* this.#dispatch(input, snapshot, intent, today, now);
+  }
 
-    const request = parsePracticeRequest(input.userText);
-    if (request !== null) {
-      const course = resolveCourse(snapshot, null, request.sourcePhrase);
-      if (course === null) {
-        yield Object.freeze({
-          index: 0,
-          text: "Which course should I use for that practice?",
-          toolOutcome: "not_saved" as const,
-        });
-        return;
-      }
-      const asksForCard = /\bcourse[ -]?card\b/iu.test(request.sourcePhrase);
-      const source: PracticeSource | null = asksForCard
-        ? courseFactSource(course)
-        : Object.freeze({
-          kind: "owner_topic",
+  async *#dispatch(
+    input: ModelAdapterStreamInput,
+    snapshot: StudyCoachSnapshot,
+    intent: StudyCoachIntent,
+    today: string,
+    now: Date,
+  ): AsyncIterable<ModelToken> {
+    switch (intent.operation) {
+      case "preference": {
+        if (intent.preferencePatch === null) {
+          yield this.#refusal("No check-in change was named.");
+          return;
+        }
+        const update = await attemptStudyOperation(() => this.dependencies.repository.updatePreference({
+          principalId: input.principalId,
           turnId: input.correlationId,
-          excerpt: request.sourcePhrase,
-          observedAt: now.toISOString(),
-        });
-      if (source === null) {
+          preference: applyPreferencePatch(snapshot.preference, intent.preferencePatch!),
+          now,
+        }));
         yield Object.freeze({
           index: 0,
-          text: `I don't have course-card evidence for ${course.name} yet.`,
-          toolOutcome: "not_saved" as const,
+          text: update.ok ? preferenceReceipt(intent.preferencePatch) : "I couldn't update the study-coach check-in settings.",
+          toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
         });
         return;
       }
-      try {
-        const replacedQuiz = snapshot.activeQuiz !== null;
-        yield Object.freeze({
-          index: 0,
-          text: await makePractice(this.dependencies, input, course, request.mode, source, replacedQuiz, now),
-          toolOutcome: "saved" as const,
-        });
-      } catch {
-        yield Object.freeze({
-          index: 0,
-          text: "I couldn't make a cited practice set from that source.",
-          toolOutcome: "not_saved" as const,
-        });
-      }
-      return;
-    }
 
-    const followUpMode = parseCheckInPracticeMode(input.userText);
-    if (followUpMode !== null) {
-      const claimed = await attemptStudyOperation(
-        () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
-      );
-      const checkIn = claimed.ok ? claimed.value : null;
-      const course = checkIn === null
-        ? null
-        : snapshot.courses.find((candidate) => candidate.courseId === checkIn.courseId) ?? null;
-      if (course === null || checkIn === null) {
+      case "forget": {
+        const course = courseById(snapshot, intent.courseId);
+        const exactTopic = intent.topic === null ? [] : snapshot.courses
+          .flatMap((candidate) => candidate.topics.map((topic) => ({ candidate, topic })))
+          .filter(({ topic }) => topic.topic === intent.topic);
+        if (course === null && exactTopic.length !== 1) {
+          yield this.#refusal(
+            `I couldn't identify one active study-coach record to forget. ${courseChoices(snapshot)}`,
+          );
+          return;
+        }
+        const selector = course !== null ? { courseId: course.courseId } : { topicKey: exactTopic[0]!.topic.topicKey };
+        const operation = await attemptStudyOperation(
+          () => this.dependencies.repository.forget(input.principalId, input.correlationId, selector, now),
+        );
+        const label = course?.name ?? intent.topic ?? "";
         yield Object.freeze({
           index: 0,
-          text: "I don't have a current cited study target for that practice.",
-          toolOutcome: "not_saved" as const,
+          text: !operation.ok
+            ? "I couldn't update the study-coach record."
+            : operation.value > 0
+              ? `Forgot ${operation.value} operational study-coach evidence ${operation.value === 1 ? "record" : "records"} for ${label}.`
+              : `I couldn't identify one active study-coach record for ${label}.`,
+          toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
         });
         return;
       }
-      try {
-        const source: PracticeSource = Object.freeze({
-          kind: "owner_topic",
+
+      case "signal": {
+        if (intent.signal === null) {
+          yield this.#refusal("No study signal outcome was named.");
+          return;
+        }
+        const claimed = await attemptStudyOperation(
+          () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
+        );
+        if (!claimed.ok || claimed.value === null) {
+          yield* notSavedFallback(this.dependencies.fallbackModel, input);
+          return;
+        }
+        const operation = await attemptStudyOperation(() => this.dependencies.repository.retireLatestCheckInSignals({
+          principalId: input.principalId,
           turnId: input.correlationId,
-          excerpt: checkIn.topic,
-          observedAt: checkIn.claimedAt,
-        });
+          reason: intent.signal!,
+          today,
+          now,
+        }));
         yield Object.freeze({
           index: 0,
-          text: await makePractice(
-            this.dependencies, input, course, followUpMode, source, snapshot.activeQuiz !== null, now,
-          ),
-          toolOutcome: "saved" as const,
+          text: !operation.ok ? "I couldn't update the study-coach signal."
+            : operation.value > 0
+              ? `Retired ${operation.value} cited study-coach ${operation.value === 1 ? "signal" : "signals"} as ${intent.signal}.`
+              : "I couldn't identify an active cited signal to retire.",
+          toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
         });
-      } catch {
-        yield Object.freeze({
-          index: 0,
-          text: "I couldn't make a practice set for that cited study target.",
-          toolOutcome: "not_saved" as const,
-        });
+        return;
       }
-      return;
-    }
 
-    const observation = parseOwnerStudyObservation(input.userText);
-    if (observation !== null) {
-      const course = resolveObservationCourse(snapshot, observation);
-      if (course === null) {
+      case "correction":
+        // The catch-up adapter owns course facts. Let it resolve the underlying
+        // fact instead of changing only the study-coach projection.
         yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
-      }
-      const update = await attemptStudyOperation(() => this.dependencies.repository.recordOwnerObservation({
-        principalId: input.principalId,
-        turnId: input.correlationId,
-        courseId: course.courseId,
-        topic: observation.topic,
-        outcome: observation.outcome,
-        evidenceText: input.userText,
-        today,
-        now,
-      }));
-      yield Object.freeze({
-        index: 0,
-        text: update.ok
-          ? `Recorded one ${observation.outcome} evidence point for ${course.name}: ${observation.topic}. One point is not a durable judgment.`
-          : "I couldn't update the study-coach record.",
-        toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
-      });
-      return;
-    }
 
-    if (snapshot.activeQuiz !== null) {
-      if (!plausiblyAnswersQuiz(snapshot.activeQuiz, input.userText, now)) {
-        const dismissed = await attemptStudyOperation(
-          () => this.dependencies.repository.dismissActiveQuiz(input.principalId, now),
-        );
-        if (dismissed.ok && dismissed.value > 0) {
-          const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));
+      case "stop_quiz": {
+        const operation = await attemptStudyOperation(() =>
+          this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+        yield Object.freeze({
+          index: 0,
+          text: !operation.ok ? "I couldn't update the study-coach record."
+            : operation.value > 0 ? "Quiz stopped." : "No quiz is open.",
+          toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
+        });
+        return;
+      }
+
+      case "practice": {
+        const course = courseById(snapshot, intent.courseId);
+        if (course === null) {
+          yield this.#refusal(`No course was selected for that practice. ${courseChoices(snapshot)}`);
+          return;
+        }
+        if (intent.mode === null) {
+          yield this.#refusal("No practice mode was named: use quiz or flashcard.");
+          return;
+        }
+        const source = this.#practiceSource(course, intent, input, now);
+        if (typeof source === "string") {
+          yield this.#refusal(source);
+          return;
+        }
+        try {
+          const replacedQuiz = snapshot.activeQuiz !== null;
           yield Object.freeze({
             index: 0,
-            text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}`,
+            text: await makePractice(this.dependencies, input, course, intent.mode, source, replacedQuiz, now),
             toolOutcome: "saved" as const,
+          });
+        } catch {
+          yield Object.freeze({
+            index: 0,
+            text: "I couldn't make a cited practice set from that source.",
+            toolOutcome: "not_saved" as const,
+          });
+        }
+        return;
+      }
+
+      case "check_in_practice": {
+        if (intent.mode === null) {
+          yield this.#refusal("No practice mode was named: use quiz or flashcard.");
+          return;
+        }
+        const claimed = await attemptStudyOperation(
+          () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
+        );
+        const checkIn = claimed.ok ? claimed.value : null;
+        const course = checkIn === null
+          ? null
+          : snapshot.courses.find((candidate) => candidate.courseId === checkIn.courseId) ?? null;
+        if (checkIn === null || course === null) {
+          yield Object.freeze({
+            index: 0,
+            text: "I don't have a current cited study target for that practice.",
+            toolOutcome: "not_saved" as const,
           });
           return;
         }
-        yield* notSavedFallback(this.dependencies.fallbackModel, input);
+        try {
+          const source: PracticeSource = Object.freeze({
+            kind: "owner_topic",
+            turnId: input.correlationId,
+            excerpt: checkIn.topic,
+            observedAt: checkIn.claimedAt,
+          });
+          yield Object.freeze({
+            index: 0,
+            text: await makePractice(
+              this.dependencies, input, course, intent.mode, source, snapshot.activeQuiz !== null, now,
+            ),
+            toolOutcome: "saved" as const,
+          });
+        } catch {
+          yield Object.freeze({
+            index: 0,
+            text: "I couldn't make a practice set for that cited study target.",
+            toolOutcome: "not_saved" as const,
+          });
+        }
         return;
       }
-      let answered: Awaited<ReturnType<StudyCoachRepository["answerActiveQuiz"]>>;
-      try {
-        answered = await this.dependencies.repository.answerActiveQuiz({
+
+      case "observe": {
+        const course = courseById(snapshot, intent.courseId);
+        if (course === null || intent.topic === null || intent.outcome === null) {
+          yield this.#refusal(
+            `No course or topic was selected for that observation. ${courseChoices(snapshot)}`,
+          );
+          return;
+        }
+        const update = await attemptStudyOperation(() => this.dependencies.repository.recordOwnerObservation({
           principalId: input.principalId,
           turnId: input.correlationId,
-          answer: input.userText,
+          courseId: course.courseId,
+          topic: intent.topic!,
+          outcome: intent.outcome!,
+          evidenceText: input.userText,
           today,
           now,
+        }));
+        yield Object.freeze({
+          index: 0,
+          text: update.ok
+            ? `Recorded one ${intent.outcome} evidence point for ${course.name}: ${intent.topic}. One point is not a durable judgment.`
+            : "I couldn't update the study-coach record.",
+          toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
         });
-      } catch {
-        await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
-        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
-      if (answered === null) {
-        yield* notSavedFallback(this.dependencies.fallbackModel, input);
-        return;
-      }
-      let next: StudyPracticeItem | null = null;
-      try {
-        next = (await this.dependencies.repository.readSnapshot(input.principalId, today)).activeQuiz;
-      } catch {
-        // The recorded answer is authoritative even if the follow-up read fails.
-      }
-      yield Object.freeze({
-        index: 0,
-        text: guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
-        toolOutcome: "saved" as const,
-      });
-      return;
-    }
 
-    yield* notSavedFallback(this.dependencies.fallbackModel, input);
+      case "answer_quiz": {
+        const item = snapshot.activeQuiz;
+        if (item === null) {
+          yield Object.freeze({ index: 0, text: "No quiz is open.", toolOutcome: "not_saved" as const });
+          return;
+        }
+        const createdAt = Date.parse(item.createdAt);
+        const age = now.getTime() - createdAt;
+        const answer = input.userText.trim();
+        if (!Number.isFinite(createdAt) || age < 0 || age > QUIZ_ANSWER_WINDOW_MS
+          || answer.length === 0 || !answer.isWellFormed() || answer !== answer.normalize("NFC")
+          || encoder.encode(answer).byteLength > MAX_QUIZ_ANSWER_BYTES || UNSAFE_INLINE.test(answer)) {
+          yield Object.freeze({
+            index: 0,
+            text: "That quiz is no longer open for an answer.",
+            toolOutcome: "not_saved" as const,
+          });
+          return;
+        }
+        let answered: Awaited<ReturnType<StudyCoachRepository["answerActiveQuiz"]>>;
+        try {
+          answered = await this.dependencies.repository.answerActiveQuiz({
+            principalId: input.principalId,
+            turnId: input.correlationId,
+            answer: input.userText,
+            today,
+            now,
+          });
+        } catch {
+          await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+          yield* notSavedFallback(this.dependencies.fallbackModel, input);
+          return;
+        }
+        if (answered === null) {
+          yield* notSavedFallback(this.dependencies.fallbackModel, input);
+          return;
+        }
+        let next: StudyPracticeItem | null = null;
+        try {
+          next = (await this.dependencies.repository.readSnapshot(input.principalId, today)).activeQuiz;
+        } catch {
+          // The recorded answer is authoritative even if the follow-up read fails.
+        }
+        yield Object.freeze({
+          index: 0,
+          text: guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
+          toolOutcome: "saved" as const,
+        });
+        return;
+      }
+    }
+  }
+
+  #practiceSource(
+    course: StudyCourseSnapshot,
+    intent: StudyCoachIntent,
+    input: ModelAdapterStreamInput,
+    now: Date,
+  ): PracticeSource | string {
+    if (!intent.useCourseEvidence) {
+      if (intent.sourcePhrase === null) {
+        return "No practice source was named: pass sourcePhrase, or set useCourseEvidence with a factId.";
+      }
+      return Object.freeze({
+        kind: "owner_topic",
+        turnId: input.correlationId,
+        excerpt: intent.sourcePhrase,
+        observedAt: now.toISOString(),
+      });
+    }
+    const fact = intent.factId === null ? undefined
+      : course.facts.find((candidate) => candidate.factId === intent.factId);
+    if (fact === undefined) return `No course-card fact was selected. ${factChoices(course)}`;
+    return Object.freeze({
+      kind: "course_fact",
+      factId: fact.factId,
+      excerpt: fact.statement,
+      observedAt: fact.observedAt,
+    });
+  }
+
+  #refusal(text: string): ModelToken {
+    return Object.freeze({ index: 0, text, toolOutcome: "not_saved" as const }) as ModelToken;
   }
 }

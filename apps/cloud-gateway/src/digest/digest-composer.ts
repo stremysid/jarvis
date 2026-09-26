@@ -161,11 +161,15 @@ function deadlineSection(
   horizonDays: number,
 ): DigestSection | null {
   const upcoming = input.deadlines
-    .map((deadline) => ({ deadline, hours: hoursUntil(deadline.dueAt, now) }))
+    .map((deadline) => ({ deadline, hours: deadline.dueAt === null ? null : hoursUntil(deadline.dueAt, now) }))
+    // An undated deadline is kept, like a due date that will not parse: it is
+    // still a deadline. The line says it has no due date rather than dropping it
+    // or inventing one.
+    //
     // A due date that will not parse is kept rather than filtered away. A
     // deadline we cannot read is still a deadline, and dropping it is exactly
     // how something gets missed silently.
-    .filter((entry) => entry.hours === null || entry.hours <= horizonDays * 24)
+    .filter((entry) => entry.deadline.dueAt === null || entry.hours === null || entry.hours <= horizonDays * 24)
     .sort(
       (left, right) =>
         (left.hours ?? Number.MAX_SAFE_INTEGER) - (right.hours ?? Number.MAX_SAFE_INTEGER),
@@ -176,9 +180,12 @@ function deadlineSection(
     heading: "Due",
     lines: upcoming.map(({ deadline, hours }) => {
       const source = deadline.source === undefined ? "" : `[${deadline.source}] `;
+      if (deadline.dueAt === null) {
+        return `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (no due date)`;
+      }
       return hours === null
         ? `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (due ${neutraliseInline(deadline.dueAt)}, unreadable date)`
-        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)}, ${deadline.effort})`;
+        : `${source}${neutraliseInline(deadline.course)}: ${neutraliseInline(deadline.title)} (${describeDue(hours)})`;
     }),
   };
 }
@@ -315,17 +322,26 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
 function projectSection(input: DigestInput): DigestSection | null {
   const lines: string[] = [];
   for (const project of input.projects) {
+    // Facts only. Whether any of this means a project needs Sid is Jarvis's
+    // judgment, so the digest states the commit age, the dates the plan names
+    // and whether the read failed, and attaches no verdict of its own.
+    const facts: string[] = [];
     if (project.pollFailure !== null) {
-      lines.push(
-        `${project.displayName}: could not be read (${neutraliseInline(project.pollFailure)})`,
-      );
-      continue;
+      facts.push(`could not be read (${neutraliseInline(project.pollFailure)})`);
     }
-    if (project.stalledReason !== null) {
-      lines.push(`${project.displayName}: stalled -- ${neutraliseInline(project.stalledReason)}`);
-    } else if (project.changedDocuments.length > 0) {
-      lines.push(`${project.displayName}: ${project.changedDocuments.join(", ")} changed`);
+    if (project.daysSinceLastCommit !== null) {
+      facts.push(`${String(Math.floor(project.daysSinceLastCommit))}d since the last commit`);
     }
+    if (project.nextStepsDates.length > 0) {
+      facts.push(`NEXT_STEPS dates: ${project.nextStepsDates.map((date) => neutraliseInline(date)).join(", ")}`);
+    }
+    if (project.nextStepsUnreadable.length > 0) {
+      facts.push(`date text it could not read: ${project.nextStepsUnreadable.map((value) => neutraliseInline(value)).join(", ")}`);
+    }
+    if (project.nextStepsTruncated) {
+      facts.push("NEXT_STEPS excerpt cut at the storage bound");
+    }
+    if (facts.length > 0) lines.push(`${project.displayName}: ${facts.join("; ")}`);
     if (project.nextStepsExcerpt !== null) {
       lines.push(...neutralise(project.nextStepsExcerpt));
     }

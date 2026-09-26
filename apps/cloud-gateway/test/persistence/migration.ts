@@ -47,6 +47,9 @@ import webToolsSql from "../../src/persistence/migrations/0049_web_tools.sql?raw
 import ownerRemindersSql from "../../src/persistence/migrations/0050_owner_reminders.sql?raw";
 import confirmOnlyFiveActionsSql from "../../src/persistence/migrations/0051_confirm_only_five_actions.sql?raw";
 import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
+import deadlinesStoreFactsSql from "../../src/persistence/migrations/0053_deadlines_store_facts.sql?raw";
+import ownerRemindersScheduledSql from "../../src/persistence/migrations/0054_owner_reminders_scheduled.sql?raw";
+import ownerAccessToolSql from "../../src/persistence/migrations/0055_owner_access_tool.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
 let newestRuntimeMigrated: Promise<void> | undefined;
@@ -110,6 +113,10 @@ export function applyFoundationMigration(): Promise<void> {
     ...voiceAccessBaseMigrations,
     voiceAccessBoundariesMigration,
     ...assistantMigrations,
+    // 0053 alters `deadlines` (from 0011), and every fixture that reads a
+    // deadline column needs it. It lives here rather than in a later chain so a
+    // fixture that stops at the foundation still builds the current row shape.
+    { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
   ]);
   return migrated;
 }
@@ -163,6 +170,14 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     // owns: it passes run alone (-t "memory fixture chain"), not only after the
     // terminal-chain case has left the newest receipt.
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    // 0054 relaxes owner_reminders.created_turn_id so the scheduled deadline
+    // review can schedule a warning without inventing a conversation turn.
+    // It belongs after 0050, so it is deliberately not in the foundation chain.
+    { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    // 0055 is an INSERT OR IGNORE into capability_tiers, whose table `0008`
+    // creates, so it is safe on this chain too and keeps the newest file on
+    // disk reachable from the memory fixtures.
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -364,6 +379,8 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0049_web_tools.sql", queries: splitMigration(webToolsSql) },
     { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+    { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   ]);
   await newestRuntimeMigrated;
 }
@@ -426,6 +443,9 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0050_owner_reminders.sql", queries: splitMigration(ownerRemindersSql) },
   { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
   { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
+  { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
+  { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+  { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
 ]);
 
 /**

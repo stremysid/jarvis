@@ -16,7 +16,7 @@ test("runs the real fake-suite entry before the retained-evidence audit", () => 
     "apps/cloud-gateway/test/security/redaction.test.ts",
     "apps/cloud-gateway/test/voice/capability-registry.test.ts",
     "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
-    "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-tool.test.ts",
     "apps/cloud-gateway/test/voice/call-session-do.test.ts",
     "apps/cloud-gateway/test/voice/call-session-pin-capture.test.ts",
     "apps/cloud-gateway/test/voice/sensitive-action-pin.test.ts",
