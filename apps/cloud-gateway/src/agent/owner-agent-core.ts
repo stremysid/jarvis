@@ -80,6 +80,7 @@ import type {
   ModelToolRound,
 } from "../providers/provider-types.js";
 import { guardReplyClaims, type ReceiptedToolSentence } from "../school/school-catchup-model.js";
+import { STUDY_COACH_TOOL_NAME } from "../school/study-coach-model.js";
 import { VoiceSentences } from "./voice-sentences.js";
 import { VoiceReplyStream, type CheckedVoiceSentence } from "./voice-reply.js";
 import { GuidedAssignmentService, StoredAssignmentEvidenceReader, readGuidedAssignmentReferences } from "../school/guided-assignment.js";
@@ -707,15 +708,19 @@ function explanationReceipt(explanation: MemoryExplanation, memoryText: string):
 async function collectPipelineOutcome(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
+  call?: ModelFunctionCall,
 ): Promise<PipelineOutcome> {
   let text = "";
   let signalledStatus: PipelineOutcome["status"] | null = null;
   const structured = model as ModelAdapter & {
-    readonly streamOwnerTool?: (value: ModelAdapterStreamInput) => AsyncIterable<ModelToken>;
+    readonly streamOwnerTool?: (
+      value: ModelAdapterStreamInput,
+      call?: ModelFunctionCall,
+    ) => AsyncIterable<ModelToken>;
   };
   const hasStructuredOutcome = typeof structured.streamOwnerTool === "function";
   const tokens = hasStructuredOutcome
-    ? structured.streamOwnerTool(input)
+    ? structured.streamOwnerTool(input, call)
     : model.stream(input);
   for await (const token of tokens) {
     text += token.text;
@@ -2333,9 +2338,12 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     call: ModelFunctionCall,
     model: ModelAdapter,
   ): Promise<ExecutedTool> {
-    parseArguments(call, []);
+    // `study_coach` carries the model's declared action as tool arguments; every
+    // other pipeline still takes none, and a stray argument there is refused.
+    const takesArguments = call.name === STUDY_COACH_TOOL_NAME;
+    if (!takesArguments) parseArguments(call, []);
     await this.memoryOwnerTurn(input, port, null, true);
-    const outcome = await collectPipelineOutcome(model, input);
+    const outcome = await collectPipelineOutcome(model, input, takesArguments ? call : undefined);
     return outcome.status === "saved"
       ? successfulTool(call, outcome.receipt)
       : notSavedTool(call, outcome.receipt);

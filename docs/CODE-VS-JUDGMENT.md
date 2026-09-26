@@ -94,6 +94,29 @@ wording, and writing them down did not make them right.
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
+## Study-coach intent parsing: removed
+
+Removed by "Study coach: the model reads intent" (branch `codex/coach-intent-to-ai`). The
+`study_coach` tool now carries the model's declared action as arguments, and code keeps only
+validation: the course and fact ids must exist in the owner's snapshot, the enum values must be
+known, and the quiz answer must be inside its window and size bound. Deleted from
+`school/study-coach-model.ts`:
+
+| Sweep id | Symbol | Now |
+|---|---|---|
+| B45 | `parsePracticeRequest` | `operation: practice` with `mode` and `sourcePhrase`; any phrasing works because the model reads it |
+| B46 | `parseStudyPreferenceIntent` | `operation: preference` with `preferencePatch`; the applied values are the receipt, and Sid's wording is never matched |
+| B47 | `parseOwnerStudyObservation` | `operation: observe` with `topic`, `outcome` and `courseId`; the negation and "finished"/"plan" word lists are gone |
+| B48 | `resolveCourse` / `phraseMatches` | The model passes `courseId`, validated against the snapshot. A missing or unknown id returns the course list as evidence instead of defaulting to the only course |
+| B49 | `forgetSubject` / `correctionIntent` / `parseStudySignalControlIntent` / `parseCheckInPracticeMode` | `operation` forget, correction, signal and check_in_practice, with `topic`, `courseId`, `signal` and `mode` |
+| B50 | `isUncertainAnswer` | Gone. The model declares `answer_quiz` |
+| B51 | `plausiblyAnswersQuiz`, including the 12-word cap | Gone. The model declares `answer_quiz`. The 30-minute answer window and the 256-byte bound stay as system-protection limits |
+| B52 | `courseFactSource` priority (weak_area, then missed_work, then newest) | The model passes `factId`; code looks it up in the chosen course and lists the facts when none is named |
+| B53 | The fixed "Which course should I use for that practice?" question | Gone. A refusal lists the courses or facts, and the model asks Sid |
+
+The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
+they are receipts of a committed write, not a decision about what Sid meant.
+
 ## Voice access and silent drops: removed
 
 Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
@@ -269,6 +292,10 @@ declares nothing records nothing, with no recency fallback.
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
 | 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
 | 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
+| 16 | `supportsOfferStatusEvidence`, `offerTemplates`, `offerMessageMatchesProgram` and the `OFFER_WORKFLOW_*` tables (`src/university/university-tracker-model.ts`) | A whole-message template grammar decides an offer/condition/response status from Sid's sentence. Kept out of the B116–B129 round so the offer family is not silently loosened with the rest. | The model declares the offer status and carries Sid's whole current message as evidence; code keeps provenance, ids, program binding and the real-date check, exactly like the step statuses B116–B129 just moved. |
+| 17 | `stepTargetClauses` (`src/university/university-tracker-model.ts`) | Which clause names the workflow and application item, used as the `targetClauses.length === 0` gate in `workflowDeadline`. Retained in the B116–B129 round; the deadline-naming judgment is out of that batch. | The model supplies the deadline for the workflow it chose; code should keep only the real-date, exact-instant and IANA-timezone checks. |
+| 18 | `universityStateJson` context selection (`mentions`, `namedApplicationItems`, `clauseGroups`) | Which tracked items are fed to the model as current tracker state, by matching Sid's words against labels and program aliases. | The model should read the snapshot and choose; the selection becomes a bounded, non-authoritative hint rather than a gate. |
+| 19 | `LABEL_METADATA`, `containsLabel` and `isWorkflowLabelSafe` (`src/university/university-tracker-model.ts`) | Whether a new label smuggles a date, verification claim, money amount, URL, phone number or relative deadline into tracker state. | Partly a storage-safety check. The model should choose the label from Sid's message; code should keep only size, character and plain-provenance bounds. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -370,7 +397,7 @@ Two ranks still come from code, and this is the register row for them:
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 16 | `TIER3_CONFIRMATION_RANK` (`src/agent/owner-agent-core.ts`) and `SCHOOL_PAIRING_RANK` (`src/school/collector-pairing.ts`) | How urgent a decision is, for the two paths that raise one **without a model turn**: the tier-3 confirmation the system-protection gate raises, and the school collector pairing raised from an authenticated HTTP route. | `TIER3_CONFIRMATION_RANK` is raised by the gate that protects a system path, so there is no model in that loop to ask; if the confirmation ever gains a model turn, the rank becomes that turn's tool argument like `memory_confirm`'s. `SCHOOL_PAIRING_RANK` is an HTTP route with no model turn by construction. Both are named constants — not silent defaults — so the number is visible and can be replaced by a model argument when one exists. |
+| 20 | `TIER3_CONFIRMATION_RANK` (`src/agent/owner-agent-core.ts`) and `SCHOOL_PAIRING_RANK` (`src/school/collector-pairing.ts`) | How urgent a decision is, for the two paths that raise one **without a model turn**: the tier-3 confirmation the system-protection gate raises, and the school collector pairing raised from an authenticated HTTP route. | `TIER3_CONFIRMATION_RANK` is raised by the gate that protects a system path, so there is no model in that loop to ask; if the confirmation ever gains a model turn, the rank becomes that turn's tool argument like `memory_confirm`'s. `SCHOOL_PAIRING_RANK` is an HTTP route with no model turn by construction. Both are named constants — not silent defaults — so the number is visible and can be replaced by a model argument when one exists. |
 
 `memory_confirm` states `rank` as `required` in its tool schema; when a caller
 omits it the argument parser tolerates the absence, but the decision-raising
@@ -378,6 +405,40 @@ branch refuses visibly instead of defaulting. That is the whole point: code neve
 picks the priority, and when it cannot ask the model it says so rather than
 inventing one.
 
+### University tracker status judgments: removed (B116–B129, 2026-09-25)
+
+Removed by the PR titled "University tracker: the model declares status"
+(branch `codex/university-judgment-to-ai`, 2026-09-25). Every one of these was
+code deciding what Sid's words meant before a university tracker status could be
+stored, which Sid's 2026-09-25 rule — "you let ai DECIDE" — puts in the model.
+The model now declares the status enum and carries Sid's whole current message
+as `statusEvidence`; code keeps only the receipt/provenance fact
+(`statusEvidence === ownerMessage`), id, ownership and enum checks, the
+real-calendar-date check and the verified source/cycle check. No migration: the
+status enums are unchanged from `fbd593f9`.
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| B116 | `OWNER_SUBMISSION`, `JOINT_OWNER_SUBMISSION`, `REPORTED_OWNER_SUBMISSION` | Whether a sentence was Sid's own submission report. | Deleted. The model declares `submitted_by_sid`; code keeps exact-substring provenance. |
+| B117 | `NOT_STARTED_REPORT`, `DRAFTING_REPORT`, `READY_REPORT` | Which checklist enum a progress sentence meant. | Deleted. The model picks the enum. |
+| B118 | `CONDITIONAL_OR_QUESTION`, `HEARSAY`, `NEGATION`, `RETRACTION` | Whether a status sentence was conditional, hearsay, negated or retracted. | Deleted. The model judges. |
+| B119 | `RETIREMENT`, `BARE_DONT_NEED`, `REACTIVATION`, `DATE_CORRECTION` | Retirement, reactivation and date-correction wording. | Deleted. The prompt carries that vocabulary; the model decides. |
+| B120 | `supportsStatus` | The ~45-line gate over an application status update. | Replaced by the evidence-provenance check only. |
+| B121 | `evidenceSupportsCycle` | Whether the evidence named the admission cycle. | Deleted; the model supplies the cycle with the evidence. |
+| B122 | `evidenceSupportsDate` | Whether the wording contained the date. | Deleted; the model supplies an ISO date and code checks it is a real calendar date. |
+| B123 | `effectiveVerification` | An upgrade of stored verification derived from wording. | Deleted; code stores what the model gave and shows both. |
+| B128 | `FORWARDED_OR_QUOTED_OWNER_CLAIM`, `WORKFLOW_HEARSAY`, `DELEGATED_OWNER_ACTION` | Whether a workflow sentence was forwarded, quoted, hearsay or delegated. | Deleted; the model declares provenance. The rule that text not from Sid never triggers an action lives in the `telegram-types` provenance, not here. |
+| B129 | `PREPARATION_REQUEST`, `OWNER_ACTION_NOT_DONE` | Whether a sentence asked for preparation or said the owner action was not done. | Deleted; the model chooses `prepared` or an owner-reported status. |
+
+Risk accepted: a status update in Sid's own words is no longer refused when the
+wording might read another way, and a misread could mark an item submitted. The
+receipt names every status change and the tracker can be corrected, so the
+failure is visible and reversible rather than silent.
+
+Retained on purpose (registered as rows 16–19 above, not removed this round):
+the whole-message offer template grammar, the `workflowDeadline` target-clause
+naming, the `universityStateJson` context selection and the label-metadata
+checks.
 
 ### Row 10 persisted inference: still in code, not removed
 
