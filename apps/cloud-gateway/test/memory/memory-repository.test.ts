@@ -273,6 +273,7 @@ async function fixture(repository = new MemoryRepository(env.DB)): Promise<Fixtu
     principalId,
     itemId: newUlid(),
     kind: "preference",
+    lifetime: "durable",
     creationEventId: source.eventId,
     creationEventSequence: source.sequence,
     version: Object.freeze({
@@ -327,6 +328,7 @@ async function inputForArchived(
     principalId,
     itemId: newUlid(),
     kind: "fact" as const,
+    lifetime: "durable",
     creationEventId: archived.eventId,
     creationEventSequence: archived.sequence,
     version: Object.freeze({
