@@ -93,21 +93,28 @@ sync routes, voice) and a `scheduled` handler (four cron expressions).
 
 | Directory | What lives there |
 |---|---|
+| `agent/` | `OwnerAgentCore`: the shared turn loop both Telegram and voice compose. Since [#200](https://github.com/stremysid/jarvis/pull/200) it can take several tool steps in one turn (search, read, record) instead of one call per turn. |
 | `channels/telegram/` | Ingress. Classification, rate limiting, command parsing, the rejection payload that structurally cannot leak media metadata. |
 | `conversation/` | One turn: commit the user event, claim the turn, stream the model, stage and dispatch the reply. |
 | `persistence/` | D1 access and [the migrations](../apps/cloud-gateway/src/persistence/migrations/). Start here to understand the data model. |
 | `sync/` | Signed device requests, snapshot pagination, distillation. |
 | `archive/` | R2 tiering for events aged out of D1. |
-| `autonomy/` | Capability tiers and shadow mode. |
+| `backup/` | Memory backup/restore, and the notice sent when a nightly backup fails. |
+| `autonomy/` | Capability tiers and shadow mode. Tier 3 is exactly Sid's five confirmed actions as of migration `0051` ([#199](https://github.com/stremysid/jarvis/pull/199)). |
 | `decisions/` | The decision queue and its Telegram keyboards. |
 | `projects/` | GitHub poller, stalled-project detector. |
-| `deadlines/` | Deadline store, per-effort default lead times, Classroom and Brightspace calendar clients, quiet windows. |
+| `deadlines/` | Deadline store and external course-source clients (Classroom, Brightspace). Since [#193](https://github.com/stremysid/jarvis/pull/193)/[#201](https://github.com/stremysid/jarvis/pull/201), the model supplies the due date and decides warning timing itself; code no longer parses due phrases, judges effort, or derives lead time. |
+| `reminders/` | Owner reminder tools (`reminder_schedule`, `reminder_list`, cancel) added in [#168](https://github.com/stremysid/jarvis/pull/168); fenced delivery, no code-chosen warning time. |
+| `email/` | The owner email inbox tool added in [#190](https://github.com/stremysid/jarvis/pull/190). |
+| `web/` | `web_read`/`web_search` tools added in [#195](https://github.com/stremysid/jarvis/pull/195), gated on the tier-1 `read.web` capability. |
+| `school/`, `university/` | School catch-up, study coach, and the university application tracker. Word-grammar judgments are being removed area by area; see [CODE-VS-JUDGMENT](CODE-VS-JUDGMENT.md). |
 | `digest/` | Deterministic composition of the daily digest and Sunday retro. |
 | `jobs/` | Wires the above into the scheduled jobs. |
 | `scheduler/` | Cron routing (including timezone), run claiming, heartbeat. |
-| `voice/`, `calls/`, `providers/` | Twilio, ConversationRelay, the call session Durable Object. Fail-closed without credentials. |
-| `policy/`, `security/` | Authentication, redaction, PIN verification. |
+| `voice/`, `calls/`, `providers/` | Twilio, ConversationRelay, the call session Durable Object. Fail-closed without credentials. Since [#196](https://github.com/stremysid/jarvis/pull/196), a sensitive action on a call is confirmed by a spoken/keyed 4-digit PIN rather than a per-call passphrase gate. |
+| `policy/`, `security/` | Authentication, PIN verification, and redaction. Since [#197](https://github.com/stremysid/jarvis/pull/197), redaction toward Sid removes only machine-credential shapes; the fuller word-list rules apply only to readers who are not Sid (guest calls, audit, callback telemetry). |
 | `model/` | Model adapters and the token budget. |
+| `http/`, `observability/` | HTTP routing helpers and structured logging/telemetry. |
 
 ### The data model in one paragraph
 
