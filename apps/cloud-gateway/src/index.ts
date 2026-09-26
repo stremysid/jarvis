@@ -1,11 +1,12 @@
 import { createOwnerPipelineModels } from "./agent/owner-pipelines.js";
+import { createOwnerCommandCapabilities } from "./agent/owner-command-capabilities.js";
 import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { AutonomyService } from "./autonomy/autonomy-service.js";
 import { D1ToolConfirmationStore } from "./autonomy/tool-confirmations.js";
 import { ToolAutonomyGate } from "./autonomy/tool-gate.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
-import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
+import { parseCommand } from "./channels/telegram/telegram-commands.js";
 import { TelegramRateLimiter } from "./channels/telegram/telegram-rate-limit.js";
 import {
   handleTelegramWebhook,
@@ -17,15 +18,12 @@ import {
   telegramTurnOutcomeLog,
 } from "./channels/telegram/telegram-turn-observability.js";
 import { DeadlineRepository } from "./deadlines/deadline-repository.js";
-import { ProjectRepository } from "./projects/project-repository.js";
 import { QuietWindowService } from "./deadlines/quiet-windows.js";
 import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import type { AnswerDecisionResult, DecisionItem } from "./decisions/decision-types.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
-import { assembleDigest, expectedPushSources, unconfiguredDeadlineSources } from "./jobs/digest-job.js";
 import {
-  CLASSROOM_SOURCE_ID,
   buildJobTable,
   buildScheduledRuns,
   runOnDemandBrightspaceRefresh,
@@ -65,19 +63,14 @@ import {
   MemoryMeaningService,
   VectorizeMemoryVectorStore,
   WorkersAiMemoryEmbeddingProvider,
-  readMemoryMeaningCoverage,
 } from "./memory/meaning-search.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
 import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
-import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
-import { StudyCoachRepository } from "./school/study-coach-repository.js";
-import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { SchoolCollectorRepository } from "./school/collector-repository.js";
 import { SchoolCollectorPairing } from "./school/collector-pairing.js";
 import { SCHOOL_PAIR_ORIGIN } from "./school/collector-protocol.js";
 import { handleSchoolRequest, isSchoolPath } from "./http/school-routes.js";
 import { handleInboundEmail } from "./email/email-handler.js";
-import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
 import { webToolsFromEnv } from "./web/web-tools.js";
 export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
@@ -283,6 +276,9 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           // The same web tools a call gets, from the same environment.
           web: webToolsFromEnv(env),
           ...pipelines,
+          // The reads behind owner_status, decision_queue and run_digest. A
+          // call builds the same three from the same environment.
+          commands: createOwnerCommandCapabilities(env, ownerPrincipalId),
           // Retrieval happens after construction. The adapter resolves the
           // remaining arrival-anchored budget when its stream actually starts.
           turnReceivedAt: accepted.receivedAt,
@@ -394,7 +390,7 @@ async function sendOwnerSchoolEmailNotice(env: Env, text: string): Promise<void>
   await send(chatId, text);
 }
 
-/** What the command handlers are allowed to reach. */
+/** What the three mechanical command handlers are allowed to reach. */
 function commandContext(env: Env, principalId: string): CommandContext {
   const clock = { now: () => new Date() };
   const deadlines = new DeadlineRepository(env.DB);
@@ -402,16 +398,6 @@ function commandContext(env: Env, principalId: string): CommandContext {
   return {
     principalId,
     autonomy: new AutonomyRepository(env.DB),
-    decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => clock.now() }),
-    scheduler: buildScheduledRuns({
-      env,
-      clock,
-      delivery: { send: async () => undefined },
-      fetcher: globalThis.fetch.bind(globalThis),
-    }),
-    memoryMeaningCoverage: {
-      read: () => readMemoryMeaningCoverage(env.DB, principalId, clock.now()),
-    },
     quietWindows: {
       // Adapted rather than passed through: the service answers "is this
       // suppressed", and the command needs to open and close a window. Both
@@ -433,66 +419,16 @@ function commandContext(env: Env, principalId: string): CommandContext {
         return closed;
       },
     },
-    // The digest is assembled but NOT sent here: /digest answers in the chat
-    // the owner typed it in, and sending it separately would deliver it twice.
-    runDigestNow: async () => {
-      const digest = await assembleDigest("daily", {
-        sources: {
-          readCatchupActions: async (date) =>
-            new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
-          readApplicationItems: async () =>
-            new UniversityTrackerRepository(env.DB).listApplicationItemsByDueDate(principalId),
-          readWorkflowItems: async () =>
-            new UniversityTrackerRepository(env.DB).listWorkflowItemsByDueDate(principalId),
-          claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
-            const study = new StudyCoachRepository(env.DB);
-            const now = clock.now();
-            const [schoolSignals, deadlineSignals] = await Promise.all([
-              new SchoolObservationRepository(env.DB).readStudySnapshot({ principalId, now }),
-              new DeadlineRepository(env.DB).listStudyCandidates(now),
-            ]);
-            return study.syncAndClaimDigestCheckIn({
-              principalId, today: date, weekday, minuteOfDay, now,
-              signalInputs: { observations: schoolSignals, deadlines: deadlineSignals },
-            });
-          },
-          readDeadlines: async (withinDays) =>
-            new DeadlineRepository(env.DB).listDueWithin({
-              from: clock.now(),
-              to: new Date(clock.now().getTime() + withinDays * 86_400_000),
-            }),
-          readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources(),
-          readD2lStatus: () => new SchoolCollectorRepository(env.DB, principalId, () => clock.now()).status({ limit: 1 }),
-          readSchoolObservations: async () => {
-            const now = new Date(clock.now().getTime());
-            return new SchoolObservationRepository(env.DB).readDigestSnapshot({
-              principalId,
-              sourceId: CLASSROOM_SOURCE_ID,
-              changedSince: new Date(now.getTime() - 7 * 86_400_000),
-              now,
-            });
-          },
-          readProjectStatuses: async () => new ProjectRepository(env.DB).readActiveProjectStatuses(),
-          readOpenDecisions: async () =>
-            new DecisionService({ repository: new DecisionRepository(env.DB) }).queue(principalId),
-        },
-        delivery: { send: async () => undefined },
-        clock,
-        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        unconfiguredDeadlineSources: unconfiguredDeadlineSources(env),
-        expectedPushSources: expectedPushSources(env),
-      });
-      return digest.text;
-    },
     now: () => clock.now(),
   };
 }
 
 /**
- * Answer a slash command.
+ * Answer one of the three mechanical commands.
  *
- * Runs instead of the model, not before it: a command that reached DeepSeek
- * would come back as a confident paragraph about a thing that did not happen.
+ * Runs instead of the model, not before it: these are the owner's own
+ * permission switches and the text-authorized call, and each already carries
+ * its own validation. Every other command-shaped message reaches the model.
  */
 async function runTelegramCommand(
   env: Env,
@@ -507,14 +443,9 @@ async function runTelegramCommand(
     name === "call"
       ? { ...context, calls: { request: () => requestProductionTelegramCall(env, accepted) } }
       : context);
-  const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
   const replyChatId = accepted.chatId;
   for (const reply of replies) {
     await send(replyChatId, reply.text);
-    // Recorded only after the send succeeded. Marking delivery first would
-    // let a failed send leave a question the owner never saw but which the
-    // system believes it asked.
-    if (reply.decisionId !== undefined) await decisions.markDelivered(reply.decisionId);
   }
 }
 
@@ -735,21 +666,17 @@ export default {
         events: new EventRepository(env.DB),
         limiter: telegramLimiter,
         onAccepted: (accepted) => {
-          // The split happens here, before any model call. A command must not
-          // reach DeepSeek and come back as prose about a thing that did not
-          // happen.
+          // Three mechanical commands stay code: the owner's own shadow and
+          // quiet-hour switches, and the text-authorized call whose exact
+          // "--confirm" line is the authorization. Every other message --
+          // including "/status", "/queue" and "/digest" -- reaches the model,
+          // which calls the matching tool. `/call` enforces owner authority
+          // itself (`D1TelegramCallCommands`), so no outer gate may decide the
+          // command is not for the owner: dropping it here would send the ask to
+          // the model instead of the explicit reply the owner is owed.
           const parsed = parseCommand(accepted.text, env.TELEGRAM_BOT_USERNAME ?? null);
           if (parsed.kind === "command") {
             ctx.waitUntil(runTelegramCommand(env, accepted, parsed.name, parsed.argument));
-            return;
-          }
-          if (parsed.kind === "unknown_command") {
-            const send = telegramSender(env);
-            if (send !== null) {
-              ctx.waitUntil(send(accepted.chatId, `No such command.
-
-${COMMAND_HELP}`));
-            }
             return;
           }
           ctx.waitUntil(replyTo(env, accepted));

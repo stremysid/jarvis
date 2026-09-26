@@ -50,6 +50,7 @@ async function harness(toolName = "school_update", approved = true) {
   ]);
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
   const raised = await decisions.raise({
+    rank: 100,
     principalId, origin: TIER3_TOOL_ORIGIN,
     originReference: confirmationReference(toolName, capability, await argumentsFingerprint(args)),
     urgency: "normal", question: "Run this fixture action?",

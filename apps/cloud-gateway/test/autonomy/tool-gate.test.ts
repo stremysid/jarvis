@@ -59,6 +59,7 @@ async function ownerConfirms(
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now });
   const hash = await argumentsFingerprint(serializedArguments);
   const raised = await decisions.raise({
+    rank: 100,
     principalId: PRINCIPAL_ID,
     origin: TIER3_TOOL_ORIGIN,
     originReference: confirmationReference(toolName, capability, hash),

@@ -241,7 +241,7 @@ Sid that the decision happened.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. The A55 leftovers PR (2026-09-25) deleted the rest of the slash-command router but deliberately kept `/call` a command: `D1TelegramCallCommands.reconstruct` re-reads the exact `--confirm` line from the durable event as the authorization, so the tool is still the next step. |
 
 Rows 1 and 3–5 are removed; see [Voice access and silent drops: removed](#voice-access-and-silent-drops-removed).
 
@@ -316,6 +316,94 @@ puts in the model, not here. Neither removal needed a migration.
 
 Rows 11 and 12 are removed; the identifiers stay in this file so a future
 reader can find what decision they carried.
+
+### Telegram command router and the silent argument slice: removed (A55, 2026-09-25)
+
+Removed by the PR titled "Leftovers: slash commands become tools; decisions need
+a rank from the model" (branch `codex/leftovers-judgment-to-ai`, 2026-09-25).
+
+The router in `channels/telegram/telegram-commands.ts` (`COMMAND_PATTERN`,
+`KNOWN_COMMANDS`, `COMMAND_HELP`, the `unknown_command` result and the 256
+character `MAX_ARGUMENT_CHARACTERS` slice) and the handlers in
+`command-handler.ts` decided what a command-shaped message meant before the
+model ran, and answered `/status`, `/queue` and `/digest` from code. That also
+made those three capabilities **Telegram-only**, which is the rule 3 parity gap
+the register named.
+
+Now:
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| A55 | `parseCommand`, `KNOWN_COMMANDS`, `COMMAND_HELP`, `UnknownCommand`, `MAX_ARGUMENT_CHARACTERS` and the `command-handler` `status`/`queue`/`digest`/`vault`/`help` cases (`src/channels/telegram/`) | Which command-shaped text was a command, what `/status`, `/queue` and `/digest` answered, and where an over-long argument was silently cut to 256 characters. | Deleted or reduced. `owner_status`, `decision_queue` and `run_digest` are tools in the shared `OWNER_TOOL_DEFINITIONS`, dispatched by the same core on Telegram and on a call; code reads no wording. Unknown command-shaped text (including `/help`, `/vault`, `/deploy`) reaches the model. Nothing truncates: `requireConfirmation` refuses an over-long call visibly. |
+
+The mechanical `/vault` reply was **not** lost in that deletion. Deleting the
+command removed a Telegram-only hard-coded answer with nothing replacing it, so
+this PR adds `vault_search` to the same shared `OWNER_TOOL_DEFINITIONS`
+(`src/agent/owner-command-tools.ts`). The model decides whether Sid's message is
+about the vault and calls the tool; the tool takes the `query` the model chose
+and returns the owner-only evidence — "The vault lives on your PC. Run:
+jarvis vault search &lt;query&gt;" — as an unactioned tool result. It is classified
+`memory.read` (tier 1) in `tool-capabilities.ts`, so it needs no migration, and
+because it is in the shared catalogue it works on Telegram and on a call alike.
+Code neither recognizes nor answers a `/vault` command.
+
+
+Three commands stay in code, each a purely mechanical owner-authenticated action
+rather than a reading of Sid's words:
+
+- `/shadow on|off` and `/exam on|off` are the owner's own permission and
+  notification switches. They are the escape hatches from shadow mode and quiet
+  hours, so they must work even when the model path is unavailable, and `on`/`off`
+  is a value rather than a judgment.
+- `/call <reason> --confirm` is a confirmed action whose authorization is that
+  exact text: `D1TelegramCallCommands.reconstruct` re-reads the durable event and
+  refuses without `--confirm`, so moving it behind a tool rewrites the calling
+  authorization. It is register row 2 above, and the tool is still the next step.
+
+No pairing or enrollment path uses a slash command (school pairing is a decision
+tap; device and phone enrollment are device-signed HTTP routes), so nothing was
+kept for that reason.
+
+### Decision rank: the model states it, code only validates (A119/B169, 2026-09-25)
+
+`DEFAULT_DECISION_RANK = 100` (`decisions/decision-types.ts`) and
+`const rank = input.rank ?? DEFAULT_DECISION_RANK` (`decisions/decision-service.ts`)
+let code choose the owner's queue priority silently: a caller that supplied no
+rank got 100 and the queue's order was a constant nobody wrote down.
+
+Partly removed, and now honest about the remainder. `RaiseDecisionInput.rank` is
+required and the service validates it, throwing `decision_rank_invalid` for a
+missing or invalid value. The `rank` column default in `0009_decisions.sql` is
+left in place and inert — the service always writes an explicit rank, and a test
+pins the column default without relying on it. No migration.
+
+The one **model-facing** decision raiser left now takes the rank from the model
+as a required tool argument, validated as a whole number ≥ 0:
+
+| Tool | Argument | Behaviour without it |
+|---|---|---|
+| `memory_confirm` (`OwnerAgentCore.confirm`) | `rank` (required in the schema) | The inferred-memory confirmation is **refused** with a visible receipt telling the model to pass a rank; nothing is queued and the memory stays proposed. |
+
+`memory_forget` no longer joins this table: the memory batch landed the row-13
+removal on main, so forgetting several memories happens in the one call and raises
+no decision at all. The tap that used to stand there is gone; the `rank` argument
+that briefly belonged to it went with the decision.
+
+There is no default, no recency heuristic and no code-chosen number on that path.
+A test pins that a model-supplied `rank: 50` reaches the queued decision
+unchanged, and that omitting it refuses rather than queues.
+
+Two ranks still come from code, and this is the register row for them:
+
+| # | Symbol | The decision code is making | Surface it should move to |
+|---|---|---|---|
+| 20 | `TIER3_CONFIRMATION_RANK` (`src/agent/owner-agent-core.ts`) and `SCHOOL_PAIRING_RANK` (`src/school/collector-pairing.ts`) | How urgent a decision is, for the two paths that raise one **without a model turn**: the tier-3 confirmation the system-protection gate raises, and the school collector pairing raised from an authenticated HTTP route. | `TIER3_CONFIRMATION_RANK` is raised by the gate that protects a system path, so there is no model in that loop to ask; if the confirmation ever gains a model turn, the rank becomes that turn's tool argument like `memory_confirm`'s. `SCHOOL_PAIRING_RANK` is an HTTP route with no model turn by construction. Both are named constants — not silent defaults — so the number is visible and can be replaced by a model argument when one exists. |
+
+`memory_confirm` states `rank` as `required` in its tool schema; when a caller
+omits it the argument parser tolerates the absence, but the decision-raising
+branch refuses visibly instead of defaulting. That is the whole point: code never
+picks the priority, and when it cannot ask the model it says so rather than
+inventing one.
 
 ### University tracker status judgments: removed (B116–B129, 2026-09-25)
 

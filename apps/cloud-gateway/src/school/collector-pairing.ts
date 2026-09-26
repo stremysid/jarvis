@@ -6,6 +6,16 @@ import { decodeCanonicalBase64, encodeBase64Url } from "../sync/signed-request.j
 import { requireText } from "../deadlines/deadline-types.js";
 import { type CollectorKey, exact, SCHOOL_PAIR_ORIGIN, SCHOOL_PAIR_TTL_MS } from "./collector-protocol.js";
 
+/**
+ * The queue band a collector pairing tap uses.
+ *
+ * There is no model turn on this path at all: an enrolled extension makes an
+ * HTTP pairing request, and the question it raises is a code-authored
+ * confirmation. The band is named rather than inlined so the remaining
+ * code-side choice is visible; `docs/CODE-VS-JUDGMENT.md` records it.
+ */
+const SCHOOL_PAIRING_RANK = 0;
+
 export class SchoolCollectorPairing {
   constructor(private readonly database: D1Database, private readonly owner: string, private readonly now: () => Date) {}
 
@@ -50,6 +60,7 @@ export class SchoolCollectorPairing {
     // lets racing retries recover the same decision instead of asking for a second tap.
     const decision = await existing() ?? await new DecisionService({ repository, now: this.now }).raise({
       principalId: this.owner, origin: SCHOOL_PAIR_ORIGIN, originReference: key.collector_id, urgency: "urgent",
+      rank: SCHOOL_PAIRING_RANK,
       question: `Pair school collector ${JSON.stringify(key.device_label)}? Match code ${key.pairing_code} in your extension. Expires in 10 minutes.`,
       detail: "Tier 3: this key may only send Brightspace evidence. Confirm only if you started pairing and both codes match. It cannot read memory or sync data.",
       expiresAt: key.expires_at, choices: [{ key: "confirm", label: "Confirm this collector" }, { key: "reject", label: "Reject" }],

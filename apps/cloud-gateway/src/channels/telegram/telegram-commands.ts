@@ -1,15 +1,34 @@
 /**
- * Recognising a command before it reaches the model.
+ * The few slash commands that stay code.
  *
- * Ordinary messages are answered by DeepSeek. A command is not: `/exam off`
- * must toggle exam mode, not produce a paragraph about exams. So the split
- * happens here, ahead of the conversation service, and it is deliberately
- * conservative -- a message that only looks like a command is treated as
- * ordinary text rather than dispatched to something that acts.
+ * Ordinary messages are answered by DeepSeek, and so is almost every slash
+ * command: `/status`, `/queue` and `/digest` are capabilities the model now
+ * reaches through its own tools (`owner_status`, `decision_queue`,
+ * `run_digest`), available on Telegram and on a call alike. A router that
+ * recognised those words and acted instead of letting the model read them was
+ * deciding what Sid's message meant.
  *
- * Parsing is total and pure. It never touches the database, so an unknown
- * command costs nothing and a malformed one cannot fail a webhook that has
- * already been accepted.
+ * Three commands remain, and each is a purely mechanical owner-authenticated
+ * action rather than a reading of Sid's words:
+ *
+ *   `/shadow on|off` and `/exam on|off` are the owner's own permission and
+ *   notification switches. They are the escape hatches from shadow mode and
+ *   quiet hours, so they must work even when the model path is unavailable,
+ *   and `on`/`off` is a value, not a judgment.
+ *
+ *   `/call <reason> --confirm` is a confirmed action whose authorization is the
+ *   exact text: `D1TelegramCallCommands.reconstruct` re-reads this line from the
+ *   durable event and refuses without `--confirm`. Moving it behind a tool
+ *   would rewrite that authorization, so it stays a command.
+ *
+ * Everything else -- an unknown name, a bare slash, a path -- is ordinary text
+ * and reaches the model, which decides what Sid meant. That is why there is no
+ * "unknown command" reply: refusing it in code would be deciding that a
+ * message the model never saw was not worth answering.
+ *
+ * Parsing is total and pure. It never touches the database, so a malformed
+ * command costs nothing and cannot fail a webhook that has already been
+ * accepted.
  */
 
 /**
@@ -19,29 +38,13 @@
  */
 const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
 
-export type CommandName =
-  | "help"
-  | "status"
-  | "queue"
-  | "digest"
-  | "exam"
-  | "shadow"
-  | "call"
-  | "vault";
+export type CommandName = "exam" | "shadow" | "call";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
-  "help",
-  "status",
-  "queue",
-  "digest",
   "exam",
   "shadow",
   "call",
-  "vault",
 ]);
-
-/** Bounded so a pathological argument cannot be carried into a query. */
-const MAX_ARGUMENT_CHARACTERS = 256;
 
 export interface ParsedCommand {
   readonly kind: "command";
@@ -52,16 +55,11 @@ export interface ParsedCommand {
   readonly addressedTo: string | null;
 }
 
-export interface UnknownCommand {
-  readonly kind: "unknown_command";
-  readonly attempted: string;
-}
-
 export interface OrdinaryText {
   readonly kind: "text";
 }
 
-export type CommandParse = ParsedCommand | UnknownCommand | OrdinaryText;
+export type CommandParse = ParsedCommand | OrdinaryText;
 
 /**
  * Classify one inbound message.
@@ -82,8 +80,8 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   const firstLine = line.split("\n", 1)[0] ?? "";
   const ordinaryMatch = COMMAND_PATTERN.exec(firstLine);
   // A slash followed by something that is not a command shape -- "/", "/123",
-  // or any other hyphenated name -- is text. Reporting it as unknown would mean
-  // replying "unknown command" to a message that never was one.
+  // or any other hyphenated name -- is text, and so is a command-shaped name
+  // that is not one of the three mechanical commands.
   if (ordinaryMatch === null) return { kind: "text" };
 
   const name = ordinaryMatch[1] ?? "";
@@ -98,16 +96,18 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     return { kind: "text" };
   }
 
-  if (!KNOWN_COMMANDS.has(name)) return { kind: "unknown_command", attempted: name };
+  if (!KNOWN_COMMANDS.has(name)) return { kind: "text" };
 
   return {
     kind: "command",
     name: name as CommandName,
     // A call must validate all the supplied text. Truncation or ignoring a
     // second line could turn a non-final --confirm into permission to dial.
+    // Nothing is sliced: `requireConfirmation` refuses an over-long argument
+    // visibly, and the model reads every other command's words itself.
     argument: name === "call"
       ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
-      : (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
+      : (rest ?? "").trim(),
     addressedTo: addressed ?? null,
   };
 }
@@ -128,15 +128,3 @@ export function parseToggle(argument: string): Toggle | null {
   if (value === "off" || value === "disable" || value === "disabled") return "off";
   return null;
 }
-
-/** Shown for `/help` and for an unrecognised command. */
-export const COMMAND_HELP: string = [
-  "/status - what Jarvis has been doing",
-  "/queue - decisions waiting on you",
-  "/digest - today's digest now",
-  "/exam on|off - hold non-urgent pings",
-  "/shadow on|off - whether Jarvis acts or only reports",
-  "/vault <query> - search your notes",
-  "/call <reason> --confirm - call your verified phone (owner only)",
-  "/help - this",
-].join("\n");

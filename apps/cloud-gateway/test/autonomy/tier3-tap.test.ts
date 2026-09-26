@@ -37,6 +37,7 @@ async function harness() {
   );
   async function raise(reference: string): Promise<string> {
     const item = await decisions.raise({
+      rank: 100,
       principalId, origin: TIER3_TOOL_ORIGIN,
       originReference: reference,
       urgency: "normal", question: "Run this synthetic action?",
