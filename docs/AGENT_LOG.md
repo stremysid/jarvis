@@ -3,10 +3,11 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13)
+## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13, PR #209)
 
 Signed: DeepSeek V4.1 Flash (builder agent), branch `codex/projects-judgment-to-ai` from
-`679d2b95`. Touches Sid's rules 1, 2, 8, 9. No migration.
+`679d2b95`, PR [#209](https://github.com/stremysid/jarvis/pull/209). Touches Sid's rules
+1, 2, 8, 9. No migration.
 
 - **The detector is gone, replaced by facts.** `projects/stalled-detector.ts` is renamed
   `projects/project-facts.ts`. `assessStaleness`, `detectStalledProjects`,

@@ -79,7 +79,8 @@ wording, and writing them down did not make them right.
 ## Project attention judgment: removed (batch 13, 2026-09-25)
 
 Removed by the PR titled "Projects: the AI decides what needs attention, not code"
-(branch `codex/projects-judgment-to-ai`, 2026-09-25). The stalled-project detector
+([#209](https://github.com/stremysid/jarvis/pull/209), branch `codex/projects-judgment-to-ai`,
+2026-09-25). The stalled-project detector
 was eleven decisions about when a project was late; each is now a fact the model
 reads and judges. No migration: the `stale_after_days` column and its `DEFAULT 7`
 are left inert rather than rebuilt.
