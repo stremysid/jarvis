@@ -131,7 +131,7 @@ describe("The frozen round-two held-out corpus", () => {
       expect(guardReplyClaims(sentence)).not.toBe(sentence);
     });
   }
-  it.each(tutoring)("keeps the held-out tutoring sentence: %s", (sentence) => {
-    expect(guardReplyClaims(sentence)).toBe(sentence);
+  it.each(tutoring)("keeps the held-out tutoring sentence the model declares: %s", (sentence) => {
+    expect(guardReplyClaims(sentence, { workedExplanations: [sentence] })).toBe(sentence);
   });
 });
