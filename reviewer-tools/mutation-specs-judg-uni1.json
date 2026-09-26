@@ -1,0 +1,66 @@
+[
+  {
+    "name": "application-status-provenance-required",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "    || status !== null && statusEvidence !== ownerMessage) {",
+    "replace": "    || false) {",
+    "testPath": "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "expect": "requires the whole current owner message for a submitted-by-Sid update"
+  },
+  {
+    "name": "application-status-evidence-pairing-required",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "    || status === null && statusEvidence !== null\n    || status !== null && statusEvidence === null\n",
+    "replace": "",
+    "testPath": "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "expect": "refuses a status with no provenance or provenance with no status"
+  },
+  {
+    "name": "workflow-kind-allows-any-status",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "  if (!workflowStatusAllowed(kind, status)) return false;",
+    "replace": "  if (false) return false;",
+    "testPath": "apps/cloud-gateway/test/university/university-application-round4-corpus.test.ts",
+    "expect": "refuses a step status the snapshot's step kind does not allow"
+  },
+  {
+    "name": "workflow-step-provenance-required",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "  if (status === null && statusEvidence !== null || status !== null && (statusEvidence !== ownerMessage",
+    "replace": "  if (status === null && statusEvidence !== null || status !== null && (false",
+    "testPath": "apps/cloud-gateway/test/university/university-application-round4-corpus.test.ts",
+    "expect": "refuses a step declaration whose evidence is not Sid's whole message"
+  },
+  {
+    "name": "application-date-must-be-real",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "  if (date !== null && (!LOCAL_DATE.test(date)\n    || new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date)) {\n    throw new TypeError(\"university_application_model_date_invalid\");\n  }",
+    "replace": "  if (false) {\n    throw new TypeError(\"university_application_model_date_invalid\");\n  }",
+    "testPath": "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "expect": "refuses a date the model supplies that is not a real calendar date"
+  },
+  {
+    "name": "verified-needs-source-and-cycle-in-message",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "  if (item.state === \"verified\"\n    && (url === null || cycle === null || !ADMISSION_CYCLE.test(cycle) || !ownerMessage.includes(cycle))) {\n    throw new TypeError(\"university_tracker_model_verification_invalid\");\n  }",
+    "replace": "  if (false) {\n    throw new TypeError(\"university_tracker_model_verification_invalid\");\n  }",
+    "testPath": "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "expect": "refuses a verified date whose cycle is absent from Sid's message"
+  },
+  {
+    "name": "workflow-deadline-target-clause-required",
+    "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+    "find": "  if (evidence !== ownerMessage || targetClauses.length === 0) {",
+    "replace": "  if (false) {",
+    "testPath": "apps/cloud-gateway/test/university/university-application-details-model.test.ts",
+    "expect": "split-clause deadline is what the retained deadline rule refuses"
+  },
+  {
+    "name": "retired-duplicate-remap-needs-declared-status",
+    "file": "apps/cloud-gateway/src/university/university-tracker-repository.ts",
+    "find": "        if (update.status === null || update.statusEvidence === null) {\n          throw new TypeError(\"university_application_item_exists\");\n        }",
+    "replace": "        if (false) {\n          throw new TypeError(\"university_application_item_exists\");\n        }",
+    "testPath": "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "expect": "remaps a retired response-local duplicate whenever the model declares a status"
+  }
+]
