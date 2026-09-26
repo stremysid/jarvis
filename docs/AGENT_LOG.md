@@ -1345,6 +1345,15 @@ Signed: DeepSeek (dsh headless builder, effort high), codex/channel-parity F1 + 
 **Verification.** Focused vitest (6 files): 160/160 passed. `tsc --noEmit -p apps/cloud-gateway` exit 0. `check-state` passed with its one existing FACTS warning; `git diff --check` clean. The full workspace suite is left to GitHub Actions.
 
 **Not verified:** live Telegram, voice-relay or provider behaviour; the Windows CI leg; the test-tsconfig diagnostic count, which was not re-measured here.
+## 2026-09-24 — Claude builder: call transcripts cannot keep filler words (docs only)
+
+Signed: Claude (builder agent), branch `codex/call-verbatim-transcript` from `a7cd355`. Touches Sid's rules 1, 3, 5, 8 and 9.
+
+- **Question:** can `<ConversationRelay>` keep "uh"/"um", so a call's `guided_assignment_save` `raw` is verbatim?
+- **Answer: no documented way.** Deepgram strips "uh" and "um" unless `filler_words=true` ([docs](https://developers.deepgram.com/docs/filler-words)). Twilio's [attribute table](https://www.twilio.com/docs/voice/twiml/connect/conversationrelay) has no attribute for that or for any raw Deepgram option. The one Deepgram transcript-format attribute is `deepgramSmartFormat` (default `true`). Nothing in the TwiML was changed. The limit and its consequences are in `KNOWN_ISSUES.md`.
+- **Unverified:** whether Twilio sets `filler_words` itself. One live owner call would settle it.
+- **For the keypad/timeout build (report only, needs Sid's go):** the table lists `speechTimeout` (600–5000 ms, default `auto`), `hints`, `dtmfDetection`, `interruptible`, `interruptSensitivity`, `reportInputDuringAgentSpeech`, `ignoreBackchannel`, and flux-only `eotThreshold`/`partialPrompts`. The TwiML already renders `dtmfDetection="true"`. `#handleDtmf` in `call-session-do.ts` (as of `a7cd355`) routes digits only for guest PIN, owner access PIN and activation. Keypad digits during owner step-up or ordinary conversation are dropped. `speechTimeout` and `hints` are not set.
+- **Gates:** no source or test change, so no Vitest or tsc run was needed. The `check-state` result is in the PR body.
 
 ## 2026-09-24 — Claude builder: provider tool cap below the owner catalogue
 
