@@ -3,22 +3,25 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-25 — DeepSeek builder: #214 round 2 (migration 0056, row-16 queue item, merge)
+## 2026-09-25 — DeepSeek builder: #214 round 3 (migration 0056, row-20 queue item, final merge)
 
 Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai`.
 
-- **Migration renamed to `0056_school_catchup_planned_cap.sql`.** PR #207 (calls) takes `0055`, so
-  the school cap-trigger migration moved one number up. Every list and document that named it was
-  updated: the restore list, the school chain, the newest-runtime chain and the full list in
+- **Migration renamed to `0056_school_catchup_planned_cap.sql`.** PR #207 (calls) took `0055`
+  (`0055_owner_access_tool.sql`), so the school cap-trigger migration moved one number up. Every
+  list and document that names it keeps both: `0055` then `0056` in numeric order in the restore
+  list, the school chain, the newest-runtime chain and the full list in
   `test/persistence/migration.ts`, the remote-D1 syntax inventory, the memory-backup schema
-  version, the mutation spec and the docs. `0056` is free on main (which tops at `0054`) and in
-  every open PR. Nothing was applied anywhere.
-- **`docs/QUEUE.md` now carries the removal item for register row 16** (`FALSE_EXTERNAL_COMPLETIONS`
+  version (`0056_school_catchup_planned_cap.sql`), the mutation spec and the docs. `0056` is free
+  on main and in every open PR. Nothing was applied anywhere.
+- **`docs/QUEUE.md` carries the removal item for register row 20** (`FALSE_EXTERNAL_COMPLETIONS`
   and the passive-completion patterns in `school-catchup-model.ts`), which AGENTS.md requires for a
-  judgment that is registered but not removed this round.
-- **`origin/main` merged** (`018b5717`), bringing `0053`/`0054` from #201 and the #206/#209/#216
-  work. The voice catalogue test already names the real 30-tool catalogue, including
-  `project_facts`; no count change was needed.
+  judgment that is registered but not removed. The row was 16 before #213's university rows 16–19
+  merged, so it and its references are renumbered to 20.
+- **`origin/main` merged** (`193d02b4`), bringing `0053`/`0054` (#201), `0055_owner_access_tool`
+  (#207), the study-coach batch (#212), the university tracker rows 16–19 (#213) and #218. The
+  study-coach test that expected the deleted credential-request rewrite now asserts the merged
+  behaviour: the generated password question stands and only the false completion claim is refused.
 - **Verified:** focused `test/school` + persistence/backup/migration + `voice-agent` +
   `tool-classification` = 1214 passed; gateway `tsc --noEmit` clean; `scripts/check-state.mjs`
   passes with the pre-existing FACTS warning.
@@ -52,6 +55,66 @@ Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `or
   `test/conversation`+`test/memory` 736; gateway `tsc` exit 0; `check-state` passed. Mutation sweep
   `reviewer-tools/mutation-specs-judg-catchup.json`: 7/7 killed, restore verified. Full suites on CI;
   no merge, no deploy, no migration applied.
+
+## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent), from `fbd593f9`. Touches Sid's rules 1, 2, 3 and 8.
+
+- **What changed.** The nine intent parsers in `school/study-coach-model.ts` are deleted
+  (`parsePracticeRequest`, `parseStudyPreferenceIntent`, `parseOwnerStudyObservation`,
+  `resolveCourse`/`phraseMatches`, `forgetSubject`/`correctionIntent`/
+  `parseStudySignalControlIntent`/`parseCheckInPracticeMode`, `isUncertainAnswer`,
+  `plausiblyAnswersQuiz`, `courseFactSource` priority, and the fixed clarifying question).
+  `study_coach` is now one tool whose arguments carry the model's declared action:
+  `operation` (practice, check_in_practice, observe, preference, forget, signal, answer_quiz,
+  stop_quiz, correction) plus `mode`, `sourcePhrase`, `useCourseEvidence`, `factId`, `courseId`,
+  `topic`, `outcome`, `signal` and `preferencePatch`.
+- **What code keeps.** Course and fact ids are validated against the owner's own snapshot, the
+  enum values are checked, and the quiz answer keeps its 30-minute window and 256-byte bound.
+  A missing or unknown course or fact id returns the candidate list instead of defaulting; the
+  model asks Sid. Removed: the 12-word quiz-answer cap, the negation/"finished"/"plan" word
+  lists, the fuzzy course matching, the fact priority sort, and the code-written clarifying
+  question. The study-coach receipts stay code-authored, because they are receipts.
+- **Plumbing.** `owner-agent-core.ts`'s `runPipeline` passes the tool call to `study_coach`
+  (and only that pipeline; the others still refuse any argument), and `collectPipelineOutcome`
+  forwards it. `owner-tools.ts` uses the exported `STUDY_COACH_TOOL`.
+- **Verified here:** gateway `tsc` 0; 76 focused files across school, agent, channels, voice,
+  autonomy and providers: 2320 passed, 1 load-sensitive timeout in
+  `call-session-relay-fixes.test.ts` that passes 9/9 alone; `mutate.ps1` with
+  `mutation-specs-judg-coach1.json` in the PR. Full suites on CI.
+- Not merged or deployed.
+
+## 2026-09-25 — DeepSeek builder: calls judgment batch (`codex/calls-judgment-to-ai`)
+
+Signed: DeepSeek V4.1 Flash (builder agent). Touches Sid's rules 1, 2, 3, 4 and 8.
+
+- **Owner access is a tool now.** `parseOwnerAccessIntent`, `PERMISSION_CAPABILITIES` and the
+  60-second `expiresAt` are deleted (`owner-access-intent.ts` removed). The model calls
+  `owner_access` with `{operation, phone, capabilities, pin}` on a call; code keeps E.164,
+  capability-membership (`GUEST_CAPABILITY_IDS`, so the owner-only `access.manage` is refused)
+  and the voice-access authority check. The model passes capability ids, not phrases.
+- **No confirm/cancel word match.** The two-phase prepare/confirm step and its fixed spoken
+  lines are gone; the model decides whether to read the number back or ask Sid to confirm, and a
+  guest still passes their own PIN (`GuestPinVerifier`). `pin: "default" | "digits"` is the
+  model's argument; `digits` opens a PIN question on the call, and the answer is consumed by
+  `CallSessionCore` before it can become a turn, event or model input.
+- **Receipts, not sentences.** `OwnerAccessService.execute` returns `{outcome, operation,
+  maskedTarget, guests, noticeUnconfirmed}`; the agent mints a receipt id but speaks no
+  code-authored sentence, so the model phrases the outcome. The `maskedTarget ?? "the caller"`
+  guess and every fixed instruction line are gone.
+- **No silent drops.** An utterance arriving while a turn owns the slot is queued as the next
+  turn (one slot; a third displaces the queued one and that displacement is spoken). A failed
+  voice retrieval now puts a "Memory could not be read this turn" notice in the model's context
+  instead of silently empty memory; the 750 ms bound stays.
+- **Migration `0055_owner_access_tool.sql`** registers `access.manage` at tier 1 so the new
+  tool is a classified capability; `0053` and `0054` landed on main with #201, so this is the
+  next free number. All the
+  hand-kept migration lists, the backup seed list and the pinned schema-version tests are
+  updated with it.
+- **Verified here:** gateway `tsc` 0; focused suites (voice, autonomy, conversation, security,
+  backup, owner-telegram-agent, relay fixes, owner-access tool/service/security) green;
+  `mutate.ps1` with `mutation-specs-calls-judgment.json` in the PR. Full suites on CI.
+- Not merged or deployed.
 
 ## 2026-09-25 — DeepSeek builder: project attention judgment to the AI (batch 13, PR #209)
 

@@ -49,6 +49,7 @@ import confirmOnlyFiveActionsSql from "../../src/persistence/migrations/0051_con
 import emailInboxSql from "../../src/persistence/migrations/0052_email_inbox.sql?raw";
 import deadlinesStoreFactsSql from "../../src/persistence/migrations/0053_deadlines_store_facts.sql?raw";
 import ownerRemindersScheduledSql from "../../src/persistence/migrations/0054_owner_reminders_scheduled.sql?raw";
+import ownerAccessToolSql from "../../src/persistence/migrations/0055_owner_access_tool.sql?raw";
 import schoolCatchupPlannedCapSql from "../../src/persistence/migrations/0056_school_catchup_planned_cap.sql?raw";
 
 let scheduledRunDetailMigrated: Promise<void> | undefined;
@@ -174,6 +175,10 @@ export async function applyMemoryIngressMigration(): Promise<void> {
     // review can schedule a warning without inventing a conversation turn.
     // It belongs after 0050, so it is deliberately not in the foundation chain.
     { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    // 0055 is an INSERT OR IGNORE into capability_tiers, whose table `0008`
+    // creates, so it is safe on this chain too and keeps the newest file on
+    // disk reachable from the memory fixtures.
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   ]);
   await memoryIngressMigrated;
 }
@@ -379,6 +384,7 @@ export async function applyNewestRuntimeMigration(): Promise<void> {
     { name: "0051_confirm_only_five_actions.sql", queries: splitMigration(confirmOnlyFiveActionsSql) },
     { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
     { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+    { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
     { name: "0056_school_catchup_planned_cap.sql", queries: splitMigration(schoolCatchupPlannedCapSql) },
   ]);
   await newestRuntimeMigrated;
@@ -444,6 +450,7 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0052_email_inbox.sql", queries: splitMigration(emailInboxSql) },
   { name: "0053_deadlines_store_facts.sql", queries: splitMigration(deadlinesStoreFactsSql) },
   { name: "0054_owner_reminders_scheduled.sql", queries: splitMigration(ownerRemindersScheduledSql) },
+  { name: "0055_owner_access_tool.sql", queries: splitMigration(ownerAccessToolSql) },
   { name: "0056_school_catchup_planned_cap.sql", queries: splitMigration(schoolCatchupPlannedCapSql) },
 ]);
 

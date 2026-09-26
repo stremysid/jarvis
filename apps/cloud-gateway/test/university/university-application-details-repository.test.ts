@@ -307,13 +307,15 @@ describe("UniversityTrackerRepository application details", () => {
     expect(await repository.listWorkflowItemsByDueDate(principalId)).toEqual([]);
   });
 
-  it("rejects a status claim that does not name the one workflow and application item", async () => {
+  it("stores a model-declared workflow status even when its evidence does not name the item", async () => {
     const principalId = "principal:workflow-repository-evidence";
     const turnId = newUlid(NOW);
     const ownerText = "Prepare the Western essay submission for the Western essay.";
     await seedTurn(principalId, turnId, ownerText);
     const repository = new UniversityTrackerRepository(env.DB);
 
+    // Code no longer reads the evidence to decide whether it names the workflow
+    // and application item; the model declared `owner_reported_done`.
     await expect(repository.applyOwnerPlan({
       principalId,
       turnId,
@@ -349,7 +351,11 @@ describe("UniversityTrackerRepository application details", () => {
           executionBoundary: "owner_only",
         }],
       },
-    })).rejects.toThrow("university_workflow_item_invalid");
+    })).resolves.toBeUndefined();
+    const stored = await repository.readSnapshot(principalId);
+    expect(stored.programs[0]!.workflowItems).toMatchObject([{
+      kind: "submission_step", label: "Western essay submission", status: "owner_reported_done",
+    }]);
   });
 
   it("revalidates exact school and program binding before storing an offer decision", async () => {

@@ -265,7 +265,7 @@ describe("school assignment pastes", () => {
     for (const example of ["I missed", "I finished", "what should I do today"]) expect(descriptions.school_update).toContain(example);
     expect(descriptions.university_update).toContain("I finished my application draft");
     expect(descriptions.university_update).toContain("Use school_update");
-    expect(descriptions.study_coach).toContain("quiz me on derivatives");
+    expect(descriptions.study_coach).toContain('quiz me on titration');
     expect(descriptions.study_coach).toContain("Use school_update");
   });
 

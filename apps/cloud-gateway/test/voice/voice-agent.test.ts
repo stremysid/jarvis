@@ -1,5 +1,6 @@
 import { createOwnerPipelineModels } from "../../src/agent/owner-pipelines.js";
 import { OWNER_TOOL_DEFINITIONS } from "../../src/agent/owner-tools.js";
+import type { OwnerAccessToolPort } from "../../src/voice/owner-access-tool.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../../src/school/guided-assignment-tools.js";
 import { OwnerTelegramAgentAdapter } from "../../src/channels/telegram/owner-telegram-agent.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
@@ -295,6 +296,7 @@ interface RunVoiceTurnInput {
   readonly sessionId?: string;
   readonly committedItemIds?: readonly Ulid[];
   readonly agentDatabase?: D1Database;
+  readonly ownerAccessTool?: OwnerAccessToolPort | null;
 }
 
 async function seedPrincipalOnce(principalId: string): Promise<void> {
@@ -316,6 +318,7 @@ async function runVoiceTurn(input: RunVoiceTurnInput): Promise<string> {
     ownerPrincipalId: input.ownerPrincipalId ?? OWNER,
     targets: input.targets ?? new D1MemoryControlTargetFinder({ database: env.DB, archive: env.ARCHIVE }),
     ...(input.memorySearch === undefined ? {} : { memorySearch: input.memorySearch }),
+    ...(input.ownerAccessTool === undefined ? {} : { ownerAccessTool: input.ownerAccessTool }),
     directOwnerText: true,
     ...createOwnerPipelineModels(env, { async *stream() { throw new Error("unexpected_pipeline"); } }, new Redactor(), input.ownerPrincipalId ?? OWNER, true, () => NOW),
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
@@ -1280,6 +1283,58 @@ describe("the voice agent adapter", () => {
     });
   });
 
+  it("dispatches owner_access with the model's arguments and returns a structured receipt it speaks itself", async () => {
+    const run = vi.fn<OwnerAccessToolPort["run"]>(async () => Object.freeze({
+      outcome: "listed" as const,
+      operation: "list" as const,
+      maskedTarget: null,
+      noticeUnconfirmed: false,
+      guests: Object.freeze([{
+        maskedNumber: "+1******0111", status: "pending",
+        capabilityIds: Object.freeze(["conversation.basic" as const]),
+      }]),
+    }));
+    const provider = new FakeAgentProvider([
+      called(tool("access-1", "owner_access", {
+        operation: "list", phone: null, capabilities: [], pin: "default",
+      })),
+      stopped("Your mum is allowed."),
+    ]);
+
+    const spoken = await runVoiceTurn({
+      text: "who is allowed to call you?",
+      provider,
+      ownerAccessTool: { run },
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]![0]).toEqual({
+      operation: "list", providerE164: null, capabilityIds: [], pin: "default",
+    });
+    const result = JSON.parse(provider.requests[1]!.toolResults![0]!.content ?? "{}") as
+      Readonly<{ status: string; receiptId: string | null; receipt: string }>;
+    expect(result).toMatchObject({ status: "completed" });
+    expect(JSON.parse(result.receipt)).toMatchObject({ outcome: "listed", maskedTarget: null });
+    // Code adds no spoken sentence of its own: the model says the outcome.
+    expect(spoken).toBe("Your mum is allowed.");
+  });
+
+  it("refuses owner_access with an honest line when the channel has no access port", async () => {
+    const provider = new FakeAgentProvider([
+      called(tool("access-none", "owner_access", {
+        operation: "list", phone: null, capabilities: [], pin: "default",
+      })),
+      stopped("I cannot do that here."),
+    ]);
+
+    await runVoiceTurn({ text: "who is allowed to call you?", provider });
+
+    const result = JSON.parse(provider.requests[1]!.toolResults![0]!.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("refused");
+    expect(result.receipt).toContain("only available on a call");
+  });
+
   it("offers the complete Telegram catalogue, including deadline_record, within the provider tool bound on a call", async () => {
     const principalId = `principal:voice-prompt:${serial + 1}`;
     await seedPrincipal(principalId);
@@ -1293,7 +1348,7 @@ describe("the voice agent adapter", () => {
     expect(request?.systemPrompt).toContain("A spoken yes does not confirm a model-inferred memory.");
     expect(request?.systemPrompt).not.toContain("Previous delivered assistant reply on this session");
     expect(request?.tools).toEqual(OWNER_TOOL_DEFINITIONS);
-    expect(request?.tools).toHaveLength(30);
+    expect(request?.tools).toHaveLength(31);
     expect(request!.tools.length).toBeLessThanOrEqual(32);
     expect(request?.tools).toEqual(expect.arrayContaining([...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS]));
     expect(request?.tools.map((definition) => definition.name)).toEqual(expect.arrayContaining([

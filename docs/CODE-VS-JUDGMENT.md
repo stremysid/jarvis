@@ -94,6 +94,50 @@ wording, and writing them down did not make them right.
 | Course/title/due ordering and gap checks (`assignmentGapBreaksTie`, `evidenceExcerpt`, `dueExcerpt`) | Course, title and due phrase had to be copied verbatim, in order, with no sentence break or other date in between | Deleted, along with both excerpt arguments. Sid's raw message stays in the durable owner turn the core re-reads before the tool runs |
 | `matchingDeadline` uncertain-prefix refusal | "Chem" beside a stored "Chemistry" refused the save | Now a hint: the save goes ahead and the receipt names the similar stored rows for the model to raise with Sid. Exact normalised course/title still updates one row; two stored rows that already share one identity still refuse, since there is no single row to update |
 
+## Study-coach intent parsing: removed
+
+Removed by "Study coach: the model reads intent" (branch `codex/coach-intent-to-ai`). The
+`study_coach` tool now carries the model's declared action as arguments, and code keeps only
+validation: the course and fact ids must exist in the owner's snapshot, the enum values must be
+known, and the quiz answer must be inside its window and size bound. Deleted from
+`school/study-coach-model.ts`:
+
+| Sweep id | Symbol | Now |
+|---|---|---|
+| B45 | `parsePracticeRequest` | `operation: practice` with `mode` and `sourcePhrase`; any phrasing works because the model reads it |
+| B46 | `parseStudyPreferenceIntent` | `operation: preference` with `preferencePatch`; the applied values are the receipt, and Sid's wording is never matched |
+| B47 | `parseOwnerStudyObservation` | `operation: observe` with `topic`, `outcome` and `courseId`; the negation and "finished"/"plan" word lists are gone |
+| B48 | `resolveCourse` / `phraseMatches` | The model passes `courseId`, validated against the snapshot. A missing or unknown id returns the course list as evidence instead of defaulting to the only course |
+| B49 | `forgetSubject` / `correctionIntent` / `parseStudySignalControlIntent` / `parseCheckInPracticeMode` | `operation` forget, correction, signal and check_in_practice, with `topic`, `courseId`, `signal` and `mode` |
+| B50 | `isUncertainAnswer` | Gone. The model declares `answer_quiz` |
+| B51 | `plausiblyAnswersQuiz`, including the 12-word cap | Gone. The model declares `answer_quiz`. The 30-minute answer window and the 256-byte bound stay as system-protection limits |
+| B52 | `courseFactSource` priority (weak_area, then missed_work, then newest) | The model passes `factId`; code looks it up in the chosen course and lists the facts when none is named |
+| B53 | The fixed "Which course should I use for that practice?" question | Gone. A refusal lists the courses or facts, and the model asks Sid |
+
+The study-coach receipts (what was recorded, and the practice set itself) stay code-authored:
+they are receipts of a committed write, not a decision about what Sid meant.
+
+## Voice access and silent drops: removed
+
+Removed by "Calls: the AI decides, not code" (branch `codex/calls-judgment-to-ai`), under
+AGENTS.md's rule that a PR adding a code-side judgment does not merge, and Sid's 2026-09-25
+decision that the model decides whether to read a number back while a guest still passes the
+guest PIN.
+
+| Row | What code decided | Now |
+|---|---|---|
+| 1 | `CallSessionCore.#guardOwnerRepeat` dropped owner utterances after a passphrase match | Stale on main: gone with the per-call passphrase gate removed in #196 |
+| 3 | `parseOwnerAccessIntent` parsed four fixed shapes into an access command, target and permissions | Deleted with `owner-access-intent.ts`. The model calls the `owner_access` tool with `{operation, phone, capabilities, pin}`, and code keeps only E.164, capability-membership and authority validation |
+| 4 | `PERMISSION_CAPABILITIES` mapped 17 phrases to 16 capabilities | Deleted. The model passes capability ids, `GUEST_CAPABILITY_IDS` is the validation set, and the owner-only `access.manage` is refused rather than mapped |
+| 5 | `PreparedOwnerAccessProposal.expiresAt` gave a pending change 60 seconds | Deleted. The call's lifecycle is the bound, and the model decides whether to confirm before calling the tool |
+| addendum | `#isFixedStepUpEcho`, `#ownerStepUpVerificationInFlight`, and the non-final / non-`active` / empty drops | The step-up branches are gone with the step-up gate. The non-final, non-`active` and empty drops stay deliberately: a partial transcript is not yet an utterance, so there is nothing to act on |
+
+Also in this batch: the access flow's fixed spoken lines are gone (the model runs the
+conversation and the `owner_access` outcome is a structured receipt carrying `operation`,
+`maskedTarget` and `outcome`), and an utterance that arrives while a turn owns the call is
+queued as the next turn rather than dropped. A failed voice retrieval now puts a notice in
+the model's context instead of silently empty memory.
+
 ## Project attention judgment: removed (batch 13, 2026-09-25)
 
 Removed by the PR titled "Projects: the AI decides what needs attention, not code"
@@ -199,27 +243,9 @@ Sid that the decision happened.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 1 | `CallSessionCore.#guardOwnerRepeat` (`src/voice/call-session-do.ts`) | Which of the owner's spoken words Jarvis is allowed to hear. For 2 s after the passphrase match it drops **any** owner utterance outright, without consulting the text; for 1.5 s after that it swallows an utterance built from 1–2 passphrase-list words. No reply, no transcript row. | A prompt statement that a repeated passphrase will not arrive, so Jarvis's judgment is informed rather than bypassed — plus a spoken neutral line whenever anything is dropped, so silence is never unexplained. **`silent` penalty: it is invisible to the model.** |
-| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. |
-| 3 | `parseOwnerAccessIntent` (`src/voice/owner-access-intent.ts`) | What an access instruction **means**: a hand-written regex grammar with four fixed shapes decides whether the owner's utterance is an access command and which operation, target and permissions it names. | Jarvis calls the owner-access operations as tools, passing capability phrases as parameters. Code keeps the validation and the confirm step. If the grammar stays as a stopgap, an utterance that looks like a command and fails to parse must produce a spoken refusal — never fall through to ordinary conversation, where the model can answer as if it complied. **`silent` penalty.** |
-| 4 | `PERMISSION_CAPABILITIES` / `OwnerAccessService.#snapshot` (`src/voice/owner-access-service.ts`) | Which capability the owner's words name. A frozen table maps 17 phrases to 16 capabilities, and production installs only `conversation.basic` and `access.manage`, so **only "conversation" resolves** — the other 14 throw `capability_not_installed`, `access.manage` throws `capability_not_grantable`, and the `catch` at `#snapshot` collapses all of it into one `owner_access_permission_invalid` the owner never hears. | Give the model the capability ids as a tool parameter and let it map the owner's words; keep the table only as a validation set for what the model returns. At minimum drop `access management` (it can never succeed) and make refusal a spoken outcome. |
-| 5 | `PreparedOwnerAccessProposal.expiresAt` (`src/voice/owner-access-service.ts`) | How long the owner's pending decision lives: a hard-coded 60 s. Confirming takes three relay round trips through Deepgram transcription, so a slow confirmation loses the change **and** the call. | Either drop the wall-clock expiry — the call lifecycle is the natural bound and needs no invented timer — or tell the owner the window in the prompt. "How long a fact lasts" is named as Jarvis's call in the roadmap. |
+| 2 | `dispatchOutboundCall` (`src/voice/outbound.ts`) | Whether a call may be placed, by whom. `OutboundCallCommand.issuedBy` is `"telegram_call_command" \| "local_cli"` (`packages/contracts/src/calls.ts`) and `PolicyEngine.hasTrustedOrigin` admits only those, so **Jarvis can never place a call**: every outbound call needs Sid to type `/call <reason> --confirm`. | A `call_place(reason)` tool, with a Jarvis-side origin provider minting `issuedBy: "model"`. This is a hand that doesn't exist, plus a provenance value — not a removal of the tier gate, which stays. **Kept deliberately:** the origin check is a permission, and the missing hand is a feature, not a removal. |
 
-Also in this file, and **the same class**: `CallSessionCore.#handlePrompt` has a further set of
-branches that drop an owner's utterance with no reply and no transcript row, and they predate
-item 1. Enumerated while verifying item 1 rather than by the audit:
-
-- `#isFixedStepUpEcho` drops any utterance exactly equal to one of five code-authored
-  constants: `OWNER_STEP_UP_PROMPT`, `OWNER_STEP_UP_RETRY_PROMPT`,
-  `OWNER_STEP_UP_FORMAT_PROMPT`, `OWNER_STEP_UP_VERIFIED`, `OWNER_STEP_UP_REJECTED`.
-- `#ownerStepUpVerificationInFlight` drops any final utterance that arrives while a
-  passphrase KDF is running. (One existing test covers this — *"ignores a final arriving during
-  KDF work instead of replacing the window alarm"* — but it asserts the alarm, not what the
-  owner hears, which is nothing.)
-- A non-final frame, a non-`active` phase, and an empty utterance are also dropped silently.
-
-Same fix shape as item 1: tell Jarvis these utterances will not arrive, and speak a neutral
-line whenever anything is dropped, so silence is never unexplained.
+Rows 1 and 3–5 are removed; see [Voice access and silent drops: removed](#voice-access-and-silent-drops-removed).
 
 ### Additional voice finding (2026-09-23)
 
@@ -267,6 +293,10 @@ declares nothing records nothing, with no recency fallback.
 |---|---|---|---|
 | 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
 | 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Still queued: the `codex/catchup-judgment-to-ai` batch left this one, because it is a new tool rather than a removal |
+| 16 | `supportsOfferStatusEvidence`, `offerTemplates`, `offerMessageMatchesProgram` and the `OFFER_WORKFLOW_*` tables (`src/university/university-tracker-model.ts`) | A whole-message template grammar decides an offer/condition/response status from Sid's sentence. Kept out of the B116–B129 round so the offer family is not silently loosened with the rest. | The model declares the offer status and carries Sid's whole current message as evidence; code keeps provenance, ids, program binding and the real-date check, exactly like the step statuses B116–B129 just moved. |
+| 17 | `stepTargetClauses` (`src/university/university-tracker-model.ts`) | Which clause names the workflow and application item, used as the `targetClauses.length === 0` gate in `workflowDeadline`. Retained in the B116–B129 round; the deadline-naming judgment is out of that batch. | The model supplies the deadline for the workflow it chose; code should keep only the real-date, exact-instant and IANA-timezone checks. |
+| 18 | `universityStateJson` context selection (`mentions`, `namedApplicationItems`, `clauseGroups`) | Which tracked items are fed to the model as current tracker state, by matching Sid's words against labels and program aliases. | The model should read the snapshot and choose; the selection becomes a bounded, non-authoritative hint rather than a gate. |
+| 19 | `LABEL_METADATA`, `containsLabel` and `isWorkflowLabelSafe` (`src/university/university-tracker-model.ts`) | Whether a new label smuggles a date, verification claim, money amount, URL, phone number or relative deadline into tracker state. | Partly a storage-safety check. The model should choose the label from Sid's message; code should keep only size, character and plain-provenance bounds. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
@@ -329,7 +359,41 @@ blockers, not silently dropped.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 16 | `FALSE_EXTERNAL_COMPLETIONS`, `PASSIVE_EXTERNAL_COMPLETION`, `PASSIVE_EXTERNAL_DELIVERY`, `PASSIVE_RECEIPT_COMPLETION`, `PASSIVE_ADVICE_CONTEXT` and `hasPassiveExternalCompletion` (`src/school/school-catchup-model.ts`), found in the [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether a sentence claims Jarvis completed an external action, by vocabulary and passive-voice patterns. It is a meaning judgment written as regexes, and it is broader than the declared-claim mechanism #204 built: a passive sentence with no first-person subject is caught here and nowhere else | The model declares the sentences that claim an action, as it already declares `workedExplanations`; code checks each declared sentence against this turn's receipts and nothing else. Until that exists, this is the omission backstop that keeps an undeclared passive completion from being spoken, and it is registered here rather than treated as settled |
+| 20 | `FALSE_EXTERNAL_COMPLETIONS`, `PASSIVE_EXTERNAL_COMPLETION`, `PASSIVE_EXTERNAL_DELIVERY`, `PASSIVE_RECEIPT_COMPLETION`, `PASSIVE_ADVICE_CONTEXT` and `hasPassiveExternalCompletion` (`src/school/school-catchup-model.ts`), found in the [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether a sentence claims Jarvis completed an external action, by vocabulary and passive-voice patterns. It is a meaning judgment written as regexes, and it is broader than the declared-claim mechanism #204 built: a passive sentence with no first-person subject is caught here and nowhere else | The model declares the sentences that claim an action, as it already declares `workedExplanations`; code checks each declared sentence against this turn's receipts and nothing else. Until that exists, this is the omission backstop that keeps an undeclared passive completion from being spoken, and it is registered here rather than treated as settled |
+### University tracker status judgments: removed (B116–B129, 2026-09-25)
+
+Removed by the PR titled "University tracker: the model declares status"
+(branch `codex/university-judgment-to-ai`, 2026-09-25). Every one of these was
+code deciding what Sid's words meant before a university tracker status could be
+stored, which Sid's 2026-09-25 rule — "you let ai DECIDE" — puts in the model.
+The model now declares the status enum and carries Sid's whole current message
+as `statusEvidence`; code keeps only the receipt/provenance fact
+(`statusEvidence === ownerMessage`), id, ownership and enum checks, the
+real-calendar-date check and the verified source/cycle check. No migration: the
+status enums are unchanged from `fbd593f9`.
+
+| # | Symbol (as of `fbd593f9`) | What it decided | Now |
+|---|---|---|---|
+| B116 | `OWNER_SUBMISSION`, `JOINT_OWNER_SUBMISSION`, `REPORTED_OWNER_SUBMISSION` | Whether a sentence was Sid's own submission report. | Deleted. The model declares `submitted_by_sid`; code keeps exact-substring provenance. |
+| B117 | `NOT_STARTED_REPORT`, `DRAFTING_REPORT`, `READY_REPORT` | Which checklist enum a progress sentence meant. | Deleted. The model picks the enum. |
+| B118 | `CONDITIONAL_OR_QUESTION`, `HEARSAY`, `NEGATION`, `RETRACTION` | Whether a status sentence was conditional, hearsay, negated or retracted. | Deleted. The model judges. |
+| B119 | `RETIREMENT`, `BARE_DONT_NEED`, `REACTIVATION`, `DATE_CORRECTION` | Retirement, reactivation and date-correction wording. | Deleted. The prompt carries that vocabulary; the model decides. |
+| B120 | `supportsStatus` | The ~45-line gate over an application status update. | Replaced by the evidence-provenance check only. |
+| B121 | `evidenceSupportsCycle` | Whether the evidence named the admission cycle. | Deleted; the model supplies the cycle with the evidence. |
+| B122 | `evidenceSupportsDate` | Whether the wording contained the date. | Deleted; the model supplies an ISO date and code checks it is a real calendar date. |
+| B123 | `effectiveVerification` | An upgrade of stored verification derived from wording. | Deleted; code stores what the model gave and shows both. |
+| B128 | `FORWARDED_OR_QUOTED_OWNER_CLAIM`, `WORKFLOW_HEARSAY`, `DELEGATED_OWNER_ACTION` | Whether a workflow sentence was forwarded, quoted, hearsay or delegated. | Deleted; the model declares provenance. The rule that text not from Sid never triggers an action lives in the `telegram-types` provenance, not here. |
+| B129 | `PREPARATION_REQUEST`, `OWNER_ACTION_NOT_DONE` | Whether a sentence asked for preparation or said the owner action was not done. | Deleted; the model chooses `prepared` or an owner-reported status. |
+
+Risk accepted: a status update in Sid's own words is no longer refused when the
+wording might read another way, and a misread could mark an item submitted. The
+receipt names every status change and the tracker can be corrected, so the
+failure is visible and reversible rather than silent.
+
+Retained on purpose (registered as rows 16–19 above, not removed this round):
+the whole-message offer template grammar, the `workflowDeadline` target-clause
+naming, the `universityStateJson` context selection and the label-metadata
+checks.
 
 ### Row 10 persisted inference: still in code, not removed
 
