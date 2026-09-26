@@ -640,6 +640,21 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(model.requests[0]?.userText).toContain("never from conversation_context_json");
   });
 
+  it("keeps a worked sentence the school structured reply declares and replaces an external one it declares", () => {
+    const redactor = new Redactor();
+    const worked = "We applied the chain rule. What would you substitute next?";
+    expect(parseOwnerCatchupPlan({
+      engaged: false, reply: worked, workedExplanations: ["We applied the chain rule."],
+      courseUpdates: [], completeActionIds: [], plan: [],
+    }, redactor).reply).toBe(worked);
+    // Finding 2: the threaded declaration must not exempt an external claim.
+    const claim = "I submitted your essay to OUAC.";
+    expect(parseOwnerCatchupPlan({
+      engaged: false, reply: claim, workedExplanations: [claim],
+      courseUpdates: [], completeActionIds: [], plan: [],
+    }, redactor).reply).not.toContain("I submitted");
+  });
+
   it("falls back with a coded warning when persistence rejects an engaged plan", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const model = new SequenceModel([JSON.stringify({

@@ -1,4 +1,5 @@
 import { SCHOOL_COLLECTOR_TOOLS } from "../school/collector-tools.js";
+import { SCHOOL_WORK_EVIDENCE_TOOL } from "../school/school-work-tools.js";
 import { GUIDED_ASSIGNMENT_TOOL_DEFINITIONS } from "../school/guided-assignment-tools.js";
 import { MEMORY_TOOL_DEFINITIONS } from "../memory/memory-tools.js";
 import { OWNER_ARGUMENT_TOOL_DEFINITIONS } from "./owner-argument-tools.js";
@@ -14,6 +15,7 @@ export const OWNER_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Object
   ...OWNER_ARGUMENT_TOOL_DEFINITIONS,
   ...GUIDED_ASSIGNMENT_TOOL_DEFINITIONS,
   ...SCHOOL_COLLECTOR_TOOLS,
+  SCHOOL_WORK_EVIDENCE_TOOL,
   ...OWNER_ACCESS_TOOL_DEFINITIONS,
   Object.freeze({
     name: "school_update",

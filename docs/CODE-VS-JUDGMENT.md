@@ -181,12 +181,57 @@ declares nothing records nothing, with no recency fallback.
 
 | # | Symbol | The decision code is making | Surface it should move to |
 |---|---|---|---|
-| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
-| 11 | `guardReplyClaims` / `unsafeFirstPersonRanges` (`src/school/school-catchup-model.ts`) | Which sentences describe a worked explanation. Claims remain the default; the tutoring exception requires a worked verb object plus a completely parsed explanation prefix and tail. Unknown continuation words, destinations and second actions remain claims, including verbs absent from the original action list. This remains a partial language heuristic. | `OWNER_AGENT_SYSTEM_PROMPT` says worked explanations are not actions. The model's `claimedActions` should carry the judgment and receipts should enforce proof; the fallback guard stays for undeclared real actions under Sid's explicit tutoring-fix brief. |
-| 12 | `SchoolCatchupModelAdapter.streamOwnerTool` / `isUniversityExecutionRequest` | In university and legacy unselected scope, a regex decides whether the owner's wording requests external execution and refuses before the model. | University tool/prompt judgment with execution gated at real external hands. Deferred here: university scope and its corpus tests remain unchanged; a school-paste regression test now also pins university refusal before any model call. |
+| 10 | `SchoolObservationRepository.deriveMissingWorkPage` (`src/school/school-observation-repository.ts`) | Chooses `closed`, `submission_seen`, `not_due` or `no_submission_seen` from deadline status, Classroom submission state and observation time, then persists a missing-work transition without model interpretation. **Partially addressed 2026-09-25 ([#204](https://github.com/stremysid/jarvis/pull/204)):** `readWorkEvidence` and the `school_work_evidence` tool now hand Jarvis the source state, due dates and read coverage, and the tool description says "You decide whether work is missed; code does not." The persisted inference itself is **not removed**: see [the blocker](#row-10-persisted-inference-still-in-code-not-removed). | Expose source state, dates and read coverage through school evidence tools; Jarvis records the interpretation with those references. Retain mechanical timestamps/provenance. This finding from #160 is preserved here even if that design PR closes; no runtime change to the collector. |
+| 14 | `OWNER_ACKNOWLEDGEMENT` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid's whole message is an acknowledgement, so the model's tracker changes are thrown away. `/^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu` gates `withoutUnsupportedAcknowledgementMutations` and its combined variant: a "sure" that answers Jarvis's own question discards a real update. Registered rather than removed here because #204 is already a large round; the removal is queued. | Delete the regex and both wrappers. The model already decides whether the message engaged the tracker; the prompt tells it not to save on a bare acknowledgement. If a guard is kept it must be a non-authoritative hint, never a silent discard of the model's plan. |
+| 15 | `BRIGHTSPACE_REFRESH_REQUEST` / `isBrightspaceRefreshRequest` (`src/school/school-catchup-model.ts`), found in [#204](https://github.com/stremysid/jarvis/pull/204) review | Whether Sid asked for a D2L refresh, decided by regex before the model runs (`/^\s*(?:jarvis[,\s]+)?…(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)…now…$/iu`), used at `streamOwnerTool` and `study-coach-model.ts`. | Give the model a bounded refresh tool and let it decide, as `school_d2l_status` already does for the read. Registered rather than removed here because the refresh is a write-ish ingestion path and needs its own tool plus tests; queued. |
 
 Rows 10 and 11 retain the identifiers used by #160 and #162. The university
 intake finding is row 12, avoiding a second row 10 when those branches meet.
+
+### School reply and scope judgments: removed (rows 11 and 12, 2026-09-25)
+
+Removed by the PR titled "School: the AI decides, not code (register rows 10-12)"
+([#204](https://github.com/stremysid/jarvis/pull/204), branch `codex/school-judgment-to-ai`,
+2026-09-25). Both were code deciding what
+Sid's words or the model's sentences meant, which Sid's 2026-09-25 rule —
+"any judgment and decisions and thought should be the ai brain remember" —
+puts in the model, not here. Neither removal needed a migration.
+
+| # | Symbol (as of `e2af1aa2`) | What it decided | Now |
+|---|---|---|---|
+| 11 | `isWorkedExplanation` and the `WORKED_*` grammar (`WORKED_OBJECTS`, `WORKED_CLAIM_PREFIX`, `WORKED_CONTINUATION`, `WORKED_DESTINATION`, `WORKED_RECIPIENT`, `WORKED_NAMED_RECIPIENT`, `WORKED_REAL_WORLD_VALUE`, `WORKED_TRANSACTION_OBJECT`, `WORKED_APPLIED_FOR_YOU`) in `src/school/school-catchup-model.ts` | Whether a sentence was a worked explanation, by parsing a verb object and a continuation and vetoing destinations, recipients, times and money. The model's declarations on Telegram (`workedExplanations`) and voice (`[[worked]]`) were ignored. | Deleted. The model declares its worked-explanation sentences: `workedExplanations` is an accepted key of the structured reply (`ParsedReply.workedExplanations`, threaded through `parseOwnerCatchupPlan`, the university combined reply and the study practice JSON), and voice wraps one sentence in `[[worked]]…[[/worked]]`. `unsafeFirstPersonRanges` checks plain membership for the exemption and keeps the omission backstop for an **undeclared** first-person action sentence; `blankDeclaredWorked` gates `FALSE_EXTERNAL_COMPLETIONS` and the passive patterns the same way. A declaration naming text the reply does not contain is refused, so it cannot exempt anything. |
+| 12 | `isUniversityExecutionRequest` and its regex engine (`REQUESTED_ACTION`, `REQUEST_PARTY`, `REQUEST_EXTERNAL_OBJECT`, `DECISION_OBJECT`, `TRANSACTION_VERB`, `COMMUNICATION_VERB`, `DECISION_VERB`, `COURTESY_MARKER`, `DIRECTIVE_PREFIX`, `PREPARATION_START`, `SCHOOL_NAMES`) in `src/school/school-catchup-model.ts` | In university and legacy unselected scope, a hand-written grammar decided whether Sid was asking Jarvis to act on an external target, and refused before the model ran. | Deleted. Every request now reaches the model, which decides what Sid means. `OWNER_AGENT_COMMON_PROMPT` states that no tool can email, submit, upload, pay, sign up or contact anyone, so Jarvis says plainly that he cannot and prepares the draft or checklist; the university and school structured prompts already carry the same rule. Nothing is lost in enforcement: the pipeline has no external execution hand — `university_update` and `school_update` only store plans — and the reply guards (`FALSE_EXTERNAL_COMPLETIONS`, the passive patterns) plus the `claimedActions` receipt protocol still bound what may be said. |
+
+Rows 11 and 12 are removed; the identifiers stay in this file so a future
+reader can find what decision they carried.
+
+### Row 10 persisted inference: still in code, not removed
+
+`deriveMissingWorkPage` still maps deadline status, Classroom submission state
+and observation time to a `school_missing_work_transitions` row that the digest
+and study coach read. This PR removed **no** part of that inference; it added the
+read half (`readWorkEvidence`, the `school_work_evidence` tool) so Jarvis can
+make the call.
+
+It was not removed here, and the reason is concrete:
+
+- The derivation runs inside `runClassroomObservationSync`, a model-less
+  scheduled job. There is no model in that loop to hand the decision to. The
+  register's own surface ("Jarvis records the interpretation with those
+  references") needs a **model-write path**: a tool that persists a transition
+  with the observation references the model read.
+- Writing that path needs a migration. `0027_school_observations.sql` constrains
+  `classification` to `'derived'` and its insert trigger admits only a
+  reconciled derived row, so a model-authored interpretation has no admitted
+  shape today.
+- Deleting the inference without the replacement would silently remove the
+  digest's missed-work alerts and the study coach's `derived_missing_work`
+  signals — a feature regression, not a removal of a judgment. BUILDING.md's
+  stop conditions cover "finishing the item would require starting a different
+  one", and a migration-bearing model-write path is that different item.
+
+The evidence tool is the enabler, and it is tested; the write half belongs in a
+separate PR that takes its own migration number.
 
 ### Fixed school intake decision (`SchoolCatchupModelAdapter.streamOwnerTool`, #164)
 
@@ -196,6 +241,9 @@ only when `agentSelectedScope` is `school`. An assignment-list line such as
 The school pipeline has storage and planning, but no external execution hands.
 The `school_update` description now tells Jarvis when to select that tool;
 forwarded-text provenance checks and `guardReplyClaims` remain in place.
+**That function and its regex engine were deleted on 2026-09-25
+([#204](https://github.com/stremysid/jarvis/pull/204), row 12 above): every scope now reaches
+the model, which decides what Sid means.**
 Pinned daily capacity, due-date priority and stated weight are prompt guidance,
 not a new hard-coded ranking or capacity parser. Existing storage ceilings remain.
 The core-profile reference is capped at 8,192 UTF-8 bytes and omitted with a rules
