@@ -9,7 +9,7 @@
 
 import { env } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { newUlid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { MAX_TOOL_ROUNDS } from "../../src/agent/owner-agent-core.js";
 import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import { AutonomyService } from "../../src/autonomy/autonomy-service.js";
@@ -34,6 +34,7 @@ import type {
   ModelFunctionCall,
 } from "../../src/providers/provider-types.js";
 import { SchoolCollectorPairing } from "../../src/school/collector-pairing.js";
+import { ProjectRepository } from "../../src/projects/project-repository.js";
 import { assertAgentToolHistory } from "../../src/providers/deepseek-provider.js";
 import { OwnerVoiceAgentAdapter } from "../../src/voice/voice-agent.js";
 import { argumentTurn } from "../channels/argument-tool-fixture.js";
@@ -227,6 +228,45 @@ describe.each<Channel>(["telegram", "voice"])("the owner tool loop on %s", (chan
     expect(results.map((result) => resultStatus(result.content))).toEqual(["completed", "completed"]);
     // Tools stay on after a result, so the model could have taken another step.
     expect(model.requests[1]!.toolChoice).toBe("auto");
+  });
+
+  it("hands the model project facts with no receipt and no stalled verdict", async () => {
+    const repository = new ProjectRepository(env.DB);
+    const projectId = `project:${newUlid()}`;
+    await repository.trackProject({
+      projectId, owner: "sid", repository: projectId, displayName: "Jarvis",
+      staleAfterDays: 7, createdAt: NOW.toISOString(),
+    });
+    await repository.recordObservation({
+      observationId: newUlid(), projectId, observedAt: NOW.toISOString(),
+      headSha: "b".repeat(40), lastCommitAt: "2026-08-01T12:00:00.000Z",
+      documents: [{
+        documentId: newUlid(), path: "NEXT_STEPS.md",
+        contentHash: "c".repeat(64) as Sha256Hex,
+        excerpt: "Ship the pricing report by 2026-09-05",
+      }],
+    });
+    const model = scripted([
+      tools(call("facts", "project_facts")),
+      answer(channel, "Here are the facts."),
+    ]);
+
+    const turn = await runTurn(channel, model);
+
+    expect(turn.error).toBeNull();
+    expect(model.requests[0]!.tools.find((tool) => tool.name === "project_facts")?.description)
+      .toContain("You decide whether a project needs Sid");
+    const result = JSON.parse(model.requests[1]!.toolResults?.[0]?.content ?? "{}") as {
+      status: string; receiptId: string | null; receipt: string;
+    };
+    expect(result.status).toBe("completed");
+    // Evidence for the reply, not an action: no receipt id to prove a claim with.
+    expect(result.receiptId).toBeNull();
+    expect(result.receipt).toContain('"nextStepsDates":["2026-09-05"]');
+    expect(result.receipt).toContain("daysSinceLastCommit");
+    // The facts carry no verdict; that judgment is the model's.
+    expect(result.receipt).not.toContain("stalled");
+    expect(result.receipt).not.toContain("escalate");
   });
 
   it("refuses a call id reused from an earlier step and still answers", async () => {

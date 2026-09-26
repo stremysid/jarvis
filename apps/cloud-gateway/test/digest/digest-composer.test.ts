@@ -45,10 +45,12 @@ function project(overrides: Partial<DigestProject> = {}): DigestProject {
     projectId: "project-a",
     displayName: "St. Remy Efficiency",
     lastCommitAt: "2026-09-01T12:00:00.000Z",
+    daysSinceLastCommit: null,
     nextStepsExcerpt: null,
-    stalledReason: null,
+    nextStepsDates: [],
+    nextStepsUnreadable: [],
+    nextStepsTruncated: false,
     pollFailure: null,
-    changedDocuments: [],
     ...overrides,
   };
 }
@@ -197,7 +199,7 @@ describe("sources that could not be read", () => {
       project({
         projectId: `project-${index}`,
         displayName: `Project ${index} with a deliberately long name to consume the budget`,
-        stalledReason: "no commit in 30 days with a deadline on 2026-09-05",
+        daysSinceLastCommit: 30,
       }),
     );
     const digest = compose(
@@ -219,6 +221,27 @@ describe("sources that could not be read", () => {
       clockAt("2026-09-02T11:30:00.000Z"),
     );
     expect(digest.text).toContain("could not be read (403 from GitHub)");
+  });
+
+  it("states a project's age, its NEXT_STEPS dates and its unreadable date text without a verdict", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        projects: [project({
+          daysSinceLastCommit: 31.9,
+          nextStepsDates: ["2026-09-10", "2026-09-05"],
+          nextStepsUnreadable: ["next Friday"],
+          nextStepsTruncated: true,
+        })],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+    expect(digest.text).toContain("31d since the last commit");
+    expect(digest.text).toContain("NEXT_STEPS dates: 2026-09-10, 2026-09-05");
+    expect(digest.text).toContain("date text it could not read: next Friday");
+    expect(digest.text).toContain("NEXT_STEPS excerpt cut at the storage bound");
+    expect(digest.text).not.toContain("stalled");
   });
 });
 
@@ -552,7 +575,7 @@ describe("school first", () => {
         confidence: "medium", observedAt: "2026-09-01T12:00:00.000Z", citations: [],
       },
       decisions: [{ decisionId: "decision-a", question: "Approve the vendor quote?", urgency: "normal" }],
-      projects: [project({ stalledReason: "no commit in 30 days" })],
+      projects: [project({ daysSinceLastCommit: 30 })],
       gaps: [{ source: "Brightspace", detail: "session expired" }],
     }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
 

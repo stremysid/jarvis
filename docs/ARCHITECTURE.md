@@ -100,7 +100,7 @@ sync routes, voice) and a `scheduled` handler (four cron expressions).
 | `archive/` | R2 tiering for events aged out of D1. |
 | `autonomy/` | Capability tiers and shadow mode. |
 | `decisions/` | The decision queue and its Telegram keyboards. |
-| `projects/` | GitHub poller, stalled-project detector. |
+| `projects/` | GitHub poller and the project-facts reader the model judges from. |
 | `deadlines/` | Deadline store, effort classifier, Classroom and Brightspace calendar clients, quiet windows. |
 | `digest/` | Deterministic composition of the daily digest and Sunday retro. |
 | `jobs/` | Wires the above into the scheduled jobs. |

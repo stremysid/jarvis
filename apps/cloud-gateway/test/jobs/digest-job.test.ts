@@ -876,7 +876,7 @@ describe("projects in the digest", () => {
     expect(digest.text).toContain("could not be read (head:unavailable:503)");
   });
 
-  it("reports a stale project with an approaching deadline as stalled", async () => {
+  it("states a project's commit age and NEXT_STEPS dates without a stalled verdict", async () => {
     const digest = await assembleDigest(
       "daily",
       deps({
@@ -909,20 +909,24 @@ describe("projects in the digest", () => {
         },
       }),
     );
-    expect(digest.text).toContain("stalled");
+    // The digest reports the age and the date the plan names. It attaches no
+    // "stalled" verdict: that judgment belongs to the model now.
+    expect(digest.text).toContain("31d since the last commit");
+    expect(digest.text).toContain("NEXT_STEPS dates: 2026-09-05");
+    expect(digest.text).not.toContain("stalled");
   });
 
-  it("reports the projects anyway when the staleness judgement itself fails", async () => {
-    // The detector is injected here only because its one documented throw --
-    // a non-finite clock -- also stops the composer, so there is no input
+  it("reports the projects anyway when the facts read itself fails", async () => {
+    // The facts reader is injected here only because its one documented throw
+    // -- a non-finite clock -- also stops the composer, so there is no input
     // that reaches this guard through the real one. Without the seam the
     // guard would be untestable, and an untestable guard is indistinguishable
     // from a broken one.
     const digest = await assembleDigest(
       "daily",
       deps({
-        assess: () => {
-          throw new Error("detector exploded");
+        projectFacts: () => {
+          throw new Error("facts reader exploded");
         },
         sources: {
           readDeadlines: async () => [],
@@ -950,7 +954,7 @@ describe("projects in the digest", () => {
       }),
     );
 
-    expect(digest.text).toContain("Stalled-project detector: detector exploded");
+    expect(digest.text).toContain("Project facts: facts reader exploded");
     // The projects themselves still read fine, so they are still reported.
     expect(digest.text).toContain("| Finish the savings report");
   });
