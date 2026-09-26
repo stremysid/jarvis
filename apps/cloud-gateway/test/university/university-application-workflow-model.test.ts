@@ -1622,7 +1622,10 @@ describe("university application conversation model", () => {
     );
     expect(ordinaryModel.requests).toHaveLength(1);
 
-    const trackerModel = new SequenceModel(["must not run"]);
+    // The keyword gate is gone: a message that names the tracker now reaches the
+    // model too, with the same notice, instead of a keyword list deciding it was
+    // "about" the tracker and answering without the model.
+    const trackerModel = new SequenceModel(["I can't change that from here."]);
     const trackerAdapter = new SchoolCatchupModelAdapter({
       model: trackerModel,
       repository: { readSnapshot: async () => schoolSnapshot(principalId), applyOwnerPlan: async () => undefined },
@@ -1630,7 +1633,9 @@ describe("university application conversation model", () => {
       redactor: new Redactor(), timeZone: "America/Toronto", now: () => NOW, ownerPrincipalId: principalId,
     });
     await expect(collect(trackerAdapter.stream(input(principalId, "Mark every University 3 step not needed."))))
-      .resolves.toContain("tracker is too large");
-    expect(trackerModel.requests).toEqual([]);
+      .resolves.toBe(
+        "I can't change that from here.\n\nYour school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
+      );
+    expect(trackerModel.requests).toHaveLength(1);
   });
 });

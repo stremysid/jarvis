@@ -1,0 +1,58 @@
+[
+  {
+    "name": "item1-acknowledgement-discards-the-plan-again",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "      if (universitySnapshot === null) {\n        schoolPlan = parseOwnerCatchupPlan(payload, this.dependencies.redactor);",
+    "replace": "      if (universitySnapshot === null) {\n        schoolPlan = /^\\s*(?:thanks?(?:\\s+you)?|ok(?:ay)?)\\s*[.!]?\\s*$/iu.test(input.userText)\n          ? Object.freeze({ engaged: false, reply: \"Got it.\", courseUpdates: Object.freeze([]), completeActionIds: Object.freeze([]), plan: Object.freeze([]) })\n          : parseOwnerCatchupPlan(payload, this.dependencies.redactor);",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-model.test.ts",
+    "expect": "keeps a plan the model saves on a bare acknowledgement"
+  },
+  {
+    "name": "item3-too-large-path-drops-the-models-own-answer",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "      yield* guardedOrdinaryReplyWithNotice(\n        this.dependencies.model,\n        input,\n        this.dependencies.redactor,\n        TRACKER_TOO_LARGE_REPLY,\n      );\n      return;\n    }",
+    "replace": "      yield Object.freeze({ index: 0, text: TRACKER_TOO_LARGE_REPLY, toolOutcome: \"not_saved\" as const });\n      return;\n    }",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-model.test.ts",
+    "expect": "answers in its own words, with the notice, when bounded tracker state cannot fit"
+  },
+  {
+    "name": "item6-rewrites-a-credential-request-again",
+    "file": "apps/cloud-gateway/src/school/school-catchup-model.ts",
+    "find": "  const all = [...unprovenExternalRanges, ...brightspaceRanges];\n  if (all.length === 0) return reply;",
+    "replace": "  if (/password|mfa code|verification code/iu.test(reply)) return \"I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.\";\n  const all = [...unprovenExternalRanges, ...brightspaceRanges];\n  if (all.length === 0) return reply;",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-model.test.ts",
+    "expect": "keeps a secret request Sid allowed"
+  },
+  {
+    "name": "item7-clamps-an-out-of-range-block-again",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "    if (action.estimatedMinutes < 5 || action.estimatedMinutes > 180) {\n      return Object.freeze({\n        actions: Object.freeze([]),\n        repairRules: Object.freeze([]),\n        invalidRule: \"school_catchup_action_minutes_out_of_range\",\n      });\n    }\n    bounded.push(Object.freeze({ ...action, localDate }));",
+    "replace": "    const estimatedMinutes = Math.max(5, Math.min(180, action.estimatedMinutes));\n    bounded.push(Object.freeze({ ...action, localDate, estimatedMinutes }));",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "expect": "refuses a block outside the stored 5..180 minute range"
+  },
+  {
+    "name": "item9-cuts-the-planning-window-at-seven-days-again",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "    if (localDate < today) {\n      repairs.add(\"school_catchup_action_date_invalid\");\n      continue;\n    }",
+    "replace": "    const horizonEnd = new Date(`${today}T12:00:00.000Z`);\n    horizonEnd.setUTCDate(horizonEnd.getUTCDate() + 6);\n    if (localDate < today || localDate > horizonEnd.toISOString().slice(0, 10)) {\n      repairs.add(\"school_catchup_action_date_invalid\");\n      continue;\n    }",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "expect": "keeps an action planned more than a week out"
+  },
+  {
+    "name": "item10-restores-the-thirty-day-resolved-window",
+    "file": "apps/cloud-gateway/src/school/school-catchup-repository.ts",
+    "find": "        WHERE principal_id = ?1 AND status = 'resolved'\n        ORDER BY resolved_at DESC, fact_id\n        LIMIT 48`).bind(principalId).all<FactRow>(),",
+    "replace": "        WHERE principal_id = ?1 AND status = 'resolved' AND resolved_at >= ?2\n        ORDER BY resolved_at DESC, fact_id\n        LIMIT 48`).bind(principalId, `${today}T00:00:00.000Z`).all<FactRow>(),",
+    "testPath": "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "expect": "shows a resolved fact older than thirty days"
+  },
+  {
+    "name": "item8-restores-the-per-day-caps-in-the-trigger",
+    "file": "apps/cloud-gateway/src/persistence/migrations/0056_school_catchup_planned_cap.sql",
+    "find": "  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND status = 'planned'\n  ) >= 21;",
+    "replace": "  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND status = 'planned'\n  ) >= 21 OR (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND local_date = NEW.local_date AND status = 'planned'\n  ) >= 3;",
+    "testPath": "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "expect": "no longer caps one day's action count or minutes"
+  }
+]

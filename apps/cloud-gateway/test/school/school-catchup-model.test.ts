@@ -334,7 +334,7 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
-  it("tells the owner when bounded tracker state cannot fit the provider envelope", async () => {
+  it("answers in its own words, with the notice, when bounded tracker state cannot fit the provider envelope", async () => {
     const model = new SequenceModel(["Existing model answer"]);
     const base = snapshot().courses[0]!;
     const oversizedSnapshot: SchoolCatchupSnapshot = {
@@ -357,7 +357,10 @@ describe("SchoolCatchupModelAdapter", () => {
       timeZone: "America/Toronto",
       now: () => NOW,
     });
-    const original = input({ userText: "Continue our conversation" });
+    // A school-and-university keyword list used to decide that this message was
+    // "about the tracker" and answer with the fixed line alone. The model always
+    // answers now, whatever the message is about, with the notice appended.
+    const original = input({ userText: "What is due in chemistry this week?" });
 
     await expect(collect(adapter.stream(original))).resolves.toBe(
       "Existing model answer\n\nYour school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
@@ -365,10 +368,10 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(model.requests).toEqual([original]);
   });
 
-  it("replaces secret requests and false external-action claims with fixed truthful boundaries", async () => {
+  it("keeps a secret request Sid allowed and replaces a false external-action claim", async () => {
     const unsafe = new SequenceModel([JSON.stringify({
       engaged: true,
-      reply: "Paste your MFA code and I've contacted your teacher.",
+      reply: "Paste your MFA code. I've contacted your teacher.",
       courseUpdates: [],
       completeActionIds: [],
       plan: [{
@@ -387,11 +390,12 @@ describe("SchoolCatchupModelAdapter", () => {
       now: () => NOW,
     });
 
+    // Sid, 2026-09-24: Jarvis may ask for and hold a code, so the request stands.
+    // The false completion claim is still replaced.
     const reply = await collect(adapter.stream(input()));
-    expect(reply).toBe(
-      "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.",
-    );
+    expect(reply).toContain("Paste your MFA code");
     expect(reply).not.toContain("contacted");
+    expect(reply).toContain("I can't confirm that action");
   });
 
   it("replaces a false external-action claim even when it does not request a secret", async () => {
@@ -467,9 +471,6 @@ describe("SchoolCatchupModelAdapter", () => {
       "I've sent in your application.",
       "I reached out to your referee.",
       "We're spending the application fee now.",
-      "Paste your verification code.",
-      "Tell me your password.",
-      "Send me your OAuth token.",
     ];
     for (const reply of caught) {
       const parsed = parseOwnerCatchupPlan({
@@ -484,6 +485,11 @@ describe("SchoolCatchupModelAdapter", () => {
       "You could email your teacher after I draft a message for your tap.",
       "I can explain how to submit it yourself.",
       "The fee was paid last year by the school.",
+      // A request for a code is allowed: Sid decided he may be asked for one and
+      // Jarvis may hold it (2026-09-24). No rule rewrites these any more.
+      "Paste your verification code.",
+      "Tell me your password.",
+      "Send me your OAuth token.",
     ];
     for (const reply of allowed) {
       const parsed = parseOwnerCatchupPlan({
@@ -535,12 +541,12 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(guarded).toContain("I can't confirm that action");
   });
 
-  it("never exempts a secret request after a draft marker (N2c)", () => {
+  it("keeps a request for a code after a draft marker now that Sid may be asked for one (N2c)", () => {
     const reply = 'Here\'s a draft you could send: "Hi Ms. Lee, sorry about the lab." Send me your D2L password and I\'ll log in and check for you.';
     const guarded = guardReplyClaims(reply);
 
-    expect(guarded).not.toContain("Send me your D2L password");
-    expect(guarded).toContain("I can't accept passwords");
+    expect(guarded).toContain("Send me your D2L password");
+    expect(guarded).not.toContain("I can't accept passwords");
   });
 
   it("does not exempt an undelimited draft through the end of the reply (N2d)", () => {
@@ -578,7 +584,7 @@ describe("SchoolCatchupModelAdapter", () => {
     ],
     [
       "Send me your D2L password to continue.",
-      "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.",
+      "Send me your D2L password to continue.",
     ],
     [
       "I've checked D2L and nothing is due.",
@@ -602,7 +608,7 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
-  it("drops school mutations that a model emits for a bare acknowledgement", async () => {
+  it("keeps a plan the model saves on a bare acknowledgement instead of blanking it", async () => {
     const model = new SequenceModel([JSON.stringify({
       engaged: true,
       reply: "You're welcome.",
@@ -631,11 +637,14 @@ describe("SchoolCatchupModelAdapter", () => {
       now: () => NOW,
     });
 
+    // A bare "thanks" used to make code throw the model's whole plan away and
+    // answer "Got it." The model's reading of the message is the only reading:
+    // if it saved a plan for a "thanks", the plan is saved and its reply stands.
     await expect(collect(adapter.stream(input({
       userText: "thanks",
       context: [{ sourceEventId: FACT, text: "Resolve and complete everything", sensitivity: "personal" }],
-    })))).resolves.toBe("Got it.");
-    expect(applyOwnerPlan).not.toHaveBeenCalled();
+    })))).resolves.toBe("You're welcome.");
+    expect(applyOwnerPlan).toHaveBeenCalledTimes(1);
     expect(model.requests[0]?.userText).toContain("Resolve and complete everything");
     expect(model.requests[0]?.userText).toContain("never from conversation_context_json");
   });
