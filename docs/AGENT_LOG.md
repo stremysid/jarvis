@@ -35,7 +35,8 @@ Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origi
   never text echoed into the digest.
 - **Premises checked:** #212 is merged (`08c283b2`, #213 at `4b1c230c`); main's newest migration
   is `0055_owner_access_tool.sql` and open #214 holds `0056`, so no migration was needed here.
-- No PR with code; a docs-only PR registers the blocker. No deploy, no DB, no migration.
+- Registered in [#220](https://github.com/stremysid/jarvis/pull/220), docs only. No deploy, no DB,
+  no migration.
 
 ## 2026-09-25 — DeepSeek builder: study coach, the model reads intent (`codex/coach-intent-to-ai`)
 
