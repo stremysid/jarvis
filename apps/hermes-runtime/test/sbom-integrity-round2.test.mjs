@@ -221,7 +221,7 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("--source-root failed the complete locked source VerifyOnly boundary\n");
-  }, 60_000);
+  }, 180_000);
 
   it("closes PowerShell module discovery inside the real locked-source verifier child", async () => {
     const copy = await copyRuntimeTree();
@@ -260,7 +260,7 @@ exit 23
     expect(appData.toLowerCase(), "closed verifier child retained user APPDATA").toBe(closedHostDirectory.toLowerCase());
     expect(localAppData.toLowerCase(), "closed verifier child retained user LOCALAPPDATA").toBe(closedHostDirectory.toLowerCase());
     expect(closedHostEntriesAfter, "closed verifier startup left module-analysis or profile residue in its bounded host directory").toEqual(closedHostEntriesBefore);
-  }, 60_000);
+  }, 180_000);
 
   it("uses the uv-compatible CPython 3.11 Windows wheel for charset-normalizer", async () => {
     const selected = selectArchive({

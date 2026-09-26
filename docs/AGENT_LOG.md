@@ -1065,8 +1065,20 @@ the same default. Each checked test and its timeout, before → after:
 - `canonical-closure-review3.test.mjs`: `makes the manifest CLI reject exact package.json drift` — 5s → 60s.
 - `artifact-security-review3.test.mjs`: `rejects a manifest pathname replacement between an earlier hash check and the exact bytes it parses`, `extracts a bounded archive snapshot even when its source pathname is swapped`, and `fails closed when payload data cannot be flushed and orders the barrier before the commit marker` — each 5s → 180s, after the helper's 120-second child deadline.
 - `path-residue-review3.test.mjs`: `rejects a preloaded HermesRuntime.%s before module bootstrap` (both cases) and `rejects superscript device aliases, console aliases, and every Windows control character` — each 5s → 180s, after the helper's 120-second child deadline.
-- `sbom-integrity-round2.test.mjs`: `rejects a fabricated release-shaped source root through the real generator before reading lock inputs`, `closes PowerShell module discovery inside the real locked-source verifier child`, `rejects duplicate-key and noncanonical raw committed JSON through the real CLI`, and `hashes the actual THIRD_PARTY_NOTICES bytes in the executable validator` — each 5s → 60s.
+- `sbom-integrity-round2.test.mjs`: `rejects duplicate-key and noncanonical raw committed JSON through the real CLI` and `hashes the actual THIRD_PARTY_NOTICES bytes in the executable validator` — each 5s → 60s. Two more in this file were raised to 180s in round 3; see below.
 - `source-lock.test.mjs`: `requires an explicit source root for deterministic SBOM generation`, `runs the manifest validator CLI over the committed artifact set`, `refuses an unsafe UNC runtime root before any source acquisition command`, `promotes only complete staging directories and never replaces or creates a partial final target`, `rejects hostile tar members and zip members before runtime extraction`, `rejects Windows ADS, device, and case-collision archive members before extraction`, and `rejects every hostile injected Git transcript and source-directory drift before promotion` — each 5s → 60s.
+
+**Round 3 (2026-09-26), correcting a line above.** The entry said four
+`sbom-integrity-round2.test.mjs` tests went 5s → 60s. That was wrong for two of
+them. `rejects a fabricated release-shaped source root through the real generator
+before reading lock inputs` and `closes PowerShell module discovery inside the real
+locked-source verifier child` both call `runGenerator`, which runs the real
+`generate-sbom.mjs`; that script runs the locked-source verifier with
+`deadlineMs = 120_000` and `runGenerator` has no deadline of its own. A 60s Vitest
+timeout therefore fires **before** the product's own 120s deadline, which breaks
+this change's whole rule. Both are now `180_000`, the same margin used for the
+120-second `runPowerShell` helpers elsewhere in this batch. The other two stay at
+60s: neither calls `runGenerator`. No production code changed.
 
 The remaining default-5-second search hits are `powershell-host.test.mjs`'s
 mocked `spawn` tests and `sbom-integrity-round2.test.mjs`'s `runs the locked
