@@ -205,12 +205,15 @@ The following low-severity follow-ups from the independent review remain open:
 - **L3′:** A held pre-tool refusal is spoken at the end of round 0, out of
   order.
 
-- **L5:** `guardVoiceReplySentence` in
-  [school-catchup-model.ts](apps/cloud-gateway/src/school/school-catchup-model.ts)
-  does not apply #162's `WORKED_APPLIED_FOR_YOU` mask before
-  `FALSE_EXTERNAL_COMPLETIONS`, and its `VOICE_MEMORY_COMPLETION` backstop matches
-  "saved" without a worked-object check. The review found six worked explanations
-  that Telegram keeps but voice replaces. This fails closed.
+- **L5:** `guardVoiceReplySentence` now exempts only the omission backstop from a
+  `[[worked]]` declaration; `FALSE_EXTERNAL_COMPLETIONS`, the passive patterns and
+  `VOICE_MEMORY_COMPLETION` always run. #162's `WORKED_APPLIED_FOR_YOU` mask is deleted
+  by [#204](https://github.com/stremysid/jarvis/pull/204) (register row 11), so a voice
+  sentence phrased as "I applied the X rule for you" is conservatively replaced even when
+  the model declares it worked. That is deliberate fail-closed behaviour, not a bug:
+  "applied ... for you" is the external-application grammar, and narrowing it would
+  reintroduce the deleted worked-object list. `VOICE_MEMORY_COMPLETION` still matches
+  "saved" without a worked-object check.
 - **L6:** No test pins #162's worked-explanation sentence in
   `OWNER_VOICE_STREAM_PROMPT`. The matching assertion in
   [tutoring-reply-review.test.ts](apps/cloud-gateway/test/school/tutoring-reply-review.test.ts)

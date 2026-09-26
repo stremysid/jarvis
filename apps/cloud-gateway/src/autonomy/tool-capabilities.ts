@@ -95,6 +95,10 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
   // authority still applies. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
+  // Read-only raw Classroom evidence for the model's own missing-work judgment.
+  // It shares school_d2l_status's ungated tier-1 row: it reads Sid's own
+  // school store, changes nothing and reaches nobody.
+  school_work_evidence: "school.track",
   // Read-only facts about the tracked repositories: excerpts, commit ages,
   // dates and poll health. It shares `read.repository`, the tier-1 row
   // `0008_autonomy.sql` already seeds for polling a repository's status
