@@ -89,12 +89,19 @@ const OWNER_TOOL_CAPABILITIES: Readonly<Record<string, string>> = Object.freeze(
   memory_unpin: "memory.write",
   school_update: "school.track",
   deadline_record: "school.track",
+  // Reading Sid's own stored deadlines is owner-scoped and changes nothing, so
+  // it shares school.track's tier-1 row and needs no migration.
+  deadline_list: "school.track",
   guided_assignment_read: "school.track",
   guided_assignment_save: "school.track",
   guided_assignment_draft: "school.track",
   // Sid deliberately ungated this evidence read: no tier gate and no tap. Direct-text
   // authority still applies. https://github.com/stremysid/jarvis/pull/175#issuecomment-5816467523
   school_d2l_status: "school.track",
+  // Read-only raw Classroom evidence for the model's own missing-work judgment.
+  // It shares school_d2l_status's ungated tier-1 row: it reads Sid's own
+  // school store, changes nothing and reaches nobody.
+  school_work_evidence: "school.track",
   school_collector_revoke: "school.collector.revoke",
   reminder_schedule: "notify.owner",
   reminder_list: "notify.owner",

@@ -387,7 +387,7 @@ describe("a search, read and record chain in one turn", () => {
   beforeEach(resetDeadlineTables);
 
   const deadline = {
-    course: "Chemistry", title: "Lab report", dueAt: "2026-09-25T15:30:00-04:00", effort: "project",
+    course: "Chemistry", title: "Lab report", dueAt: "2026-09-25T15:30:00-04:00",
   };
 
   /** Search history, read the email it points at, record the deadline, then answer. */

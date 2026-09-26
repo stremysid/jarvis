@@ -11,6 +11,8 @@ import type {
   SchoolStudyGradeObservation,
   SchoolStudyMissingWork,
   SchoolSubmissionState,
+  SchoolWorkEvidence,
+  SchoolWorkEvidenceSnapshot,
 } from "./school-observation-types.js";
 
 /**
@@ -21,6 +23,8 @@ import type {
 export const CLASSROOM_OBSERVATION_D1_STATEMENT_BUDGET = 320;
 export const MISSING_WORK_DERIVATION_PAGE_SIZE = 64;
 export const SCHOOL_STUDY_OBSERVATION_ROW_LIMIT = 24;
+/** Bounded page of raw evidence the model reads before judging missed work. */
+export const SCHOOL_WORK_EVIDENCE_PAGE_SIZE = 40;
 
 export class D1StatementBudget {
   #used = 0;
@@ -147,6 +151,24 @@ interface StudyGradeRow extends GradeRow {
 }
 
 interface StudyMissingRow extends MissingRow {
+  source_last_success_at: string | null;
+  source_last_failure: string | null;
+}
+
+interface WorkEvidenceRow {
+  deadline_id: string;
+  course: string;
+  title: string;
+  due_at: string;
+  status: string;
+  submission_state: string | null;
+  late: number | null;
+  assigned_grade: number | null;
+  max_points: number | null;
+  source_updated_at: string | null;
+  last_seen_at: string | null;
+  last_derived_state: string | null;
+  last_derived_at: string | null;
   source_last_success_at: string | null;
   source_last_failure: string | null;
 }
@@ -718,7 +740,7 @@ export class SchoolObservationRepository {
     }
     this.#claim();
     const result = await this.database.prepare(
-      `SELECT d.deadline_id, d.due_at, d.status,
+      `SELECT d.deadline_id, d.due_date AS due_at, d.status,
               o.observation_id, o.submission_state, o.last_seen_at,
               (
                 SELECT t.to_state FROM school_missing_work_transitions AS t
@@ -836,7 +858,7 @@ export class SchoolObservationRepository {
          LIMIT 20`,
       ).bind(principalId, sourceId, changedSince).all<GradeRow>(),
       this.database.prepare(
-        `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_at,
+        `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_date AS due_at,
                 t.classification, t.to_state, basis.last_seen_at, COUNT(*) OVER () AS total_count
          FROM school_missing_work_transitions AS t
          JOIN deadlines AS d ON d.deadline_id = t.deadline_id
@@ -850,11 +872,11 @@ export class SchoolObservationRepository {
           AND basis.source_id = d.source_id
          WHERE t.principal_id = ? AND d.source_id = ?
            AND t.to_state = 'no_submission_seen'
-           AND d.status = 'open' AND d.due_at <= ?
+           AND d.status = 'open' AND d.due_date <= ?
            AND sync.last_success_at IS NOT NULL
            AND sync.last_success_started_at IS NOT NULL
            AND basis.last_seen_at >= sync.last_success_started_at
-           AND basis.last_seen_at >= d.due_at
+           AND basis.last_seen_at >= d.due_date
            AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
            AND NOT EXISTS (
              SELECT 1 FROM school_missing_work_transitions AS later
@@ -864,7 +886,7 @@ export class SchoolObservationRepository {
                  OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id)
                )
            )
-         ORDER BY d.due_at DESC, d.deadline_id
+         ORDER BY d.due_date DESC, d.deadline_id
          LIMIT 20`,
       ).bind(principalId, sourceId, now).all<MissingRow>(),
       this.readSync(principalId, sourceId),
@@ -962,7 +984,7 @@ export class SchoolObservationRepository {
         LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
         .bind(principalId).all<StudyGradeRow>(),
       this.database.prepare(`SELECT t.transition_id, t.deadline_id, d.course, d.title,
-          d.due_at, t.classification, t.to_state, basis.last_seen_at,
+          d.due_date AS due_at, t.classification, t.to_state, basis.last_seen_at,
           1 AS total_count, sync.last_success_at AS source_last_success_at,
           sync.last_failure AS source_last_failure
         FROM school_missing_work_transitions t
@@ -976,11 +998,11 @@ export class SchoolObservationRepository {
           AND basis.deadline_id = t.deadline_id
           AND basis.source_id = d.source_id
         WHERE t.principal_id = ?1 AND t.to_state = 'no_submission_seen'
-          AND d.status = 'open' AND d.due_at <= ?2
+          AND d.status = 'open' AND d.due_date <= ?2
           AND sync.last_success_at IS NOT NULL
           AND sync.last_success_started_at IS NOT NULL
           AND basis.last_seen_at >= sync.last_success_started_at
-          AND basis.last_seen_at >= d.due_at
+          AND basis.last_seen_at >= d.due_date
           AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
           AND NOT EXISTS (
             SELECT 1 FROM school_missing_work_transitions later
@@ -988,7 +1010,7 @@ export class SchoolObservationRepository {
               AND (later.derived_at > t.derived_at
                 OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id))
           )
-        ORDER BY d.due_at DESC, d.deadline_id
+        ORDER BY d.due_date DESC, d.deadline_id
         LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
         .bind(principalId, now).all<StudyMissingRow>(),
     ]);
@@ -1034,6 +1056,107 @@ export class SchoolObservationRepository {
       });
     });
     return Object.freeze({ grades: Object.freeze(grades), missingWork: Object.freeze(missingWork) });
+  }
+
+  /**
+   * Reads the raw Classroom submission evidence for the model to interpret.
+   *
+   * This is the `senses` half of the missing-work decision: what Classroom
+   * reported, when it was last read, and the coverage of that read. Code writes
+   * no missing-work judgment here. Jarvis reads this and decides, and asks Sid
+   * when the evidence is incomplete, stale or absent for a deadline.
+   *
+   * A deadline with no observation is returned with a null `submissionState`,
+   * so "Classroom has never told us about this course" is visible rather than
+   * dropped. The page is keyed by `deadline_id`; pass `nextAfterDeadlineId`
+   * back as `afterDeadlineId` to read on.
+   */
+  async readWorkEvidence(input: {
+    readonly principalId: string;
+    readonly sourceId: string;
+    readonly seenSince: Date;
+    readonly afterDeadlineId?: string | null;
+    readonly limit?: number;
+  }): Promise<SchoolWorkEvidenceSnapshot> {
+    const principalId = principal(input.principalId);
+    const sourceId = identifier(input.sourceId, "school_observation_source_invalid");
+    const seenSince = at(input.seenSince);
+    const after = input.afterDeadlineId === undefined || input.afterDeadlineId === null
+      ? ""
+      : identifier(input.afterDeadlineId, "school_observation_evidence_cursor_invalid");
+    const limit = input.limit ?? SCHOOL_WORK_EVIDENCE_PAGE_SIZE;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > SCHOOL_WORK_EVIDENCE_PAGE_SIZE) {
+      throw new TypeError("school_observation_evidence_limit_invalid");
+    }
+    this.#claim();
+    const result = await this.database.prepare(
+      `SELECT d.deadline_id, d.course, d.title, d.due_at, d.status,
+              o.submission_state, o.late, o.assigned_grade, o.max_points,
+              o.source_updated_at, o.last_seen_at,
+              (SELECT t.to_state FROM school_missing_work_transitions AS t
+               WHERE t.principal_id = ?1 AND t.deadline_id = d.deadline_id
+               ORDER BY t.derived_at DESC, t.transition_id DESC LIMIT 1) AS last_derived_state,
+              (SELECT t.derived_at FROM school_missing_work_transitions AS t
+               WHERE t.principal_id = ?1 AND t.deadline_id = d.deadline_id
+               ORDER BY t.derived_at DESC, t.transition_id DESC LIMIT 1) AS last_derived_at,
+              sync.last_success_at AS source_last_success_at,
+              sync.last_failure AS source_last_failure
+       FROM deadlines AS d
+       JOIN deadline_sources AS s ON s.source_id = d.source_id AND s.kind = 'classroom'
+       LEFT JOIN school_assignment_observations AS o
+         ON o.principal_id = ?1 AND o.deadline_id = d.deadline_id
+       LEFT JOIN school_observation_sync AS sync
+         ON sync.principal_id = ?1 AND sync.source_id = d.source_id
+       WHERE d.source_id = ?2 AND d.deadline_id > ?3
+         AND (o.last_seen_at IS NULL OR o.last_seen_at >= ?4)
+       ORDER BY d.deadline_id
+       LIMIT ?5`,
+    ).bind(principalId, sourceId, after, seenSince, limit + 1).all<WorkEvidenceRow>();
+    const found = rows(result);
+    const page = found.slice(0, limit);
+    const observations = page.map((row): SchoolWorkEvidence => {
+      const lastDerivedState = row.last_derived_state === null
+        ? null
+        : row.last_derived_state as DerivedMissingWorkState;
+      if (lastDerivedState !== null && !DERIVED_STATES.includes(lastDerivedState)) {
+        throw new TypeError("school_observation_evidence_row_invalid");
+      }
+      return Object.freeze({
+        deadlineId: identifier(row.deadline_id, "school_observation_evidence_row_invalid"),
+        course: text(row.course, "school_observation_evidence_row_invalid", 2_048),
+        title: text(row.title, "school_observation_evidence_row_invalid", 2_048),
+        dueAt: instant(row.due_at, "school_observation_evidence_row_invalid"),
+        deadlineStatus: text(row.status, "school_observation_evidence_row_invalid", 160),
+        submissionState: row.submission_state === null
+          ? null
+          : state(row.submission_state),
+        late: row.late === null ? null : row.late === 1,
+        assignedGrade: grade(row.assigned_grade),
+        maxPoints: scale(row.max_points),
+        sourceUpdatedAt: optionalInstant(row.source_updated_at, "school_observation_evidence_row_invalid"),
+        lastSeenAt: row.last_seen_at === null
+          ? null
+          : instant(row.last_seen_at, "school_observation_evidence_row_invalid"),
+        lastDerivedState,
+        lastDerivedAt: optionalInstant(row.last_derived_at, "school_observation_evidence_row_invalid"),
+      });
+    });
+    const first = page[0];
+    const last = page.at(-1);
+    const hasMore = found.length > limit;
+    return Object.freeze({
+      sourceLastSuccessAt: first === undefined
+        ? null
+        : optionalInstant(first.source_last_success_at, "school_observation_evidence_row_invalid"),
+      sourceLastFailure: first === undefined || first.source_last_failure === null
+        ? null
+        : text(first.source_last_failure, "school_observation_evidence_row_invalid", 160),
+      observations: Object.freeze(observations),
+      hasMore,
+      nextAfterDeadlineId: hasMore && last !== undefined
+        ? identifier(last.deadline_id, "school_observation_evidence_row_invalid")
+        : null,
+    });
   }
 
   private async requireSync(principalId: string, sourceId: string): Promise<SchoolObservationSyncState> {

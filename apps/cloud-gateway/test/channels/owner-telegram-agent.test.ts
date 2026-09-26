@@ -49,9 +49,13 @@ const NOW = new Date("2026-09-17T14:00:00.000Z");
 let serial = 0;
 let callbackSerial = 200_000;
 
-function stopped(reply: string, claimedActions: readonly unknown[] = []): ModelAgentCompletion {
+function stopped(
+  reply: string,
+  claimedActions: readonly unknown[] = [],
+  workedExplanations: readonly string[] = [],
+): ModelAgentCompletion {
   return Object.freeze({
-    content: JSON.stringify({ reply, claimedActions }),
+    content: JSON.stringify({ reply, claimedActions, workedExplanations }),
     toolCalls: Object.freeze([]),
     finishReason: "stop" as const,
   });
@@ -3007,18 +3011,18 @@ describe("owner Telegram agent", () => {
     expect(provider.requests[1]?.toolResults?.map((result) => result.toolCallId)).toEqual(["remember-1", "remember-2"]);
   });
 
-  it("delivers every sentence of a worked explanation on an ordinary owner Telegram turn", async () => {
+  it("delivers every sentence of a worked explanation the model declares on an ordinary owner Telegram turn", async () => {
     const harness = await ownerHarness("tutoring-sentences");
     const reply = WORKED_REPLY;
-    const provider = new FakeAgentProvider([stopped(reply)]);
+    const provider = new FakeAgentProvider([stopped(reply, [], reply.split(/(?<=[.!?])\s+/u))]);
 
     await expect(runTurn({ harness, text: "Explain the homework step by step.", provider })).resolves.toBe(reply);
     expect(provider.requests).toHaveLength(1);
   });
 
-  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question on Telegram: %s", async (reply) => {
+  it.each(GUIDED_ASSIGNMENT_QUESTIONS)("delivers the guided assignment question the model declares on Telegram: %s", async (reply) => {
     const harness = await ownerHarness("guided-question");
-    const provider = new FakeAgentProvider([stopped(reply)]);
+    const provider = new FakeAgentProvider([stopped(reply, [], reply.split(/(?<=[.!?])\s+/u))]);
     await expect(runTurn({ harness, text: "Ask me one simple question about my assignment.", provider })).resolves.toBe(reply);
     expect(provider.requests).toHaveLength(1);
   });
@@ -3028,6 +3032,20 @@ describe("owner Telegram agent", () => {
     const provider = new FakeAgentProvider([stopped("I added a function and deployed it.")]);
     await expect(runTurn({ harness, text: "Explain the function.", provider })).resolves.toContain("I can't confirm that action.");
     expect(provider.requests).toHaveLength(1);
+  });
+
+  // Reviewer round 2, finding 2: the declaration the model threads through the
+  // Telegram reply is still subject to the guard for the fact that Jarvis has
+  // no hand reaching outside him. This also pins the post-tool reply path.
+  it("never lets a worked declaration exempt an external completion on Telegram", async () => {
+    const harness = await ownerHarness("worked-external-claim");
+    const claim = "I submitted your essay to OUAC.";
+    const reply = `${claim} Here is what I found.`;
+    const provider = new FakeAgentProvider([stopped(reply, [], [claim])]);
+    const delivered = await runTurn({ harness, text: "Did you submit it?", provider });
+    expect(delivered).not.toContain(claim);
+    expect(delivered).toContain("I can't confirm that action.");
+    expect(delivered).toContain("Here is what I found.");
   });
 
   it("rewrites an unsupported action claim once and removes it deterministically if still unsupported", async () => {

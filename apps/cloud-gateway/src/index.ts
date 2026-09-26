@@ -398,7 +398,7 @@ async function sendOwnerSchoolEmailNotice(env: Env, text: string): Promise<void>
 function commandContext(env: Env, principalId: string): CommandContext {
   const clock = { now: () => new Date() };
   const deadlines = new DeadlineRepository(env.DB);
-  const quiet = new QuietWindowService({ repository: deadlines, now: () => clock.now() });
+  const quiet = new QuietWindowService({ repository: deadlines });
   return {
     principalId,
     autonomy: new AutonomyRepository(env.DB),
@@ -840,6 +840,18 @@ ${COMMAND_HELP}`));
         };
       }
       : undefined;
+    const deadlineReviewFactory = env.DEEPSEEK_API_KEY !== undefined
+      && env.DEEPSEEK_API_KEY.length > 0 && principalId !== undefined && principalId.length > 0
+      ? () => ({
+        provider: new DeepSeekAgentProvider({
+          apiKey: env.DEEPSEEK_API_KEY!,
+          model: env.DEEPSEEK_MODEL?.trim() || "deepseek-flash",
+          fetchImplementation: fetcher,
+        }),
+        ownerPrincipalId: principalId,
+        ownerZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+      })
+      : undefined;
     const context = {
       env,
       clock,
@@ -848,6 +860,7 @@ ${COMMAND_HELP}`));
       fetcher,
       memoryDistillationFactory,
       memoryConsolidationFactory,
+      deadlineReviewFactory,
     };
 
     const report = await handleScheduled(controller.cron, clock.now(), {

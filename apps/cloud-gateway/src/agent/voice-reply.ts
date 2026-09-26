@@ -40,10 +40,12 @@ function parseClaim(header: string): Claim {
 export class VoiceReplyStream {
   private pending = "";
   private claim: Claim | null = null;
+  private working = false;
   private raw = "";
   private redactedPrefix = "";
   private index = 0;
   private readonly spans: ClaimSpan[] = [];
+  private readonly workedSpans: Array<{ readonly start: number; readonly end: number }> = [];
   // Sid's reader. A guest session's reply is redacted again for its own
   // reader by the conversation service's output redactor downstream.
   private readonly redactor = new Redactor("owner");
@@ -71,6 +73,19 @@ export class VoiceReplyStream {
         result.push(...this.append(body));
         continue;
       }
+      if (this.working) {
+        const close = this.pending.indexOf("[[/worked]]");
+        if (close < 0) break;
+        const body = this.pending.slice(0, close);
+        const sentences = new VoiceSentences();
+        if (body.includes("[[") || !/[.!?]["'’”)]*$/u.test(body.trim())
+          || [...sentences.push(body), ...sentences.finish()].length !== 1) throw new TypeError("voice_worked_sentence_invalid");
+        this.workedSpans.push({ start: this.raw.length, end: this.raw.length + body.length });
+        this.working = false;
+        this.pending = this.pending.slice(close + "[[/worked]]".length);
+        result.push(...this.append(body));
+        continue;
+      }
       const marker = this.pending.indexOf("[[");
       if (marker < 0) {
         // Retain a lone '[' so a marker split across provider chunks never
@@ -86,6 +101,11 @@ export class VoiceReplyStream {
       }
       const end = this.pending.indexOf("]]");
       if (end < 0) break;
+      if (this.pending.startsWith("[[worked]]")) {
+        this.working = true;
+        this.pending = this.pending.slice("[[worked]]".length);
+        continue;
+      }
       if (!this.pending.startsWith("[[claim ")) throw new TypeError("voice_claim_invalid");
       this.claim = parseClaim(this.pending.slice("[[claim ".length, end));
       this.pending = this.pending.slice(end + 2);
@@ -94,7 +114,7 @@ export class VoiceReplyStream {
   }
 
   finish(): readonly CheckedVoiceSentence[] {
-    if (this.claim !== null || this.pending.length > 0) throw new TypeError("voice_claim_incomplete");
+    if (this.claim !== null || this.working || this.pending.length > 0) throw new TypeError("voice_claim_incomplete");
     if (this.index === 0) return [];
     this.output.complete();
     return this.output.drain().flatMap((token) => this.check(token.text));
@@ -121,6 +141,15 @@ export class VoiceReplyStream {
       const safe = this.safe(this.raw);
       const proofs: ReceiptedToolSentence[] = [];
       let unsupported = false;
+      let worked = false;
+      for (const span of this.workedSpans) {
+        const before = this.safe(this.raw.slice(0, span.start));
+        const through = this.safe(this.raw.slice(0, span.end));
+        if (!safe.startsWith(before) || !safe.startsWith(through)) throw new TypeError("voice_worked_redaction_overlap");
+        const workedStart = before.length + through.slice(before.length).length - through.slice(before.length).trimStart().length;
+        const workedEnd = through.trimEnd().length;
+        if (workedStart < end && workedEnd > start) worked = true;
+      }
       for (const span of this.spans) {
         const before = this.safe(this.raw.slice(0, span.start));
         const through = this.safe(this.raw.slice(0, span.end));
@@ -137,7 +166,10 @@ export class VoiceReplyStream {
         else proofs.push({ sentence: sentence.replace(/\s+/gu, " ").trim(), toolNames: [span.claim.toolName] });
       }
       const checked = unsupported ? UNRECEIPTED_VOICE_ACTION
-        : guardVoiceReplySentence(sentence, this.receiptSentences, { receiptedInternalSentences: proofs });
+        : guardVoiceReplySentence(sentence, this.receiptSentences, {
+          receiptedInternalSentences: proofs,
+          workedExplanations: worked ? [sentence.replace(/\s+/gu, " ").trim()] : [],
+        });
       const replaced = checked !== sentence.replace(/\s+/gu, " ").trim();
       // Keep source whitespace on successful speech. Inserting sentence line
       // breaks changes what the downstream credential redactor can recognize.
