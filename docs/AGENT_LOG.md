@@ -3,6 +3,26 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-25 — DeepSeek builder: #214 round 2 (migration 0056, row-16 queue item, merge)
+
+Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai`.
+
+- **Migration renamed to `0056_school_catchup_planned_cap.sql`.** PR #207 (calls) takes `0055`, so
+  the school cap-trigger migration moved one number up. Every list and document that named it was
+  updated: the restore list, the school chain, the newest-runtime chain and the full list in
+  `test/persistence/migration.ts`, the remote-D1 syntax inventory, the memory-backup schema
+  version, the mutation spec and the docs. `0056` is free on main (which tops at `0054`) and in
+  every open PR. Nothing was applied anywhere.
+- **`docs/QUEUE.md` now carries the removal item for register row 16** (`FALSE_EXTERNAL_COMPLETIONS`
+  and the passive-completion patterns in `school-catchup-model.ts`), which AGENTS.md requires for a
+  judgment that is registered but not removed this round.
+- **`origin/main` merged** (`018b5717`), bringing `0053`/`0054` from #201 and the #206/#209/#216
+  work. The voice catalogue test already names the real 30-tool catalogue, including
+  `project_facts`; no count change was needed.
+- **Verified:** focused `test/school` + persistence/backup/migration + `voice-agent` +
+  `tool-classification` = 1214 passed; gateway `tsc --noEmit` clean; `scripts/check-state.mjs`
+  passes with the pre-existing FACTS warning.
+
 ## 2026-09-25 — DeepSeek builder: school catch-up planner and reply guards ([#214](https://github.com/stremysid/jarvis/pull/214))
 
 Signed: DeepSeek (builder agent), branch `codex/catchup-judgment-to-ai` from `origin/main`
