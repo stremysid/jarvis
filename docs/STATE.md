@@ -27,12 +27,13 @@ the memory-wording batch are **on the default branch and not in the last recorde
 
 Two consequences are load-bearing and are why this section is first:
 
-- **The deployed revision still has the guest-call privacy leak.** The channel-parity merge is
-  the fix and it is not in that deploy, so either no deploy has happened since 2026-09-24 — the
-  leak is live — or one has and nobody recorded it. **Do not assert production is fixed without
-  a recorded deploy revision.** On the revision deployed, `OwnerAgentCore.streamCaptured` reads
-  Sid's pinned core profile, owner prompt and owner catalogue before the tool-authority check
-  sees the principal, so a guest call carries owner material to the model. See
+- **The last recorded deploy predates the guest-call privacy fix**, which is the channel-parity
+  merge. A report exists that production still runs it — the never-merged branch
+  `docs/state-2026-09-25-evening` records the deployed revision with D1 at `0045` at ~19:22 EDT on
+  2026-09-25 — but that branch is unmerged, so treat it as a report, not a measurement. On the
+  revision deployed, `OwnerAgentCore.streamCaptured` reads Sid's pinned core profile, owner prompt
+  and owner catalogue before the tool-authority check sees the principal, so a guest call carries
+  owner material to the model. See
   [KNOWN_ISSUES](../KNOWN_ISSUES.md#guest-call-privacy-leak--fixed-in-code-live-in-the-last-recorded-deploy).
 - **Several merged features cannot work until their migrations are applied, and D1 is recorded
   at `0045`.** `0047`–`0056` are on the default branch and not in any recorded application.
@@ -97,8 +98,7 @@ marked *(queried)* below is from that session rather than from somebody's report
 revision (checked per merge with `git merge-base --is-ancestor`), and no migration above `0045`
 is in any recorded run.
 
-**Older observations from 2026-09-21, still not refreshed:** `memory_fact_projection_facts` held
-0 rows; `d2l_email_messages` was empty; 6 inbound owner calls, all 2026-09-17, no outbound ever.
+**Older observations from 2026-09-21, still not refreshed:** `memory_fact_projection_facts` held 0 rows; `d2l_email_messages` was empty; 6 inbound owner calls, all 2026-09-17, no outbound ever.
 
 ## Pending rollout
 
@@ -114,7 +114,7 @@ are in [OWNER-ACTIONS](OWNER-ACTIONS.md#waiting-on-sid).
 | CI | Green on the default branch for the tip merge (#219) on 2026-09-27; **a cancelled run is not a failure** — one concurrency group per branch means a newer push cancels an older run. Query the head you are about to clear |
 | Workspace suite | No full suite was run for this regeneration, and no permanent count belongs in a carrier: run `pnpm test` and read its own total. The three historically flaky cases named here before are now bounded by merged test changes (#154, #185) |
 | `pnpm typecheck` | **Clean**, measured 2026-09-27 in a worktree at the default-branch tip |
-| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **149 errors in 32 files**, measured 2026-09-27 on the same tree; still red and gated nowhere. It has grown from the 143 last recorded, which is what a red gate nobody runs looks like |
+| `pnpm --filter @jarvis/cloud-gateway typecheck:tests` | **149 errors**, measured 2026-09-27 on the same tree by counting `tsc -p tsconfig.test.json --noEmit`'s output. The count of affected *files* was reported two different ways in review (32, 34) and is not settled here, so only the error count is asserted; still red and gated nowhere. It has grown from the 143 last recorded, which is what a red gate nobody runs looks like |
 | `pnpm lint` | Exit 0, but several packages define it as `tsc --noEmit`; no linter is reachable |
 | Voice release chain | `test:voice-access`, `test:voice-smoke`, `release:voice-gate` exist and appear in **no workflow** |
 | `pnpm run check:state` | Passes with one `::warning` — one `FACTS.md` row marked unconfirmed needs re-verification. The job is advisory; the default branch does not require it |

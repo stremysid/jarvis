@@ -3,7 +3,7 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-27 — DeepSeek builder: the carriers, regenerated. The last deploy predates 39 merges.
+## 2026-09-27 — DeepSeek builder: the carriers, regenerated. The last deploy predates every merge since.
 
 Signed: DeepSeek (builder agent), branch `docs/carriers-2026-09-27` from `origin/main` at
 `0b78c4e4`. **Docs only — no source file, migration, test or workflow was touched.** PR is
@@ -41,7 +41,13 @@ note as current state; I re-ran the query, exactly as the standing rules require
 
 ### Findings, and how they were established
 
-1. **The last recorded deploy is 2026-09-24 and 39 non-documentation merges are not in it.** No
+1. **The last recorded deploy is 2026-09-24 and every merge since is absent from it.** Review
+   checked this harder than the author did and found the author's own count wrong: of the 40 commits
+   between the deployed revision and the tip, **6 are documentation-only** (#179, #192, #202, #203,
+   #205 and #222 — `git log --format="%h %s" <deployed>..<tip>` filtered on the `docs`/`chore`
+   prefixes). The figure is therefore **33 non-documentation merges**, not the 39 first recorded
+   here. The correction makes the finding slightly smaller and changes no part of the argument below.
+   No
    carrier holds a deploy record after 2026-09-24, and
    `git merge-base --is-ancestor <merge> <deployed revision>` returns false for #174, #199, #168,
    #198, #195, #190, #197, #193, #196, #194, #183, #180, #184, #191 and #188 — checked one at a
@@ -63,8 +69,10 @@ note as current state; I re-ran the query, exactly as the standing rules require
    not by running the agent path.
 4. **Two measurements I did take, both needed to keep a carrier honest:**
    `OWNER_TOOL_DEFINITIONS` holds **35** entries (counted by importing it, not by reading the
-   source); `pnpm --filter @jarvis/cloud-gateway typecheck:tests` reports **149 errors in 32
-   files**, up from the 143 recorded on 2026-09-24, and source `tsc -p tsconfig.json` is **clean**.
+   source); `pnpm --filter @jarvis/cloud-gateway typecheck:tests` reports **149 errors**, up from the
+   143 recorded on 2026-09-24, and source `tsc -p tsconfig.json` is **clean**. The number of
+   affected files was recorded here as 32 and review reported it two ways (32, 34), so only the
+   error count is asserted — a figure a carrier cannot settle should not be carried.
 5. **Re-verified as still present, so they stayed in the queue:** `handleReadiness` has no
    non-test caller; `capability_tiers` has no update/delete guard and `channel_identities` no
    insert guard; `apps/watchdog/wrangler.toml` still declares none of its alerting secrets;
