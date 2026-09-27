@@ -673,7 +673,10 @@ describe("the memory_search tool definition", () => {
           // Not the literal 8: the schema and the reader are two copies of one
           // bound, and the failure this catches is the pair drifting apart.
           maximum: MAX_MEMORY_SEARCH_RESULTS,
-          description: expect.any(String),
+          // The prose carries the number too. A description that promises the
+          // model one ceiling while the reader enforces another is the same
+          // drift, in the half the model actually reads.
+          description: expect.stringContaining(String(MAX_MEMORY_SEARCH_RESULTS)),
         },
       },
     });
@@ -902,6 +905,26 @@ describe("memory_search through the owner agent", () => {
     expect(result.receipt).toContain(`item ${items[0]!.itemId}`);
     expect(result.receipt).not.toContain(`item ${items[1]!.itemId}`);
     expect(result.receipt).not.toContain(`item ${items[2]!.itemId}`);
+  });
+
+  it("refuses a search that names no query, even with a limit attached", async () => {
+    // Accepting a subset of the accepted names is not the same as accepting any
+    // subset: `limit` alone has nothing to search for, and a search with an
+    // undefined query is not a search.
+    const harness = await ownerHarness("limit-without-query");
+    const index = new FakeMeaningIndex();
+    const provider = new FakeAgentProvider([
+      called(tool("search-no-query", "memory_search", { limit: 3 })),
+      stopped("Let me ask you what to look for."),
+    ]);
+
+    await runOwnerTurn({ harness, text: "search my memory", provider, memorySearch: index });
+
+    const result = JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("refused");
+    expect(result.receipt).toContain("needs a query");
+    expect(index.queries).toEqual([]);
   });
 
   it("refuses a limit it cannot honour instead of quietly returning fewer", async () => {

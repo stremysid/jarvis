@@ -2199,9 +2199,14 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     }
     // `limit` is optional, so the accepted key set is the model's own subset
     // validated against the names -- `parseArguments` on its own would demand
-    // an exact set and refuse every call that left `limit` out.
+    // an exact set and refuse every call that left `limit` out. A missing
+    // `query` is refused by name rather than thrown: `safeText` would refuse it
+    // too, but as the generic "could not safely apply that tool call", which
+    // tells the model nothing about what it got wrong.
     const fields = optionalArgumentKeys(call, ["query", "limit"]);
-    if (!fields.includes("query")) throw new TypeError("owner_agent_tool_arguments_invalid");
+    if (!fields.includes("query")) {
+      return refusedTool(call, "Memory search needs a query: say what to look for, and ask again.");
+    }
     const args = parseArguments(call, fields);
     const query = safeText(args.query, 4_096);
     // How many memories come back is the model's choice, not code's. The bound

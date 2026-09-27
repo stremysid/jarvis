@@ -3,6 +3,83 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-26 — DeepSeek builder: `memory_search` learns to ask for a page (`feat/memory-search-limit`)
+
+Signed: DeepSeek (builder agent), branch `feat/memory-search-limit` from `origin/main`
+`0b78c4e4`. Touches Sid's rule 2 ("the API makes all the decisions") — register:
+`docs/CODE-VS-JUDGMENT.md#how-many-memories-a-search-returns-handed-to-the-model-2026-09-26`.
+No migration, no deploy, no DB write.
+
+- **The gap, verified against the code at `0b78c4e4`.** `MemorySearchService.search` already
+  accepted `limit?: number` and validated it (`memory-search.ts`, `memory_search_limit_invalid`);
+  `resolveItems` already capped on it (`if (resolved.length >= maximum) break`). **No caller
+  could pass one** — `memory_search`'s schema listed only `query`, and the dispatch called
+  `parseArguments(call, ["query"])`. So `MAX_MEMORY_SEARCH_RESULTS`/`8` was the only reachable
+  page size and the reader's ceiling was silently also the page size. The reader half was
+  therefore pre-existing but **unpinned**: nothing in `test/memory/memory-search.test.ts`
+  exercised `limit` before this PR. Two tests were added to pin it (below).
+- **Changed.** `limit` is an optional `memory_search` argument, `1`..`MAX_MEMORY_SEARCH_RESULTS`
+  (`memory-tools.ts` — the schema's `maximum` and the description both interpolate the constant
+  rather than repeating `8`, so the two copies of the bound cannot drift). The dispatch in
+  `owner-agent-core.ts` reads the accepted key set with `optionalArgumentKeys(call, ["query",
+  "limit"])`, refuses a missing `query` **by name**, refuses an out-of-range or non-integer
+  `limit` by name (never clamps), and passes `limit` through only when present. The over-fetch
+  (`MAX_MEMORY_SEARCH_VECTOR_RESULTS`/16) is deliberately unchanged.
+- **A bug I wrote and caught, and what it proves.** My first version used
+  `parseArguments(call, ["query", "limit"])`. `parseArguments` demands an *exact* key set
+  (`keys.length !== fields.length` in `exactRecord`), so that version would have required `limit`
+  on **every** search and refused the ordinary case of asking without one. Fixed to the
+  `optionalArgumentKeys` pattern the file already uses for `memory_confirm` and
+  `email_inbox_read`. Mutation M4 reproduces the bug and the named test fails, so the fix is pinned.
+- **Mutations run (each: neuter, confirm a NAMED test fails, restore, confirm green).** `-t`
+  filtered runs against `test/memory/memory-search.test.ts`; all restores verified byte-identical.
+  - **M1** reader ignores the caller's limit (`const maximum = MAX_MEMORY_SEARCH_RESULTS`) →
+    FAIL `returns only as many memories as the caller asked for`; FAIL `gives the model the short
+    page it asked for, not the ceiling`.
+  - **M2** drop the executor's range check → FAIL `refuses a limit it cannot honour instead of
+    quietly returning fewer`.
+  - **M3** parse `limit` but never pass it to the reader → FAIL `gives the model the short page it
+    asked for`; `returns only as many memories as the caller asked for` correctly stayed
+    **green** (it drives the service directly and never touches the executor).
+  - **M4** `parseArguments(call, ["query", "limit"])` (the bug above) → FAIL `accepts a search
+    with no limit, because the model is allowed to want the default`.
+  - **M5** schema `maximum: 4` while the reader stays at 8 → FAIL `is offered to the model and
+    channel-neutral`; the refusal test correctly stayed green.
+  - **M6 (first attempt) — the mutation SURVIVED, and this is the finding.** I first wrote the
+    missing-`query` guard as `throw new TypeError("owner_agent_tool_arguments_invalid")`, matching
+    `memory_confirm`'s shape. Deleting the guard left the named test **passing**: `safeText(
+    args.query)` then throws `owner_agent_text_invalid`, `executeCalls` catches **any** throw and
+    emits the same generic refusal (`"I could not safely apply that tool call, so nothing
+    changed."`), so the guard had **no observable effect** — a guard that could not fail is a
+    guard that is not there. Fixed by making the refusal carry a reason
+    (`"Memory search needs a query: say what to look for, and ask again."`) instead of throwing.
+    Re-run: **M6 now FAILS** that test, and the test asserts the reason string.
+  - **M7 (first attempt) — also survived, and correctly so.** Replacing `${MAX_MEMORY_SEARCH_RESULTS}`
+    in the description with a literal `8` changes nothing while the constant *is* `8`, so no test
+    can distinguish it. The assertion was kept and given teeth by **M7b**: move the reader's
+    ceiling to `4` **and** leave the prose hardcoded at `8` → FAIL `is offered to the model and
+    channel-neutral`. Reported as a drift guard, not as a behaviour pin.
+- **Gate numbers, and which suites they cover.** Focused only — this PC does not run full suites.
+  - `pnpm --filter @jarvis/cloud-gateway exec tsc --noEmit -p tsconfig.json` → **exit 0** (covers
+    `apps/cloud-gateway/src/**`).
+  - `vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/memory-search.test.ts`
+    → **29 passed / 29** (23 before this PR; +2 reader, +4 tool-layer). Because
+    `test:all` chains with `&&` and stops at the first failure, **this is not a `test:all`
+    number.**
+  - `... run apps/cloud-gateway/test/memory apps/cloud-gateway/test/agent` → **539 passed / 539,
+    21 files.** Also not a `test:all` number.
+  - `tsc -p apps/cloud-gateway/tsconfig.test.json --noEmit` → **149 errors, none in the three
+    files this PR touches.** `docs/STATE.md` says 144; I did not reconcile the difference and am
+    not claiming a regression — `tsconfig.test.json` is advisory and not a CI gate. Reported as
+    observed.
+- **Not done:** no full suite locally, no `gh workflow run` on this branch yet (CI numbers are in
+  the PR, from the run the push triggers). Nothing in `docs/STATE.md`/`docs/QUEUE.md`/
+  `docs/FACTS.md` changed, because no durable fact about Sid or his environment was learned —
+  this is a code-surface change only.
+
+A mailbox between the sessions building Jarvis. Sid asked for it on
+2026-09-11 so he stops having to copy messages between two chats.
+
 ## 2026-09-25 — DeepSeek builder: study-coach signals blocked, registered not removed (batch 7, `codex/coach-signals-to-ai`)
 
 Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origin/main`
