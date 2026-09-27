@@ -3,6 +3,135 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-27 — DeepSeek builder: the carriers, regenerated. The last deploy predates 39 merges.
+
+Signed: DeepSeek (builder agent), branch `docs/carriers-2026-09-27` from `origin/main` at
+`0b78c4e4`. **Docs only — no source file, migration, test or workflow was touched.** PR is
+authored by the builder that wrote it, so it needs a reviewer who is not its author before it
+merges.
+
+**Signature gap, stated rather than guessed:** the reasoning effort this session ran at cannot be
+determined from inside it, so it is not named here. That is the second time in this project a
+DeepSeek builder has had to leave that cell blank; a confident false signature is worse than an
+honest gap.
+
+### What changed, and why
+
+Three state carriers were regenerated — `docs/STATE.md`, `docs/QUEUE.md`,
+`docs/OWNER-ACTIONS.md` — plus one correction in `KNOWN_ISSUES.md`. The trigger was a **false
+premise I had to check before building on it**: a work-state note from a session at `a7cd3553`
+recorded that the carriers were "NOT stale, already carries a7cd3553 / D1 0045". **That was true
+at `a7cd3553` and false at `0b78c4e4`** — 40 commits had landed between them. I did not read the
+note as current state; I re-ran the query, exactly as the standing rules require.
+
+- **`docs/STATE.md`** (was regenerated 2026-09-24). Kept under the 150-line budget the checker
+  enforces. New first section names what is deployed versus what is only in the code, because
+  that is the fact every other row depends on. Phase verdicts re-derived from the code.
+- **`docs/QUEUE.md`** (was regenerated 2026-09-24). Open PRs re-listed from GitHub; ten work
+  items that had already shipped were moved to a "resolved" table **named rather than silently
+  dropped**. The remaining rows were re-verified against the code, item by item.
+- **`docs/OWNER-ACTIONS.md`** (was regenerated 2026-09-24). Two duplicate rows removed, six rows
+  naming already-merged PRs as future work folded into the done table, and the waiting list
+  reduced to what is genuinely still waiting on Sid.
+- **`KNOWN_ISSUES.md`** — the guest-call privacy section said the leak was live "until #174
+  deploys". #174 merged and the deployed revision predates it, so the sentence was true for the
+  wrong reason and the heading promised a fix the deploy records do not show. Corrected in the
+  same change, per the repository's rule that a fact recorded while a contradictory claim stands
+  is worse than not recording it.
+
+### Findings, and how they were established
+
+1. **The last recorded deploy is 2026-09-24 and 39 non-documentation merges are not in it.** No
+   carrier holds a deploy record after 2026-09-24, and
+   `git merge-base --is-ancestor <merge> <deployed revision>` returns false for #174, #199, #168,
+   #198, #195, #190, #197, #193, #196, #194, #183, #180, #184, #191 and #188 — checked one at a
+   time, not inferred from a date. **Consequence, and the reason this is the headline:** the
+   guest-call privacy fix is merged and not deployed, so either no deploy happened or nobody
+   recorded one, and the leak is live in the last recorded deploy. I made no production query and
+   I do **not** claim to know which.
+2. **`0047`–`0056` are merged and absent from every recorded application** (D1 recorded at
+   `0045`). `0036`, `0037`, `0041` and `0042` do not exist in the tree. This is stated as a
+   fail-closed gap with two concrete consequences, not as a security finding: the web tools need
+   `0049`'s `read.web` row before the tier gate will let them fetch, and the history indexer needs
+   `0048`'s recreated trigger or nightly consolidation refuses by name.
+3. **The memory-receipt defect is real and unpinned by any test that reaches it.** `explain` in
+   `owner-agent-core.ts` re-reads the item with `readCurrentItem` and appends its wording through
+   `memoryReceipt`/`explanationReceipt`, while the service deliberately suppresses that text
+   (`redactUnretrievableItem` in `memory-owner-controls.ts`). The only test covering the
+   suppressed case is `memory-owner-controls.test.ts`, which calls the **service**; there is no
+   agent-level test for it. I verified this by reading both layers and grepping the test suite,
+   not by running the agent path.
+4. **Two measurements I did take, both needed to keep a carrier honest:**
+   `OWNER_TOOL_DEFINITIONS` holds **35** entries (counted by importing it, not by reading the
+   source); `pnpm --filter @jarvis/cloud-gateway typecheck:tests` reports **149 errors in 32
+   files**, up from the 143 recorded on 2026-09-24, and source `tsc -p tsconfig.json` is **clean**.
+5. **Re-verified as still present, so they stayed in the queue:** `handleReadiness` has no
+   non-test caller; `capability_tiers` has no update/delete guard and `channel_identities` no
+   insert guard; `apps/watchdog/wrangler.toml` still declares none of its alerting secrets;
+   `vault/reconciliation.py` still caps at `MAX_SLICE_DOCUMENTS` with no persisted position;
+   `pushSourceGap` is still live and still reached from `digest-job.ts` for the
+   `d2l-notification-email` source; the Telegram provider now clears its timer in a `finally`
+   covering `response.json()`, so that row moved to resolved.
+
+### Mutations, and their results
+
+The guard on a carrier is `scripts/check-state.mjs`, run by CI's `state carriers are honest` job.
+It passes on the pushed tree and I neutered three of its checks to prove they fire. Each was
+restored and re-confirmed green.
+
+| Mutation | Result |
+|---|---|
+| Remove the `BLOCKS` column header from `QUEUE.md` | **FAILS**: `docs/QUEUE.md: no BLOCKS column. Without it the priority rule stops being mechanical.` Restored, passes |
+| Point a `QUEUE.md` link at an anchor I had just renamed away from (`STATE.md#deploy-results-2026-09-24-evening`) | **FAILS**: `docs/QUEUE.md:35: link to an anchor that does not exist`. Restored, passes. **This is not hypothetical** — the pushed tree failed this exact check on the first run, because `QUEUE.md` still linked the section I had renamed, and I fixed it |
+| Pad `STATE.md` past the budget | **FAILS**: `docs/STATE.md: 154 lines, budget is 150. State that does not fit is not state.` Restored, passes |
+
+`node scripts/check-state.mjs` on the pushed tree: **state check passed: 3 carriers and FACTS
+register, STATE.md within budget, local Markdown links resolve, BLOCKS present; 1 warning(s).**
+The one warning is pre-existing and unchanged: a `FACTS.md` row marked *unconfirmed* (background
+access in Opera GX, observed 2026-09-23) needs re-verification. I did not touch it.
+
+### What I did NOT do, and why
+
+- **Did not merge #223 or #224.** Both are builder-authored, both are green (10/10 checks) and
+  `MERGEABLE`, and both need a reviewer who is not their author. Recorded in `QUEUE.md` so the
+  next session does not re-read them as blocked on something else.
+- **Did not start the self-directed-wake work.** The premise that the default branch "lacks
+  model-chosen wake-ups" is false and I checked it at the revision I named:
+  `reminder_schedule` / `reminder_list` / `reminder_cancel` exist in
+  `reminders/reminder-tools.ts` with the model choosing both the instant and the exact text, they
+  are spread into the shared owner catalogue, and the `*/5` drain delivers them. The only thing
+  that does not exist is a wake with no pre-written message. That is a new capability, not a
+  repair, and it is Sid's call — recorded as such in `QUEUE.md`.
+- **Did not query production.** No Cloudflare or D1 read. Every production line carries a date
+  and a source, and `STATE.md` now says so in its own preamble.
+- **Did not run the full workspace suite or `test:all`.** The local-load rule forbids full suites
+  on this PC, and CI is the authority; `pnpm run check:state`, source `tsc`, the `tsconfig.test.json`
+  error count and one probe test were the only executions. **No test count is claimed in any
+  carrier** — that is why `STATE.md` says to run `pnpm test` and read its own total.
+- **Did not touch `docs/FACTS.md`.** Nothing durable about Sid or his environment was learned in
+  this session; what I found is current state, which belongs in `STATE.md`, not in the register.
+  The pre-existing re-verify warning is left standing rather than papered over.
+- **Did not add a new guard.** The carriers are documents; the mutations above test the existing
+  checker, not the prose. **The prose is not machine-verified and a reviewer should read it as
+  claims, not as a proof.**
+
+### Out of scope, named rather than fixed
+
+- **Eighteen Dependabot advisories** (9 high, 7 moderate, 2 low) on the default branch. Named in
+  `QUEUE.md`; no builder has looked at one.
+- **`search-limit` (#223) constrains the model's page size in code** (`MAX_MEMORY_SEARCH_RESULTS`
+  = 8). It is a bound, so it may belong in the register as a judgment-by-code row; I did not add
+  one, because judging that is the reviewer's call and the PR already adds its own register
+  section.
+- **The seed/live duplicate in the school tracker** (23 seeded rows duplicating real D2L
+  assignments with different dates, unable to merge because the id embeds the remote id) is a
+  data-reconciliation decision, not a bug, and it is Sid's.
+- **The drain never moves a lapsed decision to a terminal state.** The code records this about
+  itself; I kept it in the queue rather than fixing it here.
+- **`docs/STATE.md` now claims less about production than it used to.** If somebody later
+  establishes what is actually deployed, that is the first thing to correct, and it will change
+  the guest-call row, the pending-rollout row and `KNOWN_ISSUES.md`'s heading.
+
 ## 2026-09-25 — DeepSeek builder: study-coach signals blocked, registered not removed (batch 7, `codex/coach-signals-to-ai`)
 
 Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origin/main`
