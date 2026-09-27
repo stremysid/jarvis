@@ -647,6 +647,52 @@ describe("how many memories come back is the model's choice", () => {
 
     expect(index.requested).toEqual([16]);
   });
+
+  it("refuses a page size it cannot honour, and searches nothing", async () => {
+    // The service is where the page size is actually applied -- `resolveItems`
+    // is private and `maximum` is its only input -- so this is the check that
+    // protects the bound. The agent refuses the same values one layer up, which
+    // means a test that only drove the tool would stay green if this check were
+    // deleted, and the bound would then rest on a caller that is free not to
+    // validate. Four values, each refused for its own reason: below the range,
+    // above it, not a whole number, and absent-but-explicit.
+    const principalId = await seedPrincipal("limit-invalid");
+
+    for (const limit of [0, MAX_MEMORY_SEARCH_RESULTS + 1, 2.5, null]) {
+      const index = new FakeMeaningIndex();
+
+      await expect(serviceWith(index).search({
+        principalId, query: "timetable", now: NOW, limit: limit as number,
+      })).rejects.toThrow("memory_search_limit_invalid");
+
+      // Refused before the index is touched. A refusal that had already spent
+      // the query would still be a refusal, but it would also be a search the
+      // caller did not ask for and could not see.
+      expect(index.queries).toEqual([]);
+    }
+  });
+
+  it("still treats an absent limit as the default, because that is a choice too", async () => {
+    // `null` is refused above and `undefined` is not: the model leaving the
+    // argument out is it choosing the default, while a key present and set to
+    // `null` is a value the service's own type says it will never be given. If
+    // this test and the one above ever agree, that distinction has been lost.
+    // Three candidates under a default larger than three is what makes the
+    // distinction observable without pinning the default's exact value here.
+    const principalId = await seedPrincipal("limit-absent");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const items: CanonicalMemoryItem[] = [];
+    for (let rank = 0; rank < 3; rank += 1) {
+      items.push(await remember(principalId, controls, `absent-limit note ${rank} about the timetable`));
+    }
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze(items.map((item, rank) => hitFor(item, rank, 0.9 - rank / 100)));
+
+    const results = await serviceWith(index).search({ principalId, query: "timetable", now: NOW });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.itemId).toBe(items[0]!.itemId);
+  });
 });
 
 describe("the memory_search tool definition", () => {

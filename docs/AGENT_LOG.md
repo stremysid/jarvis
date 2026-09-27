@@ -3,6 +3,78 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-27 — DeepSeek builder: #223 review round 1 — the service's own limit check is now pinned
+
+Signed: DeepSeek (builder agent), branch `feat/memory-search-limit` from `origin/main`
+`0b78c4e4`, on top of the review at `0dd77a0f`. **Reasoning effort is not named: it cannot be
+determined from inside the session, and a confident false signature is worse than an honest
+gap.** Docs plus one source method and its test file; no migration.
+
+**The review's blocker, restated exactly as measured.** The bound on a `memory_search` page is
+enforced twice: in `owner-agent-core.ts` before the call, and in `MemorySearchService.search`
+(`memory-search.ts`). The service check is the load-bearing one — `resolveItems` is private and
+`maximum` is its only input — and **nothing in the repository tested it.** The reviewer verified
+that by deleting it and watching all 29 tests stay green. Confirmed here the same way, and the
+reviewer was right.
+
+**What changed.**
+
+1. **Two service-level tests, and one deliberate pair of them.** `refuses a page size it cannot
+   honour, and searches nothing` drives `MemorySearchService.search` directly with `0`,
+   `MAX + 1`, `2.5` and `null`, requires `memory_search_limit_invalid`, and asserts the index was
+   never queried — a refusal that had already spent the search is a search the caller did not ask
+   for. `still treats an absent limit as the default, because that is a choice too` is the
+   counterweight: `undefined` must keep meaning the default, or the first test could be satisfied
+   by refusing everything. The two tests exist to disagree with each other.
+2. **`null` is now refused rather than silently defaulted.** `input.limit ?? MAX` turned a
+   present-but-null key into the default, so the service accepted a value its own signature
+   (`limit?: number`) says it cannot be given. It now narrows on `undefined` and refuses anything
+   else by type. This is a behaviour change in a library method, so: the only production caller
+   validates first and never passes `null`, which means **no production path changes** — the
+   gateway's own refusal test still passes unchanged.
+3. The comment on the service check now says it is the authoritative one and why, because the
+   next reader of this method will otherwise assume the agent's check is the real protection and
+   treat this one as redundant — which is exactly how it would be deleted again.
+
+### Mutations, and their results
+
+The file has two `maximum` sites and one range; I mutated all three and each was killed by a
+NAMED test in `test/memory/memory-search.test.ts`. Every one was restored and re-confirmed green
+afterwards.
+
+| Mutation | Result |
+|---|---|
+| **M1** — delete the service-level `typeof`/range check entirely | **KILLED**: `refuses a page size it cannot honour, and searches nothing` fails with `promise resolved "[]" instead of rejecting`. 1 failed / 30 passed. **This is the mutation that stayed green before this commit** |
+| **M2** — restore the old `input.limit ?? MAX_MEMORY_SEARCH_RESULTS` coalescing | **KILLED**: the same test, same assertion. `null` resolves to an empty page instead of refusing. 1 failed / 30 passed |
+| **M3** — widen the upper bound from `MAX_MEMORY_SEARCH_RESULTS` to `MAX_MEMORY_SEARCH_VECTOR_RESULTS` | **KILLED**: the same test, same assertion. 1 failed / 30 passed |
+| Restore all three | **31 passed (31)**, 1 file |
+
+A note on what M1's failure message proves and does not. Under mutation the call *resolves* with
+an empty array rather than throwing, so the assertion that fails is the rejection. What is proven
+is that the check is load-bearing and now pinned; the empty page under mutation is a second
+observation I did not chase, because `resolveItems` is private and the mutation is deleted, not
+shipped.
+
+### Gates
+
+- `vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/memory-search.test.ts`
+  — **31 passed (31)**, up from the reviewer's 29, and the reviewer's own
+  `refuses a limit it cannot honour instead of quietly returning fewer` still passes unchanged.
+- `tsc -p apps/cloud-gateway/tsconfig.json --noEmit` — **exit 0**.
+- The full suite was **not** run here: the local-load rule keeps full suites in GitHub Actions.
+  Pushing this commit re-runs CI on the PR; that result is in the PR, not in this entry.
+- `typecheck:tests` was not run separately; the assertion added to the existing file typechecks
+  as part of it.
+
+### What is NOT done
+
+- **Nothing is merged, and this entry is not a clearance.** The PR is builder-authored and needs
+  a reviewer who is not its author. The review's other three checks (b), (c) and (d) were found
+  to hold and no code was changed for them.
+- **#224 is not touched.** Its review cleared it; merging it is not a builder's call.
+- **The reasoning-effort gap above is left open rather than guessed**, for the second time in
+  this project.
+
 ## 2026-09-26 — DeepSeek builder: `memory_search` learns to ask for a page (`feat/memory-search-limit`)
 
 Signed: DeepSeek (builder agent), branch `feat/memory-search-limit` from `origin/main`
