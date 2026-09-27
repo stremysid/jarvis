@@ -119,6 +119,19 @@ the control-target keyword arm (`controlFtsQuery`, its `CONTROL_STOPWORDS`,
 and `test/voice/voice-agent.test.ts`). `parseTelegramMemoryAreaQuestion` stays:
 it is live and batch 12 owns it.
 
+## How many memories a search returns: handed to the model (2026-09-26)
+
+`memory_search` took only `query`, so the number of memories that came back was never the
+model's to state — `MemorySearchService.search` already accepted a `limit`, but no caller
+could supply one, which made `MAX_MEMORY_SEARCH_RESULTS` the only reachable page size. The
+register's own first example of a judgment is *"an `if` that decides how many results"*, and
+this was that decision with the surface missing rather than an `if` doing the deciding.
+Nothing was recorded here for it before because nothing could reach it.
+
+| Symbol (as of `0b78c4e4`) | What it decided | Now |
+|---|---|---|
+| `memory_search`'s parameter list (`memory-tools.ts`) and its dispatch in `owner-agent-core.ts` | How many memories the model got, always. The reader's ceiling was silently also the page size | `limit` is an optional model-stated argument, `1` to `MAX_MEMORY_SEARCH_RESULTS`, passed to `MemorySearchService.search`; omitting it keeps the ceiling as the default. A value outside the range, or a non-integer, is **refused by name** rather than clamped — quietly reducing `40` to `8` would let the model read eight lines and believe it had surveyed everything it asked for. The ceiling itself stays code: it is the Worker's subrequest bound, not a relevance judgment, and the service still throws `memory_search_limit_invalid` on it |
+
 ## Owner deadline proof contract: removed
 
 Removed by the PR titled "fix(deadlines): let the AI decide deadlines; remove the code

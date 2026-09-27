@@ -167,8 +167,19 @@ export class MemorySearchService implements MemorySearchReader {
     // bound that matters is that the embedding provider cannot be handed an
     // unbounded string.
     const query = safeString(input.query, 65_536, "memory_search_query_invalid");
-    const maximum = input.limit ?? MAX_MEMORY_SEARCH_RESULTS;
-    if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > MAX_MEMORY_SEARCH_RESULTS) {
+    // An absent limit is the default; `null` is not. `??` treated them the same
+    // and so accepted a value this method's own type says it cannot be given.
+    // Narrowing on `undefined` rather than falsiness keeps the default reachable
+    // while making a present-but-empty value an error the caller sees.
+    const maximum = input.limit === undefined ? MAX_MEMORY_SEARCH_RESULTS : input.limit;
+    // This is the authoritative check, not a second opinion: `resolveItems` is
+    // private and `maximum` is its only input, so deleting these lines removes
+    // the bound with nothing else left to refuse an impossible page size. The
+    // agent refuses the same values one layer up, which is a better refusal --
+    // it names the range and reaches the model -- but a caller that skips that
+    // validation has to be stopped here, and now is, by name.
+    if (typeof maximum !== "number"
+      || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > MAX_MEMORY_SEARCH_RESULTS) {
       throw new TypeError("memory_search_limit_invalid");
     }
     const at = input.now ?? new Date();

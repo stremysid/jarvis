@@ -1,4 +1,5 @@
 import type { ModelFunctionDefinition } from "../providers/provider-types.js";
+import { MAX_MEMORY_SEARCH_RESULTS } from "./memory-search.js";
 
 /**
  * The memory tools, defined once for every channel.
@@ -119,11 +120,12 @@ export const MEMORY_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[] = Objec
   }),
   Object.freeze({
     name: "memory_search",
-    description: "Search everything you have been told, by meaning rather than by wording, when the fact you need is not already in front of you. Use it before saying you do not know something about Sid, and not for ordinary conversation: it costs a query and a few seconds, and most turns do not need it. Example: he asks \"what did I say I was doing this weekend?\" and nothing about the weekend is in your core profile, so you search \"weekend plans\" and get back the memories that mean that. It returns facts and nothing else -- conversational history is not searched here; for what was actually said in a conversation, use history_search. Results carry their item id, how well they matched as a relevance score, whether they are unconfirmed, and the date and channel of the message each one rests on. Every return line names its item id; to use or change a memory you found, pass that id to memory_explain, memory_correct or memory_forget. It drops what Sid has forgotten and what has expired, so a search finding nothing means there is nothing to find, not that the search failed.",
+    description: "Search everything you have been told, by meaning rather than by wording, when the fact you need is not already in front of you. Use it before saying you do not know something about Sid, and not for ordinary conversation: it costs a query and a few seconds, and most turns do not need it. Example: he asks \"what did I say I was doing this weekend?\" and nothing about the weekend is in your core profile, so you search \"weekend plans\" and get back the memories that mean that. It returns facts and nothing else -- conversational history is not searched here; for what was actually said in a conversation, use history_search. Results carry their item id, how well they matched as a relevance score, whether they are unconfirmed, and the date and channel of the message each one rests on. Every return line names its item id; to use or change a memory you found, pass that id to memory_explain, memory_correct or memory_forget. It drops what Sid has forgotten and what has expired, so a search finding nothing means there is nothing to find, not that the search failed. How many you get back is yours to choose: pass `limit` when you want fewer than the default, and leave it out when you want as many as the store will give.",
     parameters: Object.freeze({
       type: "object", additionalProperties: false, required: ["query"],
       properties: {
         query: { type: "string", minLength: 1, maxLength: 4096, description: "What to look for, in your own words -- a topic, a phrase, or the thing Sid is asking about. It is matched by meaning, so it does not need to be wording he used." },
+        limit: { type: "integer", minimum: 1, maximum: MAX_MEMORY_SEARCH_RESULTS, description: `How many memories you want back. You choose this, not the code: ask for 1 when one answer settles it, more when you are surveying what you have. Omit it for the default. ${MAX_MEMORY_SEARCH_RESULTS} is the most one search returns, and a larger number is refused rather than quietly reduced.` },
       },
     }),
   }),

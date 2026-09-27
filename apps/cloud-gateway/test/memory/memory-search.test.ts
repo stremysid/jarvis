@@ -613,6 +613,88 @@ describe("memory search is not the automatic retrieval path", () => {
   });
 });
 
+describe("how many memories come back is the model's choice", () => {
+  it("returns only as many memories as the caller asked for", async () => {
+    // How many results a search returns is a decision, not plumbing, and the
+    // model is the one making it. The reader has to obey the number it is
+    // given; the ceiling is only the ceiling.
+    const principalId = await seedPrincipal("limit-page");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const items: CanonicalMemoryItem[] = [];
+    for (let rank = 0; rank < 3; rank += 1) {
+      items.push(await remember(principalId, controls, `note number ${rank} about the timetable`));
+    }
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze(items.map((item, rank) => hitFor(item, rank, 0.9 - rank / 100)));
+
+    const asked = await serviceWith(index).search({
+      principalId, query: "timetable", now: NOW, limit: 1,
+    });
+
+    expect(asked).toHaveLength(1);
+    // The top-ranked hit, not merely some hit: a cap that trimmed the wrong end
+    // would return one memory and hide the most relevant one.
+    expect(asked[0]?.itemId).toBe(items[0]!.itemId);
+  });
+
+  it("still over-fetches from the index whatever the page size is", async () => {
+    // The over-fetch is what keeps an unresolvable vector from crowding out a
+    // real answer. Shortening the page must not shorten the candidate set, or
+    // a small `limit` would silently search less.
+    const principalId = await seedPrincipal("limit-width");
+    const index = new FakeMeaningIndex();
+    await serviceWith(index).search({ principalId, query: "anything", now: NOW, limit: 1 });
+
+    expect(index.requested).toEqual([16]);
+  });
+
+  it("refuses a page size it cannot honour, and searches nothing", async () => {
+    // The service is where the page size is actually applied -- `resolveItems`
+    // is private and `maximum` is its only input -- so this is the check that
+    // protects the bound. The agent refuses the same values one layer up, which
+    // means a test that only drove the tool would stay green if this check were
+    // deleted, and the bound would then rest on a caller that is free not to
+    // validate. Four values, each refused for its own reason: below the range,
+    // above it, not a whole number, and absent-but-explicit.
+    const principalId = await seedPrincipal("limit-invalid");
+
+    for (const limit of [0, MAX_MEMORY_SEARCH_RESULTS + 1, 2.5, null]) {
+      const index = new FakeMeaningIndex();
+
+      await expect(serviceWith(index).search({
+        principalId, query: "timetable", now: NOW, limit: limit as number,
+      })).rejects.toThrow("memory_search_limit_invalid");
+
+      // Refused before the index is touched. A refusal that had already spent
+      // the query would still be a refusal, but it would also be a search the
+      // caller did not ask for and could not see.
+      expect(index.queries).toEqual([]);
+    }
+  });
+
+  it("still treats an absent limit as the default, because that is a choice too", async () => {
+    // `null` is refused above and `undefined` is not: the model leaving the
+    // argument out is it choosing the default, while a key present and set to
+    // `null` is a value the service's own type says it will never be given. If
+    // this test and the one above ever agree, that distinction has been lost.
+    // Three candidates under a default larger than three is what makes the
+    // distinction observable without pinning the default's exact value here.
+    const principalId = await seedPrincipal("limit-absent");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const items: CanonicalMemoryItem[] = [];
+    for (let rank = 0; rank < 3; rank += 1) {
+      items.push(await remember(principalId, controls, `absent-limit note ${rank} about the timetable`));
+    }
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze(items.map((item, rank) => hitFor(item, rank, 0.9 - rank / 100)));
+
+    const results = await serviceWith(index).search({ principalId, query: "timetable", now: NOW });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.itemId).toBe(items[0]!.itemId);
+  });
+});
+
 describe("the memory_search tool definition", () => {
   it("is offered to the model and channel-neutral", () => {
     const definitions = MEMORY_TOOL_DEFINITIONS.filter((definition) => definition.name === "memory_search");
@@ -630,6 +712,17 @@ describe("the memory_search tool definition", () => {
           minLength: 1,
           maxLength: 4096,
           description: expect.any(String),
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          // Not the literal 8: the schema and the reader are two copies of one
+          // bound, and the failure this catches is the pair drifting apart.
+          maximum: MAX_MEMORY_SEARCH_RESULTS,
+          // The prose carries the number too. A description that promises the
+          // model one ceiling while the reader enforces another is the same
+          // drift, in the half the model actually reads.
+          description: expect.stringContaining(String(MAX_MEMORY_SEARCH_RESULTS)),
         },
       },
     });
@@ -808,6 +901,98 @@ describe("memory_search through the owner agent", () => {
     expect(JSON.stringify(provider.requests[1]?.toolResults)).not.toContain("Riley");
     expect(reply).toBe("You buy the oat milk.");
     expect(reply).not.toContain("reference data");
+  });
+
+  it("accepts a search with no limit, because the model is allowed to want the default", async () => {
+    // The accepted key set is the model's own subset, validated against the
+    // names. A `parseArguments` call naming both keys would demand `limit` on
+    // every search and refuse the ordinary case: asking without one.
+    const harness = await ownerHarness("no-limit");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const kept = await remember(harness.principalId, controls, "I buy the oat milk");
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze([hitFor(kept, 0, 0.93)]);
+    const provider = new FakeAgentProvider([
+      called(tool("search-default", "memory_search", { query: "which milk do I buy" })),
+      stopped("You buy the oat milk."),
+    ]);
+
+    await runOwnerTurn({
+      harness, text: "which milk do I buy?", provider, memorySearch: index,
+    });
+
+    const result = JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("completed");
+    expect(result.receipt).toContain(`item ${kept.itemId}`);
+  });
+
+  it("gives the model the short page it asked for, not the ceiling", async () => {
+    // The receipt is the product -- this is what the model reads -- so the cap
+    // has to be visible here and not only in the service's return value.
+    const harness = await ownerHarness("limit-through");
+    const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const items: CanonicalMemoryItem[] = [];
+    for (let rank = 0; rank < 3; rank += 1) {
+      items.push(await remember(harness.principalId, controls, `note number ${rank} about the timetable`));
+    }
+    const index = new FakeMeaningIndex();
+    index.hits = Object.freeze(items.map((item, rank) => hitFor(item, rank, 0.9 - rank / 100)));
+    const provider = new FakeAgentProvider([
+      called(tool("search-one", "memory_search", { query: "timetable", limit: 1 })),
+      stopped("The first one."),
+    ]);
+
+    await runOwnerTurn({ harness, text: "what is on my timetable?", provider, memorySearch: index });
+
+    const result = JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("completed");
+    expect(result.receipt).toContain(`item ${items[0]!.itemId}`);
+    expect(result.receipt).not.toContain(`item ${items[1]!.itemId}`);
+    expect(result.receipt).not.toContain(`item ${items[2]!.itemId}`);
+  });
+
+  it("refuses a search that names no query, even with a limit attached", async () => {
+    // Accepting a subset of the accepted names is not the same as accepting any
+    // subset: `limit` alone has nothing to search for, and a search with an
+    // undefined query is not a search.
+    const harness = await ownerHarness("limit-without-query");
+    const index = new FakeMeaningIndex();
+    const provider = new FakeAgentProvider([
+      called(tool("search-no-query", "memory_search", { limit: 3 })),
+      stopped("Let me ask you what to look for."),
+    ]);
+
+    await runOwnerTurn({ harness, text: "search my memory", provider, memorySearch: index });
+
+    const result = JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as
+      Readonly<{ status: string; receipt: string }>;
+    expect(result.status).toBe("refused");
+    expect(result.receipt).toContain("needs a query");
+    expect(index.queries).toEqual([]);
+  });
+
+  it("refuses a limit it cannot honour instead of quietly returning fewer", async () => {
+    // Silent clamping is the failure: the model asks for 40, reads 8 lines, and
+    // concludes it has seen everything. A refusal it can act on is the honest
+    // answer, and nothing is searched before it is given.
+    for (const limit of [0, MAX_MEMORY_SEARCH_RESULTS + 1, -1, 2.5, "2", null]) {
+      const harness = await ownerHarness(`limit-bad-${String(limit)}`);
+      const index = new FakeMeaningIndex();
+      const provider = new FakeAgentProvider([
+        called(tool("search-bad", "memory_search", { query: "anything", limit })),
+        stopped("I will ask again."),
+      ]);
+
+      await runOwnerTurn({ harness, text: "search my memory", provider, memorySearch: index });
+
+      const result = JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}") as
+        Readonly<{ status: string; receipt: string }>;
+      expect(result.status).toBe("refused");
+      expect(result.receipt).toContain(`limit between 1 and ${MAX_MEMORY_SEARCH_RESULTS}`);
+      expect(index.queries).toEqual([]);
+    }
   });
 
   it("refuses the call when this deployment has no memory index bound", async () => {
