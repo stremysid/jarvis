@@ -262,9 +262,13 @@ not new probes. Both fixes belong to the builder in [QUEUE](docs/QUEUE.md).
 Sid's 2026-09-24 report, "ive already done test calling and it works", establishes
 his working-call observation, not the specific streaming checks above.
 
-## Guest-call privacy leak — live until #174 deploys
+## Guest-call privacy leak — fixed in code, live in the last recorded deploy
 
-On main and at the observed production revision `0d69556`,
+**Read this with [STATE](docs/STATE.md#what-is-deployed-and-what-is-only-in-the-code) open.**
+The paragraph below describes the revision that carries the defect; the last recorded deploy
+predates the fix, and no carrier holds a deploy record after 2026-09-24.
+
+At that revision,
 [`OwnerAgentCore.streamCaptured`](apps/cloud-gateway/src/agent/owner-agent-core.ts)
 reads the configured owner's pinned core profile unconditionally and builds an
 owner-framed system prompt. The
@@ -275,9 +279,10 @@ catalogue to the model. The later tool refusal does not protect prompt contents.
 The catalogue is model request metadata alongside the system prompt; this finding
 does not claim guest tools execute or that a live guest test was performed.
 
-[#174](https://github.com/stremysid/jarvis/pull/174) carries the fix. The defect
-remains live until that change merges and deploys; production still runs `0d69556` (#165),
-which predates it. See [STATE](docs/STATE.md#production).
+[#174](https://github.com/stremysid/jarvis/pull/174) carries the fix. It **has merged**, and it
+first appears in a revision later than the last recorded deploy, so the leak is **not fixed in
+production** — it goes away when a revision containing it is deployed. Do not read the merge as
+the remediation; read the deploy record.
 
 ## Telegram keyboard payload fields (PR #174 round-3 L2)
 
@@ -478,7 +483,7 @@ work, not an implemented reader.
 
 | Remaining limit | Evidence and boundary |
 |---|---|
-| Guest calls on deployed main receive owner-only prompt material. | Before #174 deploys, `OwnerAgentCore.streamCaptured` reads Sid's pinned core profile and supplies the owner call prompt and full owner tool catalogue even when the active call principal is a guest. #174 gates all three on exact owner-principal equality and adds a guest-prompt regression test. This remains live on main until that reviewed change deploys. |
+| Guest calls on the deployed revision receive owner-only prompt material. | `OwnerAgentCore.streamCaptured` reads Sid's pinned core profile and supplies the owner call prompt and full owner tool catalogue even when the active call principal is a guest. The gate on exact owner-principal equality, with a guest-prompt regression test, merged in #174 — and **the last recorded deploy predates it**, so the leak is live in production until a revision containing it is deployed. This row is about the deploy, not about the code. |
 | #174 deliberately gives authenticated guests zero model tools. | This is a safer interim, not the final guest-capability design. The approved design permits a grant-filtered guest catalogue such as `research.web` and `memory.own`, but the owner catalogue is not a scoped guest catalogue. Until those guest-specific adapters enforce each grant and resource scope, #174 supplies no tools and `toolChoice: "none"`. |
 | Guest-grant notices can repeat after a crash. | [guest-grant-notice.ts](apps/cloud-gateway/src/voice/guest-grant-notice.ts) sends before marking delivered; [telegram-provider.ts](apps/cloud-gateway/src/providers/telegram-provider.ts) does not transmit its internal idempotency key to the API. In-memory overlap protection cannot make those effects atomic with D1. The owner-rejection delivery this row also named was removed with the per-call passphrase gate on 2026-09-24. |
 | Permanently failing guest notices remain pending. | [guest-grant-notice-drain.ts](apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts) fairly rotates the queue, fixing oldest-ten starvation. There is no 24-hour-undelivered line in [digest-composer.ts](apps/cloud-gateway/src/digest/digest-composer.ts). |
@@ -486,7 +491,7 @@ work, not an implemented reader.
 | Toward readers who are not Sid only: an unquoted multiword password after an explicit colon still leaks its tail. Toward Sid it is his own text and is not redacted at all (`codex/no-redaction-toward-sid`). | The synthetic fixture `password: correct horse battery` becomes `[REDACTED_CREDENTIAL] horse battery`; Python refuses the whole fact because a redaction would occur. Only the first unquoted token is consumed. Quoted password assignments cover multiple words. `my password is correct horse battery` now stays unchanged because `password is` is not a supported prose delimiter. Round 2 deliberately does not widen the password rule; this is a remaining limit next to the spoken-PIN limits above. |
 | Some concurrent guest operations can fail closed rather than replay cleanly. | `bind`/`begin` in the removed owner step-up service performed reads before guarded inserts. The owner-call step-up limits that stood here — attempt/verifier timestamp and failure limits, fragment-assembly serialization, retained per-session evidence — were removed with the per-call passphrase gate on 2026-09-24. The new PIN gate's own limits are named in [sensitive-action-pin.ts](apps/cloud-gateway/src/voice/sensitive-action-pin.ts) and proven by the mutation-verified tests listed in PR #196. |
 | The outbound slot reservation recognizes exactly two inbound owner pre-auth sessions. | [call-repository.ts](apps/cloud-gateway/src/persistence/call-repository.ts) uses `AND 2 = (SELECT COUNT(*) ... phase = 'pre_auth')` in admission SQL, not a migration trigger as the old entry said. An inconsistent/future state with more than two rows would not match that reservation condition. |
-| Live release acceptance is incomplete. | [STATE](docs/STATE.md) retains the 2026-09-21 observation of six inbound owner calls, no outbound call and no completed release gate. The owner step-up implementation `8120d44` was removed from the call path on 2026-09-24 with the per-call passphrase gate; the smoke evidence contract is now schema `1.4` and requires an owner call to reach its first model turn with zero authentication prompts. D1 is at `0039`. Answering-machine behavior and attended smoke remain unverified. |
+| Live release acceptance is incomplete. | [STATE](docs/STATE.md) retains the 2026-09-21 observation of six inbound owner calls, no outbound call and no completed release gate. The owner step-up implementation `8120d44` was removed from the call path on 2026-09-24 with the per-call passphrase gate; the smoke evidence contract is now schema `1.4` and requires an owner call to reach its first model turn with zero authentication prompts. D1 is recorded at `0045`, six migrations behind the directory's maximum. Answering-machine behavior and attended smoke remain unverified. |
 | Retained voice evidence is narrower than all effects/attempts. | The per-session owner refusal/end receipts this row named were removed with the step-up gate. [Voice smoke code](tests/acceptance/live) now requires five scenarios; its passing-evidence store is not a complete failed-attempt ledger, and the call PIN gate's own ledger (migration `0047`) is not part of that evidence set. |
 | Owner-phone begin is an authenticated response oracle. | [owner-phone enrollment](apps/cloud-gateway/src/sync/owner-phone-enrollment.ts) distinguishes active/pending/conflict for supplied numbers; it is device-authorized, not an anonymous oracle. Request salting does not remove response distinguishability. |
 | Evidence-store guards overlap. | [Voice smoke files](tests/acceptance/live) check directory/symlink metadata and hash before and after publication. Overlapping checks mean refusal coverage is not proof that each redundant branch has an independently killing mutation. Historical Windows observations were not rerun here. |
