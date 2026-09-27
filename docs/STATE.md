@@ -78,27 +78,27 @@ hold) the conversation. That is Phase 1's missing piece, and it is builder work.
 
 ## Production
 
-**Nothing below was observed by this session.** The last recorded deploy is the 2026-09-24
-evening one; every later claim on this page is dated evidence naming its source.
+**Read directly on 2026-09-27 through read-only `wrangler d1 execute --remote` against the
+`jarvis` database.** Same credentials the deploy uses; no write was issued, and every value
+marked *(queried)* below is from that session rather than from somebody's report.
 
 | Item | Record |
 |---|---|
-| Source | the revision whose tip is the tool-cap fix (#189); Sid reported his `wrangler` output at about 21:41 EDT on 2026-09-24 |
-| Migrations | `0040`, `0043`, `0045` applied 2026-09-25 01:40:48–49 UTC; **D1 recorded at `0045`** |
-| Gateway | version `d69bd158-3d1b-4a67-a359-f561ebbd0908`; rollback target `bda73930-8240-47d1-95ba-b206b67a5362` |
-| Watchdog | version `3018f5fd-7f5f-4192-9c23-496718aedbef`; rollback target `c940f9b7-99cf-4194-8f41-489038a34139` |
-| Acceptance | both `/health` returned 200; Telegram `/status`, `/queue`, `/digest` and a normal message answered |
+| **Deployed version** | `d69bd158-3d1b-4a67-a359-f561ebbd0908`, created **2026-09-25T01:41:33Z**, at 100% — the newest deployment the account shows *(queried)*. First independent check of the recorded release |
+| **Memory items** | **8, all `proposed`, 0 `active`**; newest created `2026-09-26T02:00:13Z` *(queried)*. Supersedes the 2026-09-21 observation of 5 |
+| **Why none is `active`** | `memory_item_transitions` holds **8 rows, every one `reason = "model inference awaits owner confirmation"`**, and none reading `"exact authenticated first-person evidence"` *(queried)*. The automatic promotion gate has never once passed |
+| **Extraction is running** | `memory_cost_ledger` holds 48 entries, oldest `2026-09-17T01:00:17Z`, newest `2026-09-26T23:31:26Z` *(queried)* — so the API key is set and the model is being paid for |
+| **Distillation is not stuck** | cursor 303, highest event sequence 331, `sealed_through` 0 *(queried)*. Nothing sits between them: newest event at or below 303 is `2026-09-26T01:13:31Z` and the oldest above it is `2026-09-27T01:21:39Z`. The 28 newer events are one conversation the next hourly run will take |
+| **Retrieval by meaning is empty** | `memory_retrievable_item_versions` holds **0** rows while `memory_item_fts` holds 8 *(queried)*. Keyword recall can still reach a `proposed` item; anything reading the active-only view cannot |
+| Migrations | `0040`, `0043`, `0045` applied 2026-09-25 01:40:48–49 UTC, per the owner's report; **not re-queried** |
+| Watchdog | version `3018f5fd-7f5f-4192-9c23-496718aedbef`; rollback `c940f9b7-99cf-4194-8f41-489038a34139` — owner's report, **not re-queried** |
 
 **Not true of production, and previously claimed here:** no merge after 2026-09-24 is in that
 revision (checked per merge with `git merge-base --is-ancestor`), and no migration above `0045`
 is in any recorded run.
 
-**Older observations, from a read-only query at 23:20 UTC on 2026-09-21, never refreshed:**
-memory held 5 items, all `proposed`, 0 `active`, and `memory_fact_projection_facts` held 0 rows;
-`d2l_email_messages` was empty; there had been 6 inbound owner calls, all 2026-09-17, and no
-outbound call ever. Four owner Telegram turns reached distillation after the promotion fix and
-produced **no** items; whether they held anything worth saving is still unknown. The deploy above
-does not refresh any of it.
+**Older observations from 2026-09-21, still not refreshed:** `memory_fact_projection_facts` held
+0 rows; `d2l_email_messages` was empty; 6 inbound owner calls, all 2026-09-17, no outbound ever.
 
 ## Pending rollout
 
