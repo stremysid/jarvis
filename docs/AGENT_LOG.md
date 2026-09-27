@@ -3,6 +3,56 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-26 — DeepSeek builder: verdict on two pasted external audits (docs only, `docs/external-audit-verdict`)
+
+Signed: DeepSeek (builder agent), branch `docs/external-audit-verdict` from `origin/main` `0b78c4e4`.
+**No code changed.** Sid pasted two generated audits of this repository. Every item was checked
+against the code at `0b78c4e4` before any of it was acted on. **The majority of the items describe
+guards that already exist, some at a revision two generations old, and four of the proposed "fixes"
+would make the code worse.** This entry exists so a future session does not apply them.
+
+### Verdict per item
+
+| Audit item | What main actually has (as of `0b78c4e4`) | Verdict |
+|---|---|---|
+| Unhandled `JSON.parse` of tool arguments crashes the agent loop | `deepseek-provider.ts` keeps `function.arguments` a **string**, validates well-formedness and a 16 KB bound (`:404-406`), and passes it through. The core parses it in `parseArguments` (`owner-agent-core.ts`, try/catch → `TypeError`) and `executeCalls` (`:1411-1415`) wraps **every** call in try/catch, emitting `refusedTool(call, "I could not safely apply that tool call, so nothing changed.")`. No raw unhandled parse exists on the path | **Already handled.** The proposed markdown-fence-stripping two-pass parser would also *accept* payloads the closed validator deliberately refuses |
+| No tool-loop termination guard; add `MAX_STEPS = 6` | `MAX_TOOL_ROUNDS = 20` (`:106`), loop bound at `:1183`, `MAX_TOOL_CALLS_PER_ROUND = 16` (`:112`) enforced at `:1389`, and `toolChoiceForRound` (`:964-965`) forces `tool_choice: "none"` at the ceiling so the model must answer. `deadline-review-job.ts:24` has its own `REVIEW_MAX_ROUNDS = 4` | **Already handled, and stricter.** The proposed identical-call fingerprint would break a deliberate behaviour: the comment at `:1397-1400` records that a later call may depend on an earlier one's write, so repeat calls are legitimate |
+| Unbounded tool output injected into the model; truncate with `JSON.stringify(...).slice(0, 4000)` | Results are bounded **at the source** by bounded reads: `MAX_MEMORY_SEARCH_RESULTS = 8`, `literal-history.ts` `MAX_SEARCH_RESULTS = 8` via `boundedInteger(...)`, `MAX_RECEIPT_IDS = 4`. No `JSON.stringify`-then-slice exists | **Already handled, and the fix is harmful.** Slicing a serialized JSON string mid-token yields *invalid* JSON — the exact fault the item claims to prevent |
+| Telegram webhook returns 200 with an un-awaited handler, so work is killed | `index.ts:679`, `:682`, `:684` already use `ctx.waitUntil(...)` for command, reply and tap work; `:192` documents waitUntil as the mechanism | **Already handled** |
+| Cron loop is sequential, one failure aborts the rest | Each job returns a `JobOutcome` and reports its own failure (`notMeasured`, `safeSourcePoll`); work is bounded (`ARCHIVE_SEGMENT_LIMITS.maxEventCount`, the 425-statement re-file tail with a reserved allowance). Triggers are at-least-once and keyed so a repeat collides (`routeCron`'s `runKey`) | **Already handled** by a different mechanism (idempotent keys/runs rather than a batch cursor) |
+| SQLite `date('now')` returns the wrong local day near 20:00–23:59 | `strftime(...,'now')` appears **only inside CHECK constraints and triggers** as a relative clock-skew/freshness bound (e.g. `0016:1345` "no more than 5 minutes ahead"). **No query selects the owner's day that way.** Owner-day arithmetic goes through `Intl` with an explicit zone: `cron-router.ts` `localHour`/`localDate`/`localWeekday` exist *because* "a fixed UTC hour lands on two different local hours across the year", and `DIGEST_TIMEZONE ?? "America/Toronto"` feeds `localDate(...)` in `drain` (`job-table.ts:1063`) | **Not real at this revision.** The repo already implements exactly the remedy proposed, for exactly this reason |
+| D1 does not enforce foreign keys; add `PRAGMA foreign_keys = ON` | Cloudflare's own docs: *"By default, D1 enforces that foreign key constraints are valid within all queries and migrations. This is identical to the behaviour you would observe when setting `PRAGMA foreign_keys = on`… Because D1 runs every query inside an implicit transaction, user queries **cannot** change this."* The real D1 mechanism is `defer_foreign_keys`, which `0054_owner_reminders_scheduled.sql` already uses | **Premise false for D1, remedy a no-op** ([docs](https://developers.cloudflare.com/d1/build-with-d1/foreign-keys/)) |
+| D1 caps `db.batch()` at 128 statements | Not in D1's documented limits. The documented ceilings are per-statement ones that apply *inside* a batch, plus **1000 queries per Worker invocation** (Workers Paid) / 50 (Free) | **Unsupported.** The invocation allowance is what main actually reasons about ([limits](https://developers.cloudflare.com/d1/platform/limits/)) |
+| Named-pipe `ReadFile` returns `ERROR_MORE_DATA` (234) on a >64 KB message and crashes the IPC handler | `pipe_server.py:296-300` uses **byte mode deliberately** ("the frames carry their own length, so the bound is enforced by the same code the in-process tests cover, and a client can be a plain `open()`"). 234 is a *message-mode* error and cannot occur; the 64 KB at `:302` is a transport buffer, not a frame limit. EOF set is `{109, 232, 233}` at `:313`, caught at `:470` | **Cannot occur.** The item's own snippet assumes `PIPE_READMODE_MESSAGE`, which main rejects with a written reason |
+| Ctrl+C leaves the pipe instance busy (231) | `ERROR_PIPE_BUSY = 231` is named at `pipe_server.py:312` and handled at `node.py:538` (with `ERROR_ACCESS_DENIED`); `_EOF_WINERRORS` at `:470`; `:783-786` flushes **before** `DisconnectNamedPipe` | **Already handled, and more completely than proposed** (the proposed snippet omits the flush) |
+| camelCase/snake_case drift silently drops payload fields | `brain-bridge` names its keys in a **closed tuple** (`contracts.py` `REQUEST_KEYS = ("schemaVersion", "requestId", …)`) with hand-written closed validators and no Pydantic dependency, pinned by **shared golden vector fixtures** (`token-request-golden-v1.json`, `readiness-golden-v1.json`, `token-events-boundary-v1.json`), cross-checked by `test_contract_vectors.py` | **Already handled, by a stronger mechanism.** Adding Pydantic `alias_generator` would replace exact-key vectors with a library convention inside a deliberately frozen contract |
+| Python `datetime.fromisoformat` rejects trailing `Z`, breaking handoffs | `brain-bridge` pins `requires-python = ">=3.11,<3.12"` (3.11+ accepts `Z`), and **does not parse ISO timestamps at all** — `fromisoformat`/`strptime`/`datetime` appear nowhere in `apps/brain-bridge/src` | **Both halves fail** |
+| `apps/hermes-runtime` spawns `.cmd`/`.bat` shims without `shell: true`, so commands fail on Windows | It spawns PowerShell hosts **by resolved path** with argv arrays, `windowsHide: true` (`generate-sbom.mjs:41,172,256`) — the "resolve the executable, avoid shell evaluation" practice the item recommends. No `.cmd`/`npm`/`pnpm` shim is invoked | **Not real** |
+| "At migration 0038…" (both audits) | `0038_memory_lifetime_and_pins.sql` exists; main's newest is **`0056_school_catchup_planned_cap.sql`**. `DIGEST_LOCAL_HOUR`/`NIGHT_LOCAL_HOUR` (`cron-router.ts:33,36`) are similarly presented as unexamined when `cron-router.ts` is the module that exists to solve that exact problem | **Stale revision.** Items are scoped to a schema 18 migrations old |
+
+### What is genuinely open, named rather than "fixed"
+
+Nothing in either audit was applied. Two things are worth a real look, and neither is what the
+audits described:
+
+- **No interim audio while a voice tool call runs — observed, not measured.** There is no
+  "let me check" filler in the core; `production-runtime.ts:200` sets `telegramThinking: "disabled"`.
+  What main has instead is a designed `TurnDeadline` (`owner-agent-core.ts:162`) with a spoken
+  `DEADLINE_FALLBACK` (`:130`) and `TURN_ENDED_REFUSAL` (`:131`). **Whether Twilio or
+  ConversationRelay underflows during a multi-second tool call is unproven** — it would be settled
+  by a live call with a slow tool, which I did not make and cannot make without issuing a call.
+  Labelled a suspect, not a finding.
+- **`drain` does not expire lapsed decisions.** `job-table.ts:1056-1060` already records this:
+  `listOpenQueue` filters expired items out of the queue, but nothing moves their `status` to
+  `expired`, so `answer` refuses them on the delivered/open check rather than on expiry. That is a
+  real terminal-state gap in main, self-documented, and out of scope here.
+
+Also surfaced by the push (not by either audit): **Dependabot reports 18 advisories** on the
+default branch (9 high, 7 moderate, 2 low). Named, not touched.
+
+- No code, no migration, no deploy, no DB write. `docs/STATE.md`/`docs/QUEUE.md`/`docs/FACTS.md`
+  untouched: this is a verdict on claims, not a new fact about Sid or his environment.
+
 ## 2026-09-25 — DeepSeek builder: study-coach signals blocked, registered not removed (batch 7, `codex/coach-signals-to-ai`)
 
 Signed: DeepSeek (builder agent), branch `codex/coach-signals-to-ai` from `origin/main`
