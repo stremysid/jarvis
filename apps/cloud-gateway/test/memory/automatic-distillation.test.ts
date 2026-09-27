@@ -647,6 +647,40 @@ describe("automatic memory distillation", () => {
     });
   });
 
+  it("tells the model to copy the owner's own sentence into text, not to tidy it", async () => {
+    // The defect this pins, measured in production on 2026-09-27: all eight live
+    // items read "model inference awaits owner confirmation", none was `active`,
+    // `memory_retrievable_item_versions` was empty, and a phone call could not
+    // reach a single memory. Code promotes a fact automatically only when `text`
+    // is a complete first-person sentence appearing verbatim in a message the
+    // channel marked as Sid's own -- and nothing in this prompt said so, so the
+    // model tidied every fact into its own words and the gate refused every one.
+    // One real item stored "The owner has a chemistry test on Friday." against the
+    // excerpt "I have a chem test Friday".
+    //
+    // The fix is this instruction rather than a change to the promotion rule,
+    // because the rule's whole point -- asserted by the test above, and by its
+    // comment about a relaying sentence -- is that code checks only the half it
+    // can prove: verbatim words from a direct-marked message.
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I have a chem test Friday.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({ completeJson: [proposal(event, text)] });
+
+    await workflow(principalId, provider).runNext({ runKey: `copy-not-tidy:${newUlid()}` });
+
+    const request = provider.requests[0];
+    if (request?.operation !== "completeJson") throw new Error("automatic_distillation_prompt_missing");
+    const parsed = JSON.parse(request.prompt) as { instructions: string[] };
+    const invariant = parsed.instructions.find((line) => line.startsWith("text is the owner's own sentence"));
+    expect(invariant).toBeDefined();
+    // The contrast is the instruction; without both halves a model can read
+    // "his sentence" and still write the tidier third-person version.
+    expect(invariant).toContain("I have a chem test Friday");
+    expect(invariant).toContain("The owner has a chemistry test on Friday");
+  });
+
   it("keeps a forwarded-shaped bare first-person turn uncertain without an explicit direct-owner marker", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);

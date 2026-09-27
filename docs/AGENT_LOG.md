@@ -3,6 +3,106 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-27 — DeepSeek builder: memory could never become usable, because the prompt never asked for Sid's sentence (`fix/memory-promotion-verbatim`)
+
+Signed: DeepSeek (builder agent), branch `fix/memory-promotion-verbatim` from `origin/main`
+`25f4e25a`. **Reasoning effort is not named: it cannot be determined from inside the session, and
+a confident false signature is worse than an honest gap.** One line of prompt, one test, no
+migration, no logic change.
+
+### The defect, measured in production rather than argued
+
+Read-only `wrangler d1 execute --remote` against the `jarvis` database, 2026-09-27. Four queries,
+and the fourth is the one that names the cause:
+
+- `memory_items` held **8, all `proposed`, 0 `active`**; `memory_retrievable_item_versions` held
+  **0 rows** while `memory_item_fts` held 8.
+- `memory_item_transitions` held **8 rows and every one read
+  `"model inference awaits owner confirmation"`** — **none** read
+  `"exact authenticated first-person evidence"`. The automatic promotion gate had never passed,
+  not once, since the beginning.
+- Dumping each stored fact beside its own source excerpt showed why:
+
+  | stored fact | excerpt |
+  |---|---|
+  | `The owner has a chemistry test on Friday.` | `I have a chem test Friday` |
+  | `My favorite subject is Math.` | `Math` |
+  | `I am building Dig Up A Pet as a solo developer.` | `This was intentionally a small, polished Roblox game rather…` |
+  | `I have a dedicated pet file that is the source of truth for all 30 pets.` | `Your pet file remains the source of truth for all 30 pets.` |
+
+  **Not one of the eight** had a stored fact that appears verbatim in its excerpt. The model
+  rewrites: it tidies wording, restates in the third person, and even turns a second-person
+  sentence into a first-person one. `isAuthenticatedFirstPersonQuote` requires the quote to be a
+  complete first-person sentence **appearing in** the source text, so every item was classified
+  `origin: "model"`, `uncertain: 1`, and stayed in the inbox where nothing retrievable reads it.
+
+So the symptom Sid reported — *"get memory working"* — has one cause at two levels: the model
+wrote summaries, and the gate wanted his sentence, and **nothing in the prompt said which one
+`text` was for.**
+
+### The fix, and the fix I did NOT make
+
+**Added one instruction to `providerPrompt`** in `automatic-distillation.ts`, immediately after
+"Extract only durable facts about the owner.", stating what `text` is: the owner's own sentence
+about himself, copied as he wrote it, with both the right and the wrong form as examples, and the
+consequence named (a paraphrase stays unconfirmed in the inbox instead of becoming a memory he can
+act on).
+
+**I first tried the opposite fix and reverted it.** I changed the promotion rule to judge
+provenance from the verified `sourceExcerpts` entry instead of `proposal.text`, on the argument
+that the excerpt is the stronger witness — `validateProviderProposal` already refuses the whole
+proposal unless each excerpt appears verbatim in that source event's text. **An existing test
+stopped me, and it was right to:** its comment records that *"requiring the quote to be the whole
+message is exactly what held every fact from a real conversation at `proposed` — live D1 had five
+proposed and zero active, and only `active` is retrievable."* That is the same defect, previously
+found and already fixed once. The rule's deliberate shape is that code checks only the half it can
+prove: verbatim words from a message the channel marked as direct owner text. Changing the rule
+would have re-opened a settled decision. **Reverted to `HEAD`, and the instruction does the work
+instead.** That comment, incidentally, is the strongest evidence in the tree that this symptom is
+long-standing rather than new.
+
+### Mutations
+
+| Mutation | Result |
+|---|---|
+| Delete the new instruction from `providerPrompt` | **KILLED**: `tells the model to copy the owner's own sentence into text, not to tidy it` fails. 1 failed / 77 passed. Restored; **78 passed (78)** |
+
+**And the mutation harness lied to me twice before it worked.** The first two attempts printed a
+green `Tests 78 passed (78)` beside `REFUSING: the instruction text was not found` — the edit never
+applied, because the file is **CRLF** and my pattern used `\n`, so I was re-running the *unmutated*
+file. The third attempt applied and failed the right test with a restructured script that finds the
+line by prefix, normalises line endings, and **asserts the edit landed before running anything**.
+A mutation that silently does not apply is worse than no mutation: it certifies code it never
+touched. Same trap as the rebuild review earlier the same day.
+
+### Gates
+
+- `vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/automatic-distillation.test.ts`
+  — **78 passed (78)**, including the pre-existing relaying test and its multi-sentence case.
+- `tsc -p apps/cloud-gateway/tsconfig.json --noEmit` — **exit 0**.
+- **Every gateway memory test file: 482 passed (482) across 17 files.** Run locally because this is
+  the memory corpus and my change is inside it; the full workspace suite stays in CI per the
+  local-load rule.
+- Diff before commit: `1/0` on the source and `34/0` on the test file — the second attempt at both
+  files carried unrelated version skew from the older base and was thrown away rather than
+  committed.
+
+### What this does NOT do
+
+- **It does not make the eight existing items active.** They are already stored with tidied text;
+  a prompt change cannot rewrite history. They stay proposed until Sid confirms them, or until they
+  are re-extracted. **Whether to re-extract them is Sid's call and is not done here.**
+- **It does not fix the retrieval gap.** `memory_retrievable_item_versions` is still empty, so a
+  call and any semantic read still reach no memory. This fixes the *cause of future items being
+  unusable*, not the current emptiness.
+- **It does not deploy anything.** The deployed revision predates this and every other merge since
+  2026-09-24, so nothing here is live. No production write was made; every statement above is a
+  `SELECT`.
+- **It does not address the model turning `Your pet file…` into `I have a dedicated pet file…`.**
+  That is the model reasoning about whose sentence it is, which is its job — but it also means an
+  item can be promoted on a sentence the owner did not say *about himself*. Named here rather than
+  silently fixed, because the guard that would catch it is a judgment, not plumbing.
+
 ## 2026-09-26 — DeepSeek builder: verdict on two pasted external audits (docs only, `docs/external-audit-verdict`)
 
 Signed: DeepSeek (builder agent), branch `docs/external-audit-verdict` from `origin/main` `0b78c4e4`.
