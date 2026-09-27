@@ -58,6 +58,7 @@ const EMAIL_INBOX_LIST_ARGUMENTS = emailInboxArgumentNames("email_inbox_list");
 const EMAIL_INBOX_READ_ARGUMENTS = emailInboxArgumentNames("email_inbox_read");
 import {
   composeMemorySearchResults,
+  MAX_MEMORY_SEARCH_RESULTS,
   MemorySearchService,
 } from "../memory/memory-search.js";
 import type { MeaningSearchReader } from "../memory/meaning-search.js";
@@ -2196,12 +2197,30 @@ export abstract class OwnerAgentCore implements ModelAdapter {
     if (this.dependencies.memorySearch === undefined) {
       return refusedTool(call, "I cannot search memory right now: this deployment has no memory index bound, so nothing was searched. Tell Sid that rather than answering from memory.");
     }
-    const args = parseArguments(call, ["query"]);
+    // `limit` is optional, so the accepted key set is the model's own subset
+    // validated against the names -- `parseArguments` on its own would demand
+    // an exact set and refuse every call that left `limit` out.
+    const fields = optionalArgumentKeys(call, ["query", "limit"]);
+    if (!fields.includes("query")) throw new TypeError("owner_agent_tool_arguments_invalid");
+    const args = parseArguments(call, fields);
     const query = safeText(args.query, 4_096);
+    // How many memories come back is the model's choice, not code's. The bound
+    // is the reader's own result ceiling, and an out-of-range value is refused
+    // by name rather than quietly clamped: silently reducing 40 to 8 would let
+    // the model believe it had surveyed everything it asked for.
+    const limit = args.limit;
+    if (limit !== undefined
+      && (typeof limit !== "number" || !Number.isSafeInteger(limit)
+        || limit < 1 || limit > MAX_MEMORY_SEARCH_RESULTS)) {
+      return refusedTool(
+        call,
+        `Memory search takes limit between 1 and ${MAX_MEMORY_SEARCH_RESULTS}. Ask again with a number in that range, or leave it out for the default.`,
+      );
+    }
     const results = await new MemorySearchService({
       database: this.dependencies.database,
       meaningSearch: this.dependencies.memorySearch,
-    }).search({ principalId: input.principalId, query });
+    }).search({ principalId: input.principalId, query, ...(limit === undefined ? {} : { limit }) });
     const composed = composeMemorySearchResults(results);
     return unactionedTool(
       call,
